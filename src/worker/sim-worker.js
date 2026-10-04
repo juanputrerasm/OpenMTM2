@@ -17,6 +17,8 @@ export const STEP = 1 / 60;
 /** A cheap fingerprint of a box's pose, to tell which boxes moved. */
 const poseKey = (b) => `${b.pos[0]},${b.pos[1]},${b.pos[2]},${b.matrix[2]},${b.matrix[5]},${b.matrix[6]}`;
 const MAX_CATCH_UP = 0.25;
+/** Race time the fast simulation gives the trucks still racing (MONSTER_EXE_ANALYSIS.md 5). */
+const FAST_SIMULATION_S = 240;
 
 /** A pose for drawing: position (feet), rotation matrix, and per-tire wheel state. */
 function snapshot(state) {
@@ -98,7 +100,7 @@ export function createSession(init) {
   /** Boxes whose pose changed since the last `advance` reply. */
   const dirty = new Set();
   let time = 0;
-  let previous = snapshot(player.state);
+  for (const t of trucks) t.previous = snapshot(t.state);
   const keys = { accelerate: false, brake: false, left: false, right: false };
 
   /**
@@ -186,7 +188,7 @@ export function createSession(init) {
     }
     keys.shiftUp = keys.shiftDown = false;
     if (joystick) joystick.shiftUp = joystick.shiftDown = false;
-    previous = snapshot(player.state);
+    for (const t of trucks) t.previous = snapshot(t.state);
     // Moving objects move before the frame's list is built, once the race runs.
     if (go) {
       for (const { box, bvel } of movingObjects) {
@@ -205,6 +207,54 @@ export function createSession(init) {
       if (before[i] !== poseKey(box)) dirty.add(box);
     });
     time += STEP;
+    if (race) handOverFinished();
+  }
+
+  /** Finished trucks go on autopilot (MTM2_PHYSICS.md 14.24); the player's too. */
+  function handOverFinished() {
+    race.trucks.forEach((rt, i) => {
+      const t = trucks[i];
+      if (!rt.finished || t.autopilot || !course.length) return;
+      t.autopilot = true;
+      t.ctx.human = false;
+      t.recovery.player = false;
+      t.recovery.autopilot = true;
+    });
+  }
+
+  /** What the race HUD and the results show (MONSTER_EXE_ANALYSIS.md 6, 11). */
+  function raceView() {
+    if (!race) return null;
+    const since = race.clock - race.startTime;
+    return {
+      started: since >= 0,
+      countdown: Math.max(0, -since),
+      clock: Math.max(0, since),
+      laps: race.laps,
+      over: race.over,
+      trucks: race.trucks.map((rt) => ({
+        place: rt.place,
+        laps: rt.laps,
+        lap: Math.min(rt.laps + 1, race.laps),
+        lapTime: rt.finished ? (rt.lapTimes[rt.lapTimes.length - 1] ?? 0) : Math.max(0, since - rt.raceTime),
+        best: rt.fastestLap,
+        raceTime: rt.raceTime,
+        finished: rt.finished,
+        missed: rt.state === 3,
+        checkpoint: rt.checkpoint,
+      })),
+    };
+  }
+
+  /**
+   * After the player finishes: run the trucks still racing on, up to 240 s of race time, so each
+   * gets a time (MONSTER_EXE_ANALYSIS.md 5, "End of race"). Returns the race view.
+   */
+  function finishRace() {
+    if (!race) return null;
+    const until = race.clock + FAST_SIMULATION_S;
+    while (race.clock < until && !race.trucks.every((rt) => rt.finished)) step({});
+    return raceView();
   }
 
   /** Catch up with `seconds` of wall time; returns the states to interpolate between. */
@@ -215,13 +265,16 @@ export function createSession(init) {
     while (time + STEP <= target) { step(input); steps++; }
     const boxes = [...dirty].map(boxPose);
     dirty.clear();
-    const others = trucks.slice(1).map((t) => snapshot(t.state));
-    return { previous, current: snapshot(player.state), alpha: (target - time) / STEP, time, steps, boxes, others };
+    const poses = trucks.map((t) => ({ previous: t.previous, current: snapshot(t.state) }));
+    return {
+      previous: poses[0].previous, current: poses[0].current, alpha: (target - time) / STEP, time, steps, boxes,
+      others: poses.slice(1).map((x) => x.current), poses, race: raceView(),
+    };
   }
 
   return {
     state: player.state, params: player.params, trucks, race, ground, levelBoxes, course,
-    step, advance, snapshot: () => snapshot(player.state),
+    step, advance, raceView, finishRace, now: () => time, snapshot: () => snapshot(player.state),
   };
 }
 
@@ -236,8 +289,18 @@ if (typeof self !== "undefined" && typeof self.postMessage === "function" && typ
     },
     tick({ tMs, input }) {
       if (!session) throw new Error("No session.");
-      if (origin === null) origin = tMs;
+      // The simulated time carries on from where it stopped (a new session, or after a pause).
+      if (origin === null) origin = tMs - session.now() * 1000;
       return session.advance((tMs - origin) / 1000, input);
+    },
+    /** Pause: the wall clock keeps running, so restart the catch-up from the next tick. */
+    resume() {
+      origin = null;
+      return true;
+    },
+    finish() {
+      if (!session) throw new Error("No session.");
+      return session.finishRace();
     },
   };
   self.addEventListener("message", async ({ data }) => {

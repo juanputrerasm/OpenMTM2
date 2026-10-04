@@ -127,6 +127,7 @@ export function parseMtmSit(input, sitTitle = "") {
         trackTypeCode: null,
         redbookTrack: null,
         ambientSound: null,
+        trackLength: null,
         weatherMask: null,
         boxes: [],
         primaryCourse: null,
@@ -151,6 +152,8 @@ export function parseMtmSit(input, sitTitle = "") {
         const parts = ambient.split(",");
         if (parts.length >= 3) {
             sit.ambientSound = parseLeadingInt(parts[0]);
+            const length = parseFloat(parts[1]);
+            sit.trackLength = Number.isFinite(length) ? length : null;
             sit.weatherMask = parseLeadingInt(parts[2]);
         }
     }

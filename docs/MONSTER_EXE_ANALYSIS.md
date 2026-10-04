@@ -219,6 +219,27 @@ plain lists of loose files for a development build.
 "CD track" is the Redbook track that plays as race music. `DATA\<track>.TXT` in each track POD
 is an empty stub; the track description comes from the SIT header.
 
+### Default lap count
+
+Each catalogue entry (0x128 bytes from `CRace + 0x2d54`: the count, then per track `+0x2d58`
+race type, `+0x2d5c` default laps, `+0x2d60` the SIT name) gets its default laps when
+`CRace::init` reads the SIT's header. It reads the line after `Track Race Type` and
+`@Redbook Audio Track`; when that line starts with `!` (the MTM2 `!ambient sound,track
+length,weather mask` header), the next line is read as `%d,%f,%d`, else the length is 6000 ft.
+Then:
+
+| Race type | Default laps |
+|---|---|
+| Circuit | `trunc(15000 / track length + 1)` (3 for the 6000 ft default) |
+| Summit Rumble | 5 (minutes: the round is `laps * 60` seconds, `0x63f5c8`) |
+| Rally, drag | 1 |
+
+Choosing a track (0x418f00) copies the entry's laps into the race's lap count (`0x6407a4`)
+unless the menu gives one of its own (1 or more).
+
+Stock Circuit defaults (lengths read with OpenPhotex): The Heights 11665.5 ft, 2 laps; Torture
+Pit 1579.7 ft, 10 laps; every other Circuit about 5800 to 6300 ft, 3 laps.
+
 ### Default trucks
 
 `Truck.c` 0x4bfa10 builds fallback bodies if a TRK fails: `dx1` "Default Ford", `hx1` "Default
@@ -797,7 +818,17 @@ Demo mode cycles the camera between trucks every 10 seconds. `stickyView` keeps 
 view across races. `boomZoom` sets the chase distance.
 
 HUD text (0x52d8f0): `Place: n/8`, `Lap: n/n`, `Time Remaining`, `Best:`, `Clock:`, `Lead:` and
-`Back:` gaps, "All trucks on final lap!", `fps : %f` with the FRAME cheat. The cockpit
+`Back:` gaps, "All trucks on final lap!", `fps : %f` with the FRAME cheat. In a Circuit or Rally the
+race HUD is two boxes at the top left, labels left and values right-aligned, times as
+`%02d:%05.2f` (minutes, seconds):
+
+- rows 1 to 3: `Lap:` the current lap's time so far (truck `+0xf50[lap]`), `Best:` the fastest
+  lap (`+0xfa0`), `Clock:` the race clock (0 until the start);
+- rows 5 and 6: `Place:` `place/trucks` (`+0x8f8`), `Lap:` `laps + 1` (at most the race's laps)
+  `/laps`.
+
+A standings list, `1st - ` to `8th - ` with each truck's name, is drawn instead when its
+toggle (`0x6505ec`) is on. The cockpit
 (`COCKPIT.POD`, `Cockpit.c`, `Ckptutil.c`) is a packed-bitmap dashboard per resolution with a
 speedometer and tachometer needle (`needle.bin`), gear indicator "P R N 1 2 3", mirror, the
 **finder** (an arrow to the next checkpoint, `fi%d*.raw`), the **map** and the **pitboard**.
