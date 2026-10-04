@@ -68,25 +68,32 @@ export function solveHullContacts(s, p, ground, external, mass, weight, dt) {
     const G = toWorld(external);
     // Support shares (§14.12).
     let planeN;
-    let shares;
+    let shares = [1];
     const k = used.length;
     const [c1, c2, c3, c4] = used;
     if (k === 1) {
         planeN = c1.normal;
-        shares = [1];
     }
     else if (k === 2) {
         planeN = unit(add(c1.normal, c2.normal));
+    }
+    else {
+        planeN = unit(cross(sub(c2.world, c1.world), sub(c3.world, c1.world)));
+        if (planeN[1] < 0)
+            planeN = scale(planeN, -1);
+    }
+    if (k >= 2 && planeN[1] === 0) {
+        // A vertical plane has no point below the origin: the game gives every contact nothing.
+        shares = new Array(k).fill(0);
+    }
+    else if (k === 2) {
         const q = originOnPlane(pos, c1.world, planeN);
         const u = unit(sub(c2.world, c1.world));
         const a = Math.abs(dot(u, sub(q, c1.world)));
         const b = Math.abs(len(sub(c2.world, c1.world)) - a);
         shares = a + b === 0 ? [0.5, 0.5] : [a / (a + b), b / (a + b)];
     }
-    else {
-        planeN = unit(cross(sub(c2.world, c1.world), sub(c3.world, c1.world)));
-        if (planeN[1] < 0)
-            planeN = scale(planeN, -1);
+    else if (k >= 3) {
         const q = originOnPlane(pos, c1.world, planeN);
         const e12 = sub(c2.world, c1.world);
         const u12 = unit(e12), l12 = len(e12);

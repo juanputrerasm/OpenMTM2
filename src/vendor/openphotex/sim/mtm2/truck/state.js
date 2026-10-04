@@ -29,6 +29,7 @@ export function createTruckState(pos, heading = 0, gear = GEAR.FIRST, params) {
     const axles = [0, 2].map((t) => ({ articulation: 0, travel: params ? params.hubs[t][1] : -4 }));
     const state = {
         pos: Float64Array.from([pos[0], pos[1], pos[2]]),
+        prevPos: Float64Array.from([pos[0], pos[1], pos[2]]),
         bvel: new Float64Array(3),
         euler: Float64Array.from([0, 0, heading]),
         rates: new Float64Array(3),
