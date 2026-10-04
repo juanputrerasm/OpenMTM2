@@ -95,7 +95,7 @@ export function collideTruckBox(s, p, box, dt) {
         return;
     const mt = truckMass(p);
     const pushable = box.mass !== 0 && box.mass < mt;
-    const pair = { pushable, mEff: pushable ? box.mass : mt };
+    const pair = { pushable, mEff: pushable ? box.mass : mt, box: null, truck: null };
     hullPoints(s, box, pair, dt);
     // Wheels, tires 13 to 16 (FR, FL, RR, RL), sides -1, +1, -1, +1.
     for (let i = 0; i < 4; i++) {
@@ -109,17 +109,29 @@ export function collideTruckBox(s, p, box, dt) {
             for (let i = 0; i < 4; i++)
                 cornerAgainstWheel(s, p, box, c, i, pair, dt);
     }
+    if (pair.box) {
+        for (let k = 0; k < 3; k++) {
+            box.force[k] += pair.box.f[k];
+            box.moment[k] += pair.box.m[k];
+        }
+    }
+    if (pair.truck) {
+        for (let k = 0; k < 3; k++) {
+            s.extForce[k] += pair.truck.f[k];
+            s.extMoment[k] += pair.truck.m[k];
+        }
+    }
 }
 /** The immovable case only, whatever the box's mass (ground boxes have none). */
 export function collideTruckImmovableBox(s, p, box, dt) {
     if (truckBoxSeparated(s, p, box, dt))
         return;
-    hullPoints(s, box, { pushable: false, mEff: truckMass(p) }, dt);
+    hullPoints(s, box, { pushable: false, mEff: truckMass(p), box: null, truck: null }, dt);
     for (let i = 0; i < 4; i++) {
         const side = i % 2 === 0 ? -1 : 1;
         const prevCentre = [s.prevPos[0] - box.pos[0], s.prevPos[1] - box.pos[1], s.prevPos[2] - box.pos[2]];
         wheelSuspension(s, p, box, i, side, prevCentre);
-        tireContactPoint(s, p, box, i, { pushable: false, mEff: 0 }, dt);
+        tireContactPoint(s, p, box, i, { pushable: false, mEff: 0, box: null, truck: null }, dt);
     }
 }
 /** Hull points 1 to 12: rays from last step's reference point through each point now. */
@@ -170,32 +182,23 @@ function pushPoint(s, box, body, cur, n, depth, pair, dt) {
     if (!(closing >= 0))
         return false;
     const F = (closing / dt) * pair.mEff;
-    addBoxForce(box, cur, [-F * n[0], -F * n[1], -F * n[2]]);
+    setBoxForce(pair, cur, [-F * n[0], -F * n[1], -F * n[2]]);
     const fw = toWorld(bm, F * n[0], F * n[1], F * n[2]);
-    addTruckForce(s, body, toBody(m, fw[0], fw[1], fw[2]));
+    setTruckForce(pair, body, toBody(m, fw[0], fw[1], fw[2]));
     const nw = toWorld(bm, n[0], n[1], n[2]);
     box.pos[0] -= depth * nw[0];
     box.pos[1] -= depth * nw[1];
     box.pos[2] -= depth * nw[2];
     return true;
 }
-/** A force on the box at `at` (box axes). */
-function addBoxForce(box, at, f) {
-    box.force[0] += f[0];
-    box.force[1] += f[1];
-    box.force[2] += f[2];
-    box.moment[0] += at[1] * f[2] - at[2] * f[1];
-    box.moment[1] += at[2] * f[0] - at[0] * f[2];
-    box.moment[2] += at[0] * f[1] - at[1] * f[0];
+const crossV = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+/** The pair's force on the box, `f` at `at` (box axes), replacing the last one. */
+function setBoxForce(pair, at, f) {
+    pair.box = { f, m: crossV(at, f) };
 }
-/** A force on the truck at `at` (truck body axes). */
-function addTruckForce(s, at, f) {
-    s.extForce[0] += f[0];
-    s.extForce[1] += f[1];
-    s.extForce[2] += f[2];
-    s.extMoment[0] += at[1] * f[2] - at[2] * f[1];
-    s.extMoment[1] += at[2] * f[0] - at[0] * f[2];
-    s.extMoment[2] += at[0] * f[1] - at[1] * f[0];
+/** The pair's force on the truck, `f` at `at` (body axes), replacing the last one. */
+function setTruckForce(pair, at, f) {
+    pair.truck = { f, m: crossV(at, f) };
 }
 function unit(v) {
     const l = Math.hypot(v[0], v[1], v[2]);
@@ -366,7 +369,7 @@ function cornerAgainstWheel(s, p, box, c, i, pair, dt) {
         return;
     }
     const F = (closing / dt) * pair.mEff;
-    addBoxForce(box, cb, [F * n[0], F * n[1], F * n[2]]);
+    setBoxForce(pair, cb, [F * n[0], F * n[1], F * n[2]]);
     const fw = toWorld(bm, -F * n[0], -F * n[1], -F * n[2]);
-    addTruckForce(s, [h[0], h[1], h[2]], toBody(m, fw[0], fw[1], fw[2]));
+    setTruckForce(pair, [h[0], h[1], h[2]], toBody(m, fw[0], fw[1], fw[2]));
 }
