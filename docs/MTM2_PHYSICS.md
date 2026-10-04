@@ -1000,7 +1000,9 @@ normal. `Q` is the vertical projection of the body origin onto that plane:
 - **2 contacts:** `nP = unit(n1 + n2)`. With `a = |unit(C2 - C1) . (Q - C1)|` and `b = |C2 -
   C1| - a` (absolute), contact 1 takes `N a / (a + b)` and contact 2 `N b / (a + b)`. **This is
   the reverse of the lever rule** (the farther `Q` is from contact 1, the more contact 1 carries);
-  section 6's description was wrong.
+  section 6's description was wrong. When `n1 + n2` has zero length, `nP = (0, 1, 0)`. When
+  `nP.y` is exactly 0 (two wall contacts, for example), `Q` is not formed and both shares are 0,
+  so neither contact gets a support (the recovery below can still push).
 - **3 contacts:** `nP = unit((C2 - C1) x (C3 - C1))`, turned upwards. `F` = foot of `Q` on edge
   1-2; the line from `C3` through `Q` meets edge 1-2 at `X`
   (`|QX| = |QF| / |cos(QF, C3Q)|`, `|FX| = sqrt(|QX|^2 - |QF|^2)`, signed along the edge).
