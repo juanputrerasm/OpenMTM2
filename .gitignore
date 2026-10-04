@@ -150,3 +150,6 @@ vite.config.ts.timestamp-*
 
 # Reverse engineering workspace: decompiled game code and Ghidra project, never published
 /re/
+
+# Python bytecode from tools/re
+__pycache__/
