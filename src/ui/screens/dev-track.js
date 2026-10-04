@@ -5,10 +5,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { el } from "../dom.js";
-import {
-  createGroundBoxes, createModelLibrary, createSky, createTerrain, createTerrainAtlas, createTruck, createWater,
-  placeObjects, skyColor,
-} from "../../render/track-scene.js";
+import { createTrackWorld, createTruck, disposeObject, skyColor } from "../../render/track-scene.js";
 
 export default async function mount(container, context, { track }) {
   const status = el("p", { class: "dev-status" }, `Loading ${track.name}…`);
@@ -37,16 +34,8 @@ export default async function mount(container, context, { track }) {
 
   let world = null;
   const assemble = () => {
-    if (world) {
-      scene.remove(world);
-      world.traverse((o) => { o.geometry?.dispose?.(); o.material?.map?.dispose?.(); o.material?.dispose?.(); });
-    }
-    world = new THREE.Group();
-    const atlas = createTerrainAtlas(build.terrain.atlas, look);
-    world.add(createTerrain(build.terrain, look, atlas));
-    const boxes = createGroundBoxes(build.groundBoxes, atlas, look);
-    if (boxes) world.add(boxes);
-    world.add(placeObjects(createModelLibrary(build.models, build.modelTextures, look), build.objects));
+    if (world) { scene.remove(world); disposeObject(world); }
+    world = createTrackWorld(build, look);
     const truckTemplates = new Map();
     for (const placed of build.trucks) {
       const model = build.truckModels[placed.file];
@@ -56,10 +45,6 @@ export default async function mount(container, context, { track }) {
       truck.matrix.fromArray(placed.matrix);
       world.add(truck);
     }
-    const water = createWater(build.waterLevelFt);
-    if (water) world.add(water);
-    const sky = createSky(build.sky, look);
-    if (sky) world.add(sky);
     scene.add(world);
     status.textContent = `${build.trackName}: ${build.objects.length} objects, `
       + `${build.groundBoxes?.count ?? 0} ground boxes, ${look} look (L to switch)`;

@@ -192,3 +192,26 @@ export function createTruck(truck, look) {
   }
   return group;
 }
+
+/** Everything static in a track: terrain, ground boxes, objects, water and sky. */
+export function createTrackWorld(build, look) {
+  const world = new THREE.Group();
+  const atlas = createTerrainAtlas(build.terrain.atlas, look);
+  world.add(createTerrain(build.terrain, look, atlas));
+  const boxes = createGroundBoxes(build.groundBoxes, atlas, look);
+  if (boxes) world.add(boxes);
+  world.add(placeObjects(createModelLibrary(build.models, build.modelTextures, look), build.objects));
+  const water = createWater(build.waterLevelFt);
+  if (water) world.add(water);
+  const sky = createSky(build.sky, look);
+  if (sky) world.add(sky);
+  return world;
+}
+
+/** Dispose of a group's geometry, materials and textures. */
+export function disposeObject(root) {
+  root.traverse((o) => {
+    o.geometry?.dispose?.();
+    for (const m of [o.material].flat()) { m?.map?.dispose?.(); m?.dispose?.(); }
+  });
+}

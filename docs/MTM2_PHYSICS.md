@@ -329,8 +329,9 @@ Damping moments against rotation:
    projection of the body origin** (`ipos`, not the CG) onto the contact plane:
 
    - 1 contact: all of `N`, along that contact's normal.
-   - 2 contacts: the normal is the average of the two; `N1 = N * d2 / (d1 + d2)` and
-     `N2 = N * d1 / (d1 + d2)`, with `d` the distances along the line between them.
+   - 2 contacts: the normal is the average of the two; `N1 = N * d1 / (d1 + d2)` and
+     `N2 = N * d2 / (d1 + d2)`, with `d1`, `d2` the distances of `Q` from each contact along the
+     line between them: **the reverse of the lever rule**, as the code has it (section 14.12).
    - 3 contacts: the plane through the three points, its normal turned upwards. The line from
      contact 3 through `Q` meets edge 1-2 at `X`. Contact 3 takes `|QX| / |P3 X|`; contacts 1 and
      2 share the rest by where `X` lies, contact 1 taking `|X P2| / |P1 P2|`.
@@ -708,6 +709,12 @@ Everything above was traced in code. What remains is detail, not mechanism:
 4. The `+0x2a8`/`+0x518` (15000) axle field and the `+0x5a0` weight term (0 in stock trucks).
 
 Each is a few dozen lines in one routine and can be read out during the port.
+
+- **Cornering roll** (an observation from the port, to compare with the running game): lateral
+  tire forces act at the axle's travel height (§14.8), which at the static sag sits at about the
+  CG height (-3 ft), so cornering makes almost no roll and the truck leans slightly into turns.
+- **At rest** the 0.1 ft/s cut-off (§14.9) freezes a settling truck partway through its bounce,
+  a few tenths of a foot from the static sag, depending on the step length.
 
 ---
 

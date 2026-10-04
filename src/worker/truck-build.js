@@ -51,5 +51,6 @@ export async function buildTruckRender(vfs, trkName, fallbackPalette = null) {
       textures[name] = { width: image.width, height: image.height, rgba: image.rgba };
     }
   }
-  return { file: title, name: manifest.truckName, parts, anchors, textures };
+  const scrapePoints = (manifest.scrapePoints ?? []).map((v) => [v.x, v.y, v.z]);
+  return { file: title, name: manifest.truckName, parts, anchors, scrapePoints, textures };
 }

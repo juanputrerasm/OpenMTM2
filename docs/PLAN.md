@@ -151,6 +151,8 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
 - **Accept:** hand-computed formula tests pass; the terrain orientation (rows along z or along x) is settled by a stock test using SIT object rest heights; the portability test is green.
 
 ### M3: Track and truck rendering (OpenMTM2)
+**Status: done** (developer track view; ramps without models wait for M5's ramp geometry).
+
 - Copy and adapt the render-prep pieces and the `scene.js` methods listed above.
 - `world-frame.js`: scene position = (2x, 1.5y, 16384 − 2z), rotation `S·M·S` with S = diag(1, 1, −1), models keep the 0.75 vertical stretch.
 - `dev-track` screen.
@@ -159,6 +161,8 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
   - A Node test shows the terrain mesh triangle height equals the OpenPhotex sampler at 10k random points per track (< 1e-4 ft).
 
 ### M4: One truck driving, in the worker (OpenPhotex + OpenMTM2)
+**Status: in progress.** Done: the truck dynamics in OpenPhotex (`stepTruck`, `postStepTruck`, hull contacts), the simulation worker with interpolation, keyboard input, the animated truck and the chase cameras (`dev-drive`). To do: water drag, gamepad, the player reset and helicopter.
+
 - OpenPhotex: tires, aero, contacts, forces, integrate, poststep, player reset, `session`, `snapshot`.
 - OpenMTM2: sim worker and host, interpolation, keyboard and gamepad, truck object, Chase Near and Chase Far cameras, `dev-drive` screen.
 - **Accept:** the invariant tests pass; on TPARK you can drive, jump, flip and reset, and the axles articulate; motion is smooth with interpolation; one truck costs < 2 ms per step.

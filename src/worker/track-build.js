@@ -122,6 +122,16 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     truckModels,
     trucks,
     sky,
+    /** For the simulation worker (copies; the render arrays are transferred separately). */
+    sim: {
+      clr: level.clr.slice(),
+      textureValues: level.textureValues.slice(),
+      start: trucks.length ? {
+        file: trucks[0].file,
+        pos: sit.trucks.find((t) => !t.playerSlot && t.positionFt)?.positionFt ?? null,
+        heading: sit.trucks.find((t) => !t.playerSlot && t.positionFt)?.psi ?? 0,
+      } : null,
+    },
     /** A sensible first view: the start of the first course straight, in game feet. */
     viewpoint: course.length ? { start: course[0].startFt, end: course[0].endFt } : null,
   };

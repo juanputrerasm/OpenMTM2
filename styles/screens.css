@@ -55,3 +55,7 @@
   color: #fff; background: rgba(0, 0, 0, 0.5); font: 13px/1.4 system-ui, sans-serif;
 }
 .dev-back { position: absolute; right: 12px; top: 12px; }
+.dev-hud {
+  position: absolute; left: 12px; top: 8px; margin: 0; padding: 4px 8px;
+  color: #fff; background: rgba(0, 0, 0, 0.5); font: 600 15px/1.4 ui-monospace, monospace;
+}
