@@ -87,6 +87,8 @@ export function createSession(init) {
     return { state, params, autopilot, recovery, ctx, radius: S.truckRadius(params), nearBoxes: [] };
   });
   const player = trucks[0];
+  // Traffic (MTM2_PHYSICS.md 14.25): every truck sees the others' last values.
+  if (trucks.length > 1) apCtx.traffic = trucks.map((t) => ({ s: t.state, p: t.params }));
   const race = init.race
     ? S.createRace(trucks.map((t, i) => ({ s: t.state, p: t.params, player: i === 0 && !t.autopilot })),
       S.raceCheckpoints(init.race.checkpoints), course, init.race.laps ?? 3, difficulty)

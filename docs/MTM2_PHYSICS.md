@@ -721,11 +721,9 @@ step in OpenMTM2 should pick the dt the game was tuned at (**hypothesis**: about
 The speed controller (`0x4805d0`) turns the target into throttle and brake with gain 1.2
 (MONSTER_EXE_ANALYSIS.md section 9).
 
-**Traffic** (`0x483600`): trucks on the same or the next segment are found (nearest ahead at
-+0x8e4, count at +0x8ec). To pass, the truck picks a side (+0x8d8 = +-1) and aims at a point
-beside the truck ahead, offset 90 degrees from its line by the two bounding radii, if that point
-is within +-45 degrees of its heading. The correction is clamped to +-0.125 rad on straights and
-+-0.25 on arcs. A truck ahead within 100 to 200 ft and +-30 degrees makes it adjust speed.
+**Traffic** (`0x483600`): the truck picks a truck just ahead to pass (+0x8e0) and a side
+(+0x8d8 = +-1), aims beside it, and caps its target speed behind the nearest truck ahead
+(+0x8e4). Section 14.25 has the rules; it replaces an earlier summary here.
 
 ---
 
@@ -733,11 +731,9 @@ is within +-45 degrees of its heading. The correction is clamped to +-0.125 rad 
 
 Everything above was traced in code. What remains is detail, not mechanism:
 
-1. The exact speed-following law in the second half of `0x483600` (constants 100, 200, 0.25,
-   1.25, 0.866).
-2. The arc aim-point smoothing in `0x481a70`/`0x483070`.
-3. The `.TTY` depth's effect beyond probe sinking (none found so far).
-4. The `+0x2a8`/`+0x518` (15000) axle field and the `+0x5a0` weight term (0 in stock trucks).
+1. The arc aim-point smoothing in `0x481a70`/`0x483070`.
+2. The `.TTY` depth's effect beyond probe sinking (none found so far).
+3. The `+0x2a8`/`+0x518` (15000) axle field and the `+0x5a0` weight term (0 in stock trucks).
 
 Each is a few dozen lines in one routine and can be read out during the port.
 
@@ -1493,6 +1489,21 @@ The race tick (`0x487300`), every frame while racing, for each truck: the checkp
 (`0x485af0`), the off-course check (`0x486630`), the estimated time to the segment's end
 (`+0x8dc`, eased toward `0x480ba0` at `0.75 dt`), the segment advance (14.23) and the segment
 progress; then, for all trucks, the race order; then the race clock (`0x6f61d8`) gains `dt`.
+
+**Time to the segment's end** (`0x480ba0`), eased in as `eta += (T - eta) 0.75 dt`, with `v`
+the average of the four tires' forward speeds (`v_fwd`, tire `+0x50`):
+
+- straight (end `E`, `cdec_point` `L`, `cspeed` `vc`): `D = |E - pos|` with the y difference
+  `E.y - H(pos)`; the braking deceleration `a` (`+0x8bc`, 14.22) and the forward acceleration
+  `b` (`+0x8c4`, the body z acceleration the last integration produced, `+0x100c`), each at
+  least 0.1 (a smaller `a` is written back as 0.1). The distance spent accelerating is
+  `x = (2 a (D - L) + vc^2 - v^2) / (2 (a + b))`; when `x > 0` the peak speed is
+  `vp = sqrt(2 b x + v^2)` and `t1 = (vp - v) / b`, otherwise `vp = v`, `t1 = 0`; then
+  `T = t1 + (vp - vc) / a`;
+- arc (centre `c`, exit angle `a1`, radius `R`): `T = R |wrap(heading(pos - c) - a1)| / v`,
+  `v` at least 0.1.
+
+On a new segment (14.23) `eta` is set to `T` outright.
 The countdown is section 6.1 (3 s; then every truck goes and `raceStartTime` is stamped).
 
 **Checkpoint test** (`0x485af0`, not in Summit Rumble), against the truck's next checkpoint
@@ -1528,10 +1539,11 @@ lap; finished trucks go on autopilot. The player's finish starts the results (an
 fast-simulation of section 5).
 
 **Segment progress** (`+0x8c8`, for the order): `1 - f`, with `f` the share of the segment
-left, less the hull's front offset `z1` (hull point 1's z; the rear point's when the truck is
-passing, `+0x8d8`):
+left, less the hull's front offset `z1` (hull point 1's z, `+0x5b8`; hull point 11's,
+`+0x630`, when the truck is passing, `+0x8d8` not 0):
 
-- straight `S -> E`: `f = (|E - pos| - z1 / G) / |E - S|` (`G` the difficulty gain `+0x8c0`);
+- straight `S -> E`: `f = (|E - pos| - z1 / G0) / |E - S|` (`G0` the difficulty gain `+0x8c0`,
+  which, unlike `+0x8b8`, the rubber band never lowers);
 - arc (centre `c`, angles `a0 -> a1`, radius `R`): `f = (R wrap(a1 - theta) - z1) / (R wrap(a1 - a0))`,
   `theta = heading(pos - c)`.
 
@@ -1542,3 +1554,79 @@ where another truck is ahead when:
   smaller race time;
 - otherwise: the other has finished; or has passed more checkpoints (`+0xfac`); or as many and
   more segments (`+0x8f0`); or as many of both and more progress (`+0x8c8`).
+
+### 14.25 Autopilot: traffic (`0x483600`)
+
+Called from the steering routine (`0x481ea0`, 14.22) after the target speed, before the
+steering error. It reads the other trucks' last values: segment (`+0x898`), course
+(`+0xfb4`), progress (`+0x8c8`, 14.24), time to the segment's end (`+0x8dc`, 14.24), the
+cross-track error `e` (`+0x8e8`) and the unclamped correction `c` (`+0x8d0`) of 14.22, the
+bounding radius `r` (`+0xfb8`), position, matrix and tire speeds. It writes the pass target
+(`+0x8e0`), the truck to follow (`+0x8e4`), the side (`+0x8d8`), the candidate count
+(`+0x8ec`), and may change the correction `c` and lower the target speed (`+0x89c`). "None" is
+the index 999. `A` is this truck, `G0` the difficulty gain `+0x8c0` (14.24), `hs` the segment
+heading of 14.22, `n = wrap(hs + pi/2)` (the right of the segment), `R = r_A + r_other`, and an
+other truck **on the line** has `|e| < 32`. Only CPU-style trucks (object type 4) count.
+
+**1. Candidates.** The window is `w = z1 / vc * G0` (`z1` hull point 1's z, `vc` the segment's
+`cspeed`), times 16 while passing (side not 0). A candidate is another truck on the same segment
+and course with more progress, `eta_A < eta_other + w` (at most `w` seconds ahead), and on the
+line. The best is the candidate with the largest `eta` (the nearest ahead); the count is the
+number of candidates.
+
+**2. The previous target** stays a candidate (the count goes up, and it remains the target)
+when it is not the best, is on the line, and is on the **next** segment (segment 1 when `A`'s
+is the last, `lastentry`; on a reversed course the one before). The target becomes the best
+(or the kept one; none without candidates). The player's truck calls the announcer here
+(not modelled).
+
+**3. The side**, when the count is not 0. With the target `T` and the hysteresis
+`hy = side G0 0.2`:
+
+- **count 2**: the second truck `S` is the other candidate (with `|e| <= 32`). When `T` and `A`
+  are both on straights (`ctype` 1): within `|A - T| <= 3 R` the side is `-1` when
+  `hy + (c_T - c_A) <= 0`, else `+1`; farther, `-1` when `c_T - c_S > 0`, else `+1`. Otherwise
+  (not both on straights): when `e_S < e_T` the target becomes `S` and `S` none; then with
+  `q = (A - T)` in `T`'s body axes, `phi = atan2(q.x, |q.z|)`, the side is `-1` when
+  `hy + phi <= 0`, else `+1`. After either, `S` becomes none if `eta_A < eta_S` (it is behind).
+- **any other count**: the truck to follow is the nearest (3D distance) other truck, not the
+  target, on the line, either on the same segment with more progress or on the segment after
+  (`+1`, without wrapping). Then the side as for count 2 but without the far case: both on
+  straights, `-1` when `hy + (c_T - c_A) <= 0`, else `+1`; otherwise by `phi` as above.
+
+**4. Passing**, when there is a target `T`:
+
+    beta = wrap(atan2(v . n, v . h))                v the world velocity, h = (sin hs, cos hs)
+    ts   = wrap(hs + side pi/2)
+    P    = T + R (sin ts, cos ts) - A               (x, z)
+    phi  = wrap(atan2(P . n, P . h) - beta)
+
+The truck goes for the gap only when `phi` lies on the side's side (`phi > 0` for side `+1`,
+`phi < 0` otherwise). Then:
+
+    th  = wrap(heading(T - A) + side pi/2)
+    side +1: th = wrap(hs + pi/4) when wrap(th - hs) < pi/4
+    side -1: th = wrap(hs - pi/4) when wrap(th - hs) > -pi/4
+    P2  = T + R (sin th, cos th) - A
+    c   = wrap(heading(P2) - psi)                   clamped +-0.125 on a straight, +-0.25 on an arc
+
+`psi` is the truck's heading, so the steering error of 14.22, `wrap(hs - psi + c)`, counts the
+heading twice while passing; that is the game's arithmetic.
+
+**5. No target**: the side is 0 and the truck to follow is the nearest other truck on the same
+course, on the line, either on the same segment with more progress or on the next segment (with
+the wrap after the last; reversed: the one before).
+
+**6. Following**, when there is a truck to follow `F` (from 3 or 5). The line through `F` along
+`n` (from `F + 100 n` to `F - 100 n`, at `F`'s height) gives `l`, the
+truck's 3D distance from it (how far behind it is); `d = |F - A|`. With `d' = l` when
+`d < R / G0` on the same segment, else `d' = d`, and `v_F` the average of `F`'s tire forward
+speeds:
+
+    v^2 = v_F^2 + 2 a (d' - R)                      a = +0x8bc (14.22)
+    target = min(target, sqrt(v^2))                 when v^2 >= 0
+
+**7. Beside it**: with no target, when `d < 1.25 R / G0` on the same segment and `l / d < 0.866`
+(more than about 30 degrees off its tail), the truck aims 100 ft up the segment beside `F` on its
+own side: `q = (A - F)` in `F`'s body axes, `t = n` (or `wrap(n + pi)` when `q.x < 0`),
+`P = F + R (sin t, cos t) + 100 h - A` and `c = wrap(heading(P) - hs)`, not clamped.

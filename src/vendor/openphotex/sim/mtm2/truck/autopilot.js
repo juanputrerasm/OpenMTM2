@@ -4,12 +4,14 @@
   of its step, the segment becomes a line to follow, which gives the steering and a target speed,
   and the speed controller turns the target into throttle and brakes.
 
-  Traffic (`0x483600`, passing and following other trucks) and the reversed course are not in yet.
+  Traffic (`0x483600`, §14.25, passing and following other trucks) is in `traffic.ts`; the
+  reversed course is not in yet.
 */
 import { ENGINE, G, INV_G } from "../constants.js";
 import { isArc } from "../world/course.js";
 import { gearRatio } from "./drivetrain.js";
 import { truckWeight } from "./dynamics.js";
+import { applyTraffic } from "./traffic.js";
 const TWO_PI = Math.PI * 2;
 /** The game's angle wrap: `a - trunc(a / 2 pi) 2 pi`, then into [-pi, pi]. */
 export function wrapGame(a) {
@@ -38,11 +40,44 @@ const SLOPE_K_DEFAULT = 0.45, SLOPE_K_SONIC = 1.0;
 function segmentGain(difficulty) {
     return difficulty === 0 ? 0.5 : difficulty === 2 ? 1.0 : 0.75;
 }
+/** The average of the four tires' forward speeds (`v_fwd`, tire +0x50), ft/s. */
+export function tireForwardSpeed(s, p) {
+    const [FR, FL, RR, RL] = s.tires;
+    return (FR.spin + FL.spin + RR.spin + RL.spin) * p.tireRadiusFt * 0.25;
+}
+/**
+ * The estimated time to the end of the truck's segment (`0x480ba0`, §14.24): on a straight,
+ * accelerating then braking into the next corner's speed; on an arc, the arc left at the
+ * current speed.
+ */
+export function segmentEta(s, p, seg, height) {
+    const v = tireForwardSpeed(s, p);
+    const x = s.pos[0], z = s.pos[2];
+    if (isArc(seg)) {
+        const left = Math.abs(wrapGame(headingOf(x - seg.centre[0], z - seg.centre[2]) - seg.exitAngle));
+        return (seg.radius * left) / (v < 0.1 ? 0.1 : v);
+    }
+    const E = seg.end;
+    const dx = E[0] - x, dy = E[1] - height(x, z), dz = E[2] - z;
+    const D = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const b = s.ap.accel < 0.1 ? 0.1 : s.ap.accel;
+    if (s.ap.decel < 0.1)
+        s.ap.decel = 0.1;
+    const a = s.ap.decel, vc = seg.speed;
+    const run = (a * (D - seg.decPoint) * 2 + (vc * vc - v * v)) / ((a + b) * 2);
+    let vp = v, t1 = 0;
+    if (run > 0) {
+        vp = Math.sqrt(Math.max(0, b * run * 2 + v * v));
+        t1 = (vp - v) / b;
+    }
+    return t1 + (vp - vc) / a;
+}
 /**
  * The next segment (§14.23): when the truck is closer to the segment's end line than its
- * `cdec_point`, it moves on. Returns whether it did.
+ * `cdec_point`, it moves on. Returns whether it did. With the truck's parameters, the time to
+ * the new segment's end is set too (§14.24).
  */
-export function advanceAutopilotSegment(s, ctx) {
+export function advanceAutopilotSegment(s, ctx, p) {
     const { course } = ctx;
     if (course.length === 0)
         return false;
@@ -80,6 +115,8 @@ export function advanceAutopilotSegment(s, ctx) {
         }
         s.ap.gain = segmentGain(ctx.difficulty) - bonus;
     }
+    if (p)
+        s.ap.eta = segmentEta(s, p, entered, ctx.height);
     return true;
 }
 /** The truck's distance (x, z) from a straight's end line: across it, where the next arc begins. */
@@ -156,6 +193,8 @@ export function applyAutopilot(s, p, ctx) {
     const b = wrapGame(headingOf(dx, dz) - hs);
     const e = Math.sin(b) * D;
     let c = D > 50 ? Math.asin(Math.max(-1, Math.min(1, 0.02 * e))) : b;
+    s.ap.crossTrack = e;
+    s.ap.correction = c;
     const cl = arc ? 0.5 : 0.125;
     c = Math.max(-cl, Math.min(cl, c));
     // Target speed.
@@ -165,6 +204,7 @@ export function applyAutopilot(s, p, ctx) {
     const wyU = wl === 0 ? 1 : wy / wl;
     const mu = (s.tires[0].mu + s.tires[1].mu + s.tires[2].mu + s.tires[3].mu) * 0.25;
     const decel = G * wyU + mu * Math.sqrt(Math.max(0, 1 - wyU * wyU)) * kSlope * G;
+    s.ap.decel = decel;
     const G_ = s.ap.gain;
     let target;
     if (arc) {
@@ -188,6 +228,9 @@ export function applyAutopilot(s, p, ctx) {
         const v0 = seg.speed * Math.sqrt(Math.max(0, G_));
         target = Math.sqrt(Math.max(0, v0 * v0 + decel * D * 2)) * Math.sqrt(Math.max(0, mu / K));
     }
+    // Traffic (§14.25) may lower the target and replace the correction.
+    if (ctx.traffic)
+        ({ c, target } = applyTraffic(s, p, ctx, ctx.traffic, hs, c, target));
     // Steering.
     const err = wrapGame(hs - s.euler[2] + c);
     let cmd = 22 * fdt * err;
@@ -216,7 +259,7 @@ export function applyAutopilot(s, p, ctx) {
     const torque = ((ENGINE.a * rpm + ENGINE.b) * rpm + ENGINE.c) * ctl.throttle;
     const mass = truckWeight(p) * INV_G;
     const acc = (torque / p.tireRadiusFt) * gearRatio(ctl.gear) * p.transferRatio - drag;
-    const wheels = (FR.spin + FL.spin + RR.spin + RL.spin) * p.tireRadiusFt * 0.25;
+    const wheels = tireForwardSpeed(s, p);
     const predicted = (acc / mass) * fdt * 0.05 + wheels;
     if (!ctx.dragMode && target < 17)
         target = 17;
