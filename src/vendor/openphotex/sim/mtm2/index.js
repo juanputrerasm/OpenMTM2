@@ -25,7 +25,7 @@ export * from "./collide/box.js";
 export { collideTruckBox, collideTruckImmovableBox, truckBoxSeparated } from "./collide/truck-box.js";
 export { stepBox, postStepBox, boxInertia } from "./collide/box-step.js";
 export { stepMovingObject, groundBoxHeightAt } from "./collide/moving-object.js";
-export { createRamp, rampHeightAt } from "./collide/ramp.js";
+export { collideTruckRamp, createRamp, insideRamp, rampHeightAt } from "./collide/ramp.js";
 export { collideTrucks } from "./collide/truck-truck.js";
 export { collideBoxes } from "./collide/box-box.js";
 export * from "./race/race.js";
