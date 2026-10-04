@@ -101,6 +101,7 @@ export function createSession(init) {
   const dirty = new Set();
   let time = 0;
   for (const t of trucks) t.previous = snapshot(t.state);
+  let started = false;
   const keys = { accelerate: false, brake: false, left: false, right: false };
 
   /**
@@ -176,7 +177,7 @@ export function createSession(init) {
         if (!race) S.advanceAutopilotSegment(t.state, apCtx);
         recoveryOf(t);
         if (go) S.applyAutopilot(t.state, t.params, apCtx);
-        else { t.state.controls.throttle = 0; t.state.controls.brakeFront = t.state.controls.brakeRear = 1; }
+        else t.state.controls.throttle = 0;
       } else if (i === 0) {
         const controlCtx = {
           dt: STEP, autoShift: t.params.autoShift, forwardSpeed: t.state.bvel[2], dragMode: false, segments: 0, difficulty,
@@ -185,6 +186,17 @@ export function createSession(init) {
         S.applyKeyboard(t.state.controls, keys, controlCtx);
         if (joystick) S.applyJoystick(t.state.controls, joystick, controlCtx);
       }
+    }
+    // The countdown (MONSTER_EXE_ANALYSIS.md 6.1): every truck sits in Park, so revving moves
+    // nobody; at the start every truck goes into first.
+    if (race && !go) {
+      for (const t of trucks) {
+        t.state.controls.gear = S.GEAR.PARK;
+        t.state.controls.brakeFront = t.state.controls.brakeRear = 1;
+      }
+    } else if (race && !started) {
+      started = true;
+      for (const t of trucks) t.state.controls.gear = S.GEAR.FIRST;
     }
     keys.shiftUp = keys.shiftDown = false;
     if (joystick) joystick.shiftUp = joystick.shiftDown = false;

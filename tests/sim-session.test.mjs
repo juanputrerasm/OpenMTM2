@@ -6,6 +6,8 @@ import assert from "node:assert/strict";
 import { createSession, STEP } from "../src/worker/sim-worker.js";
 import { buildTrackRender } from "../src/worker/track-build.js";
 import { skipWithoutStock, stockVfs } from "./helpers/stock.mjs";
+import { mtm2Sim } from "../src/vendor/openphotex/index.js";
+const GEAR_FIRST = mtm2Sim.GEAR.FIRST;
 
 test("drive the first grid truck on Farm Road 29", { skip: skipWithoutStock("POD.INI") }, async () => {
   const build = await buildTrackRender(stockVfs(), "WORLD\\TPARK.SIT");
@@ -276,4 +278,24 @@ test("Farm Road 29: the player's truck goes on autopilot once it finishes, and t
   assert.ok(done.over, "nobody finished");
   assert.ok(done.trucks.every((x) => x.finished), `${done.trucks.filter((x) => !x.finished).length} still racing after the fast simulation`);
   assert.deepEqual(done.trucks.map((x) => x.place).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8]);
+});
+
+test("the countdown: every truck sits in Park, so the player's held throttle moves nobody; at the start all go into gear (6.1)", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const vfs = stockVfs();
+  const build = await buildTrackRender(vfs, "WORLD\\TPARK.SIT");
+  const trucks = build.sim.grid.map((g, i) => ({ truck: build.truckModels[g.file], start: { pos: g.pos, heading: g.heading }, autopilot: i > 0 }));
+  const session = createSession({
+    heights: build.heights.buffer, clr: build.sim.clr.buffer, textureValues: build.sim.textureValues.buffer,
+    ra0: build.sim.ra0.buffer, ra1: build.sim.ra1.buffer, boxes: build.sim.boxes, ramps: build.sim.ramps,
+    course: build.sim.course, sonicTrack: build.sim.sonicTrack, waterLevelFt: build.waterLevelFt, weather: 0, difficulty: 1,
+    trucks, race: { checkpoints: build.sim.checkpoints, laps: 1 },
+  });
+  const start = session.trucks.map((t) => [...t.state.pos]);
+  const moved = () => Math.max(...session.trucks.map((t, k) => Math.hypot(t.state.pos[0] - start[k][0], t.state.pos[2] - start[k][2])));
+  while (!session.raceView().started) session.step({ accelerate: true });
+  assert.ok(moved() < 0.5, `moved ${moved()} ft before the start`);
+  // In first, or already shifted up from it: the player's revved engine is past the upshift rpm.
+  assert.ok(session.trucks.every((t) => t.state.controls.gear >= GEAR_FIRST), session.trucks.map((t) => t.state.controls.gear).join());
+  for (let i = 0; i < 120; i++) session.step({ accelerate: true });
+  assert.ok(Math.hypot(session.trucks[0].state.pos[0] - start[0][0], session.trucks[0].state.pos[2] - start[0][2]) > 5, "the player goes after the start");
 });
