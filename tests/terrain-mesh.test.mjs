@@ -118,3 +118,21 @@ test("which boxes are drawn", async () => {
   assert.equal(boxIsDrawn({ type: 6, modelName: "CKBOX.BIN" }, { ...ctx, levelType: 4 }), false);
   assert.equal(boxIsDrawn({ type: 6, modelName: "FLAG.BIN" }, { ...ctx, levelType: 4, raceType: "drag" }), false);
 });
+
+test("ground boxes: only exposed faces, sides start at the terrain", async () => {
+  const { buildGroundBoxMesh } = await import("../src/worker/ground-box-mesh.js");
+  const { buildTerrainAtlas } = await import("../src/worker/terrain-mesh.js");
+  const ra0 = new Uint8Array(65536), ra1 = new Uint8Array(65536), heights = new Uint8Array(65536);
+  // Two boxes side by side in row 10 (cols 10 and 11), from step 0 to 20, on ground at step 5.
+  heights.fill(5);
+  for (const c of [10, 11]) { ra0[10 * 256 + c] = 0; ra1[10 * 256 + c] = 20; }
+  const mesh = buildGroundBoxMesh({ ra0, ra1, cl0: null }, buildTerrainAtlas([null]), null, heights);
+  // Each box: top, three open sides; the shared sides and the buried bottoms are culled.
+  assert.equal(mesh.faces, 8);
+  // Every side face starts at the ground (10 ft), not at the box bottom (0 ft).
+  let lowest = Infinity;
+  for (let i = 1; i < mesh.positions.length; i += 3) lowest = Math.min(lowest, mesh.positions[i]);
+  assert.equal(lowest, 10);
+  assert.equal(mesh.indices.length, 8 * 6);
+  assert.ok(Math.max(...mesh.indices) < 8 * 4);
+});

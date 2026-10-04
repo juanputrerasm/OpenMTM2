@@ -11,6 +11,8 @@ import { toSceneMatrix } from "../shared/scene-frame.js";
 import { loadLevel, loadTextureSource } from "./level-load.js";
 import { buildTerrainAtlas, buildTerrainMesh, decodeTerrainTextures } from "./terrain-mesh.js";
 import { decodeModel } from "./models.js";
+import { buildGroundBoxMesh } from "./ground-box-mesh.js";
+import { buildTruckRender } from "./truck-build.js";
 
 const RAMP_TYPE = 99;
 const CHECKPOINT_TYPE = 6;
@@ -40,6 +42,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   const sources = await Promise.all(level.textureNames.map((n) => loadTextureSource(vfs, n, level.palette)));
   const atlas = buildTerrainAtlas(decodeTerrainTextures(sources));
   const mesh = buildTerrainMesh({ heights: level.heights, clr: level.clr, lte: level.lte, atlas });
+  const groundBoxes = buildGroundBoxMesh(level.groundBoxes, atlas, level.lte, level.heights);
 
   // Models, once each.
   const models = {};
@@ -55,6 +58,20 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     if (!models[name] || !box.positionFt) continue;
     const m = mtm2Sim.eulerToMatrix(box.theta, box.phi, box.psi, new Array(9));
     objects.push({ model: name, type: box.type, matrix: toSceneMatrix(m, box.positionFt) });
+  }
+
+  // The stadium (SIT "*** Stadium ***", MONSTER.EXE 0x564ca0): at cell (x, z), unrotated, at
+  // the ground height of its footprint's low corner.
+  if (sit.arena?.modelName) {
+    const name = podPathTitle(sit.arena.modelName);
+    const bytes = await vfs.read(`MODELS\\${name}`);
+    models[name] = bytes ? decodeModel(bytes, name) : null;
+    if (models[name]) {
+      const terrain = mtm2Sim.createTerrain(level.heights, level.waterSteps ? level.waterSteps * 2 : null);
+      const xFt = sit.arena.x * 32, zFt = sit.arena.y * 32;
+      const y = mtm2Sim.groundHeightAt(terrain, xFt - sit.arena.sx * 16, zFt - sit.arena.sy * 16);
+      objects.push({ model: name, type: "stadium", matrix: toSceneMatrix([1, 0, 0, 0, 1, 0, 0, 0, 1], [xFt, y, zFt]) });
+    }
   }
 
   // Model textures: cutout where any face using the texture is a cutout face.
@@ -77,11 +94,23 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
 
   const sky = await loadSky(vfs, level);
 
+  // The SIT's start grid, as a preview of where the trucks stand.
+  const truckModels = {};
+  const trucks = [];
+  for (const truck of sit.trucks.filter((t) => !t.playerSlot && t.positionFt)) {
+    const file = podPathTitle(truck.name).toUpperCase();
+    if (!(file in truckModels)) truckModels[file] = await buildTruckRender(vfs, file, level.palette);
+    if (!truckModels[file]) continue;
+    const m = mtm2Sim.eulerToMatrix(truck.theta, truck.phi, truck.psi, new Array(9));
+    trucks.push({ file, matrix: toSceneMatrix(m, truck.positionFt) });
+  }
+
   const course = sit.primaryCourse?.segments ?? [];
   return {
     title: level.title,
     trackName: sit.trackName,
     terrain: { ...mesh, atlas: { rgba: atlas.rgba, width: atlas.width, height: atlas.height } },
+    groundBoxes,
     // A copy: a VFS read may be a view into a whole archive, which must not be transferred.
     heights: level.heights.slice(),
     waterLevelFt: level.waterSteps ? level.waterSteps * 2 : null,
@@ -90,6 +119,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     models,
     modelTextures,
     objects,
+    truckModels,
+    trucks,
     sky,
     /** A sensible first view: the start of the first course straight, in game feet. */
     viewpoint: course.length ? { start: course[0].startFt, end: course[0].endFt } : null,

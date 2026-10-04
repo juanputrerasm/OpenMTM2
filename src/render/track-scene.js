@@ -25,25 +25,46 @@ function dataTexture({ rgba, width, height }, look, repeat = false) {
   return texture;
 }
 
-export function createTerrain(terrain, look) {
+/** Geometry from a worker mesh: positions, normals, uvs, indices, optional baked shade. */
+function meshGeometry(mesh) {
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(terrain.positions, 3));
-  geometry.setAttribute("normal", new THREE.BufferAttribute(terrain.normals, 3));
-  geometry.setAttribute("uv", new THREE.BufferAttribute(terrain.uvs, 2));
-  const colors = new Float32Array(terrain.shade.length * 3);
-  for (let i = 0; i < terrain.shade.length; i++) colors[i * 3] = colors[i * 3 + 1] = colors[i * 3 + 2] = terrain.shade[i];
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  geometry.setIndex(new THREE.BufferAttribute(terrain.indices, 1));
+  geometry.setAttribute("position", new THREE.BufferAttribute(mesh.positions, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(mesh.normals, 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(mesh.uvs, 2));
+  if (mesh.shade) {
+    const colors = new Float32Array(mesh.shade.length * 3);
+    for (let i = 0; i < mesh.shade.length; i++) colors[i * 3] = colors[i * 3 + 1] = colors[i * 3 + 2] = mesh.shade[i];
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  }
+  geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
   geometry.computeBoundingSphere();
+  return geometry;
+}
 
-  const map = dataTexture(terrain.atlas, look);
+/** The terrain's atlas as a texture; ground boxes draw from it too. */
+export function createTerrainAtlas(atlas, look) {
+  const map = dataTexture(atlas, look);
   // Mipmaps would blend neighbouring atlas tiles together.
   map.minFilter = look === "classic" ? THREE.NearestFilter : THREE.LinearFilter;
   map.generateMipmaps = false;
-  const material = look === "classic"
-    ? new THREE.MeshBasicMaterial({ map, vertexColors: terrain.hasLte })
+  return map;
+}
+
+function surfaceMaterial(map, look, hasShade) {
+  return look === "classic"
+    ? new THREE.MeshBasicMaterial({ map, vertexColors: hasShade })
     : new THREE.MeshLambertMaterial({ map });
-  const mesh = new THREE.Mesh(geometry, material);
+}
+
+export function createGroundBoxes(boxes, map, look) {
+  if (!boxes) return null;
+  const mesh = new THREE.Mesh(meshGeometry(boxes), surfaceMaterial(map, look, boxes.hasLte));
+  mesh.name = "groundBoxes";
+  return mesh;
+}
+
+export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.atlas, look)) {
+  const mesh = new THREE.Mesh(meshGeometry(terrain), surfaceMaterial(map, look, terrain.hasLte));
   mesh.name = "terrain";
   return mesh;
 }
@@ -139,4 +160,35 @@ export function createWater(levelFt) {
   const water = new THREE.Mesh(geometry, material);
   water.name = "water";
   return water;
+}
+
+/**
+ * A truck's parts as one group in body coordinates (scene frame): the body at the origin, a tire
+ * at each wheel anchor (left model where x < 0), an axle model across each axle at hub height.
+ */
+export function createTruck(truck, look) {
+  const library = createModelLibrary(
+    Object.fromEntries(Object.values(truck.parts).filter(Boolean).map((m) => [m.name, m])), truck.textures, look);
+  const group = new THREE.Group();
+  group.name = truck.file;
+  const add = (part, x, y, z) => {
+    for (const { geometry, material } of library.get(part.name) ?? []) {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(x, y, -z);
+      group.add(mesh);
+    }
+  };
+  if (truck.parts.body) add(truck.parts.body, 0, 0, 0);
+  truck.anchors.forEach((a) => {
+    if (!a) return;
+    const tire = a[0] < 0 ? truck.parts.tireLeft : truck.parts.tireRight;
+    if (tire) add(tire, a[0], a[1], a[2]);
+  });
+  if (truck.parts.axle) {
+    for (const [right] of [[0], [2]]) {
+      const a = truck.anchors[right];
+      if (a) add(truck.parts.axle, 0, a[1], a[2]);
+    }
+  }
+  return group;
 }

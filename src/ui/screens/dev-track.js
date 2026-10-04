@@ -5,7 +5,10 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { el } from "../dom.js";
-import { createModelLibrary, createSky, createTerrain, createWater, placeObjects, skyColor } from "../../render/track-scene.js";
+import {
+  createGroundBoxes, createModelLibrary, createSky, createTerrain, createTerrainAtlas, createTruck, createWater,
+  placeObjects, skyColor,
+} from "../../render/track-scene.js";
 
 export default async function mount(container, context, { track }) {
   const status = el("p", { class: "dev-status" }, `Loading ${track.name}…`);
@@ -39,14 +42,27 @@ export default async function mount(container, context, { track }) {
       world.traverse((o) => { o.geometry?.dispose?.(); o.material?.map?.dispose?.(); o.material?.dispose?.(); });
     }
     world = new THREE.Group();
-    world.add(createTerrain(build.terrain, look));
+    const atlas = createTerrainAtlas(build.terrain.atlas, look);
+    world.add(createTerrain(build.terrain, look, atlas));
+    const boxes = createGroundBoxes(build.groundBoxes, atlas, look);
+    if (boxes) world.add(boxes);
     world.add(placeObjects(createModelLibrary(build.models, build.modelTextures, look), build.objects));
+    const truckTemplates = new Map();
+    for (const placed of build.trucks) {
+      const model = build.truckModels[placed.file];
+      if (!truckTemplates.has(placed.file)) truckTemplates.set(placed.file, createTruck(model, look));
+      const truck = truckTemplates.get(placed.file).clone();
+      truck.matrixAutoUpdate = false;
+      truck.matrix.fromArray(placed.matrix);
+      world.add(truck);
+    }
     const water = createWater(build.waterLevelFt);
     if (water) world.add(water);
     const sky = createSky(build.sky, look);
     if (sky) world.add(sky);
     scene.add(world);
-    status.textContent = `${build.trackName}: ${build.objects.length} objects, ${look} look (L to switch)`;
+    status.textContent = `${build.trackName}: ${build.objects.length} objects, `
+      + `${build.groundBoxes?.count ?? 0} ground boxes, ${look} look (L to switch)`;
   };
   assemble();
 

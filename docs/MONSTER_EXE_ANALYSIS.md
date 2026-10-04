@@ -222,9 +222,10 @@ is an empty stub; the track description comes from the SIT header.
 ### Default trucks
 
 `Truck.c` 0x4bfa10 builds fallback bodies if a TRK fails: `dx1` "Default Ford", `hx1` "Default
-Chevy", `gx1` "Default Dodge", all on `tire1.bin`. Truck bodies are loaded in three levels of
-detail, `%s16l/r.bin`, `%s10l/r.bin`, `%s08l/r.bin` (left and right halves), which crash damage
-deforms together.
+Chevy", `gx1` "Default Dodge", all on `tire1.bin`. Models (0x4bfa10, 0x4bb730): the body is
+`<truckModelBaseName>.bin`, with lower levels of detail `<base>0.bin`, `<base>1.bin`... (a
+missing one reuses the next better); the **tires** are `<tireModelBaseName>16l/r.bin`,
+`10l/r`, `08l/r` (left and right, three levels of detail); then the TRK's axle model.
 
 ---
 
@@ -267,6 +268,19 @@ cylinder); 6, 7 and 8 never enter the collision list (0x5543c0).
 `CCLOUDS` (Rain), and `CLOUDY2` on an old-MTM level or when a file is missing. Its palette is
 not its own: entries 192-207 of the sky's `.ACT` are copied into the game palette at 230-245,
 the indices the sky art uses; in Cloudy weather those 16 colours are greyed.
+
+**The stadium** (`*** Stadium ***`, 0x564ca0): `!stadiumFlag,x,z,sx,sz,stadiumModelName` (an old
+form without the `!` line is `flag name` with x = z = 64, sx = 8, sz = 10). The model stands at
+cell (x, z), that is (32x, h, 32z) ft, unrotated, where h is the ground height (the Snow-aware
+0x5017e0) at the footprint's low corner (x - sx/2, z - sz/2); it also loops `crowd.wav` there.
+
+**Ground boxes drawn** (0x500b80, 0x4fcbe0): every cell whose `.RA0` and `.RA1` heights differ is
+drawn as a box from the grid record (lower, upper, six `.CL0` face words, a corner flags byte).
+A side face is drawn only where the neighbouring cell's box does not cover it (`lower <
+neighbour lower` or `neighbour upper < upper`), clipped where it meets the terrain, and a
+terrain cell entirely inside a box is not drawn (0x4fc370). On Arena Rumble this draws a 140 ft
+ring of `13CROAD` walls around the floor, inside the stadium's lowest stands; whether the game
+really shows them that way is still to be checked against the running game.
 
 **Which boxes are drawn** (0x54ec00): a box with a model, whose `priority` line is at most the
 MONSTER.INI `detailLevel` (the stock SITs use 0, 1 and 2; the stock MONSTER.INI says 2). A
