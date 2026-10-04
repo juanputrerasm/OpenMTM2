@@ -22,3 +22,4 @@ export * from "./truck/recovery.js";
 export * from "./collide/box.js";
 export { collideTruckBox, collideTruckImmovableBox, truckBoxSeparated } from "./collide/truck-box.js";
 export { stepBox, postStepBox, boxInertia } from "./collide/box-step.js";
+export { moveTrain, groundBoxHeightAt } from "./collide/train.js";
