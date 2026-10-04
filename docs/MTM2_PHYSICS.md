@@ -398,18 +398,14 @@ The force law is **perfectly inelastic**: the closing speed along the normal is 
 step, with no bounce. Forces go into each body's external accumulators (truck +0xfbc force,
 +0xfc8 moment) and are applied on the next integration.
 
-### 7.4 Truck against truck (`0x4894a0`, `0x491e20`)
+### 7.4 Truck against truck (`0x4894a0`)
 
-- The pair is ordered by speed. Each hull point of one truck is tested against the other
-  truck's hull box (the box spanned by its 12 scrape points, assumed aligned with its body
-  axes).
-- Effective mass = the **lighter** truck's mass.
-- The force removes **half** the relative velocity along the normal from each truck:
-  `F = m_eff * 0.5 * |v_rel . n| / dt`, equal and opposite, with moments. For equal masses the
-  collision is perfectly inelastic.
-- The faster truck is moved out by the penetration plus 0.05 ft.
-- When the contact is on a tire, an extra force `0.05 * m_eff * (r * omega of the touching
-  tires) / dt` acts along the contact tangent, so a spinning wheel climbs the other truck.
+Each truck's hull points are tested against the other truck's hull box (two half boxes spanned by
+its own hull points), with the lighter truck's mass as the effective mass; the faster truck is
+moved out along the axis its relative motion leaves by soonest, and the inelastic force law
+removes the closing speed along it. Section 14.20 has the steps; it replaces an earlier summary
+here that had a factor of one half and a 0.05 ft margin the code does not show. The wheels are
+tested against each other too (14.20).
 
 ### 7.5 Ramps (`0x4b2580`, `0x4b17c0`)
 
@@ -1312,3 +1308,49 @@ terrain's normal.
 The ramp's sides are walls for hull points and wheels (`0x4b2580`: the four wheels through
 `0x4aa110`, hull points 1 to 12 through the inside test `0x48c230` and the push-out `0x4b2950`
 with the force law `0x48c8a0`, then `0x4b17c0`); they are still to be written up here.
+
+### 14.20 Truck against truck: hull points (`0x4894a0`, `0x48c010`, `0x48eb70`, `0x48c3d0`, `0x48c8a0`)
+
+For a pair of trucks (neither in helicopter flight), with `|ivel|` their speeds: the pair's first
+truck (listed first) is the **slower** one `S` unless the other is strictly slower; the other is
+the **faster** one `F`.
+
+1. **Pass 1**: each hull point 1 to 12 of `S` against the hull box of `F`; then the wheels
+   against the wheels (`0x491950`, below).
+2. **Pass 2**: each hull point of `F` against the hull box of `S`; then the wheels again.
+
+**A point against a hull box** (`0x48c010`): with `O` the box's truck and `T` the point's, the
+point `P` (T axes) is taken to O's axes, `r = M_O^T (pos_T + M_T P - pos_O)`, when it lies within
+O's radius of O's centre. O's hull box is two half boxes made of O's own hull points (body axes;
+the TRK order has P1, P2 the front bottom corners, P3 front top, P9 rear top, P11, P12 rear
+bottom):
+
+- `r.z >= 0`: `r.z <= P1.z`, `P1.x <= r.x <= P2.x`, `P1.y <= r.y <= P3.y`;
+- `r.z < 0`: `P11.z <= r.z`, `P11.x <= r.x <= P12.x`, `P11.y <= r.y <= P9.y`.
+
+**The response** (`0x48eb70`), for a point inside, everything in O's axes:
+
+- `v_rel = v_O(r) - v_T(P)`: O's point velocity `bvel_O + omega_O x r` minus T's (`bvel_T +
+  omega_T x P`, taken to O's axes); the effective mass is the **lighter** truck's mass,
+  `min(W_O, W_T) * 0.031081`.
+- The distances to the walls the relative motion points at: when `v_rel.z <= 0` the rear half
+  box's (`x` to `P11.x` when `v_rel.x <= 0` else `P12.x`, `y` to `P11.y` when `v_rel.y <= 0` else
+  `P9.y`, `z` to `P11.z`), else the front half box's (`P1.x` / `P2.x`, `P1.y` / `P3.y`, `P1.z`),
+  each as an absolute value. The times `t_i = d_i / v_rel_i` (100 for x or z and 10^6 for y when
+  that component is 0).
+- **The axis** (`0x48c3d0`): when `|t_y| <= |t_x|`, z if `|t_z| <= |t_y|` (and `t_z` is not 0),
+  else y (if `t_y` is not 0); otherwise z if `|t_z| <= |t_x|` (and not 0), else x (if not 0).
+  None: nothing happens. The push is `v_rel |t_k|`, the normal `e` the axis `k` with the sign
+  of `t_k`.
+- **The faster truck moves**: by `M_O push` when O is the slower one (T moves), else O moves by
+  `-M_O push`.
+- **The force** (`0x48c8a0`): `F = m_eff |v_rel . e| / dt`; O gets `-F e` at `r` (its axes), T
+  gets `+F e` (to its axes) at `P`, with their moments. As with boxes (14.17), each contact
+  overwrites the pair's forces and only the last one is applied, once, to both trucks'
+  accumulators (the code swaps them round so that each truck gets its own).
+
+The pair also posts crash sounds and damage (`0x532140`, `0x429cb0`, `0x424060`), not physics.
+
+**Wheels against wheels** (`0x491950`): when two wheels' bounding spheres overlap, `0x490790`
+forms the touching point on the wheel and `0x48b5d0` / `0x491e20` respond; still to be written up
+here.
