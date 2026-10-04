@@ -9,6 +9,7 @@
 import { copyInstall, mountInstall, readManifest, removeInstall } from "./install-store.js";
 import { buildCatalog } from "./catalog.js";
 import { buildTrackRender, transferablesOf } from "./track-build.js";
+import { loadingScreen } from "./screen-art.js";
 
 /** A reply whose buffers move to the main thread instead of being copied. */
 const TRANSFER = Symbol("transfer");
@@ -53,9 +54,15 @@ const handlers = {
   },
 
   /** Everything needed to draw a track; `{ path }` is its SIT, e.g. "WORLD\\TPARK.SIT". */
-  async trackRender({ path, detailLevel, raceType }) {
-    const build = await buildTrackRender(await mounted(), path, { detailLevel, raceType });
+  async trackRender({ path, detailLevel, raceType, truckFiles }) {
+    const build = await buildTrackRender(await mounted(), path, { detailLevel, raceType, truckFiles });
     return withTransfer(build, transferablesOf(build));
+  },
+
+  /** The race loading screen, `{ width, height, rgba }` or null. */
+  async loadingScreen({ raceType } = {}) {
+    const image = await loadingScreen(await mounted(), { raceType });
+    return image ? withTransfer(image, [image.rgba.buffer]) : null;
   },
 };
 

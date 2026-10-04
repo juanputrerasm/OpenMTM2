@@ -142,7 +142,11 @@ registration.
 
 The UI art is resolution-independent BMPs from `UI.POD` (`UI\*.bmp`), button sounds from
 `UI.POD\SOUND`, and the race loading screen uses `DATA%d.RAW`/`.ACT` (or `KOTH%d.RAW`/`.ACT`
-for Summit Rumbles, which also draws the scoring rules, see section 6.3).
+for Summit Rumbles, which also draws the scoring rules, see section 6.3). The number is the screen
+height (`0x644654`: 200, 400 or 480) and both files are opened from `art` (`STARTUP.POD` has
+`ART\DATA200`, `DATA400`, `DATA480` and the `KOTH` set): the `.RAW` is `width x height` 8-bit
+palette indices, row by row, the `.ACT` 768 bytes of RGB (0x4d5bd0; a missing `.ACT` keeps the
+current palette, a missing `.RAW` is the error "Cannot find data raw").
 
 ### Resolution sets
 

@@ -33,9 +33,9 @@ export function boxIsDrawn(box, { levelType, raceType, detailLevel }) {
 /**
  * @param {ReturnType<import("./vfs.js").createVfs>} vfs
  * @param {string} sitPath
- * @param {{ detailLevel?: number, raceType?: string }} [options]
+ * @param {{ detailLevel?: number, raceType?: string, truckFiles?: string[] }} [options] `truckFiles`: more trucks to build models for
  */
-export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType = "circuit" } = {}) {
+export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType = "circuit", truckFiles = [] } = {}) {
   const level = await loadLevel(vfs, sitPath);
   const { sit } = level;
 
@@ -149,6 +149,10 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     if (!truckModels[file]) continue;
     const m = mtm2Sim.eulerToMatrix(truck.theta, truck.phi, truck.psi, new Array(9));
     trucks.push({ file, matrix: toSceneMatrix(m, truck.positionFt) });
+  }
+  // The trucks a race puts on the grid instead (the player's pick and the CPU trucks).
+  for (const file of truckFiles.map((f) => podPathTitle(f).toUpperCase())) {
+    if (!(file in truckModels)) truckModels[file] = await buildTruckRender(vfs, file, level.palette);
   }
 
   const course = sit.primaryCourse?.segments ?? [];

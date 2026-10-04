@@ -59,3 +59,13 @@ test("default laps: a Circuit's come from its track length, trunc(15000 / length
   assert.equal(defaultLaps("rally", 22445), 1);
   assert.equal(defaultLaps("drag", null), 1);
 });
+
+test("the loading screen: ART\\DATA480.RAW with its palette, 640 x 480", { skip: skipWithoutStock("STARTUP.POD") }, async () => {
+  const { loadingScreen } = await import("../src/worker/screen-art.js");
+  const image = await loadingScreen(stockVfs());
+  assert.equal(image.width, 640);
+  assert.equal(image.height, 480);
+  assert.equal(image.rgba.length, 640 * 480 * 4);
+  const summit = await loadingScreen(stockVfs(), { raceType: "summit" });
+  assert.ok(summit && summit.rgba.some((v, i) => v !== image.rgba[i]), "the Summit Rumble screen differs");
+});
