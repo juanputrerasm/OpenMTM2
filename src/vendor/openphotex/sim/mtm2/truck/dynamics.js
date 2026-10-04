@@ -303,6 +303,8 @@ export function stepTruck(s, p, ctx, dt) {
     s.bvel[0] += ax * dt;
     s.bvel[1] += ay * dt;
     s.bvel[2] += az * dt;
+    // The forward acceleration the autopilot's time estimate counts on (+0x8c4, §14.24).
+    s.ap.accel = az;
     let ivel = toWorld(m, s.bvel[0], s.bvel[1], s.bvel[2]);
     const iv = Math.hypot(ivel[0], ivel[1], ivel[2]);
     // Collision rays start from here (§14.14); kept before the stuck checks, as in the game.

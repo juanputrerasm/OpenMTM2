@@ -173,7 +173,7 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
 **Pending** (traced in part, written up as open in the physics doc):
 - Ramp side walls (`0x4b2580`: the wheel test `0x4aa110` is read, its response `0x4b3540` and the edge test `0x4b17c0` are not). The edge test uses the edge-against-hull-box system (`0x494fb0`, `0x49b190` and its helpers) that top-crush cars use too, so both come together.
 - Top-crush cars (section 7.6), on that same edge system; after M7 as planned.
-- Wheels against wheels for truck pairs (`0x491950` -> `0x490790` -> `0x48b5d0` -> `0x491e20`); needed once several trucks race (M6 and later).
+- Wheels against wheels for truck pairs (`0x491950` -> `0x490790` -> `0x48b5d0` -> `0x491e20`); hull points already keep racing trucks apart.
 - Truck against truck in the drive session (it is in OpenPhotex; the session has one truck until the AI trucks).
 
 - Broadphase, separating-axis tests, truck against box (immovable = ground, pushable = inelastic, wheel sweep), ground boxes, ramps, truck against truck, moving objects (type 10), free boxes.
@@ -187,23 +187,15 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
   - Bridges and ground boxes carry the wheels on JUNK and TPARK.
 
 ### M6: Autopilot, recovery, race rules (OpenPhotex)
-**Status: acceptance met; follow-ups pending.** Done: the autopilot (physics 14.22, 14.23: following, steering, target speed, speed control, segment advance, rubber-banding) with the frame-time hypothesis (`AUTOPILOT_FRAME_DT`), course-aware recovery for CPU trucks, and the race rules (14.24: countdown, checkpoints with gate and detector, splits, laps, missed-checkpoint recovery, the finish, the race order). The session (`sim-worker.js`) now runs any number of trucks with a race; headless 8-truck races finish on every stock Circuit track.
+**Status: done.** The autopilot (physics 14.22, 14.23: following, steering, target speed, speed control, segment advance, rubber-banding) with the frame-time hypothesis (`AUTOPILOT_FRAME_DT`), traffic (14.25: pass targets, sides, passing, following speed, pulling alongside) with the time to the segment's end it ranks trucks by (14.24), course-aware recovery for CPU trucks, and the race rules (14.24: countdown, checkpoints with gate and detector, splits, laps, missed-checkpoint recovery, the finish, the race order). The session (`sim-worker.js`) runs any number of trucks with a race; headless 8-truck races finish on every stock Circuit track.
 
-**Pending:**
-- Traffic (`0x483600`, 756 lines: following and passing other trucks), and with it the wheels against wheels of M5.
-- The per-track default lap count (the game's track list, `+0x2d5c`); races take a lap count, 3 by default.
-- `fastSimulateRemaining` (0.25 s ticks with sub-steps of at most 0.1 s) for the trucks still racing after the player finishes.
-- Summit Rumble scoring (MONSTER_EXE_ANALYSIS.md 6.3), Rally specifics, the reversed course and GOLD mode.
-- The player's missed-checkpoint announcer (with the sounds, M11).
-- Read the physics doc's §13 items from `re/` into the doc first.
-- Autopilot, traffic, helicopter, Professional CPU reset, rubber-banding.
-- Race rules: countdown, splits, laps, missed checkpoint, placings, finish, `fastSimulateRemaining` (0.25 s ticks, substeps ≤ 0.1 s).
-- **Accept:** headless Node races pass on every Circuit track.
+**Moved on:** the per-track default lap count and `fastSimulateRemaining` (0.25 s ticks, sub-steps of at most 0.1 s) are part of M7's race flow; Summit Rumble scoring (MONSTER_EXE_ANALYSIS.md 6.3), Rally specifics, the reversed course and GOLD mode come with those modes; the missed-checkpoint announcer with the sounds (M11).
 
 ### M7: First playable (OpenMTM2)
 - **Flow:** Start → Race select (Circuit tracks, laps, difficulty) → Garage (truck pick) → Loading screen (`DATA%d.RAW`) → race → "Determining times…" → Results.
 - **The race:** 3 s countdown with start lights; HUD with Place n/8, Lap n/n, time and best lap; pause; helicopter key.
 - **CPU trucks:** names Mark, Greg, Rich, Brett, Gaither, Chuck, Terry, Joe; random distinct trucks.
+- **From M6:** the track's default lap count; `fastSimulateRemaining` for the trucks still racing when the player finishes.
 - **Accept:**
   - Farm Road 29, 3 laps, Intermediate, against 7 CPU trucks, played start to finish in Chrome, Firefox and Safari.
   - Missing a checkpoint does not count the lap; flipped CPUs recover; the results order agrees with the sim.

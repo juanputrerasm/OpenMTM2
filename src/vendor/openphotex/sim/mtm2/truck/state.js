@@ -56,7 +56,10 @@ export function createTruckState(pos, heading = 0, gear = GEAR.FIRST, params) {
         impulseMoment: 0,
         impactForce: 0,
         splash: false,
-        ap: { segment: 0, integral: 0, gain: autopilotGain(params?.difficulty ?? 1), segmentsPassed: 0, target: 0 },
+        ap: {
+            segment: 0, integral: 0, gain: autopilotGain(params?.difficulty ?? 1), segmentsPassed: 0, target: 0,
+            progress: 0, eta: 0, crossTrack: 0, correction: 0, decel: 0, accel: 0, side: 0, passTarget: -1, follow: -1, candidates: 0,
+        },
     };
     eulerToMatrix(0, 0, heading, state.matrix);
     state.prevMatrix.set(state.matrix);
