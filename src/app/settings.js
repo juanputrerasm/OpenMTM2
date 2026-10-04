@@ -10,6 +10,7 @@ const KEY = "openmtm2.settings";
 
 export const DEFAULT_SETTINGS = Object.freeze({
   look: "classic",            // "classic" or "enhanced"
+  detailLevel: 2,             // MONSTER.INI detailLevel: boxes with a higher priority are not drawn
   difficulty: 1,              // 0 Rookie, 1 Intermediate, 2 Professional
   laps: 3,
   showHiddenTracks: false,

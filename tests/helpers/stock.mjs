@@ -8,6 +8,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parsePod, readPodEntry } from "../../src/vendor/openphotex/index.js";
+import { parsePodIni } from "../../src/install/pod-ini.js";
+import { createVfs } from "../../src/worker/vfs.js";
 
 const GAMES = process.env.OPENMTM2_GAMES ?? join(process.env.HOME ?? "", "games");
 export const STOCK_DIR = join(GAMES, "mtm2");
@@ -39,4 +41,13 @@ export function openStockPod(name) {
   const bytes = readStock(name);
   const archive = parsePod(bytes);
   return { archive, read: (entry) => readPodEntry(bytes, entry) };
+}
+
+/** The stock install mounted from disk, in POD.INI order, as the asset worker mounts OPFS. */
+export function stockVfs() {
+  const ini = parsePodIni(new TextDecoder().decode(readStock("POD.INI")));
+  return createVfs(ini.keys.map((key) => {
+    const bytes = readStock(key);
+    return { name: key, archive: parsePod(bytes), readEntry: async (entry) => readPodEntry(bytes, entry) };
+  }));
 }

@@ -259,7 +259,20 @@ track says `Track` except **Crazy '98** and **Torture Pit**, which say `Sonic`.
 Limits raised as errors: "Too many players for situation", "Too many checkpoints on this sit",
 "Too many trains", "Too many sims!", "FATAL! Too many objects!".
 
-Box `type 6` is a checkpoint; `type 10` is a moving object ("train"). In a Summit Rumble the
+Box `type 6` is a checkpoint; `type 10` is a moving object ("train"). Types 1 (post), 2 (barricade), 4 (pylon) and 10
+pick the collision sound; 8 and 9 are camera-facing (their length and width are made equal, a
+cylinder); 6, 7 and 8 never enter the collision list (0x5543c0).
+
+**The sky** (0x42b430): the LVL's sky `.RAW`, or by weather `DUSKSKY` (Dusk), `NITESKY` (Night),
+`CCLOUDS` (Rain), and `CLOUDY2` on an old-MTM level or when a file is missing. Its palette is
+not its own: entries 192-207 of the sky's `.ACT` are copied into the game palette at 230-245,
+the indices the sky art uses; in Cloudy weather those 16 colours are greyed.
+
+**Which boxes are drawn** (0x54ec00): a box with a model, whose `priority` line is at most the
+MONSTER.INI `detailLevel` (the stock SITs use 0, 1 and 2; the stock MONSTER.INI says 2). A
+checkpoint (type 6) is drawn only on an old-MTM level (LVL line 1 = 4) outside drag mode, and
+even then not when its model name's fourth letter is `O` (`CKBOX`, `CKBOXN`) unless a debug flag
+(0x640784) is set. So on MTM2's own tracks checkpoints are invisible. In a Summit Rumble the
 first two checkpoints are the scoring zone and the summit (SUMMIT1: 64x64x92 and 128x128x42).
 
 ---
@@ -952,6 +965,9 @@ texture cache statistics, sector and polygon counts, screenshots as PCX (`vel%s.
 - **`STARTUP.POD`**: palettes and fog for the software renderer (`FOG\VGA.LTE/.MAP`,
   `OLDMTM.LTE/.MAP`), `STARTUP\FONT.NDX`, `DATA\SUN.TXT`, shared art and models, a zero-byte
   `DEMO\DEMO1.DMO`, and the dead `TOURNEY\*.TRN`.
+- **Where files live** (stock PODs): textures `ART\*.RAW` with a same-stem `ART\*.ACT`, models
+  `MODELS\*.BIN`, sounds `SOUND\*.WAV`/`.KLP`, trucks `TRUCK\*.TRK`, tracks `WORLD\*.SIT` and
+  `LEVELS\*.LVL`, and the per-track files below in `DATA\`.
 - **Per track** (`DATA\<name>.*`): `.ANI` texture animation, `.RA0-.RA5` and `.CL0-.CL2` ground
   boxes, `.CLR`, `.LTE` (if missing the game re-shades: "Light source shading the world..."),
   `.TEX`, `.TTY`, `FOG\<name>.MAP`, `LEVELS\<name>.LVL`, `WORLD\<name>.SIT`, all read by
@@ -980,7 +996,9 @@ setFogColor, setColorTable16, sync, GetDisplayContext, ReleaseDisplayContext`
 
 The interface is immediate mode: the engine transforms, clips (`Clipper.c`) and lights
 polygons itself and hands the DLL screen-space polygons, particles and lines. Textures are
-uploaded as 16-bit via a colour table built from the 8-bit palettes. All four DLLs share PDB
+uploaded as 16-bit via a colour table built from the 8-bit palettes.
+Each texture's palette is the `.ACT` of the same stem in `ART\` (`cTextureMap::load`, 0x55a690),
+or the current palette (0x682a88) when there is none. All four DLLs share PDB
 paths under `D:\METAL\CRUSH2\test\`.
 
 ---

@@ -26,7 +26,9 @@ export default async function mount(container, context) {
   const trucks = catalog.trucks.filter((t) => showHiddenTrucks || !t.hidden);
   body.replaceChildren(...[
     el("h2", {}, `${tracks.length} tracks`),
-    el("ul", {}, ...tracks.map((t) => el("li", {}, `${t.name} `, el("span", { class: "muted" }, `${t.raceType}, ${t.locale}`)))),
+    el("ul", { class: "track-list" }, ...tracks.map((t) => el("li", {},
+      el("button", { class: "link", title: "Look around this track", onclick: () => context.router.go("dev-track", { track: t }) }, t.name),
+      " ", el("span", { class: "muted" }, `${t.raceType}, ${t.locale}`)))),
     el("h2", {}, `${trucks.length} trucks`),
     el("p", {}, trucks.map((t) => t.name).join(", ")),
     catalog.problems.length ? el("p", { class: "error" }, catalog.problems.join("; ")) : null,

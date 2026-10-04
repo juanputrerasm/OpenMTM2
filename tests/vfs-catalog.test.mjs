@@ -4,7 +4,7 @@ import { parsePod, readPodEntry, writePod1 } from "../src/vendor/openphotex/inde
 import { createVfs } from "../src/worker/vfs.js";
 import { buildCatalog } from "../src/worker/catalog.js";
 import { parsePodIni } from "../src/install/pod-ini.js";
-import { readStock, skipWithoutStock } from "./helpers/stock.mjs";
+import { skipWithoutStock, stockVfs } from "./helpers/stock.mjs";
 
 const text = (s) => new TextEncoder().encode(s);
 
@@ -27,11 +27,6 @@ test("the first mounted POD wins a path, lookups ignore case and slash style", a
     ["ART/A.RAW@FIRST.POD", "ART/B.RAW@SECOND.POD"]);
 });
 
-/** The stock install mounted from disk, in POD.INI order. */
-function stockVfs() {
-  const ini = parsePodIni(new TextDecoder().decode(readStock("POD.INI")));
-  return createVfs(ini.keys.map((key) => mountOf(key, readStock(key))));
-}
 
 test("the stock catalog has 15 MTM2 tracks, 2 of them hidden", { skip: skipWithoutStock("POD.INI") }, async () => {
   const { tracks, problems } = await buildCatalog(stockVfs());

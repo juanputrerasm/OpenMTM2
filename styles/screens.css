@@ -42,3 +42,16 @@
   background: var(--accent);
   transition: width 0.15s linear;
 }
+
+/* Developer track view (M3). */
+.track-list button.link {
+  background: none; border: none; padding: 0; color: inherit; font: inherit;
+  text-decoration: underline; cursor: pointer;
+}
+.dev-view { position: fixed; inset: 0; background: #000; }
+.dev-canvas { width: 100%; height: 100%; display: block; }
+.dev-status {
+  position: absolute; left: 12px; bottom: 8px; margin: 0; padding: 4px 8px;
+  color: #fff; background: rgba(0, 0, 0, 0.5); font: 13px/1.4 system-ui, sans-serif;
+}
+.dev-back { position: absolute; right: 12px; top: 12px; }

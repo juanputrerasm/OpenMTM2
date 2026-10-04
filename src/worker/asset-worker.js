@@ -1,6 +1,6 @@
 /*
   The asset worker: the install in OPFS, the mounted archives and the content catalogue.
-  Later milestones add track and truck preparation here.
+  It also prepares tracks for drawing (track-build.js).
 
   Protocol (src/shared/worker-client.js): requests `{ id, type, payload }`, replies
   `{ id, ok, payload | error }`, unsolicited events `{ event, payload }`, and `{ ready: true }`
@@ -8,6 +8,13 @@
 */
 import { copyInstall, mountInstall, readManifest, removeInstall } from "./install-store.js";
 import { buildCatalog } from "./catalog.js";
+import { buildTrackRender, transferablesOf } from "./track-build.js";
+
+/** A reply whose buffers move to the main thread instead of being copied. */
+const TRANSFER = Symbol("transfer");
+function withTransfer(payload, transfer) {
+  return { [TRANSFER]: transfer, payload };
+}
 
 let vfs = null;
 let catalog = null;
@@ -44,6 +51,12 @@ const handlers = {
     if (!catalog) catalog = await buildCatalog(await mounted());
     return catalog;
   },
+
+  /** Everything needed to draw a track; `{ path }` is its SIT, e.g. "WORLD\\TPARK.SIT". */
+  async trackRender({ path, detailLevel, raceType }) {
+    const build = await buildTrackRender(await mounted(), path, { detailLevel, raceType });
+    return withTransfer(build, transferablesOf(build));
+  },
 };
 
 self.addEventListener("message", async ({ data }) => {
@@ -51,7 +64,12 @@ self.addEventListener("message", async ({ data }) => {
   const handler = handlers[type];
   try {
     if (!handler) throw new Error(`Unknown request "${type}"`);
-    self.postMessage({ id, ok: true, payload: await handler(payload) });
+    const result = await handler(payload);
+    if (result && typeof result === "object" && TRANSFER in result) {
+      self.postMessage({ id, ok: true, payload: result.payload }, result[TRANSFER]);
+    } else {
+      self.postMessage({ id, ok: true, payload: result });
+    }
   } catch (err) {
     self.postMessage({ id, ok: false, error: err?.message ?? String(err) });
   }

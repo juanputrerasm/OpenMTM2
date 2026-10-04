@@ -9,6 +9,7 @@ const screens = {
   install: () => import("../ui/screens/install.js"),
   start: () => import("../ui/screens/start.js"),
   unsupported: () => import("../ui/screens/unsupported.js"),
+  "dev-track": () => import("../ui/screens/dev-track.js"),
 };
 
 /** What the game cannot run without. An empty list means the browser is fine. */
