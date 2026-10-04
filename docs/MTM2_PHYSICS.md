@@ -1244,3 +1244,26 @@ one.
 **A box with mass is dynamic even when it is immovable for the truck**: any box whose flag is set
 (mass at least 1) is stepped once something gives it a force or a velocity (14.16), so a heavy
 box can still be shoved by the corner test.
+
+### 14.18 Trains (`0x550c80`, `0x5543c0`, `0x502350`)
+
+A SIT box of **type 10** is a train car: the loader (`0x550c80`) lists it (at most 50) and keeps
+its `bvel` (`+0x294`, feet per second, world). Its mass is 0 in every stock SIT, so for a truck
+it is an immovable box (ground) that is never stepped; its own velocity (`+0x94`) stays 0, so the
+pair tests see it as standing still where it is that frame.
+
+Every frame, while the game runs (`0x63f4f0` set, not paused), the race clock (`0x6f5f98`) is
+above 0 and the simulation is not frozen (`0x63f524`, slew mode), each train moves before the
+frame's object list is built (`0x5543c0`), with `dt` the frame time:
+
+    x += bvel.x * dt,  z += bvel.z * dt
+    y  = groundBoxHeight(x, z, y) + height / 2
+    x, z wrapped into [0, 8192)
+
+**`groundBoxHeight(x, z, y)`** (`0x502350`): the cell is `(floor(x / 32), floor(z / 32))`, each
+`& 255`; when x lies exactly on a cell's west edge and that cell's ground-box top is lower than
+the west neighbour's, the neighbour is used, and the same for z and the north neighbour. When the
+cell has a ground box (lower and upper heights differ) and its lower height is below `y`, the
+height is the box's top; otherwise it is the terrain height (2.1), raised to the water level in
+Snow weather. So a train rides on the deck of a ground-box bridge it is above, and on the terrain
+everywhere else.

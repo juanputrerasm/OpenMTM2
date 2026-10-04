@@ -13,6 +13,7 @@ import { mtm2Sim as S } from "../vendor/openphotex/index.js";
 
 export const STEP = 1 / 60;
 
+
 /** A cheap fingerprint of a box's pose, to tell which boxes moved. */
 const poseKey = (b) => `${b.pos[0]},${b.pos[1]},${b.pos[2]},${b.matrix[2]},${b.matrix[5]},${b.matrix[6]}`;
 const MAX_CATCH_UP = 0.25;
@@ -56,9 +57,12 @@ export function createSession(init) {
   const ra0 = init.ra0 ? new Uint8Array(init.ra0) : null;
   const ra1 = init.ra1 ? new Uint8Array(init.ra1) : null;
   const levelBoxes = [];
+  /** Type 10 boxes and their SIT bvel (MTM2_PHYSICS.md 14.18). */
+  const trains = [];
   for (const b of init.boxes ?? []) {
     const box = S.createLevelBox(b, b.bounds);
     if (box) { box.sitIndex = b.sitIndex; levelBoxes.push(box); }
+    if (box && b.bvel) trains.push({ box, bvel: b.bvel });
   }
   const nearBoxes = [];
   const listed = [];
@@ -122,6 +126,11 @@ export function createSession(init) {
     keys.shiftUp = keys.shiftDown = false;
     if (joystick) joystick.shiftUp = joystick.shiftDown = false;
     previous = snapshot(state);
+    // Trains move before the frame's list is built; the dev session counts as racing from the start.
+    for (const { box, bvel } of trains) {
+      S.moveTrain(box, bvel, terrain, ra0, ra1, STEP, (init.weather ?? 0) === S.WEATHER.SNOW);
+      dirty.add(box);
+    }
     listBoxes();
     const before = listed.map(poseKey);
     S.stepTruck(state, params, ctx, STEP);

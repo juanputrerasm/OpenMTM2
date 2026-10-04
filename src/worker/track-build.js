@@ -81,6 +81,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     collisionBoxes.push({
       positionFt: box.positionFt, theta: box.theta, phi: box.phi, psi: box.psi, sizeFt: box.sizeFt,
       mass: box.mass, type: box.type, priority: box.priority ?? 0, bounds: name ? boundsOf[name] : null, sitIndex,
+      bvel: box.type === 10 && box.bvel ? [...box.bvel] : null,
     });
   }
 

@@ -153,3 +153,24 @@ test("driving into a pushable box moves it, and the session reports it for drawi
   assert.ok(Math.hypot(moved.pos[0] - bx, moved.pos[2] - bz) > 2, `box at ${moved.pos}`);
   assert.ok([...r.current.pos, ...moved.pos].every(Number.isFinite));
 });
+
+test("TPARK's train runs along its bvel and is reported for drawing (14.18)", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const build = await buildTrackRender(stockVfs(), "WORLD\\TPARK.SIT");
+  const cars = build.sim.boxes.filter((b) => b.type === 10);
+  assert.ok(cars.length > 0 && cars.every((b) => b.bvel), "the train's cars carry a bvel");
+  const truck = build.truckModels[build.sim.start.file];
+  const session = createSession({
+    heights: build.heights.buffer, clr: build.sim.clr.buffer, textureValues: build.sim.textureValues.buffer,
+    ra0: build.sim.ra0.buffer, ra1: build.sim.ra1.buffer, boxes: build.sim.boxes,
+    waterLevelFt: build.waterLevelFt, weather: 0, difficulty: 1,
+    truck: { anchors: truck.anchors, scrapePoints: truck.scrapePoints },
+    start: { pos: [100, 0, 100], heading: 0 },
+  });
+  const r = session.advance(0.25, {});
+  const first = cars[0];
+  const pose = r.boxes.find((b) => b.sitIndex === first.sitIndex);
+  assert.ok(pose, "the first car was reported");
+  const dx = pose.pos[0] - first.positionFt[0], dz = pose.pos[2] - first.positionFt[2];
+  const expected = Math.hypot(first.bvel[0], first.bvel[2]) * r.steps / 60;
+  assert.ok(Math.abs(Math.hypot(dx, dz) - expected) < 1e-6, `moved ${Math.hypot(dx, dz)} of ${expected}`);
+});
