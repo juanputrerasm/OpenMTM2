@@ -879,3 +879,61 @@ Tire contact points (hull points 13-16): the hub, moved half the tire width alon
 5. **Bottoming** (`0x46ba80`): for each wheel at full compression, the part of the world
    velocity into its ground normal (when negative) is reduced by 25%: `bvel -= M^T (n * vn *
    0.25)` summed over those wheels.
+
+### 14.12 Hull contacts (`0x475960` and the solvers)
+
+**The contact list** (built each step): points 1 to 16 whose stored depth is at least -0.25
+(hull points 1-12, then the tire contact points 13-16), in index order. Each contact point is
+moved onto the ground: `C = ipos + M P + n * storedDepth`, with its stored normal `n`. A tire
+contact only spins its wheel here (`0x4757f0`, visual); hull contacts also feed damage
+(`0x532140`) and sounds. When the list is empty nothing happens.
+
+`N` (the support) is always computed from `G = M * Fbody`, the gravity and drag force so far
+(tire forces are not in it yet): `N = -(G . nP)`, at least 0, with `nP` the solver's plane
+normal. `Q` is the vertical projection of the body origin onto that plane:
+`Q = ipos - (|nP . (ipos - C1)| / nP.y) * (0, 1, 0)`.
+
+- **1 contact:** `nP = n1`, all of `N` to it.
+- **2 contacts:** `nP = unit(n1 + n2)`. With `a = |unit(C2 - C1) . (Q - C1)|` and `b = |C2 -
+  C1| - a` (absolute), contact 1 takes `N a / (a + b)` and contact 2 `N b / (a + b)`. **This is
+  the reverse of the lever rule** (the farther `Q` is from contact 1, the more contact 1 carries);
+  section 6's description was wrong.
+- **3 contacts:** `nP = unit((C2 - C1) x (C3 - C1))`, turned upwards. `F` = foot of `Q` on edge
+  1-2; the line from `C3` through `Q` meets edge 1-2 at `X`
+  (`|QX| = |QF| / |cos(QF, C3Q)|`, `|FX| = sqrt(|QX|^2 - |QF|^2)`, signed along the edge).
+  Contact 3 takes `|QX| / (|QX| + |C3 Q|)`; of the rest, contact 1 takes the fraction
+  `|X - C2| / |C1 C2|` (at most 1) and contact 2 the remainder.
+- **4 or more:** the first four only. `nP` from contacts 1-3 as above; edges 1-2 and 3-4. `F` =
+  foot of `Q` on edge 1-2, `G` = foot on edge 3-4; the line from `F` through `Q` meets edge 3-4
+  at `X` (as above with `G` in place of `F`). Edge 1-2 takes `|QX| / (|QF| + |QX|)`, contact 2
+  `share * s / |C1 C2|` (`s` = position of `F` along the edge from `C1`) and contact 1 the rest;
+  edge 3-4 takes the remainder, contact 3 `share * |X - C4| / |C3 C4|`, contact 4 the rest.
+
+Every contact's force is applied **along its own normal** `n_i` at `C_i` (to body axes, with
+its moment about the origin added to the contact moment), then its friction.
+
+**Recovery** (`0x4695d0`), per contact: with `v_P = bvel + omega x P` (body),
+`s = 0.75 * min(|bvel| / 3, 1)`, the axis `u = unit(P x n_body)` and
+`I_u = I2 u.x^2 + I3 u.y^2 + I1 u.z^2`:
+
+    R = -(I_u * (n . M (s v_P))) / (dt |P|^2) * (N_i / sum N),  at least 0
+
+If the recoveries sum to more than the supports, they replace them.
+
+**Friction** (`0x477eb0`), per contact, with `v` = the point's world velocity (the rotation
+term only when there are fewer than 3 contacts), `vt = v - (v . n) n`:
+
+    limit = N_i * 0.5 * mu(surface at C_i) * weather
+    s = |vt + v|   (as the code adds them)
+    s == 0: f = (0, W, 0) minus its normal part, scaled by N_i / sum N; at most `limit`
+    else:   dir = (vt + v) / s; stop = (W / g) * (s / dt) * N_i / sum N
+            f = -min(limit, stop - dir . (0, W, 0) * N_i / sum N) * dir
+
+The contact force total (`+0x1760`) is the crash-damage input.
+
+### 14.13 Truck defaults (`0x4bd480`)
+
+Besides section 3.1: tire radius 3, width 4; each tire's lateral offset for the compression
+formula is +5 ft (right) and -5 ft (left); the axle articulation limit 0.5, bump stop 2.0; the
+CG offset (0, -3, 0); the default spring 2757.67 (front) and 3909 (rear) before the Garage
+setting; autopilot gains 1.2, 0.05, steering 22 and 6.66.
