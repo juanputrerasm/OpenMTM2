@@ -1133,3 +1133,44 @@ no model, unless the count at `0x646c40 + 0xc` is above 0 (its meaning is still 
 
 Pairs are then tested as in section 14.14, and whether a box is immovable or pushable for a
 truck follows section 7.3 (immovable when its mass is 0 or at least the truck's).
+
+### 14.16 Pushable boxes: their own motion (`0x470d70`, `0x4764d0`)
+
+The frame loop (`0x46c0e0`) runs, for each sub-step: every listed object's step by kind (box
+`0x470d70`, truck `0x470810`), the broadphase (`0x488d90`), every pair test (`0x489f90`), then the
+post-step (`0x471280`). A box's force and moment from the pair tests (`+0x78`, `+0x84`, world) are
+therefore applied in its **next** step, as for trucks.
+
+**Box step** (`0x470d70`), only for a box whose flag (`+0x0`, mass at least 1) is set, and only
+when its accumulated force or its velocity (`+0x94`) is non-zero (a box at rest with nothing
+pushing it is not stepped):
+
+1. The rotation is kept as last step's (`+0x28`).
+2. Mass `m` = the box mass, weight `W = 32.174 m`; gravity is `-W` along world y, in body axes.
+3. **Drag** (`0x474f90`, air only; the water areas of 14.7.1 are truck-only): face areas
+   `A_x = h l`, `A_y = w l`, `A_z = w h` (w width along x, h height, l length along z, full
+   sizes), every coefficient 1: `F_i = -(A_i * 0.002377) * 0.5 * v_i |v_i|`.
+4. **Aero damping** (`0x475180`), with `L` = the length, `q_bar = 0.0011885 |v|^2` at least
+   **0.11885** and every coefficient **-1** (a truck uses -0.2, -0.2, -0.4 and a floor of
+   26.74125): `M_x = -q A_y L q_bar`, `M_z = -p A_x L q_bar`, `M_y = -r A_x L q_bar`.
+5. **Contacts** (`0x475960`, the hull-contact solver of 14.12): the box's 8 corners whose depth is
+   at least -0.25 are the contact list, in corner order, but only when the last post-step pushed
+   the box out at least once (`+0x220`). The solver is the truck's, with the box's mass, weight
+   and inertias.
+6. Sums and integration as for a truck (14.8, 14.9), with the inertias
+   `I1 = m (h^2 + w^2) / 12`, `I2 = m (h^2 + l^2) / 12`, `I3 = m (w^2 + l^2) / 12` (the
+   truck's I1, I2, I3 slots: about z, x and y).
+7. The corner depths (`+0x200`) are reset to -9999.
+
+**Box post-step** (`0x4764d0`): the push-out count (`+0x220`) is cleared, then each corner 1 to
+8 in turn is probed against the terrain like a truck point (`0x46c9e0`, vertical depth `d` and
+normal `n`):
+
+- When `d * n_y` beats the corner's stored depth, it becomes the stored depth with `n` as the
+  corner's normal, and the push is `(d - 0.25) * n_y` when `d` is above 0.25 or below 0, else 0.
+- Otherwise the stored contact stays, and the push is `stored - 0.25 * n_y` (its own normal)
+  when the stored depth is above 0.25 or below 0, else 0.
+- When neither the push nor the stored depth is negative, the box moves by `push * n`, every
+  corner's depth drops by `n_i . (push * n)`, and the count goes up by one.
+
+A box whose flag is not set (immovable) only has its rotation matrix rebuilt from its angles.
