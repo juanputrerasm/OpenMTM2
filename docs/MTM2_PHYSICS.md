@@ -1040,3 +1040,57 @@ Besides section 3.1: tire radius 3, width 4; each tire's lateral offset for the 
 formula is +5 ft (right) and -5 ft (left); the axle articulation limit 0.5, bump stop 2.0; the
 CG offset (0, -3, 0); the default spring 2757.67 (front) and 3909 (rear) before the Garage
 setting; autopilot gains 1.2, 0.05, steering 22 and 6.66.
+
+### 14.14 Ground boxes and truck against an immovable box
+
+**Ground boxes** (`0x5543c0`, `0x553fa0`), every frame before the step: for each truck, the
+cells (col, row) in the 3 x 3 around its cell (`floor(x / 32)`, `floor(z / 32)`) whose lower
+(RA0) and upper (RA1) heights differ each become a box object: centre `(32 col + 16,
+lo + trunc((hi - lo) / 2), 32 row + 16)`, unrotated, 32 ft along x and z, `hi - lo` high,
+mass 0, with `lo` and `hi` the cell's heights in whole feet (`RA * 2`). A cell near two trucks
+makes two boxes. At most 600.
+
+**A box object** (`0x5495e0`) is centred on its position: half extents `a` (x), `c` (y), `b`
+(z) from its sizes, bounding radius `sqrt(a^2 + b^2 + c^2)`. A mass of 0 means immovable. For a
+truck, a box is **immovable** unless `0 < mass < truck weight / 32.174` (section 7.3).
+
+**Pair test** (`0x489f90`), after every object has stepped and before the post-step. For a
+truck and a box in sphere range (truck radius + box radius):
+
+1. **Early out** (`0x49f520`), in the box frame, with `d` the truck centre's offset from the box
+   centre and `v` the relative velocity (truck minus box): along each axis, only the part of `v`
+   moving toward the box counts, and the pair is skipped when
+   `d + R + v dt < min` (truck on the negative side) or `d - R + v dt > max` (positive side),
+   `R` the truck's radius.
+2. **Hull points 1 to 12** (`0x4a52b0`, `0x4aad00`). The ray starts at the truck's reference
+   point **last step**: `(truck - box) - (v_truck - v_box) dt + M (0, 0.5 * y3, 0)`, with `y3`
+   hull point 3's height, in the box frame. It runs through each hull point's current position.
+   Of the six face planes it crosses inside the face (at most two are counted), the nearest
+   with `t > 0` whose outward normal faces the ray (`dir . n < 0`) wins; the bottom face is
+   tried first, then top, front (+z), back (-z), left (-x), right (+x), later faces winning
+   ties. The point's depth is its current distance inside that face (negative when outside).
+   When it beats the point's stored depth, the depth and the face's outward normal (world)
+   become that point's contact, just like a terrain probe (section 14.10).
+3. **Each wheel** (`0x4a7fc0`), tires 13 to 16 in order, side -1, +1, -1, +1:
+   - **Suspension** (`0x4a6390`, `0x4a5da0`): a ray from last step's truck centre, moved half
+     the tire width along the axle (the articulated axle, as for the probe), toward the bottom
+     of the wheel at its static anchor (`anchor - (0, r, 0)`). The nearest crossed face wins,
+     with no direction test, and it counts only when its outward normal points mostly up in
+     the truck frame (`|n_y| > 0.5`); otherwise the wheel gets nothing from this box. When it
+     counts (`n_y > 0.5` in the truck frame), the contact point is the anchor moved half the
+     width out and `r` along the face's inward normal (its y and z in the truck frame,
+     normalised); its depth inside the face, divided by the inward normal's truck y and negated,
+     is a penetration along the truck's y. When that beats the wheel's penetration: a positive
+     one also sets the wheel's ground normal (the face's outward normal, world) and on-ground;
+     and the penetration and lever `hypot(r, anchor x + side w / 2)` are stored, as from the
+     wheel probe (section 14.11.3).
+   - **Tire contact point** (13 to 16): a ray from last step's truck centre (relative to the
+     box's last position) toward the hub now. The nearest crossed face wins, no direction test.
+     With `n` its outward normal in the truck frame: the point is the hub, moved `w / 2` toward
+     the face's side in x (`+` when `n_x < 0`), and `r * max(|sin atan2(n_z, n_y)|, |sin
+     atan2(n_x, n_y)|)` along `-(n_y, n_z)` normalised. Its depth inside the face, when it
+     beats the stored one, becomes that point's contact: depth, outward normal (world) and the
+     point itself (body).
+
+The post-step then pushes the truck out of these contacts like terrain ones (section 14.11).
+Pushable boxes (section 7.3), box corners against wheels, ramps and other trucks follow.
