@@ -192,14 +192,14 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
 **Moved on:** the per-track default lap count and `fastSimulateRemaining` (0.25 s ticks, sub-steps of at most 0.1 s) are part of M7's race flow; Summit Rumble scoring (MONSTER_EXE_ANALYSIS.md 6.3), Rally specifics, the reversed course and GOLD mode come with those modes; the missed-checkpoint announcer with the sounds (M11).
 
 ### M7: First playable (OpenMTM2)
-**Status: in progress.** Done: Start, Race select (Circuit tracks, the track's default laps, difficulty), Garage, the loading screen (`ART\DATA480.RAW`), the race (every truck drawn, the 3 s countdown, the game's HUD rows, missed-checkpoint and final-lap messages, pause, the camera key), "Determining times for remaining trucks" and Results, plus the game's Full Autopilot as a setting. A 1-lap Farm Road 29 race runs start to results in headless Chromium with no console errors. Left: the acceptance runs in Chrome, Firefox and Safari and the frame-rate check; the start-light model (`stlite.bin`) instead of the text lights; where the game takes its CPU trucks from (the catalogue flag `CRace::setupTrucks` reads; until then they are random) and the player's grid slot (slot 1 here).
+**Status: in progress.** Done: Start, Race select (Circuit tracks, the track's default laps, the number of opponents, difficulty), Garage, the game's choice of CPU trucks and its shuffled start grid, the loading screen (`ART\DATA480.RAW`), the race (every truck drawn, the 3 s countdown, the game's HUD rows, missed-checkpoint and final-lap messages, pause, the camera key), "Determining times for remaining trucks" and Results, plus the game's Full Autopilot as a setting. A 1-lap Farm Road 29 race runs start to results in headless Chromium with no console errors. Left: the acceptance runs in Chrome, Firefox and Safari and the frame-rate check; the start-light model (`stlite.bin`) instead of the text lights.
 
 - **Flow:** Start → Race select (Circuit tracks, laps, difficulty) → Garage (truck pick) → Loading screen (`DATA%d.RAW`) → race → "Determining times…" → Results.
 - **The race:** 3 s countdown with start lights; HUD with Place n/8, Lap n/n, time and best lap; pause; helicopter key.
-- **CPU trucks:** names Mark, Greg, Rich, Brett, Gaither, Chuck, Terry, Joe; random distinct trucks.
+- **CPU trucks:** names Mark, Greg, Rich, Brett, Gaither, Chuck, Terry, Joe; `defaultOpponents` random catalogue trucks (MONSTER_EXE_ANALYSIS.md 9).
 - **From M6:** the track's default lap count; `fastSimulateRemaining` for the trucks still racing when the player finishes.
 - **Accept:**
-  - Farm Road 29, 3 laps, Intermediate, against 7 CPU trucks, played start to finish in Chrome, Firefox and Safari.
+  - Farm Road 29, 3 laps, Intermediate, against 7 CPU trucks (7 opponents chosen), played start to finish in Chrome, Firefox and Safari.
   - Missing a checkpoint does not count the lap; flipped CPUs recover; the results order agrees with the sim.
   - No console errors and 60 fps on a mid-range laptop.
 
