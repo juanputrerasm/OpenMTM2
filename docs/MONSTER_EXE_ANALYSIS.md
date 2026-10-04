@@ -371,8 +371,12 @@ When the player finishes a single-player Circuit or Rally, the remaining CPU tru
 
 The countdown is driven from the autopilot code (0x4805d0): `racetime` against a 3.0 s limit
 (`0x647630 = 3.0`), the start-light model (`stlite.bin`, `STRTRED.RAW`/`STRTGRN.RAW`) and the
-"Get Ready!" commentary. At zero every truck's state goes to 4 (go) and `raceStartTime` is
-stamped. In a Rumble, `0x6407ac` is armed with the round length (`0x63f5c8` seconds); when it
+"Get Ready!" commentary. The value it sets is the **gear** (truck `+0x58c`, the index into the
+gear ratios at `+0x568`): every frame of the countdown, while the race clock is at most 3 s,
+every truck is put in **Park** (1), which sets both brakes and drives no wheel (MTM2_PHYSICS.md
+section 7), so revving the engine moves nobody. At zero every truck goes into **first** (4)
+and `raceStartTime` is stamped (`0x6f5f98`, from the player's driver); the CPU trucks also get
+two flags set (`+0x694` when `0x656950` is 0, and `+0xfb0`), not traced further. In a Rumble, `0x6407ac` is armed with the round length (`0x63f5c8` seconds); when it
 runs out the race loop ends the race.
 
 ### 6.2 Circuit and Rally: checkpoints and laps
