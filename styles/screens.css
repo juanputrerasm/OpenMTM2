@@ -59,3 +59,30 @@
   position: absolute; left: 12px; top: 8px; margin: 0; padding: 4px 8px;
   color: #fff; background: rgba(0, 0, 0, 0.5); font: 600 15px/1.4 ui-monospace, monospace;
 }
+
+/* Menus (M7). */
+.pick-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px; }
+.pick-list .pick { width: 100%; text-align: left; }
+.pick-list .pick.selected { outline: 2px solid var(--accent); }
+.form-row { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0; }
+.laps-input { width: 4em; }
+table.results { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+table.results th, table.results td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--panel-edge); }
+table.results tr.player td { color: var(--accent); font-weight: 600; }
+
+/* The race (M7). */
+.race-view { position: fixed; inset: 0; background: #000; overflow: hidden; }
+.race-canvas { width: 100%; height: 100%; display: block; }
+.race-loading { position: absolute; inset: 0; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+.race-loading-art { max-width: 100%; max-height: 100%; width: auto; height: 100%; object-fit: contain; image-rendering: pixelated; }
+.race-loading-text { position: absolute; bottom: 16px; margin: 0; color: #fff; font: 600 16px/1.4 system-ui, sans-serif; text-shadow: 0 1px 2px #000; }
+.race-hud { position: absolute; left: 6px; min-width: 150px; padding: 2px 6px; color: #fff; background: rgba(0, 0, 0, 0.45); font: 600 15px/1.35 ui-monospace, monospace; }
+.race-hud-times { top: 4px; }
+.race-hud-place { top: 72px; }
+.race-hud-row { display: flex; justify-content: space-between; gap: 12px; }
+.race-lights { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); padding: 6px 22px; border-radius: 8px; background: rgba(0, 0, 0, 0.6); color: #e22; font: 800 56px/1 system-ui, sans-serif; }
+.race-lights.go { color: #2d2; }
+.race-message { position: absolute; left: 50%; top: 34%; transform: translateX(-50%); margin: 0; padding: 6px 14px; color: #fff; background: rgba(0, 0, 0, 0.55); font: 700 22px/1.3 system-ui, sans-serif; text-align: center; }
+.race-pause { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(0, 0, 0, 0.55); }
+.race-pause[hidden], .race-lights[hidden], .race-message[hidden], .race-loading[hidden] { display: none; }
+.race-pause-title { margin: 0; color: #fff; font: 800 36px/1 system-ui, sans-serif; text-transform: uppercase; }

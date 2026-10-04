@@ -8,6 +8,10 @@ import { WorkerClient } from "../shared/worker-client.js";
 const screens = {
   install: () => import("../ui/screens/install.js"),
   start: () => import("../ui/screens/start.js"),
+  "race-select": () => import("../ui/screens/race-select.js"),
+  garage: () => import("../ui/screens/garage.js"),
+  race: () => import("../ui/screens/race.js"),
+  results: () => import("../ui/screens/results.js"),
   unsupported: () => import("../ui/screens/unsupported.js"),
   "dev-track": () => import("../ui/screens/dev-track.js"),
   "dev-drive": () => import("../ui/screens/dev-drive.js"),
