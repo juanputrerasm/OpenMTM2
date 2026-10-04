@@ -1,0 +1,54 @@
+:root {
+  --bg: #0d1013;
+  --panel: #171c21;
+  --panel-edge: #2a323a;
+  --text: #e8e4d8;
+  --muted: #9aa3ab;
+  --accent: #f2a516;
+  --accent-text: #1a1206;
+  --danger: #e0533d;
+  --radius: 8px;
+  --gap: 16px;
+  color-scheme: dark;
+  font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#app {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+h1, h2, h3 { margin: 0 0 0.5em; letter-spacing: 0.02em; }
+p { line-height: 1.5; }
+a { color: var(--accent); }
+
+button {
+  font: inherit;
+  padding: 0.6em 1.2em;
+  border-radius: var(--radius);
+  border: 1px solid var(--panel-edge);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: bold;
+}
+
+.muted { color: var(--muted); }
+.error { color: var(--danger); }

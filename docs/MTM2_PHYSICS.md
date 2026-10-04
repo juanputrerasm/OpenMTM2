@@ -1,0 +1,710 @@
+# Monster Truck Madness 2: the simulation
+
+A specification of how MONSTER.EXE 2.00.42 simulates trucks, ground, water and collisions,
+written so that OpenMTM2 (and OpenPhotex's simulation module) can reproduce it without copying
+game code. It is the physics companion to `MONSTER_EXE_ANALYSIS.md`, whose build notes,
+address conventions and truck object table (section 8.3) it relies on.
+
+**Confidence.** Everything below was read from the decompiled code of the routines named in
+brackets. Items marked **hypothesis** were inferred, not traced. Every rule here comes from the
+code; nothing was fitted to measurements. Replays are useful only as a regression check once the
+port runs. Section 13 lists the few details still open.
+
+**JSTrackViewer's Test Drive is not a source of truth.** Section 11 lists where it differs.
+
+---
+
+## 1. Units, frames and conventions
+
+| Quantity | Unit |
+|---|---|
+| Length | ft |
+| Velocity | ft/s |
+| Angles | rad |
+| Force | lbf |
+| Weight | lb (what the data stores) |
+| Mass | slug = lb / 32.174 |
+| Inertia | slug ft2 |
+| Time | 16.16 fixed point in the game loop, float seconds in the simulation |
+
+**World axes:** x and z horizontal, **y up**.
+
+**Body axes:** x right, y up, **z forward**.
+
+**Orientation:** Euler angles `theta` (pitch about x), `phi` (roll about z), `psi` (yaw about y).
+The body-to-world matrix is `M = Ry(psi) * Rx(theta) * Rz(phi)`, stored row-major; the forward
+column is `(cos theta sin psi, -sin theta, cos theta cos psi)`. `world = M * body`,
+`body = M^T * world`.
+
+**Angular rates** keep the aerospace names but on MTM's axes: `p` = roll rate (about body z),
+`q` = pitch rate (about body x), `r` = yaw rate (about body y).
+
+**State per truck:** `ipos` (world, ft), `bvel` (body, ft/s), `ivel` (world velocity, derived),
+`theta, phi, psi`, `p, q, r`.
+
+---
+
+## 2. The world the truck touches
+
+### 2.1 Terrain height (`0x501820`)
+
+- 256 x 256 cells of **32 ft**, wrapping at 8192 ft. Positions are converted to 1/256 ft integers.
+- Each cell is split into **two triangles**. The diagonal **alternates in a checkerboard**:
+  - cells where `(row + col)` is even split along (r, c) to (r+1, c+1);
+  - odd cells split along the other diagonal.
+- Height is **linear inside the triangle** (not bilinear). With `fx`, `fz` the position inside
+  the cell (0..1) and `h(r, c)` the corner heights:
+
+      even cell:  fz <  fx:  h = h00 + (h01 - h00) fx + (h11 - h01) fz
+                  fz >= fx:  h = h00 + (h11 - h10) fx + (h10 - h00) fz
+      odd cell:   fz < 1 - fx:  h = h01 + (h00 - h01)(1 - fx) + (h10 - h00) fz
+                  otherwise:    h = h01 + (h10 - h11)(1 - fx) + (h11 - h01) fz
+
+  (`h01` is the corner one column over, `h10` one row down.) **Rows follow z, columns follow
+  x:** the height query is called as `(z, x)` (`0x54feb0`), and the level loader (`0x4f78d0`)
+  copies the `.RAW` heightfield into the grid byte by byte in file order (`byte << 7`), so the
+  height of corner `(row, col)` is `RAW[row * 256 + col] * 2` ft with no flip. The `.CLR` cell
+  words are read the same way. Positions are truncated to 1/256 ft before the lookup.
+- **Ramps** (sim kind 2) override the terrain where they stand: a ramp is an inclined box whose
+  height falls linearly along its length (`0x54feb0`).
+- **Snow** (weather 5): terrain below the water level is raised to the water level, so frozen
+  water is drivable (`0x5017e0`).
+
+### 2.2 Terrain normal (`0x501bc0`)
+
+The flat normal of the same triangle, `normalize(dh_x, 32, dh_z)`. Straight up on frozen water.
+
+### 2.3 Surface types (`0x503060`, `0x469fe0`)
+
+The surface at a point is the `.TTY` value of the texture under it (OpenPhotex reads `.TTY`):
+`type * 100 + depth`.
+
+- Inside a **ground box** (section 2.5), the ground box's top texture is used.
+- **At or below the water level** (terrain height `<=` level, integer height units) the surface
+  is 1300 (deep water), or 800 (ice) in Snow. There is no "level has water" guard: on a level
+  without water the level is 0, so ground at exactly 0 ft reads deep water. Ground boxes skip
+  this rule.
+- **Texture to type** (`0x5028f0`): each `.TTY` line `NAME,value` is matched (`strcmp`) against
+  the `.TEX` names and attached to the first texture of that name; per texture the last matching
+  entry wins, a texture without one gets 0 (Default), and a level with an empty `.TTY` gets 200
+  (Dirt) everywhere. On the terrain the texture is the cell's `.CLR` word, bits 0-11.
+- **Depth is in inches**: a wheel probe sinks by `depth / 12` ft (`0x46c9e0`).
+
+Per type, the base friction coefficient and the fluid density used for drag:
+
+| Type | Traxx name | mu | Drag density |
+|---|---|---|---|
+| 1 | Cement | 1.0 | 0.002377 |
+| 2 | Dirt | 0.9 | 0.002377 |
+| 3 | Water | 0.4 | **0.15** |
+| 4 | Mud | 0.4 | 0.002377 |
+| 5 | Sand | 0.7 | 0.002377 |
+| 6 | Grass | 0.7 | 0.002377 |
+| 7 | Gravel | 0.6 | 0.002377 |
+| 8 | Ice | 0.2 | 0.002377 |
+| 9 | Snow | 0.3 | 0.002377 |
+| 10 | Metal | 0.8 | 0.002377 |
+| 11 | Wood | 0.8 | 0.002377 |
+| 12 | Rocks | 0.6 | 0.002377 |
+| 13 | Deep water (below water level) | 0.4 | **0.15** |
+| other | Default | 1.0 | 0.002377 |
+
+0.002377 slug/ft3 is sea-level air. Water's 0.15 is a game value, not real water (1.94).
+
+The tire-cut factor table (MONSTER_EXE_ANALYSIS.md section 8.6) multiplies mu per tire.
+
+**Weather** multiplies every grip value: Rain 0.8, Snow 0.6, otherwise 1.0 (`0x6cef70`).
+
+### 2.4 Water
+
+- The water level comes from the LVL `!waterHeight`, in 2 ft steps (`0x5032e0`; 0 = no water,
+  and the level then stays 0). Height units are 1/64 ft (`step << 7`).
+- **The water bobs** during a race (`0x505740`, while the race loop runs and the weather is not
+  Snow): `level = base + trunc(trunc(sin(phase) / 256) / 4)` units, i.e. +-1 ft, with
+  `phase += dt / 8` (16.16, wrapped to 16 bits): one cycle every 8 s. `sin` is the game's table
+  `trunc(sin(i * 2 pi / 256) * 65536)`, i = 0..256 (`0x526440`), interpolated on the phase's
+  low byte (`0x5264c0`). In Snow the level stays at the base.
+- Each hull point and wheel records its water depth.
+- **There is no buoyancy.** Water only adds drag (section 5.3).
+- Entering water above 14.67 ft/s plays the splash.
+
+### 2.5 Ground boxes (`0x553fa0`)
+
+The `.RA0`/`.RA1` layers (bottom and top height x128 per cell, with `.CL0` textures) **are
+physical**, built on demand. Around each truck, every cell in the 3 x 3 neighbourhood whose
+bottom and top differ becomes a temporary box object: 32 x 32 ft footprint, height top minus
+bottom, centred at mid-height, unrotated, mass 0 (immovable). At most 600 boxes. These collide
+through the ordinary truck-versus-box code (section 7).
+
+---
+
+## 3. The truck
+
+### 3.1 Parameters
+
+Every truck gets the same physical constants (`0x4bd480`). The TRK supplies only geometry:
+the four tire `static_bpos` anchors and the 12 scrape points.
+
+| Parameter | Value |
+|---|---|
+| Body weight (+0x1040) | 6000 lb |
+| Front and rear axle weight (+0x2ac, +0x51c) | 2000 lb each |
+| Total | 10,000 lb, 310.8 slug |
+| Inertia: roll axis I1 (+0x1044), pitch axis I2 (+0x1048), yaw axis I3 (+0x104c) | 5000, 5000, 7500 slug ft2 |
+| Centre of gravity offset (+0x10a0) | (0, -3, 0) ft from the body origin |
+| Tire radius (tire +0x6c) | 3.0 ft |
+| Tire width (tire +0x74) | 4.0 ft |
+| Hub anchors (tire +0x30) | from TRK `static_bpos`; defaults (+-4, -4, +5.67 / -4.0) |
+| Wheelbase | **clamped to 11.6 ft, per side** (`0x4bd480`): for the right pair (FR, RR) and the left pair (FL, RL), if `abs(z_front) + abs(z_rear) - 11.6 > 0`, the front z moves back and the rear z forward by half the excess, then a front z below 0 becomes 0 and a rear z above 0 becomes 0 (float32). The TRK z values are kept at +0x1734 for drawing. The axle positions (+0x294 front, +0x504 rear) are the clamped right-side z values. |
+| Axle articulation limit (axle +0x234) | +-0.5 rad |
+| Suspension travel to bump stop (axle +0x238) | 2.0 ft |
+| Torque split (axle +0x26c) | front 0.2, rear 0.8 |
+| Drive type (+0x1074) | 4 = four-wheel drive |
+| Aero areas (+0x1050, +0x1054, +0x1058) | x 125, y 150, z 75 ft2 |
+| Aero coefficients (+0x105c, +0x1060, +0x1064) | y 1.5, z 1.5, x 5 |
+| Engine, gears, transfer, shifting | MONSTER_EXE_ANALYSIS.md section 8.4 and 8.5 |
+
+### 3.2 Garage settings
+
+- **Transfer gear:** a table indexed by the Garage value, then scaled by difficulty
+  (MONSTER_EXE_ANALYSIS.md 8.5).
+- **Suspension** sets the static sag `s`: soft 1.0, medium 0.75, hard 0.5 ft.
+
+      W       = front axle + body + rear axle weight
+      k_front = (-z_rear / (z_front - z_rear)) * W * 0.5 / s     lb/ft per wheel
+      k_rear  = ( z_front / (z_front - z_rear)) * W * 0.5 / s
+      c       = 3.5 * sqrt(k)                                    lb s/ft
+
+  So at rest each wheel sits `s` ft into its travel. With the default geometry, soft front is
+  2068 lb/ft and the damping ratio is about 0.22.
+- **Tire cut:** 0 shallow, 1 medium, 2 deep.
+
+### 3.3 The 16 contact points
+
+| Points | What |
+|---|---|
+| 1 to 12 | hull points from the TRK scrape points (fixed in the body); also the 12 damage zones |
+| 13 to 16 | the four tire contact points (FR, FL, RR, RL), recomputed every step |
+
+---
+
+## 4. One simulation step
+
+Order of one step for a truck (`0x470810`), with `dt` the substep (MONSTER_EXE_ANALYSIS.md
+section 8.1: one step per frame, split only when a frame exceeds 0.1 s). While `heliTimer`
+(+0x1078) is positive the helicopter carries the truck instead (`0x46ed90`) and steps 1 to 9 are
+skipped.
+
+1. **Controls:** player input or autopilot (MONSTER_EXE_ANALYSIS.md sections 7 and 9).
+2. **Tire contact geometry** (`0x47f7d0` x4): each tire's position and velocity in body axes,
+   including `omega x r`.
+3. **Gearbox** (`0x477520`): instant shifts (section 6).
+4. **Gravity:** `F_g = M^T (0, -W, 0)`.
+5. **Drag** (section 5.3) and **aerodynamic damping** (section 5.4).
+6. **Tires** (`0x47c870`): normal load, longitudinal and lateral forces (section 5).
+7. **Hull contacts** (`0x475960`, section 6).
+8. **Sum forces and moments** (`0x46cfe0`, `0x46d270`; section 8).
+9. **Integrate** (`0x46d730`, `0x46da30`, `0x46e200`; section 9).
+
+After every object has stepped: broadphase and collision response (section 7), then the
+**post-step** (`0x471280`, section 10).
+
+---
+
+## 5. Tires
+
+### 5.1 Normal load (`0x47d110`)
+
+    load       = k * compression - c * extensionRate        (>= 0)
+    mu_tire    = cutFactor(type, cut) * K * mu(type) * weather
+    gripLimit  = mu_tire * (load along the ground normal)
+
+`K` = 1.75; 2.0 for CPU trucks on Professional on a `Sonic` track (`0x647634`). The load is
+applied along the ground normal at the tire (`0x47d310`).
+
+### 5.2 Longitudinal force (`0x47dce0`)
+
+The wheel frame is the body frame tilted by the ground under the tire (pitch
+`atan2(n.z, n.y)`, roll `atan2(n.x, n.y)` of the body-frame normal), then turned by the steering
+angle. `v_fwd` and `v_lat` are the contact velocity in that frame.
+
+**On the ground:**
+
+- **No longitudinal slip.** Wheel spin is exactly `v_fwd / radius`.
+- **Engine rpm**:
+
+      target = |transfer * gear * v_fwd * 60 / (radius * 2 pi)|, at least 800
+               (in Park and Neutral: throttle * rpmLimit)
+      rpm   += (target - rpm) * dt                 capped at the limit
+
+  The update is inside the per-tire routine, so it runs four times a step, once per tire with
+  that tire's target (FR, FL, RR, RL).
+
+- **Torque:** `T = throttle * 1700 * (-2.367e-8 rpm^2 + 9.467e-5 rpm + 0.905)`.
+  - x0.9 for a human player with autoShift;
+  - x1.1 for CPU trucks on Professional on a `Sonic` track.
+- **Drive force per wheel:** `transfer * gear * T / radius * axleSplit * 0.5`.
+- **Rolling and brake drag:** `(0.02 + 0.8 * brake) * gripLimit`, opposing `v_fwd`.
+- **Static hold below 14.67 ft/s:** the drag is replaced by whatever force cancels this
+  wheel's share of the slope pull plus `-(v_fwd / dt) * mass * share`, if that fits within the
+  drag. This is what stops a truck dead and holds it on slopes.
+- **Clamp:** drive plus drag is limited to **+-0.8 * gripLimit**.
+- **Friction circle**, Intermediate and Professional only: the lateral grip left is
+  `sqrt(gripLimit^2 - F_lon^2)`. **On Rookie the lateral grip is not reduced.**
+
+**In the air:** the target is `gear * spin * transfer * 60 / 2 pi`, at least `throttle * limit`
+and at most the limit, then moved towards 0 by `(16000 * brake + 3200) * dt` without crossing it
+(no 800 floor); rpm chases it as above (not capped), and the wheel then spins at the rpm-implied
+rate `rpm * 2 pi / (gear * transfer * 60)` when the gear ratio is not 0.
+
+**Torque gains** (`+0x176c` marks a human driver): x1.1 when not human, Professional and the
+Sonic flag (`0x6407d8`); x0.9 when human with autoShift. Drive force needs drive type 4.
+
+**Gearbox** (`0x477520`), instant shifts:
+
+- autoShift: up when rpm > 7000 in first or second; down when rpm < 3500 in second or third;
+  shift requests are ignored.
+- manual: a +1 request shifts up to third; a -1 request shifts down from second or third at any
+  speed, and from first, Neutral or Reverse only when `bvel.z <= 0`.
+- in a drag race while the truck has passed fewer than 3 segments, Park and Neutral are adjacent
+  (Park up goes to Neutral, Neutral down to Park).
+- the request is then cleared; in Park both brakes are set to 1.
+
+### 5.3 Lateral force (`0x47eb30`)
+
+    alpha = atan2(v_lat, v_fwd), with |v_fwd| floored at 10 ft/s
+    F_lat = lateralGrip * C(alpha) + slope share
+
+`C(alpha)`, linear between points (degrees), opposing the slip:
+
+| alpha | 0 | 5 | 10 | 15 | 20 | 25 | 90 |
+|---|---|---|---|---|---|---|---|
+| C | 0 | 0.5 | 0.8 | 0.9 | 1.0 | 1.0 | 0.95 |
+
+The table continues symmetrically to +-180 degrees (rolling backwards: 1.0 at 155 and 160,
+0.9 at 167.6, 0.8 at 170, 0.5 at 175, 0 at 180).
+The table is stored in radians at `0x647568` as 25 (alpha, C) float pairs with four-decimal
+angles (0.0873, 0.1745, ..., 3.1416), signed so that C opposes the slip; its 90 degree points are
+-1.5707 and +1.5708.
+
+Below 14.67 ft/s, `|F_lat| <= gripLimit` and the same static hold applies.
+
+Each tire force is applied **at the hub/axle height**, not at the contact patch (section 8).
+
+### 5.4 Drag and aerodynamic damping (`0x474f90`, `0x4740c0`, `0x475180`)
+
+Per body axis `i`:
+
+    F_i = -0.5 * rhoA_i * Cd_i * v_i * |v_i|
+
+- `rhoA_i` adds up, over the area facing that axis (x 125, y 150, z 75 ft2), the fluid density
+  of each part. Submerged wheel area (`0x473f10`) and submerged hull faces (`0x4726a0`) use 0.15;
+  the rest uses 0.002377.
+- Off-centre water drag also produces moments.
+
+Damping moments against rotation:
+
+    q_bar  = 0.0011885 * |v|^2, at least its value at 150 ft/s
+    M_roll  = -0.2 * p * A_x * L * q_bar
+    M_pitch = -0.2 * q * A_y * L * q_bar
+    M_yaw   = -0.4 * r * A_x * L * q_bar
+
+`L` = twice the front hub z.
+
+---
+
+## 6. Hull contacts with the ground (`0x475960`)
+
+1. A point is **in contact** when its clearance is above -0.25 ft. Clearances come from the
+   previous post-step.
+2. Contacts on hull points 1 to 12 trigger damage (MONSTER_EXE_ANALYSIS.md section 10) and
+   scrape sounds.
+3. **At most four contacts are used, in index order**, so hull points take precedence over the
+   wheels.
+4. Solver by count: 1 (inline), 2 (`0x478cd0`), 3 (`0x4798a0`), 4 (`0x47aab0`). All four are
+   **force-based quasi-statics, not impulses**.
+
+   **Support.** `N` = the net external force (gravity and drag, world axes) pushed into the
+   contact plane's normal, at least 0. It is split by lever rules about `Q`, the **vertical
+   projection of the body origin** (`ipos`, not the CG) onto the contact plane:
+
+   - 1 contact: all of `N`, along that contact's normal.
+   - 2 contacts: the normal is the average of the two; `N1 = N * d2 / (d1 + d2)` and
+     `N2 = N * d1 / (d1 + d2)`, with `d` the distances along the line between them.
+   - 3 contacts: the plane through the three points, its normal turned upwards. The line from
+     contact 3 through `Q` meets edge 1-2 at `X`. Contact 3 takes `|QX| / |P3 X|`; contacts 1 and
+     2 share the rest by where `X` lies, contact 1 taking `|X P2| / |P1 P2|`.
+   - 4 contacts: the plane through contacts 1, 2, 3, treating 1-2 and 3-4 as two edges (for the
+     wheels these are the front and rear axles). From the foot of `Q` on edge 1-2 a line
+     through `Q` meets edge 3-4 at `X`. Edge 1-2 takes `|QX| / (|QX| + |Q foot|)` and edge 3-4
+     the rest; each edge splits its share by the lever rule at the foot or at `X`.
+
+   **Recovery** per contact (`0x4695d0`): the force that cancels the contact point's velocity
+   along the normal in one step, using the inertia about the lever arm, scaled by
+   `0.75 * min(|v| / 3, 1)` and by the contact's share. If the recovery total exceeds the
+   support total, the recovery forces are used instead.
+
+   **Friction** per contact (`0x477eb0`): opposing the point's tangential velocity, at most
+   `0.5 * mu * weather * N` (`0x647638`) and at most the force that stops it in one step. When
+   the point is not sliding it holds against the tangential part of gravity.
+5. Each contact force is applied at its point, so it produces a moment.
+6. The total contact force magnitude is the crash-damage input (+0x1760).
+
+---
+
+## 7. Collisions with objects
+
+### 7.1 The rule behind all of them
+
+**Anything that does not move becomes ground.** When a truck point or wheel meets the top of an
+immovable object, the contact is written into the same tables the terrain probe fills (depth,
+normal, `on_gnd`), and the ground model of sections 5, 6 and 10 handles it: suspension, grip,
+support, friction, push-out. Only two kinds of contact exchange forces between bodies: a truck
+against a **pushable box**, and a **truck against a truck**.
+
+### 7.2 Broadphase (`0x488d90`)
+
+- Every pair of simulated objects is tested by **bounding sphere**. Kinds: 1 box (movable or
+  not), 2 ramp, 3 (**hypothesis** static object), 4 truck, 5 top-crush car.
+- Pairs are unique, stored in per-object lists (50 slots).
+- A truck in helicopter flight is skipped.
+
+### 7.3 Truck against box (`0x489f90` with `0x4a52b0`)
+
+1. **Mass class.** A box **lighter than the truck** (mass in slugs < truck weight / 32.174) is
+   pushable, with effective mass `max(box mass, 1)`. A heavier box, or mass 0, is **immovable**.
+   Ground boxes (2.5) are immovable boxes.
+2. **Early out** (`0x49f520`): a separating-axis test in the box's frame, padded by approach
+   speed * dt.
+3. **Hull points 1 to 12 inside the box** (`0x4aad00`), in the box's frame:
+   - immovable box: the penetration and the face normal become that hull point's **ground
+     contact**;
+   - pushable box: the box is moved out by the penetration, then a force
+     `F = m_eff * (relative velocity of the two points along the face normal) / dt` acts on the
+     box, and `-F` on the truck, each with its moment about the body's CG.
+4. **Wheels against the box** (`0x4a7fc0`, `0x4a6390`, `0x4a5da0`): the wheel hub's movement
+   this step is swept against the box faces (so fast wheels cannot tunnel). When the face met
+   points mostly up in the truck's frame (body-frame normal y beyond 0.5), it becomes the
+   wheel's ground: penetration, contact normal, `on_gnd`, lever arm, exactly as from the
+   terrain probe. That is how trucks **drive on boxes**.
+5. **Box corners against the wheels** (`0x49f920`): a corner inside a wheel pushes a pushable
+   box out and applies the same force law.
+
+The force law is **perfectly inelastic**: the closing speed along the normal is removed in one
+step, with no bounce. Forces go into each body's external accumulators (truck +0xfbc force,
++0xfc8 moment) and are applied on the next integration.
+
+### 7.4 Truck against truck (`0x4894a0`, `0x491e20`)
+
+- The pair is ordered by speed. Each hull point of one truck is tested against the other
+  truck's hull box (the box spanned by its 12 scrape points, assumed aligned with its body
+  axes).
+- Effective mass = the **lighter** truck's mass.
+- The force removes **half** the relative velocity along the normal from each truck:
+  `F = m_eff * 0.5 * |v_rel . n| / dt`, equal and opposite, with moments. For equal masses the
+  collision is perfectly inelastic.
+- The faster truck is moved out by the penetration plus 0.05 ft.
+- When the contact is on a tire, an extra force `0.05 * m_eff * (r * omega of the touching
+  tires) / dt` acts along the contact tangent, so a spinning wheel climbs the other truck.
+
+### 7.5 Ramps (`0x4b2580`, `0x4b17c0`)
+
+- The **top** of a ramp is ground through the height query (2.1), for wheels and hull points.
+- The **sides** are walls: a hull point or wheel crossing a side is pushed out along the side
+  normal plus a small margin, and gets the inelastic force with the truck's own mass
+  (`0x48c8a0`).
+
+### 7.6 Top-crush cars (`0x4a58b0`, `0x4a2d80`, `0x4aa9b0`)
+
+- The car is **ground** for the truck: its box edges against the truck's hull box produce
+  contacts written into the hull-contact table (depth and normal at the hull corner nearest
+  the contact, chosen by octant, `0x496da0`).
+- **Crushing:** when a truck point or wheel sinks more than **0.625 ft** (0.25 + 0.375) into
+  the car's roof, the roof comes down by **15% of the excess per step**, never below half the
+  car's height. The truck's penetration drops by the same amount, and the crushed fraction
+  `1 - (roof - base) / height` drives the car's keyframed crush animation.
+
+### 7.7 Box against box (`0x49f0d0`, `0x4ae1d0`)
+
+A box's corners inside another box become that box's **ground contacts** (depth and face
+normal), so loose boxes rest on and stack against each other through the box version of the
+contact solver.
+
+Trains are boxes with a fixed `bvel`.
+
+---
+
+## 8. Forces and moments (`0x46cfe0`, `0x46d270`)
+
+Total force in body axes:
+
+    F = gravity + drag + sum(tire forces) + contact forces + external collision forces
+
+`|F|` is clamped to 500,000 lbf.
+
+Moments are taken about the CG (+0x10a0):
+
+    M = aero damping + contact moments + external moments + accumulated impulse moments (+0x1098)
+        + sum over tires of r_i x F_i
+
+For the tire terms, the lever arm uses the **hub position** for vertical and longitudinal forces
+and the **axle height** for lateral forces.
+
+---
+
+## 9. Integration
+
+### 9.1 Rotation (`0x46d730`)
+
+Euler's equations, each result clamped to **+-13 rad/s2**:
+
+    p_dot = ((I2 - I3) / I1) q r + M_roll  / I1
+    q_dot = ((I3 - I1) / I2) r p + M_pitch / I2
+    r_dot = ((I1 - I2) / I3) p q + M_yaw   / I3
+
+### 9.2 Linear
+
+    a = F / m + transport terms (v x omega)
+    bvel += a * dt
+    p, q, r += rates * dt
+
+### 9.3 Position (`0x46da30`)
+
+    ivel  = M * bvel
+    ipos += ivel * dt
+
+**Rubber-banding:** on Rookie and Intermediate, the truck in **last place** integrates its
+position with its velocity scaled by `1 + 0.00005 * d`, where `d` is the distance to the truck
+one place ahead (capped at 1000 ft, so at most +5%). Its velocity is not changed.
+
+**At rest:** below 0.1 ft/s, or below 0.5 ft/s with 3 or more contacts, velocity and rates are
+zeroed and the stuck logic in section 10.3 is consulted.
+
+### 9.4 Orientation (`0x46e200`)
+
+    theta_dot = q cos(phi) - r sin(phi)
+    phi_dot   = p + tan(theta) (q sin(phi) + r cos(phi))
+    psi_dot   = (q sin(phi) + r cos(phi)) / cos(theta)
+
+`theta` and `phi` wrap to [-pi, pi]; `psi` wraps to [0, 2 pi).
+
+**Gimbal guard:** when `|theta|` > 1.05 rad, the step is integrated from zero angles in the
+current frame and the Euler angles are re-extracted from the combined matrix.
+
+---
+
+## 10. Post-step (`0x471280`)
+
+### 10.1 Hull push-out (`0x476810`)
+
+All 16 points are probed against the ground (section 2). A point deeper than **0.25 ft** moves
+the whole truck out along the ground normal by the excess, keeping a 0.25 ft skin. The other
+points' recorded depths are updated, and the contact count is stored for the next step.
+
+### 10.2 Wheels and solid axles (`0x476b80`, `0x47bfa0`, `0x47fa20`)
+
+1. Each wheel is probed as a circle against the ground. It records penetration, normal and
+   `on_gnd`. The contact point is the hub, offset half the tire width along the axle and
+   lowered by `radius * max(|sin pitch|, |sin roll|)` of the ground.
+2. The axle with the deeper wheel is solved first. Each axle is a **rigid beam** with vertical
+   travel (axle +0x244) and articulation (axle +0x228, the SIT's `faxle.angle`):
+   - articulation = `atan((pen_R - pen_L) / (w_R + w_L))`, limited to +-0.5 rad;
+   - per wheel, `compression = travel - static hub height + lateral offset * sin(articulation)`;
+   - the axle is raised by the remaining penetration, up to the 2 ft bump stop. Anything
+     beyond the bump stop **lifts the whole truck** along the ground normal;
+   - extension rate = (old - new compression) / dt, which feeds the damper (5.1).
+3. **Bottoming damper** (`0x46ba80`): for each wheel at full compression that is moving into
+   the ground, 25% of that velocity component is removed (and the bump sound plays).
+4. Ground-type changes under the wheels fire surface sounds and splashes (`0x46a2c0`).
+5. When both axles are more than 30 ft clear and the truck is nearly level, the "doing air"
+   commentary fires.
+
+### 10.3 Stuck and flipped (`0x46da30`, `0x46fd30`, `0x470190`, `0x46ed90`, `0x46f7b0`)
+
+- **Player** (and network trucks): lying on the hull with no wheel touching for 5 s triggers an
+  **instant reset** (`0x46fd30`). Velocity, rates, pitch and roll are zeroed, the truck is
+  lifted 10 ft and turned to face its current course segment.
+- **CPU trucks on Rookie and Intermediate:** under 15 ft/s for 5 s, or flipped, call the
+  **helicopter** (`0x470190`). `heliTimer` = 15 s, plus 5 s for each other truck already being
+  lifted on the same course segment.
+- **CPU trucks on Professional** (with +0x17a8 clear) are reset instantly instead (`0x46f7b0`):
+  placed on the start of their course segment, 10 ft up, facing along it, all motion zeroed.
+
+**Lift-off** (`0x470190`) sets the carry rates so the truck arrives in **10 s**. Pitch and roll
+fall at 0.1 x their value per second. Position moves at 0.1 x its offset per second toward the
+target: the start point of a straight segment, or the point on an arc segment. Heading turns to
+the segment direction.
+
+**Flight** (`0x46ed90`), while `heliTimer` counts down:
+
+| Time left | What happens |
+|---|---|
+| 15 s | commentary; wheel contact state cleared |
+| 15 to 10 s | the helicopter flies in and circles toward the truck, from `(t - 10) * 40` ft away |
+| 10 to 0 s | the truck is carried: angles and x/z move at the lift-off rates; height = ground under it + a hover offset that rises 5 ft/s until 4 s remain, then falls 5 ft/s |
+| 0 s | released: hover offset and contact depths reset, autopilot error cleared |
+
+The engine idles toward 800 rpm throughout.
+
+---
+
+## 11. Where JSTrackViewer's Test Drive differs
+
+| Topic | Test Drive | MTM2 |
+|---|---|---|
+| Physics rate | fixed, tuned to a measured "30 Hz" | one step per frame (a fixed step is fine for OpenMTM2) |
+| Terrain triangles | MTM cells split along one diagonal | checkerboard split, as for CPR |
+| Surface grip | hand-tuned table | mu table (2.3) x cut factor x 1.75 x weather |
+| Tire model | slip-based longitudinal force | no longitudinal slip: drive force from torque, capped at 0.8 grip |
+| Lateral force | fitted curve | `C(alpha)` table (5.3) |
+| Friction circle | always | only above Rookie |
+| Suspension | per-wheel | solid axles with articulation, 2 ft travel, push-out beyond |
+| Hull contact | collider mesh | 16 points, force-based support split, 0.25 ft skin |
+| Ground boxes | static collider meshes | temporary immovable boxes around each truck |
+| Object collisions | | immovable objects become ground (box tops carry wheels with full suspension and grip); pushable boxes and trucks: perfectly inelastic, effective mass = lighter body |
+| Truck against truck | | half the relative normal velocity removed from each truck; spinning tires climb |
+| Crushable cars | | roof crushes 15% of the excess per step beyond 0.625 ft |
+| Wheelbase | as in the TRK | clamped to 11.6 ft |
+| Water | | drag only, density 0.15, no buoyancy |
+| Rubber-banding | none | last place, +5% at 1000 ft, Rookie and Intermediate |
+
+---
+
+---
+
+## 12. Autopilot (`0x480410`, `0x4805d0`, `0x481a70`, `0x481ea0`, `0x483600`)
+
+CPU trucks, and the player with autopilot on, drive the SIT's `*** Course ***` segments.
+
+**The course as stored and as driven.** A SIT's `*** Course ***` block holds only
+**straights**. The loader (`0x4e0970`) reads them, and the course builder (`0x4e13b0`) inserts
+an **arc** between each straight and the next, wrapping from the last straight to the first.
+
+The SIT block, per course: `c1Count, course_direction`, then per straight:
+
+    ctype, cspeed_type          1, 0 in every stock SIT
+    cstart                      x, y, z (ft)
+    cend                        x, y, z (ft)
+    cdec_point, cspeed, lastentry
+    &cSpeedLimit, cTrackWidth   optional line; defaults 0 and 32
+
+Negative `x` or `z` are wrapped by +8192 ft. Up to four extended courses follow an `@` line
+(their count, then the same block each). The loader also averages the straights' midpoints into
+a course centre.
+
+**In memory** each segment is 14 dwords (0x38 bytes), course `n` at `0x70cc28 + n * 0x6d68`,
+**numbered from 1**: straights at the odd slots 1, 3, 5... (copied from the file, `lastentry`
+cleared), arcs at the even slots. The last segment gets `lastentry = 1`. This is why the SIT
+writer saves only the odd segments.
+
+| Field | Straight | Arc (built) |
+|---|---|---|
+| 0 `ctype` | 1 | 2 |
+| 1 `cspeed_type` | 0 (from the file) | 1 |
+| 2-4 | `cstart` | centre x, ground height at the centre (`0x550090`, which includes box and ramp tops), centre z |
+| 5-7 | `cend` | entry angle, exit angle, radius |
+| 8 `cdec_point` | from the file | `min(radius / 3, 20)` |
+| 9 `cspeed` | **replaced by the speed of the arc that follows it** | corner speed (below) |
+| 10 `cSpeedLimit`, 11 `cTrackWidth` | from the file | not set |
+| 12 | | bank angle (+0x30) |
+| 13 `lastentry` | 0 | 0 |
+
+**Building an arc** (`0x487c60`) between straight `i` (start `A`, end `B`) and straight `j`
+(start `C`, end `D`), all horizontal (y ignored):
+
+1. If `|C - B| >= 1 ft`: the corner `P` is the intersection of lines `AB` and `CD`
+   (`0x468ee0`, in x and z). The arc joins `B` (entry leg `P->B`) and `C` (exit leg `P->C`).
+   Otherwise the straights touch: the arc uses `A`, `B` and `D` with a default 30 ft fillet.
+2. `u0 = unit(B - P)`, `u1 = unit(C - P)`, legs `d0 = |B - P|`, `d1 = |C - P|`; the half angle
+   at the corner `alpha = acos(u0 . u1) / 2`; the bisector `b = unit(u0 + u1)`.
+3. **Fillet:** `radius = tan(alpha) * max(d0, d1)`; centre `= P + b * radius / sin(alpha)`. The
+   arc is tangent to both lines at distance `max(d0, d1)` from the corner.
+   **Touching straights:** with `R = 30 / cos(alpha)`, if `R^2 >= 1800` the radius is
+   `sqrt(R^2 - 900)` with the centre `R` from the corner, otherwise the radius is 30 and the
+   centre is `30 / sin(alpha)` along the bisector.
+4. **Angles** are headings from the centre (`atan2(dx, dz)`), with `half = pi/2 - alpha`:
+   - normally `thetaC = heading(-b)` (centre to corner) and `ref = heading(-u0)`;
+   - with the **far-side flag**, `thetaC = heading(b)` and `ref = heading(u0)`;
+   - `sense = wrap(heading(u1) - ref)`; if `sense > 0`, entry (field 5) `= thetaC - half` and
+     exit (field 6) `= thetaC + half`, otherwise the other way round (both wrapped).
+
+   The builder (`0x4e13b0`) sets the far-side flag only when `|turn| > pi/2` (turn = wrapped
+   heading of CD minus heading of AB): with `side = wrap(heading(C - B) - heading(AB))`, the
+   flag is `turn >= 0` when `side <= 0`, else `turn <= 0`. The gap test `|C - B| >= 1` is in
+   3D. `wrap(a) = a - trunc(a / 2 pi) * 2 pi`, then +-2 pi into [-pi, pi].
+
+   **Line intersection** (`0x468ee0`): slope form in x and z, y = 0. Parallel lines give
+   non-finite values. When a line has no extent in x, the code steps along the other line by
+   `|t|`, `t = (D.x - A.x) / dir.x`, which lands on the crossing only for one sign of `t`
+   (it does in the ordinary layout). Every stock course builds with finite arcs, one end of each
+   arc on its neighbouring straight's end, and most primary-course corners about 128 ft in
+   radius (OpenPhotex `stock.test.ts`).
+5. **Bank:** `beta = atan((h(radius + 5) - h(radius - 5)) * 0.1)`, the terrain height
+   (`0x550090`) 5 ft outside and inside the arc, along `thetaC`.
+6. **Corner speed:** `v = sqrt(k * radius * 32.174 * max(0.1, sin(beta) + K * cos(beta)))`,
+   with `k = 0.725` (0.75 on `Sonic` tracks) and `K = 1.75` (`0x647634`).
+
+`course_direction` (`0x647564`) reverses the course; GOLD mode toggles it.
+
+**Following a segment** (`0x481a70`): on a straight the aim point is its end. On an arc, the
+truck's angle around the centre and the exit angle (field 6) give a target on the arc, and
+the aim point is smoothed (`aim = prev * 100 * 2 + new`, normalised; constants 100 and 2,
+**hypothesis** on the exact form until ported).
+
+**Steering** (`0x481ea0`):
+
+    bearing  = angle from the truck to the segment's aim point, minus the segment heading
+    e        = sin(bearing) * distance                         (+0x8e8, the cross-track error)
+    correct  = distance > 50 ft ? asin(clamp(0.02 * e, -1, 1)) : bearing
+               clamped to +-0.125 rad on straights, +-0.5 on arcs
+    error    = segment heading - truck heading + correct       (wrapped)
+    command  = 22 (+0x8b4) * dt * error
+               x min(|e| / 32, 1.5) when more than 32 ft off line on a straight
+               + course integrator (+0x8ac, ap.course_control): while all four wheels are off
+                 the ground above 14.67 ft/s, error (clamped +-0.5) is integrated
+               x distance / 30 within 30 ft of the aim point
+               x min(sqrt(20 / |v_z|), 1) on straights
+               clamped to +-0.45
+    steering += (command - steering) * 6.66 (+0x8cc) * dt      (clamped +-0.45)
+    rear     = -0.33 * front (drag mode x1.25)
+
+The command scales with `dt`, so the original's AI steering depends on the frame rate. A fixed
+step in OpenMTM2 should pick the dt the game was tuned at (**hypothesis**: about 1/30 s).
+
+**Target speed** (+0x89c), keyed on `cspeed_type` (so on whether the segment is an arc):
+
+- `mu_avg` = the average of the four tires' grip factors; it scales every target by
+  `sqrt(mu_avg / K)` (K = 1.75, section 5.1).
+- **Arcs** (`cspeed_type` 1): `cspeed * sqrt(difficulty gain) * sqrt(mu_avg / K) * sqrt(ratio)`.
+  `ratio = (sin(beta_here) + K cos(beta_here)) / (sin(beta_arc) + K cos(beta_arc))`, where
+  `beta_here` is the bank measured as in step 5 above but along the truck's own heading from
+  the centre. When the truck runs wide (`d - radius > 0`, `d` its distance from the centre),
+  `ratio` is multiplied by `min(sqrt((k * (d - radius) + radius) / radius), 1.2)`. `ratio` is at
+  least 0.1.
+- **Straights** (`cspeed_type` 0): `v^2 = cspeed^2 * gain + 2 * (slope acceleration) *
+  distance to the end`, then `* sqrt(mu_avg / K)`. A straight's `cspeed` is the next arc's
+  corner speed, so this is braking toward the corner.
+- Never below 17 ft/s.
+
+The speed controller (`0x4805d0`) turns the target into throttle and brake with gain 1.2
+(MONSTER_EXE_ANALYSIS.md section 9).
+
+**Traffic** (`0x483600`): trucks on the same or the next segment are found (nearest ahead at
++0x8e4, count at +0x8ec). To pass, the truck picks a side (+0x8d8 = +-1) and aims at a point
+beside the truck ahead, offset 90 degrees from its line by the two bounding radii, if that point
+is within +-45 degrees of its heading. The correction is clamped to +-0.125 rad on straights and
++-0.25 on arcs. A truck ahead within 100 to 200 ft and +-30 degrees makes it adjust speed.
+
+---
+
+## 13. Still open
+
+Everything above was traced in code. What remains is detail, not mechanism:
+
+1. The exact speed-following law in the second half of `0x483600` (constants 100, 200, 0.25,
+   1.25, 0.866).
+2. The arc aim-point smoothing in `0x481a70`/`0x483070`.
+3. The `.TTY` depth's effect beyond probe sinking (none found so far).
+4. The `+0x2a8`/`+0x518` (15000) axle field and the `+0x5a0` weight term (0 in stock trucks).
+
+Each is a few dozen lines in one routine and can be read out during the port.

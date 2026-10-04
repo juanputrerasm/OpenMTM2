@@ -147,3 +147,6 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Reverse engineering workspace: decompiled game code and Ghidra project, never published
+/re/
