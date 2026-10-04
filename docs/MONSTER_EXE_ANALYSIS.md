@@ -311,7 +311,7 @@ terrain cell entirely inside a box is not drawn (0x4fc370). On Arena Rumble this
 ring of `13CROAD` walls around the floor, inside the stadium's lowest stands; whether the game
 really shows them that way is still to be checked against the running game.
 
-**Which boxes are drawn** (0x54ec00): a box with a model, whose `priority` line is at most the
+**Which boxes are drawn** (0x54f570, which registers each object with its draw callback; `0x54ec00` is the top-crush cars' callback, MTM2_PHYSICS.md 14.27.6): a box with a model, whose `priority` line is at most the
 MONSTER.INI `detailLevel` (the stock SITs use 0, 1 and 2; the stock MONSTER.INI says 2). A
 checkpoint (type 6) is drawn only on an old-MTM level (LVL line 1 = 4) outside drag mode, and
 even then not when its model name's fourth letter is `O` (`CKBOX`, `CKBOXN`) unless a debug flag

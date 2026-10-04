@@ -414,15 +414,16 @@ tested against each other too (14.20).
   normal plus a small margin, and gets the inelastic force with the truck's own mass
   (`0x48c8a0`).
 
-### 7.6 Top-crush cars (`0x4a58b0`, `0x4a2d80`, `0x4aa9b0`)
+### 7.6 Top-crush cars (`0x4a58b0`, `0x4a2d80`, `0x4aa9b0`, `0x4aab50`)
 
-- The car is **ground** for the truck: its box edges against the truck's hull box produce
-  contacts written into the hull-contact table (depth and normal at the hull corner nearest
-  the contact, chosen by octant, `0x496da0`).
-- **Crushing:** when a truck point or wheel sinks more than **0.625 ft** (0.25 + 0.375) into
-  the car's roof, the roof comes down by **15% of the excess per step**, never below half the
-  car's height. The truck's penetration drops by the same amount, and the crushed fraction
-  `1 - (roof - base) / height` drives the car's keyframed crush animation.
+- The car is two boxes, a body and a cab, and is **ground** for the truck: hull points, tire
+  points and wheels against its faces make ground contacts as for boxes, and its edges make
+  edge contacts (14.26).
+- **Crushing:** when a contact sinks more than **0.625 ft** (0.25 + 0.375) into the cab's roof,
+  the roof comes down by **15% of the excess** per contact, never below the body's top plus
+  0.25 ft. The truck's depths drop by the same amount, and the crushed fraction
+  `1 - (cab top - cab bottom) / cab height` drives the cab's keyframed crush animation. The body
+  never crushes. Section 14.27 has the details; no stock track has a top-crush car.
 
 ### 7.7 Box against box (`0x49f0d0`, `0x4ae1d0`)
 
@@ -1337,7 +1338,7 @@ through the height query above. In order:
 3. **The edges** (`0x4b17c0`): with the corners `c0..c5` in world space, the edges
    `c0 c2`, `c1 c3` (the front's vertical edges), `c2 c4`, `c3 c5` (the slope's sides) and `c2 c3`
    (the top of the front), each one whose line passes within the truck's radius of its centre,
-   go to the edge system (below, shared with top-crush cars) with its ends in the truck's axes.
+   go to the edge system (14.26, shared with top-crush cars) with its ends in the truck's axes.
 
 ### 14.20 Truck against truck: hull points (`0x4894a0`, `0x48c010`, `0x48eb70`, `0x48c3d0`, `0x48c8a0`)
 
@@ -1702,3 +1703,904 @@ speeds:
 (more than about 30 degrees off its tail), the truck aims 100 ft up the segment beside `F` on its
 own side: `q = (A - F)` in `F`'s body axes, `t = n` (or `wrap(n + pi)` when `q.x < 0`),
 `P = F + R (sin t, cos t) + 100 h - A` and `c = wrap(heading(P) - hs)`, not clamped.
+
+### 14.26 Edges: ramps and top-crush cars against a truck (`0x49b190`, `0x494fb0`, and their responses)
+
+An obstacle's straight edges (a ramp's or a top-crush car's) are tested against the truck's
+**hull box**, a box in the truck's body axes whose faces are taken from the hull points. Each
+place where an edge crosses a face of the box becomes a **hull contact** of the truck (depth,
+contact point, world normal) at the hull corner nearest it. No force is exchanged: like every
+immovable contact (section 7.1), the obstacle becomes **ground** for the truck, and the post-step
+push-out (14.11) and the next step's contact solver (14.12) make it act.
+
+Notation below: `Pk` is hull point k in body axes (`+0x5a4 + 12k`: P1 = `+0x5b0`, P2 = `+0x5bc`,
+P3 = `+0x5c8`, P4 = `+0x5d4`, P9 = `+0x610`, P10 = `+0x61c`, P11 = `+0x628`, P12 = `+0x634`; in
+the TRK order P1, P2 are the front bottom corners (left, right), P3, P4 the front top, P9, P10
+the rear top, P11, P12 the rear bottom). `M_t` is the truck's body-to-world matrix (the copy at
+`0x6f61e0`), `M_o` the obstacle's (`0x6f58b0`), `pos_t` the truck's `ipos` (`+0xfe0`), `pos_o`
+the obstacle's position (`0x6f5148`). `unit(v)` is `v / |v|`, and `(0, 1, 0)` when `|v|` is 0
+(every normalisation in this section uses that rule).
+
+#### 14.26.1 Who calls it, and what is set up before
+
+Live callers (the call from `0x494eb3` lies in code nothing references, and is dead):
+
+- **Ramps**, `0x4b17c0`, after the ramp's side walls (`0x4b2580`). The obstacle is the ramp
+  (`0x6f60a4`); `pos_o` = ramp `+0x28`, its velocity `v_o` = ramp `+0x78..+0x80` and its rates
+  `w_o = (+0x88, +0x8c, +0x84)` (x, y, z). The ramp's six corners (14.19: `c0 (-a, 0, b)`, `c1
+  (a, 0, b)`, `c2 (-a, H, b)`, `c3 (a, H, b)`, `c4 (-a, 0, -b)`, `c5 (a, 0, -b)`) are taken to
+  world, `pos_o + M_o c`, and five edges are tested, in this order: `c0-c2`, `c1-c3` (the two
+  front vertical edges), `c2-c4`, `c3-c5` (the two slope edges), `c2-c3` (the top front edge).
+  At the end the pair's force and moment records (`0x6f64c0`, `0x6ed4d8`) are set to zero.
+- **Top-crush cars**, `0x4a2d80` (directly, or through `0x495290`, which does the same
+  set-up). The obstacle is the car (`0x6f5fb4`); `v_o` = car `+0x94..+0x9c`, `w_o = (+0xa4,
+  +0xa8, +0xa0)`. Two passes over the 12 edges of a box:
+  - pass 1: `pos_o` = car `+0x28`, corners = car `+0xb8` (8 corners, 12 bytes each);
+  - pass 2: `pos_o` = car `+0x34`, corners = car `+0x124` (8 corners); **hypothesis**: the
+    second box is the car's crushed roof part (14.27).
+
+  The corners are in the box order of 14.15 (`c0 (-a, -c, b)`, `c1 (a, -c, b)`, `c2 (-a, c, b)`,
+  `c3 (a, c, b)`, `c4 (-a, c, -b)`, `c5 (a, c, -b)`, `c6 (-a, -c, -b)`, `c7 (a, -c, -b)`). Each
+  edge carries the outward normals `A` (`0x6cef60`) and `B` (`0x6cef50`) of its two faces, in the
+  car's axes. The same table is used in both passes, in this order:
+
+  | # | edge | A | B |
+  |---|---|---|---|
+  | 1 | c0-c1 | (0, -1, 0) | (0, 0, 1) |
+  | 2 | c0-c2 | (0, 0, -1) | (0, 0, 1) |
+  | 3 | c0-c6 | (-1, 0, 0) | (0, -1, 0) |
+  | 4 | c4-c2 | (0, 1, 0) | (-1, 0, 0) |
+  | 5 | c4-c5 | (0, 1, 0) | (0, 0, -1) |
+  | 6 | c4-c6 | (-1, 0, 0) | (0, 0, -1) |
+  | 7 | c3-c1 | (1, 0, 0) | (0, 0, 1) |
+  | 8 | c3-c2 | (0, 1, 0) | (0, 0, 1) |
+  | 9 | c3-c5 | (1, 0, 0) | (0, 1, 0) |
+  | 10 | c7-c1 | (1, 0, 0) | (0, -1, 0) |
+  | 11 | c7-c5 | (1, 0, 0) | (0, 0, -1) |
+  | 12 | c7-c6 | (0, -1, 0) | (0, 0, -1) |
+
+  Edge 2 (the front left vertical edge) has `A = (0, 0, -1)` where `(-1, 0, 0)` would be the
+  left face; the bytes say `(0, 0, -1)` (checked in the disassembly), so a port copies it.
+
+- **The ramps' `A` and `B` are never set.** Only `0x4a2d80` writes `0x6cef50` and `0x6cef60`, so
+  a ramp edge uses whatever the last top-crush edge processed left there, or `(0, 0, 0)` for
+  both when no top-crush car has been tested since the program started (they are in zeroed
+  memory). With both zero the normal comes out as `(0, 1, 0)` world (14.26.4). No stock SIT has
+  a top-crush car (14.27), so in the stock game ramp edges always push straight up; a port keeps
+  the last top-crush edge's `A`, `B` as state for levels that have both.
+
+**Per edge**, with world endpoints `W0`, `W1`:
+
+1. **Pretest** (`0x48e9d0`): the distance from `pos_t` to the infinite line through `W0` and
+   `W1`, `|(pos_t - W0) x (W1 - W0)| / |W1 - W0|` (999999 when the edge has zero length), must
+   be below the truck's radius (`+0xfb8`). Otherwise the edge is skipped.
+2. The crossing list `X[0], X[1]` (`0x6f5a00`, 12 bytes each) is cleared to zero.
+3. The endpoints go to the truck's body axes: `E0 = M_t^T (W0 - pos_t)` (`0x6ed4e8`) and
+   `E1 = M_t^T (W1 - pos_t)` (`0x6f6058`).
+4. The edge against the four wheels (`0x494fb0`, 14.26.9).
+5. The edge against the hull box (`0x49b190`, below).
+
+#### 14.26.2 Clipping the edge against the hull box (`0x49b190`)
+
+    d = E1 - E0
+    L = |d|                    (0x6ee834; 0 if the squared length is negative)
+    u = unit(d)                (0x6f6048; (0, 1, 0) when L is 0)
+    count = 0                  (0x6ee844)
+
+A **face test** for the plane `axis = c` with bounds on the other two axes is:
+
+    t = (c - E0.axis) / u.axis          (0x6f64bc)
+    hit = 0                             (0x6f61a4, cleared before every test)
+    if count < 2 and t > 0 and t < L:   (t > 0 is an integer test on the float's bits:
+                                         strictly positive, +0 fails)
+        H = E0 + t u
+        if lo1 < H.a1 < hi1 and lo2 < H.a2 < hi2:   (all strict)
+            X[count] = H; count += 1; hit = 1
+
+After each face test the matching **response** runs (it does nothing unless `hit` is 1, and then
+works on the point just added, `X[count - 1]`). The faces, in test order:
+
+| # | plane | bounds (strict) | response |
+|---|---|---|---|
+| 1 | bottom, `y = P1.y` | `P1.x < x < P2.x`, `P11.z < z < P1.z` | `0x497be0` (Y) |
+| 2 | top, `y = P3.y` | `P3.x < x < P4.x`, `P10.z < z < P3.z` | `0x497be0` (Y) |
+| 3 | front, `z = P1.z` | `P1.x < x < P2.x`, `P1.y < y < P3.y` | `0x496e30` (Z) |
+| 4 | rear, `z = P11.z` | `P11.x < x < P12.x`, `P11.y < y < P9.y` | `0x496e30` (Z) |
+| 5 | left, `x = P1.x` | `P1.y < y < P3.y`, `P11.z < z < P1.z` | `0x498980` (X) |
+| 6 | right, `x = P2.x` | `P2.y < y < P4.y`, `P12.z < z < P2.z` | `0x498980` (X) |
+
+Grouping and gates:
+
+- Faces 1 and 2 are tested only when `u.y != 0`; faces 3 and 4 only when `u.z != 0` **and**
+  `count < 2` on arriving there; faces 5 and 6 only when `u.x != 0` and `count < 2` on arriving.
+  Inside a group each test also needs `count < 2` (the first test of a group is always reached
+  with `count < 2`).
+- Face 6's test is the helper `0x4957c0(t, P4.y, P2.y, P2.z, P12.z)`, the same test written out
+  (`H = E0 + t u`, bounds `y < P4.y`, `y > P2.y`, `z < P2.z`, `z > P12.z`).
+- **At most two crossings** per edge: once two are found every later test fails. A segment with
+  both ends inside the box crosses nothing and produces no contact; a segment from outside to
+  inside gives one crossing; one passing through gives two. Crossings are only looked for
+  between `E0` and `E1` (`0 < t < L`), and the order of the faces decides which two are kept
+  when more would qualify (only possible through the bounds being looser than a true box).
+- The faces are not one consistent box: each uses its own hull points as listed (for example
+  the top face's x bounds come from P3, P4 and its z bounds from P10, P3).
+
+#### 14.26.3 Relative velocity at the crossing (`0x496880`)
+
+Every response starts with this, for the crossing `H = X[count - 1]` (body axes):
+
+    P   = pos_t + M_t H                          (world)
+    r   = M_o^T (P - pos_o)                      (the point in the obstacle's axes, 0x6f5118)
+    v_o = M_o (vel_o + w_o x r)                  (world; vel_o, w_o as in 14.26.1, obstacle axes)
+    v_t = bvel + omega x H                       (body; omega = (q, r, p) = (+0x1038, +0x103c,
+                                                   +0x1034), bvel = +0xff8)
+    v_rel = M_t^T v_o - v_t                      (0x6ee7d0, body: the obstacle's motion
+                                                   relative to the truck)
+
+#### 14.26.4 The responses (`0x497be0`, `0x496e30`, `0x498980`)
+
+The three are the same routine working in the plane of the face that was crossed. Call the two
+in-plane axes `a1, a2` and the dropped axis `k`:
+
+| response | faces | k (dropped) | a1 | a2 |
+|---|---|---|---|---|
+| Y `0x497be0` | bottom, top | y | x | z |
+| Z `0x496e30` | front, rear | z | x | y |
+| X `0x498980` | left, right | x | y | z |
+
+`flat(v)` below is `v` with its `k` component set to 0.
+
+**Step 1: the normal `n` and the in-plane direction `e`.** With the edge's face normals in world
+axes `A_w = M_o A`, `B_w = M_o B` (A, B from 14.26.1) and a steering vector `s` (world), the
+**blend** (`0x4966f0`) is
+
+    alpha = max(0, A_w . s),  beta = max(0, B_w . s)       (scratch 0x6f1be0, 0x6f1bdc)
+    nraw  = alpha A_w + beta B_w                           (0x6ee7c0)
+
+so the normal leans to the face(s) the steering vector points out of.
+
+- **When `|v_rel|` is exactly 0** (the square root of the squared length, compared with 0):
+  the position case,
+
+      s = P - pos_o                          (from the obstacle's origin to the point, world)
+      e = unit(flat(M_t^T (pos_o - P)))      (from the point toward the obstacle's origin,
+                                               body, in the face plane)
+      nraw = blend(s)
+
+- **Otherwise**, the velocity case. The part of `v_rel` along the edge is removed first (and
+  `v_rel` is left changed):
+
+      v_perp = v_rel - u (u . v_rel)          (body)
+      s = M_t v_perp                          (world)
+      nraw = blend(s)
+      e = -unit(flat(v_perp))                 (the truck's motion relative to the obstacle,
+                                               across the edge, in the face plane)
+
+  and **when `nraw` comes out exactly zero** (neither face faces `s`, or `v_perp` is 0), the
+  whole position case above is done instead (its `e` replaces this one).
+
+Then `n = unit(nraw)` (world; `(0, 1, 0)` when `nraw` is zero, which is what both `A` and `B`
+being zero gives). Note that when `flat(v_perp)` is zero in the velocity case, `e` is
+`-(0, 1, 0) = (0, -1, 0)`, also in the Y response where y was meant to be dropped; this only
+survives when `nraw` is not zero.
+
+**Step 2: the depth.** From `H`, the distances to the hull box's sides in the direction `e`, on
+the two in-plane axes:
+
+    side x:  (e.x > 0 ? P2.x : P1.x) - H.x
+    side y:  (e.y > 0 ? P3.y : P1.y) - H.y
+    side z:  (e.z > 0 ? P1.z : P11.z) - H.z
+
+(each `e > 0` is an integer test on the float's bits, so `-0` and `+0` both take the second
+choice). These sides are fixed: the Z response uses P1.y and P3.y for the rear face too, the Y
+response P1.x, P2.x and P1.z, P11.z for both its faces, the X response P1.y, P3.y and P11.z, P1.z
+for both. With `D1`, `D2` the distances on `a1`, `a2`:
+
+    t1 = |D1 / e.a1|,  t2 = |D2 / e.a2|
+    t1 <= t2 (or either is NaN):  depth = |n.a1 * D1|
+    else:                         depth = |n.a2 * D2|
+
+So the side that a ray from `H` along `e` reaches first gives the penetration, measured along
+the normal's component on that axis. A zero `e` component gives an infinite time (or NaN when
+the distance is 0 too). The code writes the depth as `(n . (unit a1 vector)) * D1` through a dot
+product with the shared zero vector (`0x6f5a18`) plus one bare component; only the bare
+component survives, as above. All the "below zero, negate" absolute values compare with float 0
+(`0x60f078`, `0x60f060`, `0x60f090`). The depth is never negative.
+
+**Step 3: the contact point and the hull corner.**
+
+    C = H + depth * e                        (body; C.k = H.k since e.k = 0)
+
+The corner (`0x496da0`, integer tests on the float bits of `C`):
+
+| | `C.x <= 0` (left) | `C.x > 0` (right) |
+|---|---|---|
+| `C.z > 0`, `C.y > 1.0` | 3 | 4 |
+| `C.z > 0`, `C.y <= 1.0` | 1 | 2 |
+| `C.z <= 0`, `C.y > 1.0` | 9 | 10 |
+| `C.z <= 0`, `C.y <= 1.0` | 11 | 12 |
+
+(`C.y > 1.0` is the bit pattern above `0x3f800000`, so top versus bottom splits at 1 ft above
+the body origin, not at 0; zero and negative values go left, rear, bottom.)
+
+**Step 4: the write.** With `k` that corner, only when the new depth is strictly deeper:
+
+    if depth > depth[k] (truck +0x808 + 4k):
+        point[k]  (truck +0x670 + 12k) = C          (body)
+        depth[k]                       = depth
+        normal[k] (truck +0x73c + 12k) = n          (world)
+
+Nothing else is written: no truck position, no velocity, no force or moment record (`0x6cef28`,
+`0x6f1bd0`, `0x6f64c0`, `0x6ed4d8` are untouched by this system). Two crossings of one edge, other
+edges, and other obstacles all compete for the same 12 slots, the deepest winning; so do the
+terrain probe and box contacts (14.14).
+
+#### 14.26.5 State carried in globals
+
+- Per edge: `X[0..1]` (cleared by the caller), `count` (reset by `0x49b190`), `u`, `L`, `t`, the
+  hit flag (cleared before each face test). A port can keep all of these local to the edge.
+- Per caller: `A`, `B` (per edge for cars; **stale for ramps**, 14.26.1), the obstacle's matrix,
+  position, velocity and rates, the truck's matrix.
+- `v_rel` is overwritten with `v_perp` by the velocity case; nothing reads it afterwards here.
+- `0x6f5a18` is read as the zero vector; it sits right after `X[1]`, and the two-crossing limit
+  keeps this system from writing it.
+- The truck's hull-contact table (`+0x670` points, `+0x808` depths, `+0x73c` normals, slots 1 to
+  12) is the only lasting output.
+
+#### 14.26.6 How the contacts take effect
+
+1. **Reset**: at the end of each truck step the contact probe (`0x471d70`, 14.10) copies every
+   hull point into its contact point slot (`+0x670 + 12k = Pk`) and sets depths 1 to 12 to -9999.
+2. **Pair tests** run after every object has stepped (14.16); this system writes into the table
+   then, alongside the boxes (14.14).
+3. **Post-step push-out** (`0x476810`, 14.11.2), points 1 to 16 in order: the terrain is probed
+   at the stored contact point (`C` for an edge contact). If the terrain is deeper than the
+   stored depth it replaces it; otherwise the stored depth `s` and normal `n` stand, the push
+   is `s - 0.25 n.y` when `s > 0.25` (or below 0) and else 0, and when neither the push nor
+   `s` is negative the truck moves by `push * n` (world) and every stored depth drops by its
+   own normal's dot with that move. With `n = (0, 1, 0)` (the ramp case),
+   the truck is lifted by `s - 0.25`.
+4. **Next step's contact solver** (`0x475960`, 14.12): every slot with depth at least -0.25 is a
+   contact at `ipos + M_t C + n * depth` with normal `n`, sharing the support, recovery and
+   friction as for terrain contacts. Hull contacts also feed damage (`0x532140`) and sounds.
+5. The table is reset again by the next probe, so an edge contact lives for one step unless the
+   pair test finds it again.
+
+#### 14.26.7 Constants and helpers
+
+| address | value | use |
+|---|---|---|
+| `0x60f070`, `0x60f058`, `0x60f088` (double) | 0 | "is zero" tests of `|v_rel|`, `|nraw|`, the flat direction |
+| `0x60f078`, `0x60f060`, `0x60f090` (float) | 0 | absolute values in the depth (Y, Z, X) |
+| `0x60f030` (double) | 0 | the blend's clamp |
+| `0x60db00` (float) | 0 | the length helper `0x468e70` returns 0 below it |
+| `0x3f800000` (bit pattern) | 1.0 | top/bottom split of the corner choice |
+
+Helpers: `0x468d50` add, `0x468e10` subtract (first minus second), `0x468db0` scale, `0x468e70`
+length (0 when the square is below 0), `0x46ba30` square root (0 for a negative argument, an
+integer test on the bits), `0x469250` `M v`, `0x4692f0` `M^T v` (row-major 3 x 3).
+
+#### 14.26.8 Open points
+
+- The meaning of car `+0x34` / `+0x124` (pass 2) as the roof box is a **hypothesis**.
+- A twin of this system at `0x49bc90`
+  (with responses `0x49a4a0`, `0x499730`, `0x49ab20`, reached only from unreferenced code at
+  `0x4946e0`, `0x494b10` and `0x495040`) were not traced.
+
+#### 14.26.9 Edges against the wheels (`0x494fb0`, `0x49df20`, `0x49d630`, `0x49d440`, `0x49c620`)
+
+For one edge, `0x494fb0` runs the wheel test `0x49df20` on each tire in the order **FR, FL, RR,
+RL** (tire `+0x4c` with axle `+0x4c`, `+0x160` with axle `+0x4c`, `+0x2bc` with axle `+0x2bc`,
+`+0x3d0` with axle `+0x2bc`), before the edge against the hull box (14.26.2). Everything below is read from the code; interpretations are marked.
+
+**Inputs** (globals set by the caller; `0x4b17c0` for a ramp):
+
+| Name | Global | Meaning |
+|---|---|---|
+| `E0`, `E1` | `0x6ed4e8`, `0x6f6058` | the edge's ends in the truck's body axes, `M_t^T (corner - pos_t)`, formed once per edge **before** any tire runs and not formed again after the truck is moved |
+| `M_t` | `0x6f61e0` | the truck's body-to-world matrix (copied from truck `+4` by the pair dispatcher) |
+| `M_o` | `0x6f58b0` | the other object's (ramp's) body-to-world matrix |
+| `pos_o` | `0x6f5148` | the other object's position (ramp `+0x28`) |
+| `v_o` | `0x6ceee8` | the other object's velocity (ramp `+0x78`), used as if in its own axes |
+| `omega_o` | `(0x6cef78, 0x6cef7c, 0x6cef80)` on `(x, y, z)` | its rates: ramp `(+0x88, +0x8c, +0x84)`; zero for stock ramps |
+| `m_eff` | `0x6f1bf0` | the effective mass **left by the last pair that set it** (see "Stale state") |
+| `mover` | `0x6f5168` | 1 = "the other object moves", 2 = "the truck moves", left by the last pair that set it |
+| `dt` | `0x6f1bc8` | the substep |
+
+Truck: `pos_t` (`+0xfe0`), `bvel` (`+0xff8`), `omega_t = (q, r, p) = (+0x1038, +0x103c, +0x1034)`.
+Tire: hub `c` (`+0xc`, body, the current hub with articulation and travel, 14.2), static anchor
+`A` (`+0x30`, body), radius `r` (`+0x6c`), bounding radius `rho` (`+0x70`), width `w` (`+0x74`),
+penetration `pen` (`+0x94`), lever (`+0x98`), ground normal (`+0xac`, world), `on_gnd` (`+4`).
+Axle: `cos a` (`+0x22c`), `sin a` (`+0x230`). **The steer angle is not used**: the wheel's axis is
+the articulated body x axis for front and rear tires alike.
+
+Helpers used throughout:
+
+    unit(v)      = v / |v|, or (0, 1, 0) when |v| is 0              (0x4797a0)
+    pv(v, w, R)  = v + w x R                                        (0x48d6c0: the call passes the
+                                                                     rates as (z, x, y) components)
+    lineDist(P1, P2, Q) = |(P2 - P1) x (Q - P1)| / |P2 - P1|, 999999 when |P2 - P1| is 0   (0x48e9d0)
+    abs(x)       = -x when x is negative (the code tests the sign bit, so -0 stays -0)
+
+Each tire then goes through two independent tests, A and B, in that order.
+
+##### A. The edge as ground for the wheel (`0x49d630`)
+
+Runs first, **only when `m_eff >= 1.0`** (the code compares the float's bits as a signed integer
+with `0x3f800000`, so any negative `m_eff` also skips it). This is a suspension test against the
+wheel at its **static anchor** with an **unarticulated** axle `D = (1, 0, 0)`:
+
+    F+ = A + (w/2, 0, 0),  F- = A - (w/2, 0, 0)
+    d  = E1 - E0;  L = sqrt(|d|^2)  (0 when the sum is negative);  u = unit(d)
+    D  = unit(F+ - F-)                       ((1, 0, 0) for w > 0, (0, 1, 0) for w = 0)
+    stop unless |u.y| < 0.866                (the edge is less than 60 deg from the body's x-z plane)
+    t  = u . (A - E0)
+    stop unless -w < t < w + L               (the full width, not w/2; both strict)
+    P  = E0 + t u                            (the foot of the anchor on the edge's line)
+    q  = P - A;  k = q . D;  rad = q - k D
+    Pw = pos_t + M_t P                       (world; also R = M_o^T (Pw - pos_o) is formed, unused)
+    stop unless |k| < w/2                    (strict)
+    stop unless |rad|^2 <= r^2
+    s   = rad.y                              (see note 1)
+    hz  = |(rad.x, 0, rad.z)|
+    pen_e = sqrt(r^2 - hz^2) + s             (the sqrt term is 0 when r^2 - hz^2 < 0)
+    stop unless pen_e > pen                  (strict, against the tire's stored +0x94)
+
+On a hit the tire's ground contact is written, as the wheel probe (`0x47bfa0`, 14.11.3) would:
+
+    +0x94 (pen)    = pen_e
+    +0x04 (on_gnd) = +1 when q . D > 0, else -1           (written as an integer)
+    +0xac (normal) = groundNormal(Pw.x, Pw.z)            (0x550460, below)
+    +0x98 (lever)  = sqrt(r^2 + (A.x + k)^2)             (0 when the sum is negative)
+
+`pen_e` is how far the edge point stands above the bottom of the wheel circle at the same body z
+(the wheel circle lies across `D`, so `rad.x` is 0 up to rounding): a penetration along the
+truck's y, exactly like the probe's. Unlike the probe, the normal and `on_gnd` are written even
+when `pen_e` is not positive.
+
+**`groundNormal(x, z)`** (`0x550460`) is not the edge's normal and not `0x550380`: it walks the
+frame's object list in order; the first **box** (kind 1) whose footprint holds `(x, z)` (centre
+`+0x4c`, `+0x54`; within its radius `+0x74` on both axes, then, turned by its `sin`, `cos`
+(`+0x224`, `+0x228`), within half of `+0x68` across and half of `+0x64` along) gives
+`(0, 1, 0)`; the first **ramp** (kind 2) whose footprint holds it (centre `+0x28`, `+0x30`,
+radius `+0x50`, turned by `+0xe4`, `+0xe8`, half of `+0x44` and of `+0x40`) gives the ramp's slope
+normal (`+0xf8`); otherwise the terrain normal (2.2) at `(x, z)`. So a ramp edge's ground normal
+is normally the slope's own normal, or the terrain's just past the ramp.
+
+How it is consumed: the post-step (14.11) leaves a positive `pen` and the written normal,
+`on_gnd` and lever in place (`0x476b80` clears `on_gnd` only when `pen` is negative), the terrain
+probe replaces them only when deeper (`0x47bfa0`), and the axle solver (`0x47fa20`) raises the
+axle and lifts the truck from `pen` like any terrain penetration. The tire force step of the next
+substep (14.3 to 14.6) then uses that compression and normal. **So test A makes the edge
+ground for the wheel through the ordinary suspension path; it moves nothing and writes no
+force.**
+
+##### B. The edge against the tire's side and tread (`0x49df20`)
+
+Runs only when the tire's `pen` (`+0x94`) is **exactly -9999.0** (bit pattern `0xc61c3c00`):
+contact probing (`0x471d70`, 14.10) resets it to that at the end of each truck step, so this test
+only sees wheels that nothing (a box's suspension test, test A of this or an earlier edge) has
+given a ground contact since. Test B itself never writes `pen`, so every later edge and tire can
+run it too.
+
+    stop unless lineDist(E0, E1, c) < rho          (the hub against the edge's infinite line)
+    h  = (w/2) (cos a, sin a, 0)
+    F+ = c + h,  F- = c - h                        (the two face centres)
+    d  = E1 - E0;  L = sqrt(|d|^2);  u = unit(d)   ((0, 1, 0) when |d| is 0)
+    D  = unit(F+ - F-)                             (the articulated axle, (cos a, sin a, 0))
+
+**Cap hits** (`0x49d440`, for `F+` then `F-`), counted in `n` (`0x6ee844`, set to 0 first):
+
+    tc = abs(D . (F - E0)) / abs(u . D)             (both made absolute: see note 2)
+    X  = E0 + tc u
+    |X - F|^2 < r^2 (strict):  n += 1, X stored    (0x6f5a00, then 0x6f5a0c; nothing here reads them)
+
+When `u . D` is 0 the division gives an infinite or undefined `tc` and the comparison fails (no
+hit). Then:
+
+    rel = c - E0;  t = u . rel
+    stop unless n < 2 and t > 0 and t < L          (t > 0 is an integer test of the float bits)
+    P   = E0 + t u                                 (the foot of the hub on the edge segment)
+    q   = P - c;  k = q . D;  rad = q - k D        (axial offset and radial vector of P)
+    Pw  = pos_t + M_t P;  R = M_o^T (Pw - pos_o)   (P in the other object's axes, 0x6f5118)
+
+Relative velocity, in the truck's axes:
+
+    vo    = M_t^T (M_o pv(v_o, omega_o, R))         (the other object's point velocity)
+    vt    = pv(bvel, omega_t, P)
+    vrel  = vt - vo                                 (the truck relative to the edge)
+    vperp = vrel - (u . vrel) u                     (0x6ee7d0: across the edge)
+    vD    = vperp . D
+
+Depths (with `hw = w / 2`):
+
+    uperp = u - (u . D) D                           (the edge direction across the axle)
+    Cm    = P - k D                                 (= c + rad, P moved into the wheel's mid-plane)
+    delta = lineDist(Cm, Cm + uperp, c)             (hub to the edge projected into the mid-plane)
+    s     = sqrt(delta^2 - r^2) when delta >= r, else sqrt(r^2 - delta^2)   (0 when negative)
+    f     = q . uperp
+    if k / vD >= 0:   kk = hw - abs(k);  s = s - abs(f)
+    else:             kk = hw + abs(k);  s = s + abs(f)       (also when k / vD is undefined, 0 / 0)
+    g     = abs(u . uperp)                          (= 1 - (u . D)^2; see note 3)
+    s     = s / g
+    kk    = kk + abs(s (u . D))
+    stop unless abs(kk - hw) <= hw                  (an undefined value stops)
+    stop unless |rad|^2 <= r^2
+
+`k / vD` with `vD = 0` is an infinity (sign of `k`) or undefined (`k = 0`); `+inf` takes the first
+branch, `-inf` and undefined the second. With `g = 0` (edge parallel to the axle) `s` becomes
+infinite or undefined and the test `abs(kk - hw) <= hw` fails.
+
+The contact (`n` is set to 2, which has no further effect):
+
+    vrad  = vperp - D vD                            (0x6ee868)
+    dR    = r - |rad|                               (radial depth)
+    tR    = dR / |vrad|                             (may be infinite or undefined)
+    N     = unit(vperp)
+    if kk / abs(vD) > tR:      radial:  depth = dR / (unit(rad) . N)
+    else:                      axial:   depth = kk / abs(N . D)
+                               (the "else" includes equality and any undefined comparison)
+
+In both cases the push direction is the **relative velocity across the edge**, not the face or
+radial normal; only the depth is chosen by which way out (`kk` along the axle, `dR` across it)
+the motion reaches first. The radial depth can come out negative when `unit(rad) . N < 0`.
+
+##### The response (`0x49c620`)
+
+    n    = -N                                       (against the truck's motion across the edge)
+    C    = P - n depth                              (the contact point, body, 0x6f5fa0)
+    move = M_t (n (depth + 0.2))                    (world; 0.2 is the float at 0x60f118)
+
+- When `mover` is **not 1** (2, or 0 before any pair set it): the **truck moves**,
+  `pos_t += move`, and every one of the 16 contact points' stored depths drops by its own normal's
+  share, `depth_j (+0x80c + 4j) -= n_j (+0x748 + 12j) . move`, j = 0..15 (water depths are not
+  touched, unlike the post-step push-out).
+- When `mover` is 1: with `O` the pair's owner (the object listed first, `0x6f5164`) and `P2` its
+  partner (`0x6cef74`), the object `0x6f6074` moves by `-move` (its `+0x4c` position) and plays its
+  crash sound (`0x428bc0`) only when `O` is a box, or `O` is a truck and `P2` a box. **In a ramp
+  pair neither holds, so with `mover` = 1 nothing moves at all.**
+
+Then the force record (globals, each contact overwriting the last):
+
+    F     = |vperp| / dt * m_eff                    (|vperp| is 0 when its square is negative)
+    f     = F n                                     (truck force, body axes, 0x6cef28)
+    Mt    = C x f                                   (truck moment, 0x6f1bd0)
+    fo    = M_o^T (M_t (-f))                        (other's force, its axes, 0x6f64c0)
+    Mo    = R x fo                                  (other's moment, 0x6ed4d8)
+
+**For a ramp these are thrown away**: the ramp case of the pair dispatcher (`0x489f90`) adds no
+pair forces, `0x4b17c0` zeroes the other's force and moment when it returns, and the frame loop
+(`0x46c0e0`) zeroes all four after every pair. So against a ramp edge test B only moves the
+truck (or nothing). For a top-crush car the dispatcher does add the record to both bodies'
+accumulators (truck `+0xfbc`, `+0xfc8`; car `+0x6c`, `+0x78`), so the last contact of the pair
+counts there (**hypothesis**: `0x4a2d80` itself was not traced to see whether a later step
+overwrites it).
+
+##### State carried between calls
+
+- `E0`, `E1` stay as the caller formed them. When test B moves the truck, later tires of the same
+  edge still use the old body-axes ends, while `Pw` (and so `R` and the ground normal of test A)
+  uses the moved `pos_t`.
+- `pen` (`+0x94`): written by test A, read by both tests of every later edge and tire. The first
+  test A hit on a tire switches test B off for that tire for the rest of the substep, and only a
+  deeper edge point replaces the stored one.
+- `m_eff` (`0x6f1bf0`) and `mover` (`0x6f5168`) are **never set by the ramp pair**. They hold
+  whatever the last pair that set them left, in this substep or an earlier frame: a truck against a
+  box or top-crush car sets both (`mover` 1 with the lighter object's mass, raised to 1.0 in the
+  truck-first orders, when that object's mass is non-zero and below the truck's; else 2 with the
+  truck's mass `W / 32.174`), the truck-against-truck
+  responses (`0x48eb70`, `0x491e20`, `0x48f6f0`) and `0x493410` set `m_eff` only. Both start at 0.
+  The port must keep both as state across pairs and frames to match, because they decide whether
+  test A runs (`m_eff >= 1`) and whether test B moves the truck (`mover != 1`). Ground boxes make
+  a truck-box pair with an immovable box, which leaves `m_eff = W / 32.174` and `mover = 2`, so on
+  most tracks test A runs and test B moves the truck (**hypothesis** about typical play, not
+  measured).
+- Every other global these routines write (`0x6ed4c8`, `0x6f5f88`, `0x6f6048`, `0x6f6044`,
+  `0x6f6178`, `0x6f61c0`, `0x6cef84`, `0x6f5f9c`, `0x6f1bcc`, `0x6ee7d0`, `0x6f5118`, the cap
+  points at `0x6f5a00`) is formed again before it is read in the next call; `0x49b190`, which
+  runs after the four tires for the same edge, forms its own direction and count.
+
+##### Notes on the code
+
+1. Test A forms `s` as a dot product of `rad` with `(Z.x, 1, Z.z)`, `Z` the shared zero vector
+   `0x6f5a18`, and the horizontal part as `rad - s (Z.x, 1, Z.z)`; with `Z` zero that is `rad.y`
+   and `(rad.x, 0, rad.z)`. The cap points of test B (at most two, `0x6f5a00` to `0x6f5a17`) never
+   reach `0x6f5a18`, and the caller resets them to zero before each edge.
+2. The cap test takes the absolute value of both `D . (F - E0)` and `u . D`, so `tc` is never
+   negative: when the plane lies behind `E0` along `u` the point tested is the mirror image
+   `E0 + |tc| u`, not the true crossing. It is only used to count, and only the count (`n < 2`)
+   matters.
+3. `g` is compared with the float at `0x60f1a8`, which is 0.0 (the low half of the double 1/128
+   stored there), so it is a plain absolute value; it is never negative anyway.
+4. Constants: 0.5 (`0x60f198`, `0x60f160`, doubles), 0.866 (`0x60f170`, double), 0.2
+   (`0x60f118`, float), zero thresholds (`0x60f158`, `0x60f1a0`, `0x60f178`, `0x60f120`,
+   `0x60e370`, `0x60ee38`, `0x60db00`).
+5. **Hypothesis** on intent: test B is a side and tread collision of a cylinder with a line
+   segment; the time comparison picks the shorter way out (along the axle or across it) for the
+   current closing motion, and the push always goes back along that motion by the matching depth
+   plus 0.2 ft. The quantities `f`, `s` and `g` do not reduce to a clean geometric construction
+   (with `P` the foot of the hub, `f = -k (u . D)`); port them as written.
+
+### 14.27 Top-crush cars (`0x551660`, `0x54a000`, `0x4a58b0`, `0x4a2d80`, `0x4aa9b0`, `0x4aab50`, `0x54ec00`)
+
+A top-crush car is sim kind 5, from the SIT's `*** Top Crush ***` section (table `0xa30338`,
+0x2b8 bytes each, count `0xa35428`). **No stock SIT has one**: all 15 stock SITs give a count of
+0. Every record is two boxes sharing one rotation: the **body** (`ipos`, `modelName`) and the
+**cab** (`ipos2`, `cabModelName`). Only the cab can be flattened; only trucks touch either part.
+
+#### 14.27.1 The SIT record (`0x551660`) and the in-memory layout
+
+The loader (inside `0x551f90`) reads the section after `*** Cylinders ***`: a label line, the
+count (`%d`, no upper bound is checked; the table has room for 29 records before it runs into
+other globals), then each record with `0x551660`, and stores the record's index at `+0x2b4`.
+Each record, line by line (label lines are skipped unread):
+
+    *******************         (delimiter)
+    ipos                        x, y, z            -> +0x28 +0x2c +0x30   (feet, world)
+    ipos2                       x, y, z            -> +0x34 +0x38 +0x3c
+    theta,phi,psi               three floats       -> +0x40 +0x44 +0x48
+    then EITHER
+      modelName                 %s                 -> +0x28c (16 bytes)
+      cabModelName              %s                 -> +0x29c (16 bytes)
+    OR (any other label on that line)
+      length,width,height       three floats       -> +0x4c +0x50 +0x54   (body; +0x28c := 0)
+      length2,width2,height2    three floats       -> +0x58 +0x5c +0x60   (cab)
+    mass                        %f                 -> +0x64   (slugs as written)
+    bvel                        x, y, z            -> +0x94
+    p,q,r                       three floats       -> +0xa0 +0xa4 +0xa8
+
+The first label must be exactly `modelName` to take the model form. `+0x2ac` is set to 0. (The
+writer `0x5518f0` prints the two model-name lines without passing the names, so a SIT saved by
+the engine loses them; irrelevant for reading.)
+
+In-memory fields used below (offsets from the record start):
+
+| Offset | Meaning |
+|---|---|
+| `+0x00` | word never written by any code found (stays 0, **hypothesis**); gates replay recording and the broadphase "first object" role |
+| `+0x04`..`+0x24` | rotation matrix `M` (row-major 3x3, body to world), shared by body and cab |
+| `+0x28` | body centre `P_b` (world) |
+| `+0x34` | cab centre `P_c` (world; its y is recomputed, below) |
+| `+0x40` | theta, phi, psi |
+| `+0x4c`, `+0x50`, `+0x54` | body length (z), width (x), height (y), full sizes |
+| `+0x58`, `+0x5c`, `+0x60` | cab length2 (z), width2 (x), height2 (y), full sizes |
+| `+0x64` | mass |
+| `+0x68` | bounding radius |
+| `+0x6c`, `+0x78` | force and moment accumulators (written by the pair, never read) |
+| `+0x84` | crush fraction `f` (0 = intact), drives the cab animation |
+| `+0x94`, `+0xa0` | bvel and p, q, r from the SIT (never integrated) |
+| `+0xb8`..`+0x114` | 8 body corners (car axes, relative to `P_b`) |
+| `+0x124`..`+0x180` | 8 cab corners (car axes, relative to the cab centre) |
+| `+0x284`, `+0x288` | sin psi, cos psi |
+| `+0x28c`, `+0x29c` | body and cab model names |
+| `+0x2ac` | "do not draw" word, 0 at load, nothing found that sets it |
+| `+0x2b0` | listed this frame |
+| `+0x2b4` | index in the table |
+
+#### 14.27.2 Setup (`0x54a000`, once per record at load)
+
+1. A strictly negative `ipos.x`, `ipos.z`, `ipos2.x` or `ipos2.z` gets 8192 added (each one
+   separately; `-0` is left alone).
+2. **A model replaces that part's sizes** with its vertex bounds (`0x450ae0`, min and max x, y, z,
+   in 1/256 ft, times 1/256): body model: width `+0x50` = x extent, length `+0x4c` = z extent,
+   height `+0x54` = y extent; cab model the same into `+0x5c`, `+0x58`, `+0x60`. For a keyframed
+   cab model (opcode 0x20, see 14.27.6) `0x450ae0` loads one of its frame models and measures that
+   (**hypothesis**: the first frame).
+3. Half extents: body `a = width / 2` (x), `c = height / 2` (y), `b = length / 2` (z); cab
+   `a2`, `c2`, `b2` likewise from the cab sizes.
+4. Corners, in the box order of 14.15, body at `+0xb8` (three floats each) and cab at `+0x124`:
+
+        k:  0           1          2          3          4           5          6            7
+           (-a,-c, b)  (a,-c, b)  (-a, c, b)  (a, c, b)  (-a, c,-b)  (a, c,-b)  (-a,-c,-b)  (a,-c,-b)
+
+   So the body **top** is `y = +0xd4` (corner 2's y, equal to corners 3, 4, 5: `+0xe0`, `+0xec`,
+   `+0xf8`), the body bottom `+0xbc`; the cab top `+0x140` (= `+0x14c`, `+0x158`, `+0x164`) and
+   the cab bottom `+0x128`. These eight cab-top values are the only geometry that ever changes.
+5. `sin psi`, `cos psi` into `+0x284`, `+0x288`.
+6. Bounding radius, from **full** sizes and mixing the parts:
+
+        R = sqrt(height2^2 + length^2 + width^2)          -> +0x68
+
+7. Rotation: identity when theta, phi and psi are all exactly 0, otherwise the truck's Euler
+   matrix (`0x468a90`) from theta, phi, psi, into `+0x04`.
+8. **The cab stands on the body's bottom**: the SIT's `ipos2.y` is replaced by
+
+        P_c.y = P_b.y - height / 2 + height2 / 2
+
+   (`ipos2.x` and `ipos2.z` are kept).
+
+**Mass and motion**: the car is never stepped. The frame loop's kind-5 step (`0x46c0e0`,
+`0x46c770`) only sets the current-object pointer `0x6f5fb4`; no gravity, no integration, no
+post-step. `bvel` and `p, q, r` are never applied to the position, but they are handed to the
+edge routines as the car's velocity and rates (14.27.4), so a non-zero SIT `bvel` would make
+those contacts see a moving car that stays put. The mass only decides the pair's mass class.
+
+#### 14.27.3 Listing (`0x553790`, `0x5543c0`)
+
+- At load (`0x553790`) every car is appended to the object list as kind 5 (limit 550 entries,
+  "Too many sims!").
+- Every frame (`0x5543c0`) the list is rebuilt. All `+0x2b0` words are cleared first. Cars are
+  considered **after** trucks, always-listed ramps, boxes and the ramp pass, and each unlisted car
+  joins (once, `+0x2b0 := 1`) when some object among the first `n` list entries lies within
+
+        |x_obj - P_b.x| < r_obj + R + 10    and    |z_obj - P_b.z| < r_obj + R + 10
+
+  with `n` the list length **before the ramp pass** (so ramps listed in that pass, and other
+  cars, never bring a car in), `r_obj` the object's bounding radius (box `+0x74` at `+0x4c`,
+  ramp `+0x50` at `+0x28`, truck `+0xfb8` at `+0xfe0`) and `R` the car's `+0x68`. There is no
+  speed rule and no detail-level rule for cars.
+
+#### 14.27.4 The pair with a truck (`0x488d90`, `0x489f90`)
+
+**Broadphase**: as 14.17, bounding spheres `|P_truck - P_b| < R_truck + R`. As the first object
+of a pair a kind-5 entry needs `+0x00 != 0`, which never holds, so the pair is always stored
+under the truck (trucks are listed first). **Only truck and car pairs do anything**: the
+dispatcher has no case for car against box, ramp or car. Cars are also absent from the height
+query (`0x54feb0`), the ground normal (`0x550460`) and the terrain probes, so the pair test is the
+only way anything touches a car.
+
+**Pair setup** (`0x489f90`, case "partner kind 5, owner kind 4"; the mirrored case is identical
+and unreachable): `0x6ceebc` = truck, `0x6f5fb4` = car, `0x6f58b0` = car `M`, `0x6f61e0` =
+truck `M_t`. Mass class and effective mass, with `M_t_mass` the truck's mass as for boxes
+(`(+0x5a0 + +0x51c + +0x1040 + +0x2ac) * 0.031081`, 14.17):
+
+    class 2 (immovable), m_eff = M_t_mass
+    if 0 != m_car < M_t_mass:  class 1 (pushable), m_eff = max(m_car, 1)
+
+stored in `0x6f5168` and `0x6f1bf0`. The class matters only inside the edge routines (the hull
+point and wheel tests below write ground contacts whatever the class). Then, in order:
+
+1. `0x4a58b0`: hull points 1 to 12 (body box then cab box for each), then the four wheels
+   (body then cab for each).
+2. `0x4a2d80`: the 12 body edges, then the 12 cab edges.
+3. The pair's force and moment globals are added once, as for boxes (14.17, last contact wins):
+   truck `+0xfbc` (from `0x6cef28`), `+0xfc8` (from `0x6f1bd0`); car `+0x6c` (from `0x6f64c0`),
+   `+0x78` (from `0x6ed4d8`). The car's accumulators are never consumed or cleared.
+
+There is no early-out test (unlike boxes' `0x49f520`).
+
+##### Hull points (`0x4a58b0` with `0x4ac490` body, `0x4ad330` cab)
+
+With `d = P_truck - P_b` (world), `v` the truck's world velocity (`+0xfec`) and `dt` the
+sub-step (`0x6f1bc8`), the ray reference is
+
+    Rf = M^T (d - v dt)                      (car axes; no car velocity, no hull-point-3 lift)
+
+and for hull point `i` = 1..12 (body point `p_i` at truck `+0x5a4 + 12 i`):
+
+    Q_i = M^T (d + M_t p_i)                  (car axes, relative to P_b)
+
+`u = unit(Q_i - Rf)` (zero length gives `(0, 1, 0)`). The **same `Rf` and `Q_i` are used for the
+cab box**: the cab test is centred on `P_b`, not on `P_c` (a quirk, kept: its box sits
+`(height2 - height) / 2` lower, and offset in x and z by `ipos2 - ipos`, compared with where the
+cab is drawn and where its edges and wheels are tested).
+
+Face test, for the body with its corners (cab: the same with the cab corners). Faces are tried in
+this order; a face's hit is `Rf + t u` with `t = (plane - Rf_axis) / u_axis`, counted when it
+lies strictly inside the face's two other ranges; at most two faces are counted (a face is only
+looked at while the count is below 2; a group is skipped when `u` has 0 on its axis):
+
+| Face | Plane | Hit ranges | Accept also needs | Outward n | Depth |
+|---|---|---|---|---|---|
+| bottom | `y = +0xbc` | x in (`+0xb8`, `+0xc4`), z in (`+0x108`, `+0xc0`) | `t > 0`, `u_y > 0`, `|t| < 999999` | (0,-1,0) | `Q.y - bottom` |
+| top | `y = +0xd4` | x in (`+0xd0`, `+0xdc`), z in (`+0xf0`, `+0xd8`) | `t > 0`, `u_y < 0`, `|t| <= best` | (0,1,0) | `top - Q.y` |
+| front | `z = +0xc0` | x in (`+0xb8`, `+0xc4`), y in (`+0xbc`, `+0xd4`) | `t > 0`, `u_z < 0`, `|t| <= best` | (0,0,1) | `b - Q.z` |
+| back | `z = +0x108` | x in (`+0x100`, `+0x10c`), y in (`+0x104`, `+0xec`) | `t > 0`, `u_z > 0`, `|t| <= best` | (0,0,-1) | `Q.z + b` |
+| left | `x = +0xb8` | y in (`+0xbc`, `+0xd4`), z in (`+0x108`, `+0xc0`) | `t > 0`, `u_x > 0`, `|t| <= best` | (-1,0,0) | `Q.x + a` |
+| right | `x = +0xc4` | y in (`+0xc8`, `+0xe0`), z in (`+0x114`, `+0xcc`) | `t > 0`, `u_x < 0`, `|t| <= best` | (1,0,0) | `a - Q.x` |
+
+(`best` starts at 999999 and becomes `|t|` of each accepted face; later faces win ties. Cab
+offsets: `+0x124`/`+0x128`/`+0x12c` for corner 0 and so on, 0x6c higher than the body's.)
+No accepted face gives depth -9999. Then, when `depth > stored` (truck `+0x808 + 4 i`):
+
+- if the race-rules checkpoint mode is on (`0x6f60bc` = 1, 14.24) nothing is stored (only the
+  back-face record `0x6f5edc` of that mode is updated);
+- otherwise, **if the winning face is the top** the crush rule runs (body: `0x4aa9b0`, cab:
+  `0x4aab50`, 14.27.5) and may lower `depth`; then `depth` is stored at `+0x808 + 4 i` and the
+  world outward normal `M n` at `+0x73c + 12 i`. Nothing else (no contact point, no on-ground
+  word), exactly like a box's ground contact (14.14 step 2).
+
+The body test runs before the cab test for the same point, so the cab sees the body's result as
+its stored depth.
+
+##### Wheels (`0x4a58b0` with `0x4b6350` body, `0x4b9d20` cab)
+
+For contact index `k` = 13, 14, 15, 16 the axle `0x6cef1c` and tire `0x6f602c` are truck `+0x4c`
+with tires `+0x4c` and `+0x160`, then `+0x2bc` with `+0x2bc` and `+0x3d0`; the side `s`
+(`0x6f5134`) is -1, +1, -1, +1. For each wheel: body (`0x4b6350`) then cab (`0x4b9d20`). Each
+one first runs the **suspension test** (`0x4b46f0` body, `0x4b80c0` cab; skipped in checkpoint
+mode), then the **tire contact point test**. Below, `C` is the part's centre (`P_b` for the
+body, `P_c` for the cab: unlike the hull points, both wheel tests use the cab's own centre) and
+the corner offsets are the part's own. With `r` = tire `+0x6c`, `w` = tire `+0x74`, the hub
+body position `h` = tire `+0x0c`, the static anchor `A` = tire `+0x30`, the tire's world point
+`S` = tire `+0x24` (read in 14.17 as the hub's position at the last step) and its world offset
+`H` = tire `+0x18`.
+
+**Suspension** (`0x4b46f0`):
+
+    Wb  = P_truck + M_t (A - (0, r, 0))                (wheel bottom at its anchor, world)
+    u   = unit(M^T (Wb - S))                           (zero gives (0, 1, 0))
+    o   = M_t (cA r + sA s w/2,  cA s w/2 - sA r,  0)  with cA = axle +0x230, sA = axle +0x22c
+    Rf  = M^T (S - C + o)
+
+Faces in the order left (`x = -a`), right, bottom, top, front (`z = +b`), back, each counted
+when its hit `Rf + t u` lies strictly inside the face's ranges (same ranges as the hull table),
+at most two counted, a group skipped when `u` has 0 on its axis. **No `t > 0` and no direction
+test.** A counted face wins when `|t| <= best`; on winning, the part's **inward** axis normal
+`n_in` (left +x, right -x, bottom +y, top -y, front -z, back +z) is kept only when its truck-axis
+y, `|(M_t^T M n_in).y|`, is above 0.5, otherwise the winner carries a zero normal. Afterwards,
+with `n_t = M_t^T M n_in`: only when `n_t.y < -0.5` (the face's outward normal points up for the
+truck, a roof under the wheel) does the apply step (`0x4b4110` body, `0x4b7ae0` cab) run:
+
+    (cy, cz) = unit(n_t.y, n_t.z)                      ((1, 0) when zero)
+    Pc   = (A.x + s w/2,  A.y + r cy,  A.z + r cz)     (truck body)
+    Q    = M^T (P_truck + M_t Pc - C)
+    d    = depth of Q inside the face of n_in (as the "Depth" column: e.g. top - Q.y)
+    pen  = -d / n_t.y                                  (penetration along truck y)
+
+When `pen > ` tire `+0x94`:
+
+- if `pen > 0`: the crush rule runs with `pen` as the depth (14.27.5) and may lower `pen`; the
+  tire's ground normal (`+0xac`) becomes the outward world normal `-M n_in`, and the tire's
+  on-ground word `+0x04` becomes `trunc(s)`, that is **-1 for tires 13 and 15, +1 for 14 and 16**
+  (non-zero either way);
+- otherwise `0x6f1bc0` is cleared;
+- in both cases tire `+0x94 = pen` and the lever `+0x98 = sqrt(r^2 + (A.x + s w/2)^2)`.
+
+**Tire contact point** (body `0x4b6350`, cab `0x4b9d20`, contact index `k`):
+
+    Rf = M^T (S - C)
+    u  = unit(M^T (P_truck + H - S))                   (zero gives (0, 1, 0))
+
+Faces in the order left, right, bottom, top, front, back, the same counting rules; the first
+(left) needs `|t| < 999999`, the others `|t| <= best`; **no `t > 0` or direction test**. The
+winner's inward normal `n_in` (as above, no `|y|` filter) is kept; no counted face: nothing.
+Then, with `n_w = M n_in` and `n_t = M_t^T n_w`:
+
+    a1 = atan2(-n_t.z, -n_t.y),   a2 = atan2(-n_t.x, -n_t.y)
+         (atan2(0, x) is 0 for x >= +0 and pi otherwise; atan2(y, 0) is +-pi/2 by the sign of y)
+    K  = r * max(|sin a1|, |sin a2|)
+    sx = +1 when n_t.x > 0 (strictly), else -1
+    (ey, ez) = unit(n_t.y, n_t.z)                      ((1, 0) when zero)
+    Pt = h + (w sx / 2,  K ey,  K ez)                  (truck body)
+    Q  = M^T (P_truck + M_t Pt - C)
+    depth = depth of Q inside the face of n_in
+
+When `depth > ` truck `+0x808 + 4 k` (and not in checkpoint mode): if the face is the **top**
+(`n_in.y = -1`) the crush rule runs; then the (possibly lowered) depth goes to `+0x808 + 4 k`,
+the outward world normal `-n_w` to `+0x73c + 12 k`, and `Pt` to `+0x5a4 + 12 k`. This is the
+box tire-contact-point test of 14.14 with the car as the box.
+
+##### Edges (`0x4a2d80`)
+
+The car is tested edge by edge against the truck. First the body: `0x6f5148 := P_b`,
+`0x6ceee8 := bvel (+0x94)`, `0x6cef78, 0x6cef7c, 0x6cef80 := +0xa4, +0xa8, +0xa0` (the rates in
+the same rotated order the box pair uses), world corners `W_k = P_b + M c_k` for the 8 body
+corners. Then the 12 edges below. Then the cab the same way with `0x6f5148 := P_c` and
+`W_k = P_c + M c2_k` (cab corners, so the edges do follow the crushed roof).
+
+| # | Edge `A - B` | n1 (`0x6cef50`) | n2 (`0x6cef60`) |
+|---|---|---|---|
+| 1 | W0 - W1 | (0,0,1) | (0,-1,0) |
+| 2 | W0 - W2 | (0,0,1) | **(0,0,-1)** (the code's value; the geometric one would be (-1,0,0)) |
+| 3 | W0 - W6 | (0,-1,0) | (-1,0,0) |
+| 4 | W4 - W2 | (-1,0,0) | (0,1,0) |
+| 5 | W4 - W5 | (0,0,-1) | (0,1,0) |
+| 6 | W4 - W6 | (0,0,-1) | (-1,0,0) |
+| 7 | W3 - W1 | (0,0,1) | (1,0,0) |
+| 8 | W3 - W2 | (0,0,1) | (0,1,0) |
+| 9 | W3 - W5 | (0,1,0) | (1,0,0) |
+| 10 | W7 - W1 | (0,-1,0) | (1,0,0) |
+| 11 | W7 - W5 | (0,0,-1) | (1,0,0) |
+| 12 | W7 - W6 | (0,0,-1) | (0,-1,0) |
+
+`A` goes to `0x6f1bf8`, `B` to `0x6f1870`; n1 and n2 are the two face normals in car axes (as
+given, unrotated). For each edge, when the distance from the truck's centre to the **infinite
+line** through `A` and `B` (`0x48e9d0`: `|(P_truck - A) x (B - A)| / |B - A|`, 999999 when
+`A = B`) is below the truck's radius `+0xfb8`:
+
+    clear 0x6f5a00..0x6f5a14 (two vectors)
+    0x6ed4e8 := M_t^T (A - P_truck)          (edge start, truck axes)
+    0x6f6058 := M_t^T (B - P_truck)          (edge end, truck axes)
+    0x49df20 four times: (axle, tire) = (+0x4c, +0x4c), (+0x4c, +0x160), (+0x2bc, +0x2bc), (+0x2bc, +0x3d0)
+    0x49b190 once (edge against the hull box)
+
+(`0x495290` does exactly this; some cab edges, 2, 4, 5, 7, 9, 11, 12, inline it as
+`0x494fb0` + `0x49b190`, with the same effect.) The other inputs those routines read are the
+pair globals above: car and truck rotations, the class `0x6f5168`, `m_eff` `0x6f1bf0`, the car
+centre `0x6f5148`, velocity `0x6ceee8` and rates `0x6cef78`. The hull-contact entries "at the
+hull corner nearest the contact, chosen by octant (`0x496da0`)" that section 7.6 describes come
+from inside `0x49b190`; both are in 14.26. The
+crush rule is never called from the edge routines.
+
+#### 14.27.5 The crush rule (`0x4aa9b0` body, `0x4aab50` cab)
+
+Input: the current contact's depth `D` (`0x6f5fb8`: a hull point's or tire point's depth inside
+the top face, or a wheel's `pen`). Both routines start the same way:
+
+    if D <= 0.25: return
+    E = D - 0.25 - 0.375                      (so D must exceed 0.625 ft)
+    if E <= 0: return
+    e = 0.15 E
+
+**Body** (`0x4aa9b0`): `e = min(e, top - 0.5 height)` with `top = +0xd4` and `height = +0x54`.
+The top starts at exactly `height / 2` and nothing raises it, so the limit is 0 and **the body
+never crushes** (the routine returns at its `e > 0` check). For completeness, when `e > 0` it
+would lower the body top and the cab top together by `e` and then do what the cab version does.
+
+**Cab** (`0x4aab50`):
+
+    n     = groundNormal(P_b.x, P_b.z)              (0x550460, below)
+    L     = (top_body - P_c.y + P_b.y + 0.25) / n.y  (lowest allowed cab top, cab axes)
+    if top_cab - e < L:  e = top_cab - L
+    if e <= 0: return
+    top_cab -= e      (+0x140, and +0x14c, +0x158, +0x164 copied from it)
+    D       -= e
+    f = 1 - (top_cab - bottom_cab) / height2        -> +0x84   (bottom_cab = +0x128)
+    truck +0x80c .. +0x848 (the 16 contact depths, indices 1 to 16) -= e
+
+Since `P_c.y - P_b.y = (height2 - height) / 2`, on flat ground (`n.y = 1`) the cab top stops
+0.25 ft above the body's top: the cab keeps at least `height + 0.25` of its `height2`, so
+
+    f_max = 1 - (height + 0.25) / height2        (no crush at all when height2 <= height + 0.25)
+
+The roof therefore comes down by 15% of the excess over 0.625 ft **per contact that reaches the
+rule**, which can be several per sub-step (each hull point, tire point and wheel that beats its
+stored depth on the cab top). Lowering all 16 stored depths by `e` keeps later points of the same
+step consistent with the lowered roof; the wheels' suspension penetrations (`+0x94`) are not
+lowered, only the current one through `D`. The caller stores the lowered `D`.
+
+`groundNormal(x, z)` (`0x550460`): the first listed box (kind 1, including ground boxes) whose
+footprint holds the point gives `(0, 1, 0)`: `|x_box - x|` and `|z_box - z|` at most its radius
+`+0x74`, then with `dx = x_box - x`, `dz = z_box - z` and the box's sin/cos psi (`+0x224`,
+`+0x228`), `|cos dx - sin dz| <= width (+0x68) / 2` and `|cos dz + sin dx| <= length (+0x64) / 2`.
+Else the first listed ramp holding it the same way (radius `+0x50`, sin/cos `+0xe4`/`+0xe8`,
+width `+0x44`, length `+0x40`) gives its slope normal `+0xf8`. Else the terrain normal (2.2) at
+the point, scaled by 1/65536.
+
+#### 14.27.6 What persists, and drawing (`0x54f570`, `0x54ec00`, opcode 0x20 at `0x431960`)
+
+**Persistent state**: the cab top (the four `+0x140` family values) and `f` (`+0x84`) only; they
+last until the SIT is loaded again. Setup rebuilds the corners on a reload but never writes
+`+0x84`, so **hypothesis**: a car keeps the previous race's drawn crush until it is crushed
+again (the physics roof is fresh). Replays (`0x5665b0`, `0x568a00`) would record a car as kind 2
+(position `+0x28`, `bvel`, angles, index) only when `+0x00` is non-zero, which no code found ever makes it (so, **hypothesis**, cars are
+never recorded); the
+roof is not in the record either way, and playback (`0x566f00`) writes back only position,
+angles, `bvel` and rates.
+
+**Drawing**: each frame `0x54f570` registers every car (not only listed ones) with the draw
+callback `0x54ec00`, which does nothing when `+0x2ac` is non-zero. Positions go to the renderer
+as integers in 1/256 ft (`x 256`) and angles as binary angles (`x 10430.378`, 65536 / 2pi), the
+same three angles for both parts. It draws, in order:
+
+1. **Cab** at `P_c`. Without a cab model: a box from the eight cab corners (so it visibly
+   flattens). With one: the model must begin with opcode **0x20** (keyframed), otherwise the game
+   stops with "Top crush must be keyframed 1"; before every draw the model's time word (`+0x10`
+   of the 0x20 record) is set to `trunc(f * 65535)`.
+2. **Body** at `P_b`. Without a model: a box from the body corners. With one: any model.
+
+The 0x20 opcode (`0x431960`) turns the time word into a frame position: with `N` frames
+(`+0x08`) and frame length `T` (`+0x0c`),
+
+    k    = floor(time / T)   (clamped to 0x7fff),   frac = (time mod T) / T   (16.16)
+    frames k - 1 (wrapping to N - 1), k, k + 1 and k + 2 (each wrapping to 0 past N - 1)
+
+are blended with cubic weights built from `frac` and the constants 0.5, -0.5, 1.5, -2.5, 1 and 2
+(**hypothesis**: a Catmull-Rom blend), and the op then overwrites `+0x10` with the global clock
+`0x644618` modulo `N T` (which is why the crush draw sets it every time). So the crushed look is
+chosen purely by `f`: an intact cab draws at time 0 (frame 0), a fully crushed one at
+`trunc(f_max * 65535)`. **Open**: OpenPhotex's `BIN.md` reads animated BINs as a frame count
+followed by a "magnify" word; this code uses that second word as the frame length `T`, and the
+mapping from `f` to the "after" frame depends on it. The model format work belongs in
+OpenPhotex.
+
+#### 14.27.7 Corrections to earlier text
+
+- Section 7.6: hull points, tire points and wheels against the car's **faces** are the ground
+  contacts (as for boxes); the **edges** add the separate edge-against-hull and edge-against-wheel
+  contacts. "Never below half the car's height" describes the body routine, whose limit is 0 so
+  the body never crushes; the cab's floor is the body's top plus 0.25 ft, divided by the ground
+  normal's y at the car. The fraction is the cab's: `1 - (cab top - cab bottom) / height2`.
+- MONSTER_EXE_ANALYSIS.md used to give `0x54ec00` as the box draw rule; the rule is in
+  `0x54f570` (corrected there), and `0x54ec00` is the top-crush callback.
