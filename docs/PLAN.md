@@ -187,7 +187,14 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
   - Bridges and ground boxes carry the wheels on JUNK and TPARK.
 
 ### M6: Autopilot, recovery, race rules (OpenPhotex)
-**Status: in progress.** Done: the autopilot (physics 14.22, 14.23: following, steering, target speed, speed control, segment advance, rubber-banding) with the frame-time hypothesis, and course-aware recovery for CPU trucks; a CPU truck laps every stock Circuit track. Next: race rules (countdown, checkpoints, laps, placings, finish), several CPU trucks per session with traffic (`0x483600`), then headless races.
+**Status: acceptance met; follow-ups pending.** Done: the autopilot (physics 14.22, 14.23: following, steering, target speed, speed control, segment advance, rubber-banding) with the frame-time hypothesis (`AUTOPILOT_FRAME_DT`), course-aware recovery for CPU trucks, and the race rules (14.24: countdown, checkpoints with gate and detector, splits, laps, missed-checkpoint recovery, the finish, the race order). The session (`sim-worker.js`) now runs any number of trucks with a race; headless 8-truck races finish on every stock Circuit track.
+
+**Pending:**
+- Traffic (`0x483600`, 756 lines: following and passing other trucks), and with it the wheels against wheels of M5.
+- The per-track default lap count (the game's track list, `+0x2d5c`); races take a lap count, 3 by default.
+- `fastSimulateRemaining` (0.25 s ticks with sub-steps of at most 0.1 s) for the trucks still racing after the player finishes.
+- Summit Rumble scoring (MONSTER_EXE_ANALYSIS.md 6.3), Rally specifics, the reversed course and GOLD mode.
+- The player's missed-checkpoint announcer (with the sounds, M11).
 - Read the physics doc's §13 items from `re/` into the doc first.
 - Autopilot, traffic, helicopter, Professional CPU reset, rubber-banding.
 - Race rules: countdown, splits, laps, missed checkpoint, placings, finish, `fastSimulateRemaining` (0.25 s ticks, substeps ≤ 0.1 s).

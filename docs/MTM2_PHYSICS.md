@@ -1486,3 +1486,59 @@ Intermediate while the player is not first:
 
 The fractional part of the truck's forward speed serves as a cheap random number, so the
 leaders lose up to a few tenths of gain on some straights.
+
+### 14.24 Race rules: checkpoints, laps, finish and the race order (`0x487300`, `0x485af0`, `0x52ee50`)
+
+The race tick (`0x487300`), every frame while racing, for each truck: the checkpoint test
+(`0x485af0`), the off-course check (`0x486630`), the estimated time to the segment's end
+(`+0x8dc`, eased toward `0x480ba0` at `0.75 dt`), the segment advance (14.23) and the segment
+progress; then, for all trucks, the race order; then the race clock (`0x6f61d8`) gains `dt`.
+The countdown is section 6.1 (3 s; then every truck goes and `raceStartTime` is stamped).
+
+**Checkpoint test** (`0x485af0`, not in Summit Rumble), against the truck's next checkpoint
+(`+0xfa8`, an index into the level's checkpoints in file order):
+
+1. Sphere pretest against the **detector** (6.2): `|pos - c| < (r_c + r_truck) * 2`.
+2. The hull-point test of 14.14 in **checkpoint mode** (`0x4a52b0` with `0x6f60bc` = 1): no
+   contacts, forces or wheels; it only keeps the deepest hull point that crossed the box's
+   **back face** (outward normal `-z`): its depth `d` and body point `P`.
+3. When such a point exists (`d > 0`) and its velocity (`bvel + omega x P`, in the checkpoint's
+   axes) is forward along the checkpoint (`v_z > 0`): outside drag mode the same test is made
+   against the **gate**; crossing it too is a **pass**, otherwise a **miss**.
+
+On a **pass**: the segment counter `+0x8fc` goes up (at most 90); the split
+`split[lap][i] = clock - raceStart - d / v_z`, made relative (minus the lap's earlier splits and
+minus the time of the laps before, `+0xfa4`), so each entry is the time since the last
+checkpoint; the index `i` goes up and `+0xfac` = `lap * count + i` (checkpoints passed in all).
+When `i` reaches the level's checkpoint count, the lap closes: its splits are added to the race
+time `+0xfa4` and to the lap time `+0xf50[lap]`, the fastest lap `+0xfa0` is kept, the lap
+counter `+0x8f4` goes up (and, for the leader, a laps-led count), `0x52ee50` runs, and `i`
+returns to 0. A lap needs every checkpoint in order: only the next one is ever tested.
+
+On a **miss** (reported once, until the state changes): the player hears the announcer; a CPU
+truck is recovered. On **Professional** (and when `+0x17a8` is clear) it is put on the missed
+checkpoint: x and z the checkpoint's, y raised 10 ft, velocity, rates, pitch and roll zeroed, the
+heading the checkpoint's psi, then **20 ft back** along the checkpoint's axis. Otherwise the
+stuck timer is set to -6 s and the **helicopter** lifts it (`0x470190`, section 10.3).
+
+**Finish** (`0x52ee50`, after a lap closes): when the **first** truck completes the race's lap
+count (`0x6407a4`, the menu's laps), the race is over: every other truck's finish lap becomes the
+lap it is on (its laps + 1, at most the lap count), so each finishes at the end of its current
+lap; finished trucks go on autopilot. The player's finish starts the results (and the
+fast-simulation of section 5).
+
+**Segment progress** (`+0x8c8`, for the order): `1 - f`, with `f` the share of the segment
+left, less the hull's front offset `z1` (hull point 1's z; the rear point's when the truck is
+passing, `+0x8d8`):
+
+- straight `S -> E`: `f = (|E - pos| - z1 / G) / |E - S|` (`G` the difficulty gain `+0x8c0`);
+- arc (centre `c`, angles `a0 -> a1`, radius `R`): `f = (R wrap(a1 - theta) - z1) / (R wrap(a1 - a0))`,
+  `theta = heading(pos - c)`.
+
+**The race order** (`+0x8f8`): a truck's place is 1 plus the number of trucks ahead of it,
+where another truck is ahead when:
+
+- this truck has finished (its laps equal the lap count): the other has finished too, with a
+  smaller race time;
+- otherwise: the other has finished; or has passed more checkpoints (`+0xfac`); or as many and
+  more segments (`+0x8f0`); or as many of both and more progress (`+0x8c8`).
