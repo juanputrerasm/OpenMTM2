@@ -301,8 +301,9 @@ Per body axis `i`:
 
 - `rhoA_i` adds up, over the area facing that axis (x 125, y 150, z 75 ft2), the fluid density
   of each part. Submerged wheel area (`0x473f10`) and submerged hull faces (`0x4726a0`) use 0.15;
-  the rest uses 0.002377.
-- Off-centre water drag also produces moments.
+  the rest uses 0.002377 (section 14.7.1).
+- The game also sums water-drag moments about the CG, but only copies them to a debug block for
+  the viewed truck; they never reach the dynamics.
 
 Damping moments against rotation:
 
@@ -827,6 +828,65 @@ z 1.5. Damping uses `q_bar = 0.0011885 |v|^2`, at least 26.74125:
     M_x (pitch, about x) = -0.2 * q * A_y * L * q_bar
     M_z (roll, about z)  = -0.2 * p * A_x * L * q_bar
     M_y (yaw)            = -0.4 * r * A_x * L * q_bar          L = 2 * front hub z
+
+#### 14.7.1 Fluid areas (`0x4740c0`)
+
+`rhoA` per body axis starts at 0, and the dry areas at the aero areas (x 125, y 150, z 75 ft2).
+The density at a point (`0x469fe0`) is that of the surface type there: 0.15 for types 3 and 13
+(water), 0.002377 otherwise. Everything below runs for every truck, every step.
+
+**Wheels** (only when at least one wheel has a positive water depth). Each wheel's water depth
+is the one its last wheel probe found (section 14.11.3, the probe point at the bottom of the
+tire), moved with the truck when the solid axle lifts it. A wheel of radius `r` and width `w`
+in water `d` deep has (`0x473f10`), with `d' = min(d, 2r)`:
+
+    side (x)  = circular segment of height d': r^2 * a - (r - d') * r * sin(a), a = acos(|r - d'| / r);
+                past half (d' > r) it is pi r^2 minus the segment of height 2r - d'
+    under (y) = chord * w: 2 r sin(a) * w, or 2 r * w past half
+    front (z) = d' * w
+
+A dry wheel (depth <= 0) has no areas. The density is taken at the wheel's probe point.
+
+- x: per axle, the deeper wheel only (the second of the pair on a tie); its side area leaves the
+  dry x area and `density * area` joins `rhoA_x`.
+- y: every wet wheel.
+- z: per side, the deeper of the front and rear wheels (the rear on a tie).
+
+**Hull faces** (`0x4726a0`), always. A face is four hull points (numbered 1 to 12, section 3)
+and the body axis it faces. Its four corners are wet when their water depth is positive. The
+area facing that axis is:
+
+| Wet corners | Area |
+|---|---|
+| none | 0 |
+| one | `0.5 * l_u * l_v`, the corner's two legs |
+| two (any two) | `0.5 * L * (l1 + l2)`: L the distance between them along the axis they differ in, l the two corners' legs across it |
+| three | full face minus the dry corner's triangle |
+| four | full face |
+
+The full face is the product of the extents, along the two axes in the face, from corner 1 to
+corner 4. A corner's leg along a body axis is `waterDepth * n_axis` with `n` the ground normal
+stored with that point (world axes, as stored), taken with the sign that points from the corner
+toward the body centre on that axis (minus for a corner on the positive side). The face's
+density is taken at its first wet corner; a dry face has density 0.
+
+The faces, in order:
+
+| Facing | Corners | When |
+|---|---|---|
+| z | 11, 12, 7, 8 | `bvel.z <= 0` (going back) |
+| z | 1, 2, 7, 8 | `bvel.z > 0` |
+| y | 1, 2, 11, 12 | `bvel.y <= 0` |
+| y | 3, 4, 5, 6 then 5, 6, 7, 8 then 7, 8, 9, 10 | `bvel.y > 0` |
+
+Areas are summed per axis; they leave the dry areas, and `rhoA_y += d_y * area_y`,
+`rhoA_z += d_z * area_z`, with `d_z` the density of the z face and `d_y` that of the **last** y
+face computed. No face faces x.
+
+**Air**: the remaining dry area of each axis, floored at 0, times 0.002377, joins `rhoA`.
+
+**Splash** (`0x429070`): when the z or y face density is 0.15 and the truck's speed exceeds
+14.67 ft/s. (The game also compares the x density, which is always 0 here.)
 
 ### 14.8 Sums (`0x46cfe0`, `0x46d270`)
 
