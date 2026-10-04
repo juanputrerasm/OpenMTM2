@@ -248,3 +248,32 @@ test("headless races finish on every stock Circuit track: 8 CPU trucks, 2 laps (
     assert.ok(race.trucks.every((x) => [...x.s.pos].every(Number.isFinite)), t.name);
   }
 });
+
+test("Farm Road 29: the player's truck goes on autopilot once it finishes, and the rest are fast-simulated to the finish", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const { buildCatalog } = await import("../src/worker/catalog.js");
+  const vfs = stockVfs();
+  const { tracks } = await buildCatalog(vfs);
+  const t = tracks.find((x) => x.file === "TPARK.SIT");
+  assert.equal(t.defaultLaps, 3);
+  const build = await buildTrackRender(vfs, t.path);
+  // The player's truck drives itself here, as the autopilot would; the others are CPU trucks.
+  const trucks = build.sim.grid.map((g, i) => ({ truck: build.truckModels[g.file], start: { pos: g.pos, heading: g.heading }, autopilot: i > 0 }));
+  const session = createSession({
+    heights: build.heights.buffer, clr: build.sim.clr.buffer, textureValues: build.sim.textureValues.buffer,
+    ra0: build.sim.ra0.buffer, ra1: build.sim.ra1.buffer, boxes: build.sim.boxes, ramps: build.sim.ramps,
+    course: build.sim.course, sonicTrack: build.sim.sonicTrack, waterLevelFt: build.waterLevelFt, weather: 0, difficulty: 1,
+    trucks, race: { checkpoints: build.sim.checkpoints, laps: 1 },
+  });
+  const view = session.raceView();
+  assert.equal(view.started, false);
+  assert.ok(Math.abs(view.countdown - 3) < 1e-9);
+  assert.equal(session.trucks[0].autopilot, false);
+  // Mark the player's truck finished: the next step hands it to the autopilot.
+  session.race.trucks[0].finished = true;
+  session.step({});
+  assert.equal(session.trucks[0].autopilot, true);
+  const done = session.finishRace();
+  assert.ok(done.over, "nobody finished");
+  assert.ok(done.trucks.every((x) => x.finished), `${done.trucks.filter((x) => !x.finished).length} still racing after the fast simulation`);
+  assert.deepEqual(done.trucks.map((x) => x.place).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8]);
+});

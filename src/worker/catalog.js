@@ -18,6 +18,16 @@ export const HIDDEN_TRUCKS = Object.freeze(["CHUCK.TRK"]);
 export const RACE_TYPES = Object.freeze({ 1: "drag", 2: "circuit", 3: "rally", 4: "summit" });
 
 /**
+ * A track's default lap count (MONSTER_EXE_ANALYSIS.md 3, "Default lap count"): for a Circuit
+ * `trunc(15000 / length + 1)` with a 6000 ft length when the SIT has none; 5 for a Summit Rumble
+ * (minutes); 1 otherwise.
+ */
+export function defaultLaps(raceType, trackLength) {
+  if (raceType === "circuit") return Math.trunc(15000 / (trackLength ?? 6000) + 1);
+  return raceType === "summit" ? 5 : 1;
+}
+
+/**
  * @param {ReturnType<import("./vfs.js").createVfs>} vfs
  * @returns {Promise<{ tracks: object[], trucks: object[], problems: string[] }>}
  */
@@ -38,6 +48,8 @@ export async function buildCatalog(vfs) {
         typeCode: sit.trackTypeCode,
         raceType: RACE_TYPES[sit.trackTypeCode] ?? "unsupported",
         weatherMask: sit.weatherMask,
+        trackLength: sit.trackLength,
+        defaultLaps: defaultLaps(RACE_TYPES[sit.trackTypeCode], sit.trackLength),
         ambientSound: sit.ambientSound,
         level: sit.lvlName,
         hidden: HIDDEN_TRACKS.includes(file),

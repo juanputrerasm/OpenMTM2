@@ -48,3 +48,14 @@ test("the stock catalog lists the 20 trucks; retail ships no CHUCK.TRK", { skip:
   assert.deepEqual(trucks.filter((t) => t.hidden), []);
   assert.ok(trucks.every((t) => t.name && t.dialect));
 });
+
+test("default laps: a Circuit's come from its track length, trunc(15000 / length + 1), 6000 ft when missing", async () => {
+  const { defaultLaps } = await import("../src/worker/catalog.js");
+  assert.equal(defaultLaps("circuit", 5973.36), 3);
+  assert.equal(defaultLaps("circuit", 11665.5), 2);
+  assert.equal(defaultLaps("circuit", 1579.7), 10);
+  assert.equal(defaultLaps("circuit", null), 3);
+  assert.equal(defaultLaps("summit", 6317), 5);
+  assert.equal(defaultLaps("rally", 22445), 1);
+  assert.equal(defaultLaps("drag", null), 1);
+});
