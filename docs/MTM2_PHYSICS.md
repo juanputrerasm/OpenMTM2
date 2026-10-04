@@ -1267,3 +1267,43 @@ cell has a ground box (lower and upper heights differ) and its lower height is b
 height is the box's top; otherwise it is the terrain height (2.1), raised to the water level in
 Snow weather. So a train rides on the deck of a ground-box bridge it is above, and on the terrain
 everywhere else.
+
+### 14.19 Ramps (`0x550890`, `0x549b40`, `0x54feb0`)
+
+The SIT's `*** Ramps ***` section (sim kind 2, table `0xa2f270`, 0x118 bytes each). In the stock
+game only SNAKE (8 ramps, 38 x 18 x 10 or 8 ft) and WAR (1, 82 x 80 x 30 ft) have any, and none of
+them has a model.
+
+**Loader** (`0x550890`): `ipos` (`+0x28`), the angles (`+0x34`, theta, phi, psi), then either a
+`model` line (name at `+0x104`) or `length, width, height` (`+0x40`, `+0x44`, `+0x48`), the mass
+(`+0x4c`) and two more triples (`+0x78`, `+0x84`).
+
+**Setup** (`0x549b40`): a negative x or z gets 8192 added. A model replaces the sizes with its
+vertex bounds (width = x extent, length = z extent, height = y extent, as for boxes). With
+`a = width / 2`, `b = length / 2` and `H` the full height, a ramp is a **wedge standing on its
+position**: the corners (`+0x9c`, ramp axes) are `(-a, 0, b)`, `(a, 0, b)`, `(-a, H, b)`,
+`(a, H, b)`, `(-a, 0, -b)`, `(a, 0, -b)`, so its top rises from the back (`-z`, height 0) to the
+front (`+z`, height `H`). The bounding radius (`+0x50`) is `sqrt(H^2 + a^2 + b^2)`; `sin psi`
+and `cos psi` are kept (`+0xe4`, `+0xe8`); the slope's normal is `unit(0, 2b, -H)` turned by psi
+(`+0xf8`); the rotation matrix is the usual Euler one (identity when all angles are 0).
+
+**Listing** (`0x5543c0`): a ramp whose first word (`+0x0`) is set is always in the frame's object
+list (nothing in the loader sets it); any other ramp joins when it lies within `r + R + 10` ft on
+x and z of an object already listed, as boxes do (14.15).
+
+**The height query** (`0x54feb0`, the one the probes use, 2.1) goes through the frame's listed
+ramps in list order before the terrain. For a ramp at `(xr, yr, zr)` and a point `(x, z)`, with
+`dx = xr - x`, `dz = zr - z`, both at most the ramp's radius:
+
+    u = cos psi * dx - sin psi * dz        (minus the point's x in ramp axes)
+    v = cos psi * dz + sin psi * dx        (minus its z)
+    |u| <= width / 2 and |v| <= length / 2:  height = (length / 2 - v) * H / length + yr
+
+The first ramp that holds the point wins, whatever the point's own height; otherwise the terrain
+(Snow-aware, `0x5017e0`). Only psi turns the footprint. **The ground normal ignores ramps**
+(`0x550380` is the terrain normal), so on a ramp the probes see the ramp's height with the
+terrain's normal.
+
+The ramp's sides are walls for hull points and wheels (`0x4b2580`: the four wheels through
+`0x4aa110`, hull points 1 to 12 through the inside test `0x48c230` and the push-out `0x4b2950`
+with the force law `0x48c8a0`, then `0x4b17c0`); they are still to be written up here.

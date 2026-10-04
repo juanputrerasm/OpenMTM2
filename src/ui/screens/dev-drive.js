@@ -57,6 +57,7 @@ export default async function mount(container, context, { track, truckFile }) {
     ra0: build.sim.ra0?.buffer ?? null,
     ra1: build.sim.ra1?.buffer ?? null,
     boxes: build.sim.boxes,
+    ramps: build.sim.ramps,
     waterLevelFt: build.waterLevelFt,
     weather: 0,
     difficulty: 1,
