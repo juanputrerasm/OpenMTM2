@@ -708,3 +708,174 @@ Everything above was traced in code. What remains is detail, not mechanism:
 4. The `+0x2a8`/`+0x518` (15000) axle field and the `+0x5a0` weight term (0 in stock trucks).
 
 Each is a few dozen lines in one routine and can be read out during the port.
+
+---
+
+## 14. Step details for the port
+
+The routines of sections 4 to 10, as traced for OpenPhotex's `mtm2Sim` (milestone M4). Truck
+fields are offsets from the truck; a tire block is 0x114 bytes (FR +0x4c, FL +0x160, RR +0x2bc,
+RL +0x3d0) and an axle block starts at its right tire (front +0x4c, rear +0x2bc). `n` is a
+world ground normal, `M` the body-to-world matrix, `dt` the step. `0x6f5a18` is a shared zero
+vector, so every "external x, z" term below is 0.
+
+### 14.1 Order of one truck step (`0x470810`)
+
+1. Autopilot (`0x480410`).
+2. Tire geometry for FR, FL, RR, RL (`0x47f7d0`).
+3. Gearbox (`0x477520`).
+4. `W` = body + both axle weights + the `+0x5a0` term; `m = W / g`; gravity in body axes
+   `-W * (m3, m4, m5)` (the world up axis in body coordinates).
+5. Drag (`0x474f90`), tires (`0x47c870`), aero damping (`0x475180`), hull contacts (`0x475960`).
+6. Force sum (`0x46cfe0`), impulse moment (`0x469a40`: `+0x1098 = +0x1094 / dt`, then
+   `+0x1094 = 0`), moment sum (`0x46d270`).
+7. Accelerations (`0x46d730`), then **rates and body velocity are integrated first**
+   (`p, q, r += rate_dot * dt`, `bvel += a * dt`), then position (`0x46da30`) and orientation
+   (`0x46e200`) with the new values.
+8. Tire geometry again, then contact probing (`0x471d70`).
+
+After every object has stepped and collided, the post-step (`0x471280`) runs per truck.
+
+Tire grip K (`0x647634`) is set at the start of the step: 2.0 for a non-human truck
+(`+0x176c == 0`) on Professional on a Sonic track, else 1.75.
+
+### 14.2 Tire geometry (`0x47f7d0`)
+
+Each axle keeps its articulation `a` as `cos a` (+0x22c), `sin a` (+0x230) and its travel
+(+0x244, the hub height in body y). For a tire with anchor `(ax, ay, az)`:
+
+    hub (body)   = (ax cos a, ax sin a + travel, az)
+    hub (world offset from ipos) = M * hub
+    contact (body) = hub + r * (sin a, -cos a, 0)
+    v_contact = bvel + omega x contact, omega = (q, r, p) on (x, y, z)
+
+**On the ground the roll and pitch rate terms are left out** (only yaw `r` and, in the air,
+`p + axle rate +0x23c` and `q` contribute).
+
+### 14.3 Normal load and grip (`0x47d110`)
+
+    load = k (axle +0x250) * compression (tire +0x78)
+    on the ground: n_load = n . (M * (0, load, 0))      (the load along the ground normal)
+                   mu_tire = K * mu(surface) * weather * cutFactor
+                   grip    = mu_tire * n_load           (tire +0x90)
+    in the air:    grip = 0
+    load -= c (axle +0x254) * extensionRate (tire +0x7c), at least 0
+
+The surface is looked up at the **hub's** world x, z, probing 100 ft above the terrain there
+(`0x47cb50` for the cut factor, `0x469fe0` for mu and drag density); the value's depth is
+dropped (`0x4de180` returns `(type * 100) << 16 | depth << 8 | particle flags`).
+
+### 14.4 Longitudinal force (`0x47dce0`, on the ground)
+
+    nb = M^T n;  pitchG = atan2(nb.z, nb.y);  rollG = atan2(nb.x, nb.y)  (tire +0xa8, +0xa4)
+    vz' = cos(pitchG) v.z - sin(pitchG) v.y
+    vx' = cos(rollG)  v.x - sin(rollG)  v.y
+    v_fwd = vz' cos(delta) + vx' sin(delta);  v_lat = vx' cos(delta) - vz' sin(delta)
+    D = (0.8 * brake + 0.02) * grip, negative when v_fwd > 0
+    F_drive: section 5.2
+
+Static hold, when the truck's body speed `|bvel| < 14.67`:
+
+    slope = tF . (0, W, 0) * grip / sum(grip)      tF = M * (nb.x, -nb.z, nb.y), the ground
+                                                    tangent ahead (unsteered)
+    hold  = -(v_fwd / dt) * m * grip / sum(grip)
+    f = slope + hold
+    hold == 0: D = f when |f| <= |D| and D != 0
+    hold >  0: D = min(D, f)
+    hold <  0: D = max(D, f)
+
+Then the clamp: if `F_drive + D > 0.8 grip`, `F_drive -= (F_drive + D - 0.8 grip)`; if
+`F_drive + D < -0.8 grip`, likewise. `F = F_drive + D`, applied in the ground frame as
+`(sin(delta) F, 0, cos(delta) F)`. Wheel spin `= v_fwd / r`; wheel angle integrates and wraps.
+Above Rookie the grip left for the lateral force is `sqrt(grip^2 - F^2)`.
+
+### 14.5 Lateral force (`0x47eb30`)
+
+    alpha = atan2(v_lat, v_fwd) when |v_fwd| > 10, else atan2(v_lat, +-10) with the sign of
+            v_fwd (0 or pi when v_lat = 0)
+    C = table lookup (section 5.3)
+    F = grip * C + tL . (0, W, 0) * grip / sum(grip)   tL = M * (nb.y, -nb.x, nb.z), the ground
+                                                        tangent to the right
+    below 14.67 ft/s: |F| <= grip (scaled), then the hold rule of 14.4 with
+                      hold = -(v_lat / dt) * m * grip / sum(grip)
+    applied in the ground frame as (cos(delta) F, 0, -sin(delta) F), added to 14.4's
+
+`sum(grip)` is re-summed after the longitudinal pass (so it uses the reduced grips).
+
+### 14.6 Tire force to body (`0x47d310`)
+
+    Fb = (cos(rollG) Fx,  sin(rollG) Fx + sin(pitchG) Fz,  cos(pitchG) Fz)
+    Fb += M^T (n * (n . (M * (0, load * n.y, 0))))
+
+### 14.7 Drag and aero damping (`0x474f90`, `0x4740c0`, `0x475180`)
+
+Per body axis `F_i = -rhoA_i * 0.5 * Cd_i * v_i |v_i|`, `rhoA_i = A_i * 0.002377` in air (the
+submerged parts of section 5.4 add water density and moments). Coefficients: x 5, y 1.5,
+z 1.5. Damping uses `q_bar = 0.0011885 |v|^2`, at least 26.74125:
+
+    M_x (pitch, about x) = -0.2 * q * A_y * L * q_bar
+    M_z (roll, about z)  = -0.2 * p * A_x * L * q_bar
+    M_y (yaw)            = -0.4 * r * A_x * L * q_bar          L = 2 * front hub z
+
+### 14.8 Sums (`0x46cfe0`, `0x46d270`)
+
+    F = gravity + drag + contact forces + external + tire forces (x, z sums; y sum of tire y)
+    |F| <= 500000
+    M about the CG c = (0, -3, 0):
+      drag acts at the body origin: M += (-c) x D
+      per tire: M_x += (hub.y - c.y) Fz - Fy (hub.z - c.z)
+                M_y += Fx (hub.z - c.z) - Fz (hub.x - c.x)
+                M_z += Fy (hub.x - c.x) - Fx (travel - c.y)     (lateral at axle height)
+      M_x += the impulse moment (+0x1098)
+
+### 14.9 Integration (`0x46d730`, `0x46da30`, `0x46e200`)
+
+    q_dot = ((I3 - I1) / I2) r p + M_x / I2
+    p_dot = ((I2 - I3) / I1) r q + M_z / I1
+    r_dot = ((I1 - I2) / I3) q p + M_y / I3        each clamped to +-13
+    a = F / m - omega x bvel
+
+At rest: velocity, rates and `ivel` are zeroed when `|ivel| < 0.1`, or `< 0.5` with 3 or more
+contacts (trucks). A zeroed player truck with **no wheel on the ground** after the race has
+started is reset (`0x46fd30`); the stuck timer (`+0x1078`) counts down while no wheel touches
+and resets at -5 s. Euler rates and the gimbal guard: section 9.4 (`|theta| > 1.05`).
+
+### 14.10 Contact probing (`0x471d70`, `0x47f520`, `0x46c9e0`)
+
+The ground probe of a body point `P`: `W = ipos + M P`; `n` = ground normal there
+(`0x550380`). With an offset `o`, the point moves by `o` against the normal projected into the
+body's y-z plane. Depth `= ground(W.x, W.z) - W.y - sinkDepth / 12` (inches); over deep water
+the water depth is recorded too.
+
+Tire contact points (hull points 13-16): the hub, moved half the tire width along the axle
+(outward: + for FR and RR, - for FL and RL) and probed with offset `r * max(|sin pitchG|,
+|sin rollG|)`. Each stored depth is `depth * n.y`. Hull points 1-12 are marked -9999.
+
+### 14.11 Post-step (`0x471280`)
+
+1. Each axle is reset: articulation 0, travel = the static anchor y.
+2. **Push-out** (`0x476810`), points 1 to 16 in order: a hull point takes its fresh probe when
+   deeper than stored; a tire keeps its stored depth `s`. When `s > 0.25` the truck moves by
+   `n * (s - 0.25 n.y)`, and every point's stored depth (and water depth) drops by `n_j . move`.
+   Every point with `s >= 0` counts as a contact (`+0x890`).
+3. **Wheels** (`0x476b80`, `0x47bfa0`): each wheel probes at its **static** anchor moved half
+   the width **inward** (- for FR and RR, + for FL and RL) with offset `r`. Its penetration
+   along body y is `pen = (d n.y) / (n . bodyY)`; the deepest probe sets the tire's normal and
+   `on_gnd`, and its lever `sqrt(r^2 + x_probe^2)`.
+4. **Axles** (`0x47fa20`), the one with the deeper wheel first; any lift the first did is
+   subtracted from the second's penetrations:
+   - articulation: unchanged when neither wheel penetrates; else
+     `atan(pen_R / lever_R)` or `atan(-pen_L / lever_L)` when their sum is not positive, else
+     `atan((pen_R - pen_L) / (lever_R + lever_L))`; clamped to +-0.5;
+     the penetrations follow: `pen_R += lever_R * (sin old - sin new)`, `pen_L -= ...`;
+   - compression per wheel `= x_offset * sin(a) - anchor y + travel` (the rest position is
+     compressed by the static sag);
+   - above the 2 ft bump stop the excess lowers the travel and adds to both penetrations; the
+     travel never drops below the static anchor (the difference moves into compression);
+   - the remaining penetration first raises the axle (compression and travel) up to the bump
+     stop; what is left **lifts the truck** along that wheel's normal by
+     `pen * (n . bodyY)`, reducing every stored depth by the same;
+   - compressions are floored at 0; `extensionRate = (old - new) / dt`.
+5. **Bottoming** (`0x46ba80`): for each wheel at full compression, the part of the world
+   velocity into its ground normal (when negative) is reduced by 25%: `bvel -= M^T (n * vn *
+   0.25)` summed over those wheels.

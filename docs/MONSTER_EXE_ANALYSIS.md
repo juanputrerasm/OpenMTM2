@@ -379,8 +379,7 @@ runs out the race loop ends the race.
   not understand?" (59%) or "<<1>> has just missed a checkpoint. Turn around buddy." A **CPU
   truck** is recovered:
   - on **Professional**, it is placed at the checkpoint it missed: x and z set to the
-    checkpoint's, y raised 10 ft from its own, `bvel` set from a vector the box test leaves at `0x6f5a18`
-    (not yet identified), rates and
+    checkpoint's, y raised 10 ft from its own, velocity zeroed (`0x6f5a18` is a zero vector), rates and
     pitch/roll zeroed, heading set to the checkpoint's psi, then moved **20 ft back** along the
     checkpoint's axis (so it drives through the gate again);
   - on **Rookie and Intermediate**, the **helicopter** picks it up: `heliTimer` (+0x1078) is set
