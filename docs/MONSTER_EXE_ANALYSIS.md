@@ -371,7 +371,13 @@ When the player finishes a single-player Circuit or Rally, the remaining CPU tru
 
 The countdown is driven from the autopilot code (0x4805d0): `racetime` against a 3.0 s limit
 (`0x647630 = 3.0`), the start-light model (`stlite.bin`, `STRTRED.RAW`/`STRTGRN.RAW`) and the
-"Get Ready!" commentary. The value it sets is the **gear** (truck `+0x58c`, the index into the
+"Get Ready!" commentary. **The start lights** are the track's own `STLITE.BIN` gantry (a SIT object over
+the start line), whose lamps are faces textured `STRTRED.RAW` (5 faces) and `STRTGRN.RAW` (5).
+`0x548de0(on)` runs from the same code, with `on` = 1 every frame of the countdown and 0 once it
+is over, and acts only when `on` changes: it locks each lamp texture and fills every texel with a
+single palette index, `STRTRED` with 1 when on and 0 when off, `STRTGRN` with 0 when on and 2
+when off. In the stock level palettes index 0 is black, 1 dark red (128, 0, 0) and 2 green
+(0, 128, 0): the red lamps glow through the countdown, then go dark as the green ones light. The value it sets is the **gear** (truck `+0x58c`, the index into the
 gear ratios at `+0x568`): every frame of the countdown, while the race clock is at most 3 s,
 every truck is put in **Park** (1), which sets both brakes and drives no wheel (MTM2_PHYSICS.md
 section 7), so revving the engine moves nobody. At zero every truck goes into **first** (4)

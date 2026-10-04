@@ -94,6 +94,7 @@ export function createModelLibrary(models, modelTextures, look) {
         side: THREE.FrontSide,
       };
       const material = new THREE.MeshLambertMaterial(params);
+      material.userData.textureName = mesh.textureName?.toUpperCase() ?? null;
       // Self-lit faces (lamps, signs) ignore the scene's lighting.
       if (mesh.emissive) {
         material.emissive = new THREE.Color(0xffffff);
@@ -104,6 +105,29 @@ export function createModelLibrary(models, modelTextures, look) {
     library.set(name, parts);
   }
   return library;
+}
+
+const LAMPS = { "STRTRED.RAW": [1, 0], "STRTGRN.RAW": [0, 2] };
+
+/**
+ * The start lights (MONSTER_EXE_ANALYSIS.md 6.1): during the countdown (`on`) the game fills the
+ * red lamp texture with palette index 1 and the green with 0; after it, red with 0 and green with 2.
+ * `colours` are the level palette's indices 0, 1 and 2 as RGB (track-build.js).
+ */
+export function setStartLights(world, on, colours) {
+  if (!colours) return;
+  world.traverse((o) => {
+    const material = o.material;
+    const lamp = material && LAMPS[material.userData?.textureName];
+    if (!lamp) return;
+    const [r, g, b] = colours[on ? lamp[0] : lamp[1]];
+    const colour = new THREE.Color(r / 255, g / 255, b / 255);
+    material.map = null;
+    material.emissiveMap = null;
+    material.color.copy(colour);
+    material.emissive = colour;
+    material.needsUpdate = true;
+  });
 }
 
 /** Every placed object, one InstancedMesh per model part. */

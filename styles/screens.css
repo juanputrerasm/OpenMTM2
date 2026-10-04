@@ -80,9 +80,7 @@ table.results tr.player td { color: var(--accent); font-weight: 600; }
 .race-hud-times { top: 4px; }
 .race-hud-place { top: 72px; }
 .race-hud-row { display: flex; justify-content: space-between; gap: 12px; }
-.race-lights { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); padding: 6px 22px; border-radius: 8px; background: rgba(0, 0, 0, 0.6); color: #e22; font: 800 56px/1 system-ui, sans-serif; }
-.race-lights.go { color: #2d2; }
 .race-message { position: absolute; left: 50%; top: 34%; transform: translateX(-50%); margin: 0; padding: 6px 14px; color: #fff; background: rgba(0, 0, 0, 0.55); font: 700 22px/1.3 system-ui, sans-serif; text-align: center; }
 .race-pause { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(0, 0, 0, 0.55); }
-.race-pause[hidden], .race-lights[hidden], .race-message[hidden], .race-loading[hidden] { display: none; }
+.race-pause[hidden], .race-message[hidden], .race-loading[hidden] { display: none; }
 .race-pause-title { margin: 0; color: #fff; font: 800 36px/1 system-ui, sans-serif; text-transform: uppercase; }
