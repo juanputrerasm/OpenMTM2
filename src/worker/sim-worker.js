@@ -39,7 +39,7 @@ function snapshot(state) {
 
 /**
  * A session from plain data:
- * `{ heights, clr, textureValues, ra0, ra1, boxes, ramps, waterLevelFt, weather, difficulty, truck: { anchors, scrapePoints }, start: { pos, heading } }`.
+ * `{ heights, clr, textureValues, ra0, ra1, boxes, ramps, course, sonicTrack, autopilot, waterLevelFt, weather, difficulty, truck: { anchors, scrapePoints }, start: { pos, heading } }`.
  * `ra0` / `ra1` are the level's ground-box layers and `boxes` its collision boxes (track-build.js).
  */
 export function createSession(init) {
@@ -75,7 +75,16 @@ export function createSession(init) {
   const recovery = {
     racing: true, player: true, autopilot: false, difficulty, summit: false, segment: null, previous: null,
   };
-  const ctx = { ground, human: true, difficulty, sonicTrack: false, recovery };
+  // The autopilot (MTM2_PHYSICS.md 14.22, 14.23): the course's straights with the arcs built
+  // between them, over the ground the probes see.
+  const course = S.buildCourse(init.course ?? [], (x, z) => ground.height(x, z), {
+    sonicTrack: !!init.sonicTrack, gripK: init.sonicTrack && difficulty === S.DIFFICULTY.PROFESSIONAL ? 2 : 1.75,
+  });
+  const autopilot = !!init.autopilot && course.length > 0;
+  const apCtx = {
+    course, height: (x, z) => ground.height(x, z), dt: STEP, difficulty, sonicTrack: !!init.sonicTrack,
+  };
+  const ctx = { ground, human: !autopilot, difficulty, sonicTrack: !!init.sonicTrack, recovery };
   let time = 0;
   let previous = snapshot(state);
   const keys = { accelerate: false, brake: false, left: false, right: false };
@@ -134,8 +143,18 @@ export function createSession(init) {
       dt: STEP, autoShift: params.autoShift, forwardSpeed: state.bvel[2], dragMode: false, segments: 0, difficulty,
     };
     // The keyboard routine always runs; a joystick then overwrites it (MONSTER_EXE_ANALYSIS.md §7).
-    S.applyKeyboard(state.controls, keys, controlCtx);
-    if (joystick) S.applyJoystick(state.controls, joystick, controlCtx);
+    if (autopilot) {
+      S.advanceAutopilotSegment(state, apCtx);
+      // A CPU truck's recovery aims at its course segment (MTM2_PHYSICS.md 10.3).
+      recovery.player = false;
+      recovery.autopilot = true;
+      recovery.segment = course[state.ap.segment];
+      recovery.previous = course[(state.ap.segment + course.length - 1) % course.length];
+      S.applyAutopilot(state, params, apCtx);
+    } else {
+      S.applyKeyboard(state.controls, keys, controlCtx);
+      if (joystick) S.applyJoystick(state.controls, joystick, controlCtx);
+    }
     keys.shiftUp = keys.shiftDown = false;
     if (joystick) joystick.shiftUp = joystick.shiftDown = false;
     previous = snapshot(state);
@@ -169,7 +188,7 @@ export function createSession(init) {
     return { previous, current: snapshot(state), alpha: (target - time) / STEP, time, steps, boxes };
   }
 
-  return { state, params, ground, levelBoxes, step, advance, snapshot: () => snapshot(state) };
+  return { state, params, ground, levelBoxes, course, step, advance, snapshot: () => snapshot(state) };
 }
 
 if (typeof self !== "undefined" && typeof self.postMessage === "function" && typeof window === "undefined") {

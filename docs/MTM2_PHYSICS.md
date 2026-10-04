@@ -680,8 +680,8 @@ writer saves only the odd segments.
 
 **Following a segment** (`0x481a70`): on a straight the aim point is its end. On an arc, the
 truck's angle around the centre and the exit angle (field 6) give a target on the arc, and
-the aim point is smoothed (`aim = prev * 100 * 2 + new`, normalised; constants 100 and 2,
-**hypothesis** on the exact form until ported).
+the autopilot follows the arc's tangent at the nearest arc point, as a line 100 ft either side
+of it (section 14.22, which replaces an earlier guess here).
 
 **Steering** (`0x481ea0`):
 
@@ -1373,3 +1373,116 @@ solver (14.16) does the rest.
   normal (world) its normal, and `(0, 0.01, 0)` is added to M's force (which keeps it stepping).
 
 So loose boxes rest on ground boxes and stack on one another.
+
+### 14.22 Autopilot: following, steering, target speed and speed control (`0x480410`)
+
+Run first in the truck step (14.1) for a truck under autopilot, while racing (`0x6f58d8` not 0).
+On a reversed course (`0x647564`) the current segment is turned round for the call (a
+straight's start and end swapped, and for segment 1 its `cspeed` taken from the last segment;
+an arc's entry and exit angles swapped) and restored after. Then `0x481a70`, then `0x4805d0`.
+Angles are headings `atan2(dx, dz)`; `wrap` takes an angle into [-pi, pi]
+(`a - trunc(a / 2 pi) 2 pi`, then +-2 pi). `H(x, z)` is the height query with box and ramp tops
+(`0x550090`).
+
+**Segment to line** (`0x481a70`, `0x483070`). The autopilot steers along a line `S -> E`:
+
+- a **straight**: `S` its start, `E` its end;
+- an **arc** (centre `c`, entry angle `a0`, exit `a1`, radius `R`): with the look-ahead position
+  `L = pos + 2 ivel dt` and `u = unit(L - c)` (3D), `theta = heading(u)`, the progress
+  `f = wrap(theta - a0) / wrap(a1 - a0)`. When `f < 0` or `f > 1`, `u.x, u.z` become
+  `sin, cos` of `a0` (`f < 0`) or `a1` (`f > 1`), `u.y` kept. The arc point is `P = c + R u`
+  and the tangent `T = (u.z, 0, -u.x)` when `wrap(a1 - a0) > 0`, else `(-u.z, 0, u.x)`; then
+  `S = P - 100 T`, `E = P + 100 T`. (The routine also forms `|wrap(heading(pos - c) - a1)|`,
+  the angle left to the exit, for later use; its height term passes the offsets from the centre
+  to the height query, not a world position.)
+
+**Bearing** (`0x481ea0`): `hs = heading(E - S)`; `D = |E - pos|` with the y difference taken
+from `E.y - H(pos)`; `b = wrap(heading(E - pos) - hs)`; the cross-track error
+`e = sin(b) D` (`+0x8e8`); the correction `c = D > 50 ? asin(clamp(0.02 e, -1, 1)) : b`
+(`+0x8d0`), clamped to +-0.125 on a straight and +-0.5 on an arc.
+
+**Target speed** (`+0x89c`), with `g = 32.174`, `K = 1.75` (`0x647634`), `k = 0.45`
+(`0x647658`; both raised on Sonic tracks, section 6.5) and the difficulty gain `G` (`+0x8b8`:
+0.5, 0.75, 1.0):
+
+- `mu` = the average of the four tires' surface grip factors (tire `+0x8c`);
+- the climb to the aim point: `w = unit(E.x - x, H(E) - y + 6, E.z - z)`;
+  `a = g w.y + mu sqrt(1 - w.y^2) k g` (`+0x8bc`, the deceleration the truck can count on);
+- **arc** (`cspeed_type` 1): `v = cspeed sqrt(G) sqrt(mu / K) sqrt(ratio)`, where
+  `ratio = (sin b_h + K cos b_h) / (sin b_arc + K cos b_arc)`, `b_arc` the arc's bank and `b_h`
+  the bank measured along the truck's own heading from the centre (`atan((H(R + 5) - H(R - 5))
+  * 0.1)`); when the truck is wider than the radius (`d - R > 0`, `d` its distance from the
+  centre) `ratio *= min(sqrt((k2 (d - R) + R) / R), 1.2)` with `k2 = 0.725` (0.75 Sonic);
+  `ratio` at least 0.1;
+- **straight**: `v = sqrt(max(0, (cspeed sqrt(G))^2 + 2 a D)) sqrt(mu / K)` (braking toward the
+  next arc, whose speed the straight's `cspeed` holds).
+
+Traffic (`0x483600`, below) may then adjust the target and the correction.
+
+**Steering** (still `0x481ea0`), with `psi` the truck's heading:
+
+    err  = wrap(hs - psi + c)
+    cmd  = 22 (+0x8b4) * dt * err
+    cmd *= min(|e| / 32, 1.5)                  when |e| > 32 on a straight
+    in the air (no wheel on the ground) above 14.67 ft/s:
+         I += clamp(err, -0.5, 0.5) / dt * 1.0 (+0x8b0) * dt;  cmd += I     (I is +0x8ac)
+    cmd *= D / 30                              when D < 30
+    cmd *= min(sqrt(|20 / bvel.z|), 1)         on a straight
+    cmd  = clamp(cmd, -0.45, 0.45)
+    steer += (cmd - steer) * 6.66 (+0x8cc) * dt,  clamped to +-0.45;  rear = -0.33 steer
+    (x1.25 in drag mode)
+
+The steering is applied only when the autopilot drives (`+0x894`) or for the player at
+autopilot level 3; level 1 and 2 leave the player steering.
+
+**Speed control** (`0x4805d0`):
+
+    drag  = (0.8 brake_r + 0.02)(grip_RR + grip_RL) + (0.8 brake_f + 0.02)(grip_FR + grip_FL)
+    acc   = ((a rpm + b) rpm + c) * throttle / r_RR * gearRatio * transfer - drag
+    pred  = acc / m * dt * 0.05 (+0x8a4) + (v_FR + v_FL + v_RR + v_RL) / 4
+    target = max(target, 17) (outside drag mode); and at most the segment's cSpeedLimit
+             when that is 10 or more
+    u     = 1.2 (+0x8a0) * dt * (target - pred)
+
+`grip` is each tire's grip (`+0x90`, as the last step left it), `v` each tire's forward speed
+(`+0x50`, `v_fwd`), `(a, b, c)` the torque curve without its scale (`+0x544..`), the brakes and
+throttle last step's. When the autopilot drives: `u >= 0` gives throttle `min(u, 1)` and no brake;
+`u < 0` gives no throttle and both brakes `min(-u, 1)`. (For the player, level 2 does the same,
+and level 1 only brakes on a straight when `u` is below minus the front brake.) The same routine
+also runs the race-start countdown for the player's truck (section 6).
+
+**Frame time.** The game steps once per rendered frame with that frame's `dt` (MONSTER_EXE_ANALYSIS.md
+section 5), and four autopilot terms scale with it: the look-ahead (`2 ivel dt`), the steering
+command (`22 dt err`), the air integrator (`clamp(err)` per frame) and the speed controller
+(`1.2 dt (target - pred)`, with `0.05 dt` in the prediction). A port that steps at a fixed, shorter
+dt halves them at 60 Hz, and the trucks then run wide and stall against JUNK's walls.
+**Hypothesis:** the game was tuned at about 30 frames per second; OpenPhotex evaluates those four
+terms at `AUTOPILOT_FRAME_DT = 1/30 s` and everything else at the real step. With it, a CPU truck
+laps every stock Circuit track (OpenMTM2 `tests/sim-session.test.mjs`).
+
+### 14.23 Autopilot: the next segment and rubber-banding (`0x481060`)
+
+Every tick (from the race logic, `0x487300`, for every truck while racing), the truck's segment
+`ap.cnumber` (`+0x898`) moves on when the truck is closer to the segment's end line than the
+segment's `cdec_point` (field 8):
+
+- **straight** `S -> E`: the next segment's centre `N` (fields 2 to 4 of the arc that follows;
+  for a reversed course the one before) is projected onto the line `S E` at `F`; the end line
+  runs through `F` across the straight, from `F - 200 n` to `F + 200 n` with
+  `n = unit(F - N)` (horizontal); the distance is the truck's from that line, in x and z;
+- **arc** (centre `c`, exit angle `a1`, radius `R`): with `x = 2 R (sin a1, cos a1)`, when
+  `x . (pos - c) > 0` (the truck is on the exit side) the distance is the truck's from the
+  line through `c` along `x`, in x and z; otherwise it is `2 cdec_point` (no advance).
+
+On advancing: the course integrator `I` (`+0x8ac`) is cleared, the segment count (`+0x8f0`) goes
+up by one, the segment becomes the next (after the last, `lastentry`, segment 1; reversed: the
+one before, from 1 to the last), and the estimated time to the segment's end is recomputed
+(`+0x8dc`, `0x480ba0`, used by traffic and the race order). Entering a **straight**, the
+difficulty gain `G` (`+0x8b8`) is set again: 0.5 Rookie, 0.75 Intermediate, 1.0 Professional,
+**minus a rubber-band bonus** for a CPU truck in first or second place (`+0x8f8`) on Rookie or
+Intermediate while the player is not first:
+
+    bonus = trunc(frac(bvel.z) * 5 / place) * 0.1      (frac: bvel.z minus its truncation)
+
+The fractional part of the truck's forward speed serves as a cheap random number, so the
+leaders lose up to a few tenths of gain on some straights.
