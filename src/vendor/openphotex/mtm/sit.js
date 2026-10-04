@@ -121,6 +121,8 @@ export function parseMtmSit(input, sitTitle = "") {
         lvlName: normalizePodPath(lines[0]),
         lineCount: lines.length,
         trackName: valueAfter("!Race Track Name")?.trim() ?? null,
+        flyBy: valueAfter("Track Fly-By .AVI file")?.trim() ?? null,
+        sonicTrack: valueAfter("Track Fly-By .AVI file")?.trim() === "Sonic",
         localeName: valueAfter("Race Track Locale")?.trim() ?? null,
         trackTypeCode: null,
         redbookTrack: null,

@@ -169,6 +169,12 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       ra1: level.groundBoxes.ra1 ? level.groundBoxes.ra1.slice() : null,
       boxes: collisionBoxes,
       ramps,
+      /** The primary course's straights (MTM2_PHYSICS.md 12); the session builds the arcs. */
+      course: (sit.primaryCourse?.segments ?? []).map((g) => ({
+        startFt: g.startFt, endFt: g.endFt, ctype: g.ctype, cspeedType: g.cspeedType, cdecPoint: g.cdecPoint,
+        cspeed: g.cspeed, speedLimit: g.speedLimit, trackWidthFt: g.trackWidthFt,
+      })),
+      sonicTrack: !!sit.sonicTrack,
       start: trucks.length ? {
         file: trucks[0].file,
         pos: sit.trucks.find((t) => !t.playerSlot && t.positionFt)?.positionFt ?? null,

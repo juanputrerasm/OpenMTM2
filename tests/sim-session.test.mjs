@@ -197,3 +197,28 @@ test("a SNAKE ramp's top carries the truck (14.19)", { skip: skipWithoutStock("P
   const y = r.current.pos[1];
   assert.ok(y - top > 3 && y - top < 7, `truck ${y - top} ft above the ramp top`);
 });
+
+test("a CPU truck on autopilot laps every stock Circuit track (14.22, 14.23)", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const { buildCatalog } = await import("../src/worker/catalog.js");
+  const vfs = stockVfs();
+  const { tracks } = await buildCatalog(vfs);
+  const circuits = tracks.filter((t) => t.raceType === "circuit");
+  assert.equal(circuits.length, 8);
+  for (const t of circuits) {
+    const build = await buildTrackRender(vfs, t.path);
+    const truck = build.truckModels[build.sim.start.file];
+    const session = createSession({
+      heights: build.heights.buffer, clr: build.sim.clr.buffer, textureValues: build.sim.textureValues.buffer,
+      ra0: build.sim.ra0.buffer, ra1: build.sim.ra1.buffer, boxes: build.sim.boxes, ramps: build.sim.ramps,
+      course: build.sim.course, sonicTrack: build.sim.sonicTrack, autopilot: true,
+      waterLevelFt: build.waterLevelFt, weather: 0, difficulty: 1,
+      truck: { anchors: truck.anchors, scrapePoints: truck.scrapePoints },
+      start: { pos: build.sim.start.pos, heading: build.sim.start.heading },
+    });
+    const segments = session.course.length;
+    let i = 0;
+    while (session.state.ap.segmentsPassed < segments && i < 240 / STEP) { session.step({}); i++; }
+    assert.ok(session.state.ap.segmentsPassed >= segments, `${t.name}: ${session.state.ap.segmentsPassed} of ${segments} segments in 240 s`);
+    assert.ok([...session.state.pos].every(Number.isFinite), t.name);
+  }
+});

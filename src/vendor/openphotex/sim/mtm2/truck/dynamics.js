@@ -122,7 +122,8 @@ export function stepTruck(s, p, ctx, dt) {
             const nLoad = t.load * (t.normal[0] * m[1] + t.normal[1] * m[4] + t.normal[2] * m[7]);
             const w = toWorld(m, t.hub[0], t.hub[1], t.hub[2]);
             const type = surfaceType(ctx.ground.surface(s.pos[0] + w[0], s.pos[1] + w[1] + 100, s.pos[2] + w[2]));
-            t.grip = gripK * surfaceMu(type) * weather * cutFactor(type, p.tireCut) * nLoad;
+            t.mu = gripK * surfaceMu(type) * weather * cutFactor(type, p.tireCut);
+            t.grip = t.mu * nLoad;
         }
         else {
             t.grip = 0;

@@ -11,10 +11,14 @@
 import { GEAR, ENGINE } from "../constants.js";
 import { eulerToMatrix } from "../math.js";
 import { createControlState } from "./controls.js";
+/** The difficulty gain for a difficulty (0 Rookie, 1 Intermediate, 2 Professional). */
+export function autopilotGain(difficulty) {
+    return difficulty === 0 ? 0.5 : difficulty === 2 ? 1.0 : 0.75;
+}
 function tire() {
     return {
         compression: 0, extensionRate: 0, penetration: -9999, lever: 0, normal: [0, 1, 0], onGround: false,
-        spin: 0, angle: 0, pitchG: 0, rollG: 0, load: 0, grip: 0,
+        spin: 0, angle: 0, pitchG: 0, rollG: 0, load: 0, grip: 0, mu: 0,
         hub: [0, 0, 0], contact: [0, 0, 0], velocity: [0, 0, 0], force: [0, 0, 0],
         waterDepth: 0, waterPoint: [0, 0, 0],
     };
@@ -52,6 +56,7 @@ export function createTruckState(pos, heading = 0, gear = GEAR.FIRST, params) {
         impulseMoment: 0,
         impactForce: 0,
         splash: false,
+        ap: { segment: 0, integral: 0, gain: autopilotGain(params?.difficulty ?? 1), segmentsPassed: 0, target: 0 },
     };
     eulerToMatrix(0, 0, heading, state.matrix);
     state.prevMatrix.set(state.matrix);
