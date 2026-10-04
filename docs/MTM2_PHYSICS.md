@@ -1200,8 +1200,12 @@ Then, in order:
    (`0x4aad00`), then the four wheels (`0x4a7fc0`).
 2. **Box corners against the wheels** (`0x4a1210` -> `0x49f920`), when the early out passes again
    and the box mass is above 0 (as stored), for each corner 1 to 8 and each wheel FR, FL, RR, RL.
-3. The pair's forces and moments are added: the truck's to its accumulators (`+0xfbc`, `+0xfc8`,
-   body axes), the box's to its own (`+0x78`, `+0x84`, box axes). Both act in the next step.
+3. The pair's forces and moments are added once: the truck's to its accumulators (`+0xfbc`,
+   `+0xfc8`, body axes), the box's to its own (`+0x78`, `+0x84`, box axes). Both act in the next
+   step. **Each contact below overwrites the pair's force and moment** (they are globals that
+   the frame loop clears after every pair, `0x46c0e0`), so only the last contact that produced a
+   force counts, however many hull points, tire points or corners hit. The push-outs, which move
+   the box directly, all happen.
 
 **Pushable box, hull point or tire contact point** (`0x4aad00`, `0x4a7fc0`): when the point's
 depth inside the face (as in 14.14) is positive and beats its stored depth, the point does not
@@ -1236,8 +1240,9 @@ one.
 - On a hit at `P` (body): the box moves by `M (P - B)` (world), so the corner ends on the wheel's
   surface. With `n` = that move, normalised, in box axes, and `v_rel` = the hub's velocity
   (`bvel + omega x h`, to the box's axes) minus the corner's (`bvel_box + omega_box x corner`):
-  `closing = v_rel . n`. When `closing` is below 0 only a tiny `(0, 0.01, 0)` is added to the
-  box's force (which wakes it for the next step); otherwise `F = m_eff * closing / dt`, the box
+  `closing = v_rel . n`. When `closing` is below 0 only a tiny `(0, 0.01, 0)` is added straight
+  to the box's accumulator (which wakes it for the next step; the pair's force is left as it
+  was); otherwise `F = m_eff * closing / dt`, the box
   gets `+F n` with moment `corner x F`, and the truck `-F n` (to its body axes) with moment
   `h x F`.
 
