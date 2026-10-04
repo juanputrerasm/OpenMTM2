@@ -29,6 +29,7 @@ function snapshot(state) {
     gear: state.controls.gear,
     rpm: state.rpm,
     throttle: state.controls.throttle,
+    heliTimer: state.heliTimer,
   };
 }
 
@@ -48,15 +49,24 @@ export function createSession(init) {
     { difficulty, autoShift: init.autoShift ?? true },
   );
   const state = S.createTruckState(init.start.pos, init.start.heading ?? 0, S.GEAR.FIRST, params);
-  const ctx = { ground, human: true, difficulty, sonicTrack: false };
+  // Until the race rules exist (M6) the dev session counts as racing, with no course: a reset
+  // keeps the heading and the helicopter sets the truck down where it was.
+  const recovery = {
+    racing: true, player: true, autopilot: false, difficulty, summit: false, segment: null, previous: null,
+  };
+  const ctx = { ground, human: true, difficulty, sonicTrack: false, recovery };
   let time = 0;
   let previous = snapshot(state);
   const keys = { accelerate: false, brake: false, left: false, right: false };
 
   /** Step one fixed step with the held keys. */
   function step(input) {
-    const { joystick = null, ...held } = input ?? {};
+    const { joystick = null, helicopter = false, ...held } = input ?? {};
     Object.assign(keys, held);
+    if (helicopter) {
+      S.pressHelicopterKey(state, { dragRace: false, summit: recovery.summit });
+      input.helicopter = false;
+    }
     const controlCtx = {
       dt: STEP, autoShift: params.autoShift, forwardSpeed: state.bvel[2], dragMode: false, segments: 0, difficulty,
     };

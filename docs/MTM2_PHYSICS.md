@@ -525,30 +525,62 @@ points' recorded depths are updated, and the contact count is stored for the nex
 
 ### 10.3 Stuck and flipped (`0x46da30`, `0x46fd30`, `0x470190`, `0x46ed90`, `0x46f7b0`)
 
-- **Player** (and network trucks): lying on the hull with no wheel touching for 5 s triggers an
-  **instant reset** (`0x46fd30`). Velocity, rates, pitch and roll are zeroed, the truck is
-  lifted 10 ft and turned to face its current course segment.
-- **CPU trucks on Rookie and Intermediate:** under 15 ft/s for 5 s, or flipped, call the
-  **helicopter** (`0x470190`). `heliTimer` = 15 s, plus 5 s for each other truck already being
-  lifted on the same course segment.
-- **CPU trucks on Professional** (with +0x17a8 clear) are reset instantly instead (`0x46f7b0`):
-  placed on the start of their course segment, 10 ft up, facing along it, all motion zeroed.
+`heliTimer` (+0x1078) is both the stuck count-down (negative) and the helicopter flight time
+(positive). The checks run inside the position integrator (`0x46da30`), after the velocity
+update and before the position moves. "Racing" means the race clock runs and the game is not
+paused; in a drag race the checks wait until the truck has passed 3 course segments.
 
-**Lift-off** (`0x470190`) sets the carry rates so the truck arrives in **10 s**. Pitch and roll
-fall at 0.1 x their value per second. Position moves at 0.1 x its offset per second toward the
-target: the start point of a straight segment, or the point on an arc segment. Heading turns to
-the segment direction.
+**Trucks under autopilot** (CPU trucks, or the player on Full Autopilot), while racing: when the
+timer is not positive and the speed is under **15 ft/s**, the timer counts down by dt;
+otherwise a negative timer counts back up by dt, stopping at 0.
 
-**Flight** (`0x46ed90`), while `heliTimer` counts down:
+**The player truck**: when the timer is not positive, the hull has contacts (`+0x890` > 0) and
+**no wheel touches the ground**, the timer counts down by dt while it is above -5, and once it
+passes **-5 s** the truck is **reset** (below). Otherwise it counts back up by dt to 0.
 
-| Time left | What happens |
-|---|---|
-| 15 s | commentary; wheel contact state cleared |
-| 15 to 10 s | the helicopter flies in and circles toward the truck, from `(t - 10) * 40` ft away |
-| 10 to 0 s | the truck is carried: angles and x/z move at the lift-off rates; height = ground under it + a hover offset that rises 5 ft/s until 4 s remain, then falls 5 ft/s |
-| 0 s | released: hover offset and contact depths reset, autopilot error cleared |
+Then, for any truck, a timer below **-5 s** calls the **lift-off** (below).
 
-The engine idles toward 800 rpm throughout.
+**At rest** (the velocity zeroed by section 14.9): the player truck tries a reset; a CPU truck
+on Rookie or Intermediate tries a lift-off; a CPU truck on Professional is reset instead
+(`0x46f7b0`, unless +0x17a8 is set, when it lifts off): placed on the start of its course
+segment, 10 ft up, facing along it, all motion zeroed.
+
+**Reset** (`0x46fd30`), only while racing, with hull contacts and no wheel on the ground:
+timer 0; velocity, rates, pitch and roll zeroed; the truck lifted **10 ft**; and, except in
+Summit Rumble, its heading turned to face the end of its current course segment (a straight's
+end point, or the point at the exit angle on an arc's circle):
+`psi = atan2(target.x - x, target.z - z)`.
+
+**Lift-off** (`0x470190`), while racing with hull contacts and no wheel on the ground, **or**
+whenever the timer is below -5 s:
+
+- timer = **15 s**, plus **5 s** for each other truck in flight on the same course segment;
+- pitch and roll rates = 0.1 x their angles; so are the heading and x/z rates, toward the
+  target: on a straight its start point and its direction (`atan2(end - start)`), on an arc the
+  point at its entry angle and the direction of the straight before it. The heading difference
+  is wrapped to +-pi. In Summit Rumble (no course) heading and position stay;
+- the hover height = the truck's height above the ground (the lower of two ground queries), or
+  2 x the truck's radius when that is negative. The radius (+0xfb8) is
+  `hypot(front right hub x + width / 2, front hub z + tire radius)`;
+- velocity and rates zeroed.
+
+**Flight** (`0x46ed90`) replaces the whole truck step while the timer is positive, and the
+post-step is skipped too. Each step:
+
+- the engine eases toward 800 rpm: `rpm += (800 - rpm) * dt`;
+- at exactly 15 s: commentary, and the wheels' contact data cleared;
+- above 10 s: the truck stays put while the helicopter flies in: above 11.5 s it heads for the
+  truck, then it circles, `(t - 10) * 40` ft out and up;
+- below 10 s: pitch, roll, heading, x and z each move by `-rate * dt` (so they arrive in 10 s);
+  the hover height rises 5 ft/s while more than 4 s remain, then falls 5 ft/s; and
+  `y = ground(x, z) + hover`;
+- the timer counts down by dt; at 0 it is released: timer 0, hover 0, the course error
+  (+0x8ac) 0 and every contact depth -9999.
+
+**The Helicopter key** (in the keyboard routine, not in a drag race or Summit Rumble): with the
+timer at exactly 0 it sets the timer to **-15 s**, so the lift-off follows in the same step;
+otherwise (counting down, or in flight) it sets the timer to 0 and clears the heading and x/z
+rates, which drops the truck.
 
 ---
 

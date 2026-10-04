@@ -65,7 +65,7 @@ export default async function mount(container, context, { track, truckFile }) {
   // wheelbase, §3.1).
   const truckObject = createTruckObject(truck, truck.anchors, look);
   scene.add(truckObject.object);
-  status.textContent = `${build.trackName}: ${truck.name}. Arrows or a gamepad drive, Q / Z shift, C camera, R restart.`;
+  status.textContent = `${build.trackName}: ${truck.name}. Arrows or a gamepad drive, Q / Z shift, H helicopter, C camera, R restart.`;
 
   const keys = createKeyboardInput(window);
   const pad = createGamepadInput();
@@ -130,7 +130,8 @@ export default async function mount(container, context, { track, truckFile }) {
     if (sky) sky.position.set(camera.position.x, 0, camera.position.z);
     const c = latest.current;
     hud.textContent = `${(c.speed / 1.4667).toFixed(0)} mph   gear ${GEAR_NAMES[c.gear] ?? c.gear}   ${c.rpm.toFixed(0)} rpm   `
-      + `${CAMERAS[cameraIndex].name}`;
+      + `${CAMERAS[cameraIndex].name}`
+      + (c.heliTimer > 0 ? `   helicopter ${c.heliTimer.toFixed(1)} s` : c.heliTimer < 0 ? `   stuck ${(-c.heliTimer).toFixed(1)} s` : "");
     renderer.render(scene, camera);
   };
   frame = requestAnimationFrame(loop);

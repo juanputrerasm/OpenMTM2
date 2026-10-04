@@ -161,7 +161,7 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
   - A Node test shows the terrain mesh triangle height equals the OpenPhotex sampler at 10k random points per track (< 1e-4 ft).
 
 ### M4: One truck driving, in the worker (OpenPhotex + OpenMTM2)
-**Status: in progress.** Done: the truck dynamics in OpenPhotex (`stepTruck`, `postStepTruck`, hull contacts), the simulation worker with interpolation, keyboard input, the animated truck and the chase cameras (`dev-drive`). To do: water drag, gamepad, the player reset and helicopter.
+**Status: done.** The truck dynamics in OpenPhotex (`stepTruck`, `postStepTruck`, hull contacts, water drag, the stuck timer, reset and helicopter), the simulation worker with interpolation, keyboard and gamepad input (the game's analog joystick mode), the animated truck and the chase cameras (`dev-drive`). The reset and helicopter target the truck's course segment once M6 tracks it; until then they keep the heading and set the truck down in place. The helicopter model is drawn with the other effects (M12).
 
 - OpenPhotex: tires, aero, contacts, forces, integrate, poststep, player reset, `session`, `snapshot`.
 - OpenMTM2: sim worker and host, interpolation, keyboard and gamepad, truck object, Chase Near and Chase Far cameras, `dev-drive` screen.

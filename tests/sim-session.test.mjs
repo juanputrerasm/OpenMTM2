@@ -47,3 +47,27 @@ test("a joystick drives the same truck, overriding the keyboard", { skip: skipWi
   assert.ok(moved > 60, `moved ${moved} ft`);
   assert.ok(session.state.controls.steer > 0);
 });
+
+test("the Helicopter key lifts the truck and sets it back down", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const build = await buildTrackRender(stockVfs(), "WORLD\\TPARK.SIT");
+  const truck = build.truckModels[build.sim.start.file];
+  const session = createSession({
+    heights: build.heights.buffer, clr: build.sim.clr.buffer, textureValues: build.sim.textureValues.buffer,
+    waterLevelFt: build.waterLevelFt, weather: 0, difficulty: 1,
+    truck: { anchors: truck.anchors, scrapePoints: truck.scrapePoints },
+    start: { pos: build.sim.start.pos, heading: build.sim.start.heading },
+  });
+  let r;
+  for (let t = 0.25; t < 3; t += 0.25) r = session.advance(t, {});
+  const groundY = r.current.pos[1];
+  r = session.advance(3.25, { helicopter: true });
+  assert.ok(r.current.heliTimer > 14, `timer ${r.current.heliTimer}`);
+  let top = 0;
+  for (let t = 3.5; t < 22; t += 0.25) {
+    r = session.advance(t, {});
+    top = Math.max(top, r.current.pos[1] - groundY);
+  }
+  assert.ok(top > 20, `lifted ${top} ft`);
+  assert.equal(r.current.heliTimer, 0);
+  assert.ok(Math.abs(r.current.pos[1] - groundY) < 3, `down at ${r.current.pos[1] - groundY}`);
+});
