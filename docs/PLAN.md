@@ -168,7 +168,13 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
 - **Accept:** the invariant tests pass; on TPARK you can drive, jump, flip and reset, and the axles articulate; motion is smooth with interpolation; one truck costs < 2 ms per step.
 
 ### M5: Objects and collisions (OpenPhotex)
-**Status: in progress.** Done: ground boxes and level boxes as collision objects (physics 14.14, 14.15); immovable boxes are ground for hull points, wheels and tire contacts; pushable boxes move as rigid bodies with the inelastic force law and the box-corner-against-wheel test (14.16, 14.17), drawn where they end up. No tunnelling at 150 ft/s, parking on box tops, TPARK's bridge deck, equal and opposite pair forces, all tested. Moving objects (type 10, such as TPARK's train) run on their `bvel` (14.18); ramp tops are ground (14.19; the stock game has ramps only on SNAKE and WAR, none with a model, and JUNK's bridges are ordinary boxes, already solid). Truck against truck, hull points against hull boxes (14.20), in OpenPhotex with a head-on test; the drive session gets it with the AI trucks (M6). Box against box (14.21): loose boxes rest on and stack against other boxes. Next: wheels against wheels, ramp side walls.
+**Status: done** (every acceptance check passes). Ground boxes and level boxes are collision objects (physics 14.14, 14.15); immovable boxes are ground for hull points, wheels and tire contacts; pushable boxes move as rigid bodies with the inelastic force law and the box-corner-against-wheel test (14.16, 14.17), drawn where they end up; moving objects (type 10, such as TPARK's train) run on their `bvel` (14.18); ramp tops are ground (14.19; the stock game has ramps only on SNAKE and WAR, none with a model, and JUNK's bridges are ordinary boxes); truck against truck, hull points against hull boxes (14.20); box against box (14.21).
+
+**Pending** (traced in part, written up as open in the physics doc):
+- Ramp side walls (`0x4b2580`: the wheel test `0x4aa110` is read, its response `0x4b3540` and the edge test `0x4b17c0` are not). The edge test uses the edge-against-hull-box system (`0x494fb0`, `0x49b190` and its helpers) that top-crush cars use too, so both come together.
+- Top-crush cars (section 7.6), on that same edge system; after M7 as planned.
+- Wheels against wheels for truck pairs (`0x491950` -> `0x490790` -> `0x48b5d0` -> `0x491e20`); needed once several trucks race (M6 and later).
+- Truck against truck in the drive session (it is in OpenPhotex; the session has one truck until the AI trucks).
 
 - Broadphase, separating-axis tests, truck against box (immovable = ground, pushable = inelastic, wheel sweep), ground boxes, ramps, truck against truck, moving objects (type 10), free boxes.
 - Top-crush and box-against-box may first act as immovable ground and get completed after M7.
