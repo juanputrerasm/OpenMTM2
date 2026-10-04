@@ -66,6 +66,10 @@ export function createSession(init) {
     if (box && b.bvel) movingObjects.push({ box, bvel: b.bvel });
   }
   const allRamps = (init.ramps ?? []).map((r) => S.createRamp(r, r.bounds)).filter(Boolean);
+  /** Top-crush cars (MTM2_PHYSICS.md 14.27); `crushed` holds those whose roof moved since the last reply. */
+  const cars = (init.topCrush ?? []).map((c) => S.createTopCrush(c, c.bodyBounds ?? null, c.cabBounds ?? null));
+  const listedCars = [];
+  const crushed = new Set();
   // The course's straights with the arcs built between them, over the ground the probes see
   // (MTM2_PHYSICS.md 12, 14.22).
   const course = S.buildCourse(init.course ?? [], (x, z) => ground.height(x, z), {
@@ -123,6 +127,14 @@ export function createSession(init) {
     for (const box of levelBoxes) {
       const moving = Math.hypot(box.vel[0], box.vel[1], box.vel[2]) > 0.1;
       if (moving || nearTruck(box) || listed.some((o) => near(o.pos[0], o.pos[2], o.radius, box))) listed.push(box);
+    }
+    // Cars join near a truck or a listed box, before the ramp pass (14.27.3).
+    listedCars.length = 0;
+    for (const car of cars) {
+      const nearCar = (x, z, r) => Math.abs(x - car.pos[0]) < r + car.radius + 10 && Math.abs(z - car.pos[2]) < r + car.radius + 10;
+      if (trucks.some((t) => nearCar(t.state.pos[0], t.state.pos[2], t.radius)) || listed.some((o) => nearCar(o.pos[0], o.pos[2], o.radius))) {
+        listedCars.push(car);
+      }
     }
     ground.ramps.length = 0;
     for (const ramp of allRamps) {
@@ -183,6 +195,11 @@ export function createSession(init) {
       for (const box of listed) {
         if (sphereOverlap(t.state.pos, t.radius, box.pos, box.radius)) setBoxPair(t, box);
         S.collideTruckBox(t.state, t.params, box, STEP);
+      }
+      for (const car of listedCars) {
+        const before = car.crush;
+        S.collideTruckTopCrush(car, t.state, t.params, { ...edgeCtx, edges: edgeState });
+        if (car.crush !== before) crushed.add(cars.indexOf(car));
       }
       // Ramp sides and front ends are walls (14.19), for ramps within reach of the truck.
       for (const ramp of ground.ramps) {
@@ -327,15 +344,17 @@ export function createSession(init) {
     while (time + STEP <= target) { step(input); steps++; }
     const boxes = [...dirty].map(boxPose);
     dirty.clear();
+    const crush = [...crushed].map((index) => ({ index, crush: cars[index].crush, cabTop: cars[index].cab.top }));
+    crushed.clear();
     const poses = trucks.map((t) => ({ previous: t.previous, current: snapshot(t.state) }));
     return {
-      previous: poses[0].previous, current: poses[0].current, alpha: (target - time) / STEP, time, steps, boxes,
+      previous: poses[0].previous, current: poses[0].current, alpha: (target - time) / STEP, time, steps, boxes, crush,
       others: poses.slice(1).map((x) => x.current), poses, race: raceView(),
     };
   }
 
   return {
-    state: player.state, params: player.params, trucks, race, ground, levelBoxes, course,
+    state: player.state, params: player.params, trucks, race, ground, levelBoxes, course, cars,
     step, advance, raceView, finishRace, now: () => time, snapshot: () => snapshot(player.state),
   };
 }

@@ -8,7 +8,7 @@ import { el } from "../dom.js";
 import { WorkerClient } from "../../shared/worker-client.js";
 import { createKeyboardInput } from "../../game/input/keyboard.js";
 import { createGamepadInput } from "../../game/input/gamepad.js";
-import { createTrackWorld, disposeObject, moveObjects, skyColor } from "../../render/track-scene.js";
+import { createTrackWorld, disposeObject, moveObjects, setCrush, skyColor } from "../../render/track-scene.js";
 import { createTruckObject, interpolatePose } from "../../render/truck-object.js";
 import { toSceneMatrix } from "../../shared/scene-frame.js";
 
@@ -58,6 +58,7 @@ export default async function mount(container, context, { track, truckFile }) {
     ra1: build.sim.ra1?.buffer ?? null,
     boxes: build.sim.boxes,
     ramps: build.sim.ramps,
+    topCrush: build.sim.topCrush,
     waterLevelFt: build.waterLevelFt,
     weather: 0,
     difficulty: 1,
@@ -137,6 +138,8 @@ export default async function mount(container, context, { track, truckFile }) {
             moveObjects(world, r.boxes.map((b) => ({ sitIndex: b.sitIndex, matrix: toSceneMatrix(b.matrix, b.pos) })));
             for (const b of r.boxes) movedBoxes.add(b.sitIndex);
           }
+          // Flattened top-crush cabs (MTM2_PHYSICS.md 14.27.6).
+          for (const c of r.crush ?? []) setCrush(world, c.index, c.crush, c.cabTop);
         })
         .finally(() => { busy = false; });
     }

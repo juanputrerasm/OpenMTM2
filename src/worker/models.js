@@ -36,7 +36,9 @@ export function binScale(magnify) {
  */
 export function decodeModel(bytes, name) {
   const bin = parseBin(bytes);
-  if (bin.kind === "animated") return { name, meshes: [], textureNames: [], frameNames: bin.frameNames, bounds: null };
+  // An animated BIN's second header word is the frame length the keyframe op divides by
+  // (MTM2_PHYSICS.md 14.27.6; BIN.md calls it magnify).
+  if (bin.kind === "animated") return { name, meshes: [], textureNames: [], frameNames: bin.frameNames, frameLength: bin.magnify, bounds: null };
   if (bin.kind !== "mrgl" || !bin.vertexListValid) return null;
   const magnify = bin.magnifyRecords.length ? bin.magnifyRecords[bin.magnifyRecords.length - 1] : bin.magnify;
   const scale = binScale(magnify);

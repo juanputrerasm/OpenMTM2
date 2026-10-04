@@ -170,13 +170,9 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
 ### M5: Objects and collisions (OpenPhotex)
 **Status: done** (every acceptance check passes). Ground boxes and level boxes are collision objects (physics 14.14, 14.15); immovable boxes are ground for hull points, wheels and tire contacts; pushable boxes move as rigid bodies with the inelastic force law and the box-corner-against-wheel test (14.16, 14.17), drawn where they end up; moving objects (type 10, such as TPARK's train) run on their `bvel` (14.18); ramp tops are ground (14.19; the stock game has ramps only on SNAKE and WAR, none with a model, and JUNK's bridges are ordinary boxes); truck against truck, hull points against hull boxes (14.20); box against box (14.21).
 
-**Pending** (traced in part, written up as open in the physics doc):
-- Ramp side walls (`0x4b2580`: the wheel test `0x4aa110` is read, its response `0x4b3540` and the edge test `0x4b17c0` are not). The edge test uses the edge-against-hull-box system (`0x494fb0`, `0x49b190` and its helpers) that top-crush cars use too, so both come together.
-- Top-crush cars (section 7.6), on that same edge system; after M7 as planned.
+**Done since:** wheels against wheels (physics 14.20), ramp walls (14.19), the edge system for ramp edges (14.26), top-crush cars (14.27, tested on synthetic cars since no stock SIT has one), and CPU trucks driving through type 11 and model-less boxes (14.15). Open: a CPU truck can be pinned on its side against Torture Pit's ramp ("Still open"); the keyframed cab is drawn at its nearest frame, without the game's four-frame blend.
 
 - Broadphase, separating-axis tests, truck against box (immovable = ground, pushable = inelastic, wheel sweep), ground boxes, ramps, truck against truck, moving objects (type 10), free boxes.
-- Top-crush and box-against-box may first act as immovable ground and get completed after M7.
-- Confirm which SIT box types and flags are solid.
 - **Accept:**
   - No tunnelling at 150 ft/s.
   - A truck parks on a box top at static sag.

@@ -130,6 +130,69 @@ export function setStartLights(world, on, colours) {
   });
 }
 
+/**
+ * Top-crush cars (MTM2_PHYSICS.md 14.27.6): the body, and the cab as one object per keyframe
+ * with only the current one shown; parts without a model are boxes, and a box cab flattens
+ * with the roof.
+ */
+function createTopCrushCars(library, cars) {
+  const group = new THREE.Group();
+  group.name = "topCrush";
+  const boxMaterial = new THREE.MeshLambertMaterial({ color: 0x8a8a8a });
+  const partOf = (model, size) => {
+    const part = new THREE.Group();
+    if (model && library.has(model)) {
+      for (const { geometry, material } of library.get(model)) part.add(new THREE.Mesh(geometry, material));
+    } else {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(size[0], size[1], size[2]), boxMaterial);
+      box.name = "box";
+      part.add(box);
+    }
+    return part;
+  };
+  cars.forEach((car, index) => {
+    const node = new THREE.Group();
+    node.name = `car${index}`;
+    const body = partOf(car.body, car.bodySize);
+    body.matrixAutoUpdate = false;
+    body.matrix.fromArray(car.bodyMatrix);
+    node.add(body);
+    const cab = new THREE.Group();
+    cab.name = "cab";
+    cab.matrixAutoUpdate = false;
+    cab.matrix.fromArray(car.cabMatrix);
+    const frames = car.frames.length ? car.frames.map((f) => partOf(f, car.cabSize)) : [partOf(null, car.cabSize)];
+    frames.forEach((f, k) => { f.visible = k === 0; cab.add(f); });
+    cab.userData = { frameLength: car.frameLength, frameCount: car.frames.length, height: car.cabSize[1] };
+    node.add(cab);
+    group.add(node);
+  });
+  return group;
+}
+
+/**
+ * A car's crush for drawing (14.27.6): the keyframe time is `trunc(f * 65535)` and the frame
+ * `time / T` (the game blends four frames around it; this shows the nearest). A box cab is
+ * scaled to the roof `cabTop` (car axes about the cab's centre).
+ */
+export function setCrush(world, index, crush, cabTop) {
+  world.traverse((o) => {
+    if (o.name !== `car${index}`) return;
+    const cab = o.getObjectByName("cab");
+    const { frameLength, frameCount, height } = cab.userData;
+    if (frameCount > 0 && frameLength > 0) {
+      const k = Math.min(frameCount - 1, Math.floor(Math.trunc(crush * 65535) / frameLength));
+      cab.children.forEach((f, i) => { f.visible = i === k; });
+    } else {
+      const box = cab.getObjectByName("box");
+      if (!box) return;
+      const kept = (cabTop + height / 2) / height;
+      box.scale.y = kept;
+      box.position.y = (cabTop - height / 2) / 2;
+    }
+  });
+}
+
 /** Every placed object, one InstancedMesh per model part. */
 export function placeObjects(library, objects) {
   const byModel = new Map();
@@ -261,7 +324,9 @@ export function createTrackWorld(build, look) {
   tile.add(createTerrain(build.terrain, look, atlas));
   const boxes = createGroundBoxes(build.groundBoxes, atlas, look);
   if (boxes) tile.add(boxes);
-  tile.add(placeObjects(createModelLibrary(build.models, build.modelTextures, look), build.objects));
+  const library = createModelLibrary(build.models, build.modelTextures, look);
+  tile.add(placeObjects(library, build.objects));
+  if (build.topCrush?.length) tile.add(createTopCrushCars(library, build.topCrush));
   const water = createWater(build.waterLevelFt);
   if (water) tile.add(water);
   world.add(tile);

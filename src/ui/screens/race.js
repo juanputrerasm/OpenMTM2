@@ -16,7 +16,7 @@ import { WorkerClient } from "../../shared/worker-client.js";
 import { createKeyboardInput } from "../../game/input/keyboard.js";
 import { createGamepadInput } from "../../game/input/gamepad.js";
 import { formatRaceTime, raceEntrants } from "../../game/race-setup.js";
-import { createTrackWorld, disposeObject, moveObjects, setStartLights, skyColor } from "../../render/track-scene.js";
+import { createTrackWorld, disposeObject, moveObjects, setCrush, setStartLights, skyColor } from "../../render/track-scene.js";
 import { createTruckObject, interpolatePose } from "../../render/truck-object.js";
 import { toSceneMatrix } from "../../shared/scene-frame.js";
 
@@ -99,6 +99,7 @@ export default async function mount(container, context, { track, laps, difficult
     ra1: build.sim.ra1?.buffer ?? null,
     boxes: build.sim.boxes,
     ramps: build.sim.ramps,
+    topCrush: build.sim.topCrush,
     course: build.sim.course,
     sonicTrack: build.sim.sonicTrack,
     waterLevelFt: build.waterLevelFt,
@@ -232,6 +233,8 @@ export default async function mount(container, context, { track, laps, difficult
             moveObjects(world, r.boxes.map((b) => ({ sitIndex: b.sitIndex, matrix: toSceneMatrix(b.matrix, b.pos) })));
             for (const b of r.boxes) movedBoxes.add(b.sitIndex);
           }
+          // Flattened top-crush cabs (MTM2_PHYSICS.md 14.27.6).
+          for (const c of r.crush ?? []) setCrush(world, c.index, c.crush, c.cabTop);
           if (r.race?.trucks[0].finished && !finishing) finish();
         })
         .catch((err) => { if (!disposed) { message.hidden = false; message.textContent = err.message; } })

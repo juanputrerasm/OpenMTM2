@@ -56,7 +56,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   const objects = [];
   for (const [sitIndex, box] of sit.boxes.entries()) {
     const name = box.modelName ? podPathTitle(box.modelName) : "";
-    if (!name || box.type === RAMP_TYPE) continue;
+    // Top-crush parts are drawn as cars, below.
+    if (!name || box.type === RAMP_TYPE || box.crushRole) continue;
     if (!boxIsDrawn(box, { levelType: level.lvl.levelType, raceType, detailLevel })) continue;
     if (!(name in models)) {
       const bytes = await vfs.read(`MODELS\\${name}`);
@@ -72,7 +73,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   const boundsOf = {};
   const collisionBoxes = [];
   for (const [sitIndex, box] of sit.boxes.entries()) {
-    if (box.type === RAMP_TYPE || !box.positionFt || !mtm2Sim.levelBoxCollides(box, detailLevel)) continue;
+    if (box.type === RAMP_TYPE || box.crushRole || !box.positionFt || !mtm2Sim.levelBoxCollides(box, detailLevel)) continue;
     const name = box.modelName ? podPathTitle(box.modelName) : "";
     if (name && !(name in boundsOf)) {
       const model = name in models ? models[name] : await vfs.read(`MODELS\\${name}`).then((b) => (b ? decodeModel(b, name) : null));
@@ -83,6 +84,41 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       mass: box.mass, type: box.type, priority: box.priority ?? 0, bounds: name ? boundsOf[name] : null, sitIndex,
       hasModel: !!name,
       bvel: box.type === 10 && box.bvel ? [...box.bvel] : null,
+    });
+  }
+
+  // Top-crush cars (MTM2_PHYSICS.md 14.27): a body model, and a keyframed cab whose frames are
+  // separate models; their bounds size the parts (the cab by its first frame, a hypothesis).
+  const modelOf = async (raw) => {
+    const name = raw ? podPathTitle(raw) : "";
+    if (!name) return null;
+    if (!(name in models)) {
+      const bytes = await vfs.read(`MODELS\\${name}`);
+      models[name] = bytes ? decodeModel(bytes, name) : null;
+    }
+    return models[name] ? name : null;
+  };
+  const topCrush = [];
+  for (const car of sit.topCrush ?? []) {
+    const body = await modelOf(car.modelName);
+    const cab = await modelOf(car.cabModelName);
+    const frames = [];
+    for (const f of (cab && models[cab].frameNames) ?? []) {
+      const frame = await modelOf(f.endsWith(".BIN") || f.endsWith(".bin") ? f : `${f}.BIN`);
+      if (frame) frames.push(frame);
+    }
+    const source = { ...car, bodyBounds: body ? models[body].bounds : null, cabBounds: frames.length ? models[frames[0]].bounds : null };
+    // Where the parts stand, from the simulation's own setup (the cab's y is recomputed).
+    const sim = mtm2Sim.createTopCrush(source, source.bodyBounds, source.cabBounds);
+    const m = mtm2Sim.eulerToMatrix(car.theta, car.phi, car.psi, new Array(9));
+    topCrush.push({
+      source,
+      draw: {
+        body, frames, frameLength: cab ? models[cab].frameLength ?? 0 : 0,
+        bodyMatrix: toSceneMatrix(m, sim.pos), cabMatrix: toSceneMatrix(m, sim.pos2),
+        /** Full sizes (x width, y height, z length) for parts drawn as boxes. */
+        bodySize: [2 * sim.body.a, sim.body.height, 2 * sim.body.b], cabSize: [2 * sim.cab.a, sim.cab.height, 2 * sim.cab.b],
+      },
     });
   }
 
@@ -172,6 +208,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     models,
     modelTextures,
     objects,
+    /** Top-crush cars: what to draw (body, cab frames) and, in sim, what to simulate. */
+    topCrush: topCrush.map((c) => c.draw),
     truckModels,
     trucks,
     sky,
@@ -188,6 +226,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       ra1: level.groundBoxes.ra1 ? level.groundBoxes.ra1.slice() : null,
       boxes: collisionBoxes,
       ramps,
+      topCrush: topCrush.map((c) => c.source),
       /** The primary course's straights (MTM2_PHYSICS.md 12); the session builds the arcs. */
       course: (sit.primaryCourse?.segments ?? []).map((g) => ({
         startFt: g.startFt, endFt: g.endFt, ctype: g.ctype, cspeedType: g.cspeedType, cdecPoint: g.cdecPoint,

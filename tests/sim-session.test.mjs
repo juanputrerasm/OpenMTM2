@@ -339,3 +339,29 @@ test("a CPU truck does not bring in a model-less or type 11 box, and drives thro
   assert.ok(run(false) > 10, "the CPU truck drove through the post");
   assert.ok(run(true) < 0, "the player's truck is stopped by it");
 });
+
+test("a top-crush car in the session: a truck dropped on it crushes the cab, and the reply reports it (14.27)", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const vfs = stockVfs();
+  const build = await buildTrackRender(vfs, "WORLD\\TPARK.SIT");
+  const start = build.sim.start;
+  const truck = build.truckModels[start.file];
+  // A synthetic car (no stock SIT has one) where the truck starts, on the ground.
+  const groundY = start.pos[1] - 6;
+  const car = {
+    positionFt: [start.pos[0], groundY + 1.5, start.pos[2]], position2Ft: [start.pos[0], 0, start.pos[2]],
+    theta: 0, phi: 0, psi: start.heading, sizeFt: [30, 14, 3], size2Ft: [26, 12, 6], mass: 0,
+    bvel: [0, 0, 0], rates: [0, 0, 0], bodyBounds: null, cabBounds: null,
+  };
+  const session = createSession({
+    heights: build.heights.buffer, clr: build.sim.clr.buffer, textureValues: build.sim.textureValues.buffer,
+    ra0: build.sim.ra0.buffer, ra1: build.sim.ra1.buffer, boxes: build.sim.boxes, ramps: build.sim.ramps, topCrush: [car],
+    waterLevelFt: build.waterLevelFt, weather: 0, difficulty: 1,
+    truck: { anchors: truck.anchors, scrapePoints: truck.scrapePoints },
+    start: { pos: [start.pos[0], groundY + 18, start.pos[2]], heading: start.heading },
+  });
+  for (let i = 0; i < 240; i++) session.step({});
+  const reply = session.advance(session.now(), {});
+  assert.ok(session.cars[0].crush > 0, "the cab is crushed");
+  assert.ok(reply.crush.length === 1 && reply.crush[0].index === 0);
+  assert.ok([...session.state.pos].every(Number.isFinite));
+});
