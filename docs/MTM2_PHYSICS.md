@@ -1399,8 +1399,8 @@ radius) of `A`'s centre, each wheel `Aw` of `A` in the order FR, FL, RR, RL:
 4. **The response** (`0x491e20`), in A's axes, with `v = v_B(R_B) - v_A(R_A)` (point velocities,
    B's taken to A's axes), the lighter truck's mass `m` (as 14.20), `n = unit(-v)`:
    - axial: `k = D . (R_A - c_Aw)`, depth `d_a = max(0, w_Aw / 2 - k)`; `rad = (R_A - c_Aw) - k D`;
-   - `E_A` = B's face centre in A's axes; `cos = |unit(R_A - E_A) . unit(rad)|` (values below
-     1/128 are negated rather than made absolute);
+   - `E_A` = B's face centre in A's axes; `cos = |unit(R_A - E_A) . unit(rad)|` (the code
+     compares against `0x60ef50` read as a float, which is 0: the low half of the double 1/128);
    - `e = (E_A - c_Aw) - D (D . (E_A - c_Aw))`, `l = |e|`; `p = -v - D (D . -v)` (the motion
      across the axis); `delta` the distance from A's axis to the line through `e` and `rad - p`
      (999999 when the two coincide);
@@ -1413,7 +1413,7 @@ radius) of `A`'s centre, each wheel `Aw` of `A` in the order FR, FL, RR, RL:
    - The faster truck moves out by `M_A N (depth + 0.05)` (B by `+`, when A is the slower; else
      A by `-`).
    - `F = |(v / 2) . N| / dt * m` and `f = F N`. A radial contact adds the tyres' climb: with
-     `G = s / dt * m * 0.05`, `s` = 1/128, replaced by `r_Aw spin_Aw` when `Aw` is on the ground,
+     `G = s / dt * m * 0.05`, `s` = 0 (the same float read of `0x60ef50`), replaced by `r_Aw spin_Aw` when `Aw` is on the ground,
      plus `r_Bw spin_Bw` when `Bw` is (spin is tire `+0xb8`, `v_fwd / r`), `f += (0, -G N.z, G N.y)`.
    - A gets `-f` at `R_A`, B gets `+f` (to its axes) at `R_B`, in the same last-contact record as
      the hull points.
