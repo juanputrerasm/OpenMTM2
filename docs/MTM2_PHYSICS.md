@@ -1013,6 +1013,11 @@ normal. `Q` is the vertical projection of the body origin onto that plane:
   at `X` (as above with `G` in place of `F`). Edge 1-2 takes `|QX| / (|QF| + |QX|)`, contact 2
   `share * s / |C1 C2|` (`s` = position of `F` along the edge from `C1`) and contact 1 the rest;
   edge 3-4 takes the remainder, contact 3 `share * |X - C4| / |C3 C4|`, contact 4 the rest.
+- **Horizontal plane** (all solvers from 2 contacts up, `0x478cd0`, `0x4798a0`, `0x47aab0`):
+  when `nP.y` is exactly 0, `Q` is not formed and every share is 0. This is the case when a
+  truck's nose meets a ground-box wall: contacts 1 to 3 then lie in the wall's vertical plane.
+  The unit vector helper (`0x4797a0`) returns `(0, 1, 0)` for a zero-length vector, so a
+  degenerate cross product gives a level plane instead.
 
 Every contact's force is applied **along its own normal** `n_i` at `C_i` (to body axes, with
 its moment about the origin added to the contact moment), then its friction.

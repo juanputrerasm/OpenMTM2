@@ -301,6 +301,8 @@ export function stepTruck(s, p, ctx, dt) {
     s.bvel[2] += az * dt;
     let ivel = toWorld(m, s.bvel[0], s.bvel[1], s.bvel[2]);
     const iv = Math.hypot(ivel[0], ivel[1], ivel[2]);
+    // Collision rays start from here (§14.14); kept before the stuck checks, as in the game.
+    s.prevPos.set(s.pos);
     const atRest = iv < 0.1 || (iv < 0.5 && contacts.count >= 3);
     if (atRest) {
         s.bvel.fill(0);
