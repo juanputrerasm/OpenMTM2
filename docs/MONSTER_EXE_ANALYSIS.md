@@ -242,9 +242,13 @@ raceStartTime, dragDebugTimer`, `controlflag, autoShift, autoStage, bothStaged, 
 `stageComFlag, bonusLapFlag`, then a vehicle block marked "Your Truck (Not used anymore)", then
 the sections.
 
-**The Fly-By field is overloaded.** If it reads `Sonic`, the engine sets `0x6407d8` (0x551f90),
-a hidden "hard track" switch used by the physics on Professional (section 8.6). Stock SITs: every
-track says `Track` except **Crazy '98** and **Torture Pit**, which say `Sonic`.
+**The Fly-By field is overloaded.** It is a leftover: MTM1's alpha and beta track selection had a
+fly-by button that would have played an `.AVI` preview of the track, and the feature was never
+finished and was dropped from MTM1, so no code plays a fly-by. MTM2 still reads the line
+(0x551f90, into `0x701510`, after the logo and map lines) and reuses it: if it reads `Sonic`, the
+engine sets `0x6407d8`, a hidden "hard track" switch used by the physics on Professional (section
+8.6) and by the autopilot (MTM2_PHYSICS.md 14.22). Stock SITs: every track says `Track` except
+**Crazy '98** and **Torture Pit**, which say `Sonic`.
 
 | Table | Base | Count global | Stride | Notes |
 |---|---|---|---|---|
