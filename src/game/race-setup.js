@@ -1,35 +1,41 @@
 /*
-  Who races: the player's truck and the CPU trucks on the start grid (MONSTER_EXE_ANALYSIS.md
-  section 9). Pure, so it runs under Node.
+  Who races and where they start (MONSTER_EXE_ANALYSIS.md section 9, "Who races" and "The
+  grid"). Pure, so it runs under Node.
 
-  The game's single-player setup (CRace::setupTrucks, 0x4198a0) makes the player driver 0 and
-  adds a CPU driver for each catalogue truck flagged for it, other than the player's, at most
-  eight drivers in all. Where that flag comes from is not traced yet, so the CPU trucks here are
-  drawn at random from the rest of the catalogue, all different.
+  The game flags `defaultOpponents` random catalogue trucks for the CPU, makes the player
+  driver 0, adds a CPU driver for each flagged truck other than the player's (in catalogue
+  order), and shuffles the first start slots among the drivers.
 */
 
 /** The default CPU driver names (0x551f90). */
 export const CPU_NAMES = Object.freeze(["Mark", "Greg", "Rich", "Brett", "Gaither", "Chuck", "Terry", "Joe"]);
+/** The built-in `defaultOpponents` (MONSTER.INI). */
+export const DEFAULT_OPPONENTS = 3;
 
 /**
- * The race's entrants, the player first, one per grid slot (at most 8):
- * `[{ name, file, player }]`. `trucks` are catalogue trucks (`{ file, name, hidden }`).
+ * The race's entrants, the player first: `[{ name, file, player, slot }]`, `slot` the start-grid
+ * slot. `trucks` are catalogue trucks (`{ file, hidden }`), `slots` the grid's size.
  */
-export function raceEntrants({ playerTruck, trucks, slots, playerName = "You", random = Math.random }) {
-  const count = Math.min(8, slots);
-  const pool = trucks.filter((t) => t.file !== playerTruck && !t.hidden).map((t) => t.file);
-  // Fisher-Yates, then the first count - 1.
-  for (let i = pool.length - 1; i > 0; i--) {
+export function raceEntrants({ playerTruck, trucks, slots, opponents = DEFAULT_OPPONENTS, playerName = "You", random = Math.random }) {
+  const catalogue = trucks.filter((t) => !t.hidden);
+  // The CPU flags: up to 5 * opponents draws, each flagging a truck not yet flagged.
+  const flagged = new Set();
+  for (let tries = opponents * 5; tries > 0 && flagged.size < opponents; tries--) {
+    flagged.add(Math.min(catalogue.length - 1, Math.floor(random() * catalogue.length)));
+  }
+  const drivers = [{ name: playerName, file: playerTruck, player: true }];
+  catalogue.forEach((t, i) => {
+    if (flagged.has(i) && t.file !== playerTruck && drivers.length < Math.min(8, slots)) {
+      drivers.push({ name: CPU_NAMES[drivers.length - 1], file: t.file, player: false });
+    }
+  });
+  // The start slots, shuffled among the drivers.
+  const order = drivers.map((_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
+    [order[i], order[j]] = [order[j], order[i]];
   }
-  const entrants = [{ name: playerName, file: playerTruck, player: true }];
-  for (let i = 0; entrants.length < count; i++) {
-    // With fewer trucks than slots, trucks repeat.
-    const file = pool.length ? pool[i % pool.length] : playerTruck;
-    entrants.push({ name: CPU_NAMES[entrants.length - 1], file, player: false });
-  }
-  return entrants;
+  return drivers.map((d, i) => ({ ...d, slot: order[i] }));
 }
 
 /** A race time as the HUD prints it, `%02d:%05.2f` (minutes, seconds). */

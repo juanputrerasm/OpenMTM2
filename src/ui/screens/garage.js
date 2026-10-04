@@ -4,7 +4,7 @@
 import { el } from "../dom.js";
 import { saveSettings } from "../../app/settings.js";
 
-export default async function mount(container, context, { track, laps, difficulty }) {
+export default async function mount(container, context, { track, laps, difficulty, opponents }) {
   const { settings } = context;
   const catalog = await context.assets.call("catalog");
   const trucks = catalog.trucks.filter((t) => settings.showHiddenTrucks || !t.hidden);
@@ -19,7 +19,7 @@ export default async function mount(container, context, { track, laps, difficult
   const race = () => {
     settings.lastTruck = truck.file;
     saveSettings(settings);
-    context.router.go("race", { track, laps, difficulty, truck: truck.file, trucks });
+    context.router.go("race", { track, laps, difficulty, opponents, truck: truck.file, trucks });
   };
   container.append(el("section", { class: "screen" },
     el("h1", { class: "screen-title" }, "Garage"),

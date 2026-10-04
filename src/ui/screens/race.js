@@ -23,7 +23,7 @@ import { toSceneMatrix } from "../../shared/scene-frame.js";
 // Chase cameras: distance behind and height above the truck, feet (modes 1 and 2, section 11).
 const CAMERAS = [{ name: "Chase Near", back: 30, up: 11 }, { name: "Chase Far", back: 55, up: 20 }];
 
-export default async function mount(container, context, { track, laps, difficulty, truck: playerTruck, trucks: catalogTrucks }) {
+export default async function mount(container, context, { track, laps, difficulty, opponents, truck: playerTruck, trucks: catalogTrucks }) {
   const canvas = el("canvas", { class: "race-canvas" });
   const loading = el("div", { class: "race-loading" });
   const loadingText = el("p", { class: "race-loading-text" }, `Loading ${track.name}…`);
@@ -59,7 +59,7 @@ export default async function mount(container, context, { track, laps, difficult
   if (disposed) return { unmount };
   const grid = build.sim.grid;
   const usable = catalogTrucks.filter((t) => build.truckModels[t.file]);
-  const entrants = raceEntrants({ playerTruck, trucks: usable, slots: grid.length });
+  const entrants = raceEntrants({ playerTruck, trucks: usable, slots: grid.length, opponents });
   if (!grid.length || !build.truckModels[playerTruck]) {
     loadingText.textContent = `${track.name} has no start grid, or ${truckName(playerTruck)} could not be built.`;
     loading.append(el("button", { onclick: () => context.router.back() }, "Back"));
@@ -105,11 +105,11 @@ export default async function mount(container, context, { track, laps, difficult
     waterLevelFt: build.waterLevelFt,
     weather: 0,
     difficulty,
-    trucks: entrants.map((e, i) => {
+    trucks: entrants.map((e) => {
       const model = build.truckModels[e.file];
       return {
         truck: { anchors: model.anchors, scrapePoints: model.scrapePoints },
-        start: { pos: grid[i].pos, heading: grid[i].heading },
+        start: { pos: grid[e.slot].pos, heading: grid[e.slot].heading },
         autopilot: !e.player || !!context.settings.fullAutopilot,
       };
     }),

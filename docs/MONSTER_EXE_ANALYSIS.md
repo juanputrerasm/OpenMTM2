@@ -781,6 +781,16 @@ CPU trucks and the player's autopilot use the same code.
   onto it (Professional) or helicoptered back (Rookie, Intermediate), section 6.2.
 - Default CPU driver names (0x551f90): Mark, Greg, Rich, Brett, Gaither, Chuck, Terry, Joe
   (presumably the developers).
+- **Who races** (single player). `CRace::init` (0x417ad0) flags `defaultOpponents` catalogue
+  trucks for the CPU (MONSTER.INI `[...]` key `defaultOpponents`, built-in default 3; the stock
+  INI here says 2): it draws `rand() * count / 0x7fff` up to `5 * defaultOpponents` times and
+  flags each truck not yet flagged, stopping at `defaultOpponents`. `CRace::setupTrucks`
+  (0x4198a0) makes the player driver 0 with the chosen truck and adds a CPU driver for each
+  flagged truck other than the player's, in catalogue order (so drawing the player's truck
+  leaves one opponent fewer), at most 8 drivers.
+- **The grid** (0x4195d0): the drivers take the SIT's start slots in order, then the positions
+  and headings are shuffled among them by a random permutation, so the player starts in a
+  random one of the first `drivers` slots.
 
 ---
 
