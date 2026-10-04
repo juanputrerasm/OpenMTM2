@@ -174,3 +174,26 @@ test("TPARK's train runs along its bvel and is reported for drawing (14.18)", { 
   const expected = Math.hypot(first.bvel[0], first.bvel[2]) * r.steps / 60;
   assert.ok(Math.abs(Math.hypot(dx, dz) - expected) < 1e-6, `moved ${Math.hypot(dx, dz)} of ${expected}`);
 });
+
+test("a SNAKE ramp's top carries the truck (14.19)", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const build = await buildTrackRender(stockVfs(), "WORLD\\SNAKE.SIT");
+  const { mtm2Sim: S } = await import("../src/vendor/openphotex/index.js");
+  assert.equal(build.sim.ramps.length, 8);
+  const ramp = S.createRamp(build.sim.ramps[0], build.sim.ramps[0].bounds);
+  const top = S.rampHeightAt(ramp, ramp.pos[0], ramp.pos[2]);
+  const terrain = S.createTerrain(build.heights);
+  const below = S.terrainHeightAt(terrain, ramp.pos[0], ramp.pos[2]);
+  assert.ok(top - below > 3, `ramp top ${top} over terrain ${below}`);
+  const truck = build.truckModels[build.sim.start.file];
+  const session = createSession({
+    heights: build.heights.buffer, clr: build.sim.clr.buffer, textureValues: build.sim.textureValues.buffer,
+    ra0: build.sim.ra0.buffer, ra1: build.sim.ra1.buffer, boxes: build.sim.boxes, ramps: build.sim.ramps,
+    waterLevelFt: build.waterLevelFt, weather: 0, difficulty: 1,
+    truck: { anchors: truck.anchors, scrapePoints: truck.scrapePoints },
+    start: { pos: [ramp.pos[0], top + 6, ramp.pos[2]], heading: build.sim.ramps[0].psi },
+  });
+  let r;
+  for (let t = 0; t < 1; t += 0.25) r = session.advance(t, {});
+  const y = r.current.pos[1];
+  assert.ok(y - top > 3 && y - top < 7, `truck ${y - top} ft above the ramp top`);
+});

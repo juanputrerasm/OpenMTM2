@@ -85,6 +85,18 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     });
   }
 
+  // Ramps (MTM2_PHYSICS.md 14.19): wedges whose tops the height query knows.
+  const ramps = [];
+  for (const box of sit.boxes) {
+    if (box.type !== RAMP_TYPE || !box.positionFt) continue;
+    const name = box.modelName ? podPathTitle(box.modelName) : "";
+    if (name && !(name in boundsOf)) {
+      const model = name in models ? models[name] : await vfs.read(`MODELS\\${name}`).then((b) => (b ? decodeModel(b, name) : null));
+      boundsOf[name] = model?.bounds ?? null;
+    }
+    ramps.push({ positionFt: box.positionFt, theta: box.theta, phi: box.phi, psi: box.psi, sizeFt: box.sizeFt, mass: box.mass, bounds: name ? boundsOf[name] : null });
+  }
+
   // The stadium (SIT "*** Stadium ***", MONSTER.EXE 0x564ca0): at cell (x, z), unrotated, at
   // the ground height of its footprint's low corner.
   if (sit.arena?.modelName) {
@@ -156,6 +168,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       ra0: level.groundBoxes.ra0 ? level.groundBoxes.ra0.slice() : null,
       ra1: level.groundBoxes.ra1 ? level.groundBoxes.ra1.slice() : null,
       boxes: collisionBoxes,
+      ramps,
       start: trucks.length ? {
         file: trucks[0].file,
         pos: sit.trucks.find((t) => !t.playerSlot && t.positionFt)?.positionFt ?? null,

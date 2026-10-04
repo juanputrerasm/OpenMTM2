@@ -39,7 +39,7 @@ function snapshot(state) {
 
 /**
  * A session from plain data:
- * `{ heights, clr, textureValues, ra0, ra1, boxes, waterLevelFt, weather, difficulty, truck: { anchors, scrapePoints }, start: { pos, heading } }`.
+ * `{ heights, clr, textureValues, ra0, ra1, boxes, ramps, waterLevelFt, weather, difficulty, truck: { anchors, scrapePoints }, start: { pos, heading } }`.
  * `ra0` / `ra1` are the level's ground-box layers and `boxes` its collision boxes (track-build.js).
  */
 export function createSession(init) {
@@ -64,6 +64,7 @@ export function createSession(init) {
     if (box) { box.sitIndex = b.sitIndex; levelBoxes.push(box); }
     if (box && b.bvel) trains.push({ box, bvel: b.bvel });
   }
+  const allRamps = (init.ramps ?? []).map((r) => S.createRamp(r, r.bounds)).filter(Boolean);
   const nearBoxes = [];
   const listed = [];
   const truckRadius = S.truckRadius(params);
@@ -93,6 +94,13 @@ export function createSession(init) {
       const moving = Math.hypot(box.vel[0], box.vel[1], box.vel[2]) > 0.1;
       if (moving || near(state.pos[0], state.pos[2], truckRadius, box) || listed.some((o) => near(o.pos[0], o.pos[2], o.radius, box))) {
         listed.push(box);
+      }
+    }
+    // Ramps after the boxes, near the truck or a listed box (14.19); their tops are ground.
+    ground.ramps.length = 0;
+    for (const ramp of allRamps) {
+      if (near(state.pos[0], state.pos[2], truckRadius, ramp) || listed.some((o) => near(o.pos[0], o.pos[2], o.radius, ramp))) {
+        ground.ramps.push(ramp);
       }
     }
   }
