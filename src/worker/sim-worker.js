@@ -57,12 +57,12 @@ export function createSession(init) {
   const ra0 = init.ra0 ? new Uint8Array(init.ra0) : null;
   const ra1 = init.ra1 ? new Uint8Array(init.ra1) : null;
   const levelBoxes = [];
-  /** Type 10 boxes and their SIT bvel (MTM2_PHYSICS.md 14.18). */
-  const trains = [];
+  /** Moving objects: type 10 boxes and their SIT bvel (MTM2_PHYSICS.md 14.18). */
+  const movingObjects = [];
   for (const b of init.boxes ?? []) {
     const box = S.createLevelBox(b, b.bounds);
     if (box) { box.sitIndex = b.sitIndex; levelBoxes.push(box); }
-    if (box && b.bvel) trains.push({ box, bvel: b.bvel });
+    if (box && b.bvel) movingObjects.push({ box, bvel: b.bvel });
   }
   const allRamps = (init.ramps ?? []).map((r) => S.createRamp(r, r.bounds)).filter(Boolean);
   const nearBoxes = [];
@@ -134,9 +134,10 @@ export function createSession(init) {
     keys.shiftUp = keys.shiftDown = false;
     if (joystick) joystick.shiftUp = joystick.shiftDown = false;
     previous = snapshot(state);
-    // Trains move before the frame's list is built; the dev session counts as racing from the start.
-    for (const { box, bvel } of trains) {
-      S.moveTrain(box, bvel, terrain, ra0, ra1, STEP, (init.weather ?? 0) === S.WEATHER.SNOW);
+    // Moving objects move before the frame's list is built; the dev session counts as racing from
+    // the start.
+    for (const { box, bvel } of movingObjects) {
+      S.stepMovingObject(box, bvel, terrain, ra0, ra1, STEP, (init.weather ?? 0) === S.WEATHER.SNOW);
       dirty.add(box);
     }
     listBoxes();

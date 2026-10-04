@@ -430,7 +430,7 @@ A box's corners inside another box become that box's **ground contacts** (depth 
 normal), so loose boxes rest on and stack against each other through the box version of the
 contact solver.
 
-Trains are boxes with a fixed `bvel`.
+Moving objects (type 10) are boxes with a fixed `bvel` (14.18).
 
 ---
 
@@ -1246,15 +1246,16 @@ one.
 (mass at least 1) is stepped once something gives it a force or a velocity (14.16), so a heavy
 box can still be shoved by the corner test.
 
-### 14.18 Trains (`0x550c80`, `0x5543c0`, `0x502350`)
+### 14.18 Moving objects (`0x550c80`, `0x5543c0`, `0x502350`)
 
-A SIT box of **type 10** is a train car: the loader (`0x550c80`) lists it (at most 50) and keeps
-its `bvel` (`+0x294`, feet per second, world). Its mass is 0 in every stock SIT, so for a truck
+A SIT box of **type 10** is a moving object (TPARK's train cars are the stock ones, and the
+engine's limit message calls them trains, but any type 10 box moves this way): the loader
+(`0x550c80`) lists it (at most 50) and keeps its `bvel` (`+0x294`, feet per second, world). Its mass is 0 in every stock SIT, so for a truck
 it is an immovable box (ground) that is never stepped; its own velocity (`+0x94`) stays 0, so the
 pair tests see it as standing still where it is that frame.
 
 Every frame, while the game runs (`0x63f4f0` set, not paused), the race clock (`0x6f5f98`) is
-above 0 and the simulation is not frozen (`0x63f524`, slew mode), each train moves before the
+above 0 and the simulation is not frozen (`0x63f524`, slew mode), each moving object moves before the
 frame's object list is built (`0x5543c0`), with `dt` the frame time:
 
     x += bvel.x * dt,  z += bvel.z * dt
@@ -1266,7 +1267,7 @@ frame's object list is built (`0x5543c0`), with `dt` the frame time:
 the west neighbour's, the neighbour is used, and the same for z and the north neighbour. When the
 cell has a ground box (lower and upper heights differ) and its lower height is below `y`, the
 height is the box's top; otherwise it is the terrain height (2.1), raised to the water level in
-Snow weather. So a train rides on the deck of a ground-box bridge it is above, and on the terrain
+Snow weather. So a moving object rides on the deck of a ground-box bridge it is above, and on the terrain
 everywhere else.
 
 ### 14.19 Ramps (`0x550890`, `0x549b40`, `0x54feb0`)
