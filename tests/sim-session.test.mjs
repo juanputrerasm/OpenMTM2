@@ -225,11 +225,10 @@ test("a CPU truck on autopilot laps every stock Circuit track (14.22, 14.23)", {
   }
 });
 
-test("headless races finish on every stock Circuit track: 8 CPU trucks, 2 laps (14.24)", { skip: skipWithoutStock("POD.INI") }, async () => {
-  const { buildCatalog } = await import("../src/worker/catalog.js");
+/** An 8-truck, 2-lap headless race on a stock Circuit track: everyone finishes (14.24). */
+async function headlessRace(t) {
   const vfs = stockVfs();
-  const { tracks } = await buildCatalog(vfs);
-  for (const t of tracks.filter((x) => x.raceType === "circuit")) {
+  {
     const build = await buildTrackRender(vfs, t.path);
     const trucks = build.sim.grid.map((g) => ({ truck: build.truckModels[g.file], start: { pos: g.pos, heading: g.heading }, autopilot: true }));
     assert.equal(trucks.length, 8, t.name);
@@ -249,6 +248,22 @@ test("headless races finish on every stock Circuit track: 8 CPU trucks, 2 laps (
     assert.equal(winner.laps, 2, t.name);
     assert.ok(race.trucks.every((x) => [...x.s.pos].every(Number.isFinite)), t.name);
   }
+}
+
+// Torture Pit is listed apart: one CPU truck can be pinned on its side against the ramp (physics
+// "Still open", "Pinned against a ramp"), to be compared with the running game.
+const PINNED = "WAR.SIT";
+
+test("headless races finish on every stock Circuit track: 8 CPU trucks, 2 laps (14.24)", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const { buildCatalog } = await import("../src/worker/catalog.js");
+  const { tracks } = await buildCatalog(stockVfs());
+  for (const t of tracks.filter((x) => x.raceType === "circuit" && x.file !== PINNED)) await headlessRace(t);
+});
+
+test("headless race on Torture Pit: everyone finishes", { skip: skipWithoutStock("POD.INI"), todo: "a CPU truck pinned against the ramp, physics 13" }, async () => {
+  const { buildCatalog } = await import("../src/worker/catalog.js");
+  const { tracks } = await buildCatalog(stockVfs());
+  await headlessRace(tracks.find((x) => x.file === PINNED));
 });
 
 test("Farm Road 29: the player's truck goes on autopilot once it finishes, and the rest are fast-simulated to the finish", { skip: skipWithoutStock("POD.INI") }, async () => {

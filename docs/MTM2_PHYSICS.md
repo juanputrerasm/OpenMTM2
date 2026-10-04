@@ -741,6 +741,13 @@ Each is a few dozen lines in one routine and can be read out during the port.
 - **Cornering roll** (an observation from the port, to compare with the running game): lateral
   tire forces act at the axle's travel height (§14.8), which at the static sag sits at about the
   CG height (-3 ft), so cornering makes almost no roll and the truck leans slightly into turns.
+- **Pinned against a ramp** (an observation from the port, to compare with the running game): with
+  the ramp edges' face normals zero (14.26.1), a truck whose hull box crosses a ramp's side edge
+  gets straight-up contacts there and can roll onto its side against the ramp. The walls only
+  move the truck (14.19) and the contact solver holds it, so its velocity stays (about 20 ft/s in
+  one 8-truck Torture Pit race on Intermediate) and a CPU truck's stuck timer, which needs
+  `|ivel| < 15` (10.3), never runs: it stays there. OpenMTM2's headless race test lists Torture
+  Pit as a known case.
 - **At rest** the 0.1 ft/s cut-off (§14.9) freezes a settling truck partway through its bounce,
   a few tenths of a foot from the static sag, depending on the step length.
 

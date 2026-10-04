@@ -130,11 +130,45 @@ export function createSession(init) {
     }
   }
 
-  /** The pair tests (14.14, 14.17, 14.19, 14.20, 14.21), trucks first in list order. */
+  /**
+   * The pair globals the edge system reads (14.26): the face normals only top-crush pairs set, and
+   * the effective mass and mover class box and truck pairs leave behind, kept across frames.
+   */
+  const edgeState = S.createEdgeState();
+  const sphereOverlap = (a, ra, b, rb) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < ra + rb;
+  /** A truck and box pair sets the class and mass (14.17): pushable when lighter, else the truck moves. */
+  const setBoxPair = (t, box) => {
+    const m = S.truckWeight(t.params) * 0.031081;
+    if (box.mass !== 0 && box.mass < m) { edgeState.mover = 1; edgeState.mEff = Math.max(box.mass, 1); }
+    else { edgeState.mover = 2; edgeState.mEff = m; }
+  };
+  /** The ground normal an edge gives a wheel (`0x550460`): a listed box's top, a ramp's slope, else the terrain's. */
+  const normalScratch = [0, 0, 0];
+  const edgeCtx = {
+    dt: STEP,
+    groundNormal(x, z) {
+      for (const box of listed) {
+        const dx = x - box.pos[0], dz = z - box.pos[2];
+        if (Math.abs(dx) > box.radius || Math.abs(dz) > box.radius) continue;
+        const m = box.matrix;
+        const bx = m[0] * dx + m[6] * dz, bz = m[2] * dx + m[8] * dz;
+        if (Math.abs(bx) <= box.half[0] && Math.abs(bz) <= box.half[2]) return [0, 1, 0];
+      }
+      for (const ramp of ground.ramps) if (S.rampHeightAt(ramp, x, z) !== null) return S.rampSlopeNormal(ramp);
+      const n = ground.normal(x, z, normalScratch);
+      return [n[0], n[1], n[2]];
+    },
+  };
+
+  /** The pair tests (14.14, 14.17, 14.19, 14.20, 14.21, 14.26), trucks first in list order. */
   function pairTests() {
     for (let i = 0; i < trucks.length; i++) {
       for (let j = i + 1; j < trucks.length; j++) {
-        S.collideTrucks({ s: trucks[i].state, p: trucks[i].params }, { s: trucks[j].state, p: trucks[j].params }, STEP);
+        const a = trucks[i], b = trucks[j];
+        if (sphereOverlap(a.state.pos, a.radius, b.state.pos, b.radius)) {
+          edgeState.mEff = Math.min(S.truckWeight(a.params), S.truckWeight(b.params)) * 0.031081;
+        }
+        S.collideTrucks({ s: a.state, p: a.params }, { s: b.state, p: b.params }, STEP);
       }
     }
     const grounds = [];
@@ -142,12 +176,18 @@ export function createSession(init) {
       t.nearBoxes.length = 0;
       if (t.state.heliTimer > 0) continue;
       if (ra0 && ra1) S.groundBoxesAround(ra0, ra1, t.state.pos[0], t.state.pos[2], t.nearBoxes);
-      for (const box of t.nearBoxes) S.collideTruckImmovableBox(t.state, t.params, box, STEP);
-      for (const box of listed) S.collideTruckBox(t.state, t.params, box, STEP);
+      for (const box of t.nearBoxes) {
+        if (sphereOverlap(t.state.pos, t.radius, box.pos, box.radius)) setBoxPair(t, box);
+        S.collideTruckImmovableBox(t.state, t.params, box, STEP);
+      }
+      for (const box of listed) {
+        if (sphereOverlap(t.state.pos, t.radius, box.pos, box.radius)) setBoxPair(t, box);
+        S.collideTruckBox(t.state, t.params, box, STEP);
+      }
       // Ramp sides and front ends are walls (14.19), for ramps within reach of the truck.
       for (const ramp of ground.ramps) {
         const d = Math.hypot(ramp.pos[0] - t.state.pos[0], ramp.pos[1] - t.state.pos[1], ramp.pos[2] - t.state.pos[2]);
-        if (d < ramp.radius + t.radius) S.collideTruckRamp(ramp, t.state, t.params);
+        if (d < ramp.radius + t.radius) S.collideTruckRamp(ramp, t.state, t.params, { state: edgeState, ctx: edgeCtx });
       }
       grounds.push(...t.nearBoxes);
     }
