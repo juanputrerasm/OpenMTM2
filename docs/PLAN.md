@@ -123,11 +123,15 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
 ## Milestones
 
 ### M0: Scaffold (OpenMTM2)
+**Status: done.**
+
 - `index.html` with the import map, styles, router, `.nojekyll`, AGENTS.md (clean-room rules), stock-test helper, `docs/ARCHITECTURE.md`.
 - Copy the infrastructure files; first OpenPhotex vendor.
 - **Accept:** the local server shows a Start placeholder and `node --test tests/` passes.
 
 ### M1: Install and content (OpenMTM2)
+**Status: done.**
+
 - Folder picker; validation: MONSTER.EXE is 2,925,568 bytes, its PE timestamp is 900451983 and its version is 2.00.42. Anything else gets a "not supported yet" message.
 - `POD.INI` parse; copy `POD.INI` and the PODs into OPFS **from the asset worker** (Safari's OPFS writes only work there), with progress, `navigator.storage.persist()` and a quota check.
 - `vfs.js` with mount order, first match and case-insensitive names; cached POD indexes.
@@ -139,6 +143,8 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
   - Node tests cover `pod-ini`, `validate-exe` (synthetic PE) and VFS first match (synthetic PODs built with OpenPhotex `writePod1`).
 
 ### M2: Sim foundations and readers (OpenPhotex)
+**Status: done.** Checkpoint detection itself waits for M5's shared truck-against-box test. New readers: `.KLP`, `SOUNDnnn.TXT`, `SUN.TXT`, `.LOC`, `POWERBIG` (OpenPhotex `docs/MTM2_FILES.md`).
+
 - **First:** trace in `re/` the SIT course loader, the arc and bank construction, and the `cspeed_type` remap. Write the facts into `MTM2_PHYSICS.md` §12 before any code.
 - Extend the course reader; add the new readers.
 - Implement `constants`, `math`, `time`, `world/terrain`, `world/surface`, `world/water`, `truck/params`, `truck/state`, `truck/controls`, `truck/drivetrain`, `world/course`, `world/checkpoints`.
