@@ -85,6 +85,15 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     });
   }
 
+  // Checkpoint models, for their extents (they are not collision boxes).
+  for (const box of sit.boxes) {
+    if (box.type !== 6 || !box.modelName) continue;
+    const name = podPathTitle(box.modelName);
+    if (name in boundsOf) continue;
+    const model = name in models ? models[name] : await vfs.read(`MODELS\\${name}`).then((b) => (b ? decodeModel(b, name) : null));
+    boundsOf[name] = model?.bounds ?? null;
+  }
+
   // Ramps (MTM2_PHYSICS.md 14.19): wedges whose tops the height query knows.
   const ramps = [];
   for (const box of sit.boxes) {
@@ -175,6 +184,15 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
         cspeed: g.cspeed, speedLimit: g.speedLimit, trackWidthFt: g.trackWidthFt,
       })),
       sonicTrack: !!sit.sonicTrack,
+      /** The start grid in file order (game feet), each with its truck file. */
+      grid: sit.trucks.filter((t) => !t.playerSlot && t.positionFt).map((t) => ({
+        file: podPathTitle(t.name).toUpperCase(), pos: t.positionFt, heading: t.psi,
+      })),
+      /** The checkpoints, gate and detector (MONSTER_EXE_ANALYSIS.md 6.2), sized by their models. */
+      checkpoints: mtm2Sim.buildCheckpoints(sit.boxes, (name) => {
+        const b = boundsOf[podPathTitle(name)];
+        return b ? [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]] : null;
+      }),
       start: trucks.length ? {
         file: trucks[0].file,
         pos: sit.trucks.find((t) => !t.playerSlot && t.positionFt)?.positionFt ?? null,

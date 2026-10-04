@@ -222,3 +222,29 @@ test("a CPU truck on autopilot laps every stock Circuit track (14.22, 14.23)", {
     assert.ok([...session.state.pos].every(Number.isFinite), t.name);
   }
 });
+
+test("headless races finish on every stock Circuit track: 8 CPU trucks, 2 laps (14.24)", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const { buildCatalog } = await import("../src/worker/catalog.js");
+  const vfs = stockVfs();
+  const { tracks } = await buildCatalog(vfs);
+  for (const t of tracks.filter((x) => x.raceType === "circuit")) {
+    const build = await buildTrackRender(vfs, t.path);
+    const trucks = build.sim.grid.map((g) => ({ truck: build.truckModels[g.file], start: { pos: g.pos, heading: g.heading }, autopilot: true }));
+    assert.equal(trucks.length, 8, t.name);
+    const session = createSession({
+      heights: build.heights.buffer, clr: build.sim.clr.buffer, textureValues: build.sim.textureValues.buffer,
+      ra0: build.sim.ra0.buffer, ra1: build.sim.ra1.buffer, boxes: build.sim.boxes, ramps: build.sim.ramps,
+      course: build.sim.course, sonicTrack: build.sim.sonicTrack, waterLevelFt: build.waterLevelFt, weather: 0, difficulty: 1,
+      trucks, race: { checkpoints: build.sim.checkpoints, laps: 2 },
+    });
+    const race = session.race;
+    let i = 0;
+    while (!race.trucks.every((x) => x.finished) && i < 600 / STEP) { session.step({}); i++; }
+    assert.ok(race.over, `${t.name}: nobody finished`);
+    assert.ok(race.trucks.every((x) => x.finished), `${t.name}: ${race.trucks.filter((x) => !x.finished).length} trucks still racing after 600 s`);
+    assert.deepEqual(race.trucks.map((x) => x.place).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8], t.name);
+    const winner = race.trucks.find((x) => x.place === 1);
+    assert.equal(winner.laps, 2, t.name);
+    assert.ok(race.trucks.every((x) => [...x.s.pos].every(Number.isFinite)), t.name);
+  }
+});
