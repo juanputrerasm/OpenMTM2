@@ -1355,3 +1355,21 @@ The pair also posts crash sounds and damage (`0x532140`, `0x429cb0`, `0x424060`)
 **Wheels against wheels** (`0x491950`): when two wheels' bounding spheres overlap, `0x490790`
 forms the touching point on the wheel and `0x48b5d0` / `0x491e20` respond; still to be written up
 here.
+
+### 14.21 Box against box (`0x49f0d0`, `0x4ae1d0`)
+
+For two boxes whose bounding spheres overlap (ground boxes included), when at least one has its
+flag set (mass at least 1, 14.15): the **mover** `M` is the pair's second box when its flag is
+set, else the first; the other is the **base** `B`. Only M's corners are tested, against B; B is
+never pushed and no force passes between them: **B is ground for M's corners**, and M's contact
+solver (14.16) does the rest.
+
+- The ray starts at M's centre last step, relative to B and in B's axes: `M^T_B ((pos_M -
+  pos_B) - ivel_M dt)` (only M's velocity), and runs through each corner 1 to 8 as it is now.
+- The face test is the truck hull points' (14.14 step 2): faces in the order bottom, top, front,
+  back, left, right, at most two crossings counted, the nearest with `t > 0` whose outward normal
+  faces the ray; the depth is the corner's distance inside that face.
+- When that depth beats the corner's stored depth, it becomes the corner's depth, B's face
+  normal (world) its normal, and `(0, 0.01, 0)` is added to M's force (which keeps it stepping).
+
+So loose boxes rest on ground boxes and stack on one another.

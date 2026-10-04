@@ -112,6 +112,11 @@ export function createSession(init) {
     if (ra0 && ra1) S.groundBoxesAround(ra0, ra1, state.pos[0], state.pos[2], nearBoxes);
     for (const box of nearBoxes) S.collideTruckImmovableBox(state, params, box, STEP);
     for (const box of listed) S.collideTruckBox(state, params, box, STEP);
+    // Box against box (14.21), listed boxes then the ground boxes, each pair once in list order.
+    const all = listed.length ? [...listed, ...nearBoxes] : listed;
+    for (let i = 0; i < all.length; i++) {
+      for (let j = i + 1; j < all.length; j++) S.collideBoxes(all[i], all[j], STEP);
+    }
   }
 
   /** A moved box's pose for drawing. */
