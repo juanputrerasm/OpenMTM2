@@ -473,6 +473,44 @@ to 1.375 above 44 ft/s), and steering response is a user setting.
 **Four-wheel steering:** the rear axle `+0x508` = **-0.33 x front**, and -0.4125 x front in drag
 mode.
 
+### Joystick, gamepad and wheel
+
+`[Control] joystickActive` picks the device: 0 keyboard, 1 gamepad, 2 joystick or wheel, 3 the
+same with a separate rudder axis. The keyboard routine always runs first.
+
+**Gamepad (1)** is digital (`0x585da0`): each frame the stick sets the Turn Left, Turn Right,
+Accelerate and Brake key states when it is more than `nullZone` raw units from its calibrated
+centre (left of centre is left, up is accelerate), and the keyboard routine above does the rest,
+ramps and all.
+
+**Joystick or wheel (2, 3)** is analog (`0x5853b0`), once per simulation sub-step before the
+trucks move, and it overwrites what the keyboard set. It does nothing in a replay or while the
+truck is under autopilot. With `n = nullZone / 65536`:
+
+    x  = (stick x - centre) / (centre - min, or max - centre on the right)     -1..1
+    x  = x + n, clipped at 0, when x <= 0;  x - n, clipped at 0, otherwise
+    x  = x / (1 - n)
+    x  = x * 0.75 on Rookie, except in a drag race
+    s  = sign(x) * min(1, |x| * 1.11) ^ e
+    e  = (1 + 2 * r) * clamp(|bvel.z| * 0.025, 1.0, 1.1)        r as for the keyboard
+    front steer = 0.45 * s;  rear = -0.33 x front (-0.4125 x in a drag race)
+
+So the stick reaches full lock at 90% of its throw, and its curve is much steeper than the
+keyboard's (exponent 3 at low speed with the default response).
+
+The pedal axis `y` is the stick's y (or, with `useThrottleFlag`, a separate throttle axis around
+the midpoint of its range; with mode 3 and no throttle flag, the rudder axis), normalised the
+same way with the same dead zone, and negated when `swapBrakeAndThrottle` is set. Negative is
+forward:
+
+- `y <= 0`: throttle = -y, brakes 0. With autoShift, in Reverse, first gear is selected (in a
+  drag race only after 3 course segments).
+- `y > 0.25`, autoShift, not in Park, rolling backwards or stopped (`bvel.z <= 0`, and in a drag
+  race after 3 segments): Reverse is selected, brakes 0, and throttle = y (it drives backwards).
+- otherwise: throttle 0, both brakes = y.
+
+Joystick buttons give the shift requests (+1 / -1) and the bound actions (`buttonFunction0..7`).
+
 ### Other bindings
 
 The `[Keys]` section stores DirectInput scan codes plus Windows VK codes for 29 actions:

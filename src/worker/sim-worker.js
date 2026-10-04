@@ -55,11 +55,16 @@ export function createSession(init) {
 
   /** Step one fixed step with the held keys. */
   function step(input) {
-    Object.assign(keys, input ?? {});
-    S.applyKeyboard(state.controls, keys, {
-      dt: STEP, autoShift: params.autoShift, forwardSpeed: state.bvel[2], dragMode: false, segments: 0,
-    });
+    const { joystick = null, ...held } = input ?? {};
+    Object.assign(keys, held);
+    const controlCtx = {
+      dt: STEP, autoShift: params.autoShift, forwardSpeed: state.bvel[2], dragMode: false, segments: 0, difficulty,
+    };
+    // The keyboard routine always runs; a joystick then overwrites it (MONSTER_EXE_ANALYSIS.md §7).
+    S.applyKeyboard(state.controls, keys, controlCtx);
+    if (joystick) S.applyJoystick(state.controls, joystick, controlCtx);
     keys.shiftUp = keys.shiftDown = false;
+    if (joystick) joystick.shiftUp = joystick.shiftDown = false;
     previous = snapshot(state);
     S.stepTruck(state, params, ctx, STEP);
     S.postStepTruck(state, params, ground, STEP);

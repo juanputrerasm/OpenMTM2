@@ -7,6 +7,7 @@ import * as THREE from "three";
 import { el } from "../dom.js";
 import { WorkerClient } from "../../shared/worker-client.js";
 import { createKeyboardInput } from "../../game/input/keyboard.js";
+import { createGamepadInput } from "../../game/input/gamepad.js";
 import { createTrackWorld, disposeObject, skyColor } from "../../render/track-scene.js";
 import { createTruckObject, interpolatePose } from "../../render/truck-object.js";
 import { toSceneMatrix } from "../../shared/scene-frame.js";
@@ -64,9 +65,16 @@ export default async function mount(container, context, { track, truckFile }) {
   // wheelbase, §3.1).
   const truckObject = createTruckObject(truck, truck.anchors, look);
   scene.add(truckObject.object);
-  status.textContent = `${build.trackName}: ${truck.name}. Arrows drive, Q / Z shift, C camera, R restart.`;
+  status.textContent = `${build.trackName}: ${truck.name}. Arrows or a gamepad drive, Q / Z shift, C camera, R restart.`;
 
   const keys = createKeyboardInput(window);
+  const pad = createGamepadInput();
+  // A held drive key wins over a connected pad, so both can be used (the game picks one in setup).
+  const sampleInput = () => {
+    const held = keys.sample();
+    const driving = held.accelerate || held.brake || held.left || held.right;
+    return { ...held, joystick: driving ? null : pad.sample() };
+  };
   let cameraIndex = 0;
   const onKey = async (e) => {
     if (e.code === "KeyC") cameraIndex = (cameraIndex + 1) % CAMERAS.length;
@@ -111,7 +119,7 @@ export default async function mount(container, context, { track, truckFile }) {
     last = now;
     if (!busy) {
       busy = true;
-      sim.call("tick", { tMs: now, input: keys.sample() })
+      sim.call("tick", { tMs: now, input: sampleInput() })
         .then((r) => { latest = r; })
         .finally(() => { busy = false; });
     }

@@ -28,3 +28,22 @@ test("drive the first grid truck on Farm Road 29", { skip: skipWithoutStock("POD
   assert.ok([...r.current.pos, ...r.current.matrix].every(Number.isFinite));
   assert.ok(r.alpha >= 0 && r.alpha <= 1);
 });
+
+test("a joystick drives the same truck, overriding the keyboard", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const build = await buildTrackRender(stockVfs(), "WORLD\\TPARK.SIT");
+  const truck = build.truckModels[build.sim.start.file];
+  const session = createSession({
+    heights: build.heights.buffer, clr: build.sim.clr.buffer, textureValues: build.sim.textureValues.buffer,
+    waterLevelFt: build.waterLevelFt, weather: 0, difficulty: 1,
+    truck: { anchors: truck.anchors, scrapePoints: truck.scrapePoints },
+    start: { pos: build.sim.start.pos, heading: build.sim.start.heading },
+  });
+  let r;
+  for (let t = 0.25; t < 3; t += 0.25) r = session.advance(t, {});
+  const startPos = r.current.pos;
+  // Brake key held, but the stick is full throttle and a little right.
+  for (let t = 3; t < 7; t += 1 / 60) r = session.advance(t, { brake: true, joystick: { x: 0.3, y: -1, deadZone: 0.1 } });
+  const moved = Math.hypot(r.current.pos[0] - startPos[0], r.current.pos[2] - startPos[2]);
+  assert.ok(moved > 60, `moved ${moved} ft`);
+  assert.ok(session.state.controls.steer > 0);
+});
