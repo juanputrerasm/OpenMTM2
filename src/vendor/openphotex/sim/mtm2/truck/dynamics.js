@@ -92,6 +92,7 @@ export function stepTruck(s, p, ctx, dt) {
     }
     const m = s.matrix;
     eulerToMatrix(s.euler[0], s.euler[1], s.euler[2], m);
+    s.prevMatrix.set(m);
     const c = s.controls;
     for (let i = 0; i < 4; i++)
         tireGeometry(s, p, i);
@@ -255,10 +256,10 @@ export function stepTruck(s, p, ctx, dt) {
         -0.2 * pRoll * AREA[0] * L * qbar,
     ];
     // Hull contacts (§14.12), from gravity and drag so far.
-    const contacts = solveHullContacts(s, p, ctx.ground, force, mass, W, dt);
-    // Sums (§14.8).
+    const contacts = solveHullContacts(s, p.inertia, ctx.ground, force, mass, W, dt);
+    // Sums (§14.8), with the pair forces of the last pair tests (§14.17).
     for (let k = 0; k < 3; k++)
-        force[k] += contacts.force[k] + tireSum[k];
+        force[k] += contacts.force[k] + tireSum[k] + s.extForce[k];
     const fMag = Math.hypot(force[0], force[1], force[2]);
     if (fMag > 500000) {
         const sc = 500000 / fMag;
@@ -271,7 +272,9 @@ export function stepTruck(s, p, ctx, dt) {
     moment[1] += cg[0] * drag[2] - cg[2] * drag[0];
     moment[2] += cg[1] * drag[0] - cg[0] * drag[1];
     for (let k = 0; k < 3; k++)
-        moment[k] += contacts.moment[k];
+        moment[k] += contacts.moment[k] + s.extMoment[k];
+    s.extForce.fill(0);
+    s.extMoment.fill(0);
     for (let i = 0; i < 4; i++) {
         const t = s.tires[i];
         const [fx, fy, fz] = t.force;
@@ -320,8 +323,8 @@ export function stepTruck(s, p, ctx, dt) {
     probeContacts(s, p, ctx.ground);
     return contacts;
 }
-/** Euler angle rates and the gimbal guard (§9.4). */
-function integrateOrientation(s, dt) {
+/** Euler angle rates and the gimbal guard (§9.4); a box uses it too (§14.16). */
+export function integrateOrientation(s, dt) {
     const [p, q, r] = s.rates;
     let [theta, phi, psi] = s.euler;
     let guard = null;

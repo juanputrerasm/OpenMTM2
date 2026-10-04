@@ -34,6 +34,9 @@ export function createTruckState(pos, heading = 0, gear = GEAR.FIRST, params) {
         euler: Float64Array.from([0, 0, heading]),
         rates: new Float64Array(3),
         matrix: new Float64Array(9),
+        prevMatrix: new Float64Array(9),
+        extForce: new Float64Array(3),
+        extMoment: new Float64Array(3),
         rpm: ENGINE.idleRpm,
         controls: createControlState(gear),
         tires: [tire(), tire(), tire(), tire()],
@@ -51,5 +54,6 @@ export function createTruckState(pos, heading = 0, gear = GEAR.FIRST, params) {
         splash: false,
     };
     eulerToMatrix(0, 0, heading, state.matrix);
+    state.prevMatrix.set(state.matrix);
     return state;
 }

@@ -6,14 +6,24 @@
   Ground boxes are rebuilt around each truck every frame from the level's .RA0 / .RA1 layers.
 */
 import { eulerToMatrix } from "../math.js";
+/** The corner order of the game's box setup (§14.15). */
+const CORNERS = [
+    [-1, -1, 1], [1, -1, 1], [-1, 1, 1], [1, 1, 1], [-1, 1, -1], [1, 1, -1], [-1, -1, -1], [1, -1, -1],
+];
 /** A box from its centre, full sizes (x, y, z) and angles (theta, phi, psi). */
 export function createBox(pos, size, mass = 0, angles = [0, 0, 0]) {
     const half = [size[0] * 0.5, size[1] * 0.5, size[2] * 0.5];
     const matrix = new Float64Array(9);
     eulerToMatrix(angles[0], angles[1], angles[2], matrix);
+    const points = new Float64Array(24);
+    CORNERS.forEach((c, i) => points.set([c[0] * half[0], c[1] * half[1], c[2] * half[2]], i * 3));
     return {
         pos: [pos[0], pos[1], pos[2]], matrix, vel: [0, 0, 0], half, mass,
-        radius: Math.hypot(half[0], half[1], half[2]), type: -1,
+        radius: Math.hypot(half[0], half[1], half[2]), type: -1, dynamic: mass >= 1,
+        bvel: new Float64Array(3), rates: new Float64Array(3), euler: Float64Array.from([angles[0], angles[1], angles[2]]),
+        force: new Float64Array(3), moment: new Float64Array(3),
+        points, depths: new Float64Array(8).fill(-9999), normals: new Float64Array(24).map((_, i) => (i % 3 === 1 ? 1 : 0)),
+        contactCount: 0, impactForce: 0,
     };
 }
 /** Checkpoints (6), type 7 and camera-facing billboards (8) never collide (§14.15). */

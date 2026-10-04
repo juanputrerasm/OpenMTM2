@@ -54,7 +54,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   // Models, once each.
   const models = {};
   const objects = [];
-  for (const box of sit.boxes) {
+  for (const [sitIndex, box] of sit.boxes.entries()) {
     const name = box.modelName ? podPathTitle(box.modelName) : "";
     if (!name || box.type === RAMP_TYPE) continue;
     if (!boxIsDrawn(box, { levelType: level.lvl.levelType, raceType, detailLevel })) continue;
@@ -64,14 +64,14 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     }
     if (!models[name] || !box.positionFt) continue;
     const m = mtm2Sim.eulerToMatrix(box.theta, box.phi, box.psi, new Array(9));
-    objects.push({ model: name, type: box.type, matrix: toSceneMatrix(m, box.positionFt) });
+    objects.push({ model: name, type: box.type, sitIndex, matrix: toSceneMatrix(m, box.positionFt) });
   }
 
   // Collision boxes (MTM2_PHYSICS.md 14.15): every solid box, sized by its model's vertex
   // bounds when it has one. Drawn or not does not matter; the same priority rule applies.
   const boundsOf = {};
   const collisionBoxes = [];
-  for (const box of sit.boxes) {
+  for (const [sitIndex, box] of sit.boxes.entries()) {
     if (box.type === RAMP_TYPE || !box.positionFt || !mtm2Sim.levelBoxCollides(box, detailLevel)) continue;
     const name = box.modelName ? podPathTitle(box.modelName) : "";
     if (name && !(name in boundsOf)) {
@@ -80,7 +80,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     }
     collisionBoxes.push({
       positionFt: box.positionFt, theta: box.theta, phi: box.phi, psi: box.psi, sizeFt: box.sizeFt,
-      mass: box.mass, type: box.type, priority: box.priority ?? 0, bounds: name ? boundsOf[name] : null,
+      mass: box.mass, type: box.type, priority: box.priority ?? 0, bounds: name ? boundsOf[name] : null, sitIndex,
     });
   }
 

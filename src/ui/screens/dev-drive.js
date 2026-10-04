@@ -8,7 +8,7 @@ import { el } from "../dom.js";
 import { WorkerClient } from "../../shared/worker-client.js";
 import { createKeyboardInput } from "../../game/input/keyboard.js";
 import { createGamepadInput } from "../../game/input/gamepad.js";
-import { createTrackWorld, disposeObject, skyColor } from "../../render/track-scene.js";
+import { createTrackWorld, disposeObject, moveObjects, skyColor } from "../../render/track-scene.js";
 import { createTruckObject, interpolatePose } from "../../render/truck-object.js";
 import { toSceneMatrix } from "../../shared/scene-frame.js";
 
@@ -64,6 +64,7 @@ export default async function mount(container, context, { track, truckFile }) {
     start: { pos: start.pos, heading: start.heading },
   };
   let pose = await sim.call("init", init);
+  const movedBoxes = new Set();
   // Drawn at the TRK's own anchors (the game keeps them for drawing; the simulation clamps the
   // wheelbase, §3.1).
   const truckObject = createTruckObject(truck, truck.anchors, look);
@@ -81,7 +82,12 @@ export default async function mount(container, context, { track, truckFile }) {
   let cameraIndex = 0;
   const onKey = async (e) => {
     if (e.code === "KeyC") cameraIndex = (cameraIndex + 1) % CAMERAS.length;
-    if (e.code === "KeyR") pose = await sim.call("init", init);
+    if (e.code === "KeyR") {
+      pose = await sim.call("init", init);
+      // A new session puts every box back.
+      moveObjects(world, build.objects.filter((o) => movedBoxes.has(o.sitIndex)));
+      movedBoxes.clear();
+    }
   };
   window.addEventListener("keydown", onKey);
 
@@ -123,7 +129,14 @@ export default async function mount(container, context, { track, truckFile }) {
     if (!busy) {
       busy = true;
       sim.call("tick", { tMs: now, input: sampleInput() })
-        .then((r) => { latest = r; })
+        .then((r) => {
+          latest = r;
+          // Boxes the truck has moved (MTM2_PHYSICS.md 14.16, 14.17).
+          if (r.boxes?.length) {
+            moveObjects(world, r.boxes.map((b) => ({ sitIndex: b.sitIndex, matrix: toSceneMatrix(b.matrix, b.pos) })));
+            for (const b of r.boxes) movedBoxes.add(b.sitIndex);
+          }
+        })
         .finally(() => { busy = false; });
     }
     const drawn = interpolatePose(latest.previous, latest.current, latest.alpha);

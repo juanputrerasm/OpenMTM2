@@ -1122,6 +1122,9 @@ x) and height (`+0x6c`, y), the mass (`+0x70`, slugs as the SIT writes it), the 
 - The rotation is the same Euler matrix as the truck's (`0x468a90`) from theta, phi, psi;
   all three exactly 0 give the identity.
 - A flag at `+0x0` is set when the mass is at least 1 (as stored).
+- The 8 corners (`+0xc4`, body axes, in this order, `a`, `c`, `b` the half extents along x, y, z):
+  `(-a, -c, b)`, `(a, -c, b)`, `(-a, c, b)`, `(a, c, b)`, `(-a, c, -b)`, `(a, c, -b)`,
+  `(-a, -c, -b)`, `(a, -c, -b)`.
 
 **Which boxes collide** (`0x5543c0`, every frame): every box except types 6 (checkpoint), 7 and 8,
 whose `priority` is at most the MONSTER.INI `detailLevel` (`0x640778`, the same rule that decides
@@ -1157,9 +1160,14 @@ pushing it is not stepped):
    at least -0.25 are the contact list, in corner order, but only when the last post-step pushed
    the box out at least once (`+0x220`). The solver is the truck's, with the box's mass, weight
    and inertias.
-6. Sums and integration as for a truck (14.8, 14.9), with the inertias
-   `I1 = m (h^2 + w^2) / 12`, `I2 = m (h^2 + l^2) / 12`, `I3 = m (w^2 + l^2) / 12` (the
-   truck's I1, I2, I3 slots: about z, x and y).
+6. **Sums** (`0x46cfe0`, `0x46d270`): `F = gravity + drag + contact force + the pair forces
+   (+0x78)`, at most 500000 in size; `M = damping + contact moment + the pair moments (+0x84)`
+   (no drag moment: a box's drag acts at its centre). Both accumulators are then cleared.
+   **Integration** as for a truck (14.9, rates clamped to +-13, `a = F / m - omega x bvel`, then
+   the Euler rates of section 9.4), with the inertias `I1 = m (h^2 + w^2) / 12`,
+   `I2 = m (h^2 + l^2) / 12`, `I3 = m (w^2 + l^2) / 12` (the truck's I1, I2, I3 slots: about z,
+   x and y). **At rest** (`0x46da30`): velocity and rates are zeroed when `|ivel| < 0.1`, or
+   below **2.0** with 3 or more contacts (a truck's limit is 0.5); then `pos += ivel dt`.
 7. The corner depths (`+0x200`) are reset to -9999.
 
 **Box post-step** (`0x4764d0`): the push-out count (`+0x220`) is cleared, then each corner 1 to
@@ -1174,3 +1182,65 @@ normal `n`):
   corner's depth drops by `n_i . (push * n)`, and the count goes up by one.
 
 A box whose flag is not set (immovable) only has its rotation matrix rebuilt from its angles.
+
+### 14.17 Truck against a box: the pair, pushable boxes and box corners (`0x489f90`)
+
+**Pair order** (`0x488d90`): the broadphase stores each overlapping pair (bounding spheres,
+`|c1 - c2| < r1 + r2`; a truck in helicopter flight is left out) once, under the object listed
+first. Trucks are listed before boxes, so a truck and a box always meet in the pair test's
+"box against truck" branch.
+
+**Mass class and effective mass** (that branch): with `M_t = W_t / 32.174` the truck's mass, a box
+is **pushable** when its mass is not 0 and below `M_t`, and the effective mass is then the box's
+mass; otherwise the box is immovable for this truck and the effective mass is `M_t`.
+
+Then, in order:
+
+1. **Hull points and wheels** (`0x4a52b0`, section 14.14): the early out, the 12 hull points
+   (`0x4aad00`), then the four wheels (`0x4a7fc0`).
+2. **Box corners against the wheels** (`0x4a1210` -> `0x49f920`), when the early out passes again
+   and the box mass is above 0 (as stored), for each corner 1 to 8 and each wheel FR, FL, RR, RL.
+3. The pair's forces and moments are added: the truck's to its accumulators (`+0xfbc`, `+0xfc8`,
+   body axes), the box's to its own (`+0x78`, `+0x84`, box axes). Both act in the next step.
+
+**Pushable box, hull point or tire contact point** (`0x4aad00`, `0x4a7fc0`): when the point's
+depth inside the face (as in 14.14) is positive and beats its stored depth, the point does not
+become a ground contact. Instead, with `n` the face's outward normal and every vector in the box's
+axes:
+
+- `v_rel = v_truck point - v_box point`, the truck point's velocity `bvel + omega x P` (P the hull
+  point, or the tire contact point) and the box point's `bvel_box + omega_box x r` (r the point
+  relative to the box);
+- `closing = -(n . v_rel)`; when it is at least 0: `F = m_eff * closing / dt`, the box gets `-F n`
+  with moment `r x (-F n)`, the truck gets `+F n` (to its body axes) with moment `P x F`;
+- and only then the box moves out by the depth: its position moves by `-depth * n` (world), and
+  the hull rays' reference point is formed again, so later points see the box where it now is.
+  With `closing` below 0 nothing happens.
+
+A point that is not deeper than its stored depth does nothing. The wheels' suspension test
+(14.14, `0x4a6390`) has no class check, so a pushable box's top carries a wheel like an immovable
+one.
+
+**Box corners against a wheel** (`0x49f920`), for corner `i` (world `W`) and a wheel with hub `h`
+(body), radius `r`, width `w` and axle `a = (1, 0, 0)`:
+
+- The ray runs from the corner's position relative to the truck as it was last step (`A`, body
+  axes; the code forms it from the tire's `+0x24`, which this doc reads as the hub's position at
+  the last step, and the truck's last-step rotation `+0x28`) to its position now (`B = M^T (W -
+  pos)`). `d = B - A`, `L = |d|`, `u = d / L`; nothing when `L` is 0.
+- Candidates along the ray (each moved back by 0.1 ft and counted only when above -0.1 ft):
+  the two end caps (planes through `h -+ (w / 2) a`, the hit within `r` of the cap centre, `t`
+  in (0, L)), and the tire's side (the cylinder of radius `r` about the axle through `h`, both
+  roots of the circle test in the plane across the axle, each within `w / 2` of `h` along the
+  axle and below `L`). The nearest wins.
+- On a hit at `P` (body): the box moves by `M (P - B)` (world), so the corner ends on the wheel's
+  surface. With `n` = that move, normalised, in box axes, and `v_rel` = the hub's velocity
+  (`bvel + omega x h`, to the box's axes) minus the corner's (`bvel_box + omega_box x corner`):
+  `closing = v_rel . n`. When `closing` is below 0 only a tiny `(0, 0.01, 0)` is added to the
+  box's force (which wakes it for the next step); otherwise `F = m_eff * closing / dt`, the box
+  gets `+F n` with moment `corner x F`, and the truck `-F n` (to its body axes) with moment
+  `h x F`.
+
+**A box with mass is dynamic even when it is immovable for the truck**: any box whose flag is set
+(mass at least 1) is stepped once something gives it a force or a velocity (14.16), so a heavy
+box can still be shoved by the corner test.
