@@ -35,7 +35,8 @@ function snapshot(state) {
 
 /**
  * A session from plain data:
- * `{ heights, clr, textureValues, waterLevelFt, weather, difficulty, truck: { anchors, scrapePoints }, start: { pos, heading } }`.
+ * `{ heights, clr, textureValues, ra0, ra1, boxes, waterLevelFt, weather, difficulty, truck: { anchors, scrapePoints }, start: { pos, heading } }`.
+ * `ra0` / `ra1` are the level's ground-box layers and `boxes` its collision boxes (track-build.js).
  */
 export function createSession(init) {
   const terrain = S.createTerrain(new Uint8Array(init.heights), init.waterLevelFt ?? null);
@@ -49,6 +50,14 @@ export function createSession(init) {
     { difficulty, autoShift: init.autoShift ?? true },
   );
   const state = S.createTruckState(init.start.pos, init.start.heading ?? 0, S.GEAR.FIRST, params);
+  const ra0 = init.ra0 ? new Uint8Array(init.ra0) : null;
+  const ra1 = init.ra1 ? new Uint8Array(init.ra1) : null;
+  // Pushable boxes (lighter than the truck) need their own motion; until then they are skipped.
+  const truckMass = S.truckWeight(params) / S.G;
+  const levelBoxes = (init.boxes ?? [])
+    .map((b) => S.createLevelBox(b, b.bounds))
+    .filter((b) => b && S.boxIsImmovableFor(b, truckMass));
+  const nearBoxes = [];
   // Until the race rules exist (M6) the dev session counts as racing, with no course: a reset
   // keeps the heading and the helicopter sets the truck down where it was.
   const recovery = {
@@ -58,6 +67,15 @@ export function createSession(init) {
   let time = 0;
   let previous = snapshot(state);
   const keys = { accelerate: false, brake: false, left: false, right: false };
+
+  /** Contacts from the ground boxes around the truck and the immovable level boxes (§14.14). */
+  function collideBoxes() {
+    if (state.heliTimer > 0) return;
+    nearBoxes.length = 0;
+    if (ra0 && ra1) S.groundBoxesAround(ra0, ra1, state.pos[0], state.pos[2], nearBoxes);
+    for (const box of nearBoxes) S.collideTruckImmovableBox(state, params, box, STEP);
+    for (const box of levelBoxes) S.collideTruckImmovableBox(state, params, box, STEP);
+  }
 
   /** Step one fixed step with the held keys. */
   function step(input) {
@@ -77,6 +95,7 @@ export function createSession(init) {
     if (joystick) joystick.shiftUp = joystick.shiftDown = false;
     previous = snapshot(state);
     S.stepTruck(state, params, ctx, STEP);
+    collideBoxes();
     S.postStepTruck(state, params, ground, STEP);
     time += STEP;
   }
@@ -90,7 +109,7 @@ export function createSession(init) {
     return { previous, current: snapshot(state), alpha: (target - time) / STEP, time, steps };
   }
 
-  return { state, params, ground, step, advance, snapshot: () => snapshot(state) };
+  return { state, params, ground, levelBoxes, step, advance, snapshot: () => snapshot(state) };
 }
 
 if (typeof self !== "undefined" && typeof self.postMessage === "function" && typeof window === "undefined") {

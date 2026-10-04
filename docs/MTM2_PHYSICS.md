@@ -1101,3 +1101,35 @@ truck and a box in sphere range (truck radius + box radius):
 
 The post-step then pushes the truck out of these contacts like terrain ones (section 14.11).
 Pushable boxes (section 7.3), box corners against wheels, ramps and other trucks follow.
+
+### 14.15 Level boxes as collision objects (`0x5495e0`, `0x5543c0`)
+
+**Setup** (`0x5495e0`, once per box when the level loads). The box record holds the position
+(`+0x4c`, feet; a negative x or z gets 8192 added), the angles theta, phi, psi (`+0x58`, `+0x5c`,
+`+0x60`, in the SIT's order), the full sizes length (`+0x64`, along the box's z), width (`+0x68`,
+x) and height (`+0x6c`, y), the mass (`+0x70`, slugs as the SIT writes it), the bounding radius
+(`+0x74`), the model name (`+0x22c`), the type (`+0x244`) and the `priority` (`+0x24c`).
+
+- **A box with a model takes its sizes from the model**, replacing the SIT's: the model's
+  vertex bounds (`0x450ae0`; minimum and maximum x, y and z over its vertices, at the scale the
+  model is drawn with, `v * 256 / magnify` in 1/256 ft), so width = the x extent, height = the y
+  extent, length = the z extent, in feet.
+- **Types 8 and 9** (camera-facing): length and width both become the larger of the two, then
+  both are halved.
+- The box is **centred on its position**: half extents are half the sizes, and the bounding
+  radius is `sqrt(a^2 + b^2 + c^2)` of the half extents. The model's own origin and bounds
+  offset are not used.
+- The rotation is the same Euler matrix as the truck's (`0x468a90`) from theta, phi, psi;
+  all three exactly 0 give the identity.
+- A flag at `+0x0` is set when the mass is at least 1 (as stored).
+
+**Which boxes collide** (`0x5543c0`, every frame): every box except types 6 (checkpoint), 7 and 8,
+whose `priority` is at most the MONSTER.INI `detailLevel` (`0x640778`, the same rule that decides
+whether it is drawn). A box joins the frame's object list once, when it lies within `r + R + 10`
+ft on both x and z of an object already listed (trucks first, then ramps, then earlier boxes;
+`r` and `R` the two bounding radii), or when it moves faster than 0.1 ft/s. An AI truck (not the
+player's) does not bring in a type 11 box (a box inside a checkpoint's footprint) or a box with
+no model, unless the count at `0x646c40 + 0xc` is above 0 (its meaning is still open).
+
+Pairs are then tested as in section 14.14, and whether a box is immovable or pushable for a
+truck follows section 7.3 (immovable when its mass is 0 or at least the truck's).

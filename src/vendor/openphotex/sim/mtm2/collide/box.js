@@ -13,8 +13,43 @@ export function createBox(pos, size, mass = 0, angles = [0, 0, 0]) {
     eulerToMatrix(angles[0], angles[1], angles[2], matrix);
     return {
         pos: [pos[0], pos[1], pos[2]], matrix, vel: [0, 0, 0], half, mass,
-        radius: Math.hypot(half[0], half[1], half[2]),
+        radius: Math.hypot(half[0], half[1], half[2]), type: -1,
     };
+}
+/** Checkpoints (6), type 7 and camera-facing billboards (8) never collide (§14.15). */
+const NON_COLLIDING_TYPES = new Set([6, 7, 8]);
+/** Whether a level box is a collision object at a MONSTER.INI detail level (§14.15). */
+export function levelBoxCollides(box, detailLevel = 2) {
+    return !NON_COLLIDING_TYPES.has(box.type) && (box.priority ?? 0) <= detailLevel;
+}
+/**
+ * A level box as a collision object (§14.15): centred on its position, rotated by its angles,
+ * sized by its model's vertex bounds when it has a model (else the SIT's sizes). Camera-facing
+ * types 8 and 9 take the larger of length and width for both, halved. Null without a position.
+ */
+export function createLevelBox(box, bounds = null) {
+    if (!box.positionFt)
+        return null;
+    let width, height, length;
+    if (bounds) {
+        width = bounds.max[0] - bounds.min[0];
+        height = bounds.max[1] - bounds.min[1];
+        length = bounds.max[2] - bounds.min[2];
+    }
+    else {
+        [length, width, height] = box.sizeFt ?? [0, 0, 0];
+    }
+    if (box.type === 8 || box.type === 9) {
+        const side = Math.max(length, width) * 0.5;
+        length = width = side;
+    }
+    const out = createBox(box.positionFt, [width, height, length], box.mass, [box.theta, box.phi, box.psi]);
+    out.type = box.type;
+    return out;
+}
+/** For a truck of `truckMass` slugs, a box is pushable only when 0 < mass < truckMass (§7.3). */
+export function boxIsImmovableFor(box, truckMass) {
+    return !(box.mass > 0 && box.mass < truckMass);
 }
 export const GROUND_BOX_CELL_FT = 32;
 export const MAX_GROUND_BOXES = 600;

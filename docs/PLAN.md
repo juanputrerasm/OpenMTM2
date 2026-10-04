@@ -168,6 +168,8 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
 - **Accept:** the invariant tests pass; on TPARK you can drive, jump, flip and reset, and the axles articulate; motion is smooth with interpolation; one truck costs < 2 ms per step.
 
 ### M5: Objects and collisions (OpenPhotex)
+**Status: in progress.** Done: ground boxes and immovable level boxes as ground for hull points, wheels and tire contacts (physics 14.14, 14.15), wired into the drive session; no tunnelling at 150 ft/s; parking on box tops; TPARK's bridge deck carries the wheels. Which boxes are solid is confirmed (14.15). Next: pushable boxes (most stock scenery is lighter than a truck and is skipped until then), ramps (JUNK's bridges), truck against truck, trains.
+
 - Broadphase, separating-axis tests, truck against box (immovable = ground, pushable = inelastic, wheel sweep), ground boxes, ramps, truck against truck, trains, free boxes.
 - Top-crush and box-against-box may first act as immovable ground and get completed after M7.
 - Confirm which SIT box types and flags are solid.
@@ -258,7 +260,7 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
 | Terrain orientation and diagonal parity, renderer against physics | One shared parity function, the mesh-versus-sampler test, the SIT rest-height test |
 | Left-handed game frame against right-handed three.js | All conversion in `render/world-frame.js`, tested with known headings |
 | Step-dependent laws | The `REFERENCE_DT` constant; invariant tests at three step sizes |
-| Which SIT boxes are solid | Confirm in M5 |
+| Which SIT boxes are solid | Confirmed in M5 (physics 14.15) |
 | WAV codecs (ACM/ADPCM) | Check in M11; OpenPhotex decoder as fallback |
 | Safari OPFS writes are worker-only; storage quota | Copy from the asset worker; request persistence and show the space used |
 | Every sim change re-vendors into two repos | Keep a sub-barrel with stable exports; run JSTrackViewer's tests on every vendor |
