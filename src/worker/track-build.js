@@ -174,6 +174,11 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     truckModels,
     trucks,
     sky,
+    /**
+     * The start lights' fill colours (MONSTER_EXE_ANALYSIS.md 6.1): level palette indices 0
+     * (off), 1 (the red lamps' colour) and 2 (the green lamps'), as RGB.
+     */
+    startLightColours: level.palette ? [0, 1, 2].map((i) => Array.from(level.palette.subarray(i * 3, i * 3 + 3))) : null,
     /** For the simulation worker (copies; the render arrays are transferred separately). */
     sim: {
       clr: level.clr.slice(),

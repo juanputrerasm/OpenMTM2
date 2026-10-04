@@ -4,8 +4,8 @@
   While the track builds, the loading screen (`ART\DATA480.RAW`) shows. The simulation runs in
   its own worker at a fixed 1/60 s; this screen sends the keys each frame and draws every truck
   between its last two simulated states. The HUD follows the game's (MONSTER_EXE_ANALYSIS.md
-  11): lap time, best lap and clock, then place and lap. The 3 s countdown (6.1) holds every
-  truck on its brakes. When the player finishes, the trucks still racing are fast-simulated
+  11): lap time, best lap and clock, then place and lap. Through the 3 s countdown (6.1) every
+  truck sits in Park and the start gantry's red lamps glow; at the start the green ones light. When the player finishes, the trucks still racing are fast-simulated
   ("Determining times for remaining trucks", section 5) and the results follow.
 
   Keys: arrows or WASD drive, Q / Z shift, H helicopter, C camera, Esc or P pause.
@@ -16,7 +16,7 @@ import { WorkerClient } from "../../shared/worker-client.js";
 import { createKeyboardInput } from "../../game/input/keyboard.js";
 import { createGamepadInput } from "../../game/input/gamepad.js";
 import { formatRaceTime, raceEntrants } from "../../game/race-setup.js";
-import { createTrackWorld, disposeObject, moveObjects, skyColor } from "../../render/track-scene.js";
+import { createTrackWorld, disposeObject, moveObjects, setStartLights, skyColor } from "../../render/track-scene.js";
 import { createTruckObject, interpolatePose } from "../../render/truck-object.js";
 import { toSceneMatrix } from "../../shared/scene-frame.js";
 
@@ -30,10 +30,9 @@ export default async function mount(container, context, { track, laps, difficult
   loading.append(loadingText);
   const hudTimes = el("div", { class: "race-hud race-hud-times" });
   const hudPlace = el("div", { class: "race-hud race-hud-place" });
-  const lights = el("div", { class: "race-lights", hidden: true });
   const message = el("p", { class: "race-message", hidden: true });
   const pauseMenu = el("div", { class: "race-pause", hidden: true });
-  const view = el("section", { class: "race-view" }, canvas, hudTimes, hudPlace, lights, message, pauseMenu, loading);
+  const view = el("section", { class: "race-view" }, canvas, hudTimes, hudPlace, message, pauseMenu, loading);
   container.append(view);
 
   let disposed = false;
@@ -183,15 +182,16 @@ export default async function mount(container, context, { track, laps, difficult
     shownMessage = text;
     messageUntil = now + seconds * 1000;
   };
-  let wasMissed = false, finalLapShown = false;
+  let wasMissed = false, finalLapShown = false, lightsOn = null;
   const showRace = (race, now) => {
+    // The gantry's lamps change only when the countdown state does (6.1).
+    if (lightsOn !== !race.started) {
+      lightsOn = !race.started;
+      setStartLights(world, lightsOn, build.startLightColours);
+    }
     const me = race.trucks[0];
     hudTimes.replaceChildren(row("Lap:", formatRaceTime(me.lapTime)), row("Best:", formatRaceTime(me.best)), row("Clock:", formatRaceTime(race.clock)));
     hudPlace.replaceChildren(row("Place:", `${me.place}/${race.trucks.length}`), row("Lap:", `${me.lap}/${race.laps}`));
-    // The start lights: red while counting down, green at the start.
-    lights.hidden = race.started && race.clock > 1.5;
-    lights.textContent = race.started ? "GO!" : String(Math.ceil(race.countdown));
-    lights.className = race.started ? "race-lights go" : "race-lights";
     if (me.missed && !wasMissed) flash("Missed checkpoint! Turn around.", now);
     wasMissed = me.missed;
     if (!finalLapShown && race.laps > 1 && me.lap === race.laps && race.started && !me.finished) {
