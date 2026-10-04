@@ -118,3 +118,38 @@ test("an immovable level box carries the truck: JUNK's 38 x 39 ft platform (14.1
   assert.ok(r.down, "all wheels on the platform");
   assert.ok(r.ride > 2 && r.ride < 6, `ride ${r.ride} ft above the top`);
 });
+
+test("driving into a pushable box moves it, and the session reports it for drawing (14.17)", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const build = await buildTrackRender(stockVfs(), "WORLD\\TPARK.SIT");
+  const { mtm2Sim: S } = await import("../src/vendor/openphotex/index.js");
+  // A light box standing on open ground (hay bales and fence parts on Farm Road 29).
+  const terrain = S.createTerrain(build.heights);
+  const pick = build.sim.boxes.find((b) => {
+    if (!(b.mass > 1 && b.mass < 100) || !b.bounds) return false;
+    const box = S.createLevelBox(b, b.bounds);
+    const g = S.terrainHeightAt(terrain, box.pos[0], box.pos[2]);
+    return Math.abs(box.pos[1] - box.half[1] - g) < 1 && box.half[0] < 6 && box.half[2] < 6;
+  });
+  assert.ok(pick, "a light box on the ground");
+  const [bx, , bz] = pick.positionFt;
+  const truck = build.truckModels[build.sim.start.file];
+  const start = [bx, S.terrainHeightAt(terrain, bx, bz - 40) + 6, bz - 40];
+  const session = createSession({
+    heights: build.heights.buffer, clr: build.sim.clr.buffer, textureValues: build.sim.textureValues.buffer,
+    ra0: build.sim.ra0.buffer, ra1: build.sim.ra1.buffer, boxes: build.sim.boxes,
+    waterLevelFt: build.waterLevelFt, weather: 0, difficulty: 1,
+    truck: { anchors: truck.anchors, scrapePoints: truck.scrapePoints },
+    start: { pos: start, heading: 0 },
+  });
+  let r;
+  for (let t = 0; t < 2; t += 0.25) r = session.advance(t, {});
+  const seen = new Map();
+  for (let t = 2; t < 8; t += 1 / 30) {
+    r = session.advance(t, { accelerate: true });
+    for (const b of r.boxes) seen.set(b.sitIndex, b);
+  }
+  const moved = seen.get(pick.sitIndex);
+  assert.ok(moved, "the box was reported");
+  assert.ok(Math.hypot(moved.pos[0] - bx, moved.pos[2] - bz) > 2, `box at ${moved.pos}`);
+  assert.ok([...r.current.pos, ...moved.pos].every(Number.isFinite));
+});

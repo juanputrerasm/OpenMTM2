@@ -20,4 +20,5 @@ export { solveHullContacts } from "./truck/contacts.js";
 export { fluidAreas, hullFaceWaterArea, wheelWaterAreas, SPLASH_SPEED } from "./truck/water-drag.js";
 export * from "./truck/recovery.js";
 export * from "./collide/box.js";
-export { collideTruckImmovableBox, truckBoxSeparated } from "./collide/truck-box.js";
+export { collideTruckBox, collideTruckImmovableBox, truckBoxSeparated } from "./collide/truck-box.js";
+export { stepBox, postStepBox, boxInertia } from "./collide/box-step.js";

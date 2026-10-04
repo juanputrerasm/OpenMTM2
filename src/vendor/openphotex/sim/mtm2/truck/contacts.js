@@ -44,7 +44,8 @@ function edgeCrossing(from, q, edgeFoot, u) {
         along = -along;
     return { qx, x: add(edgeFoot, scale(u, along)), fromQ: len(sub(q, from)) };
 }
-export function solveHullContacts(s, p, ground, external, mass, weight, dt) {
+/** `inertia` is I1, I2, I3 (about z, x, y). */
+export function solveHullContacts(s, inertia, ground, external, mass, weight, dt) {
     const out = { force: [0, 0, 0], moment: [0, 0, 0], count: 0 };
     if (s.contactCount === 0)
         return out;
@@ -53,7 +54,7 @@ export function solveHullContacts(s, p, ground, external, mass, weight, dt) {
     const toBody = (v) => [m[0] * v[0] + m[3] * v[1] + m[6] * v[2], m[1] * v[0] + m[4] * v[1] + m[7] * v[2], m[2] * v[0] + m[5] * v[1] + m[8] * v[2]];
     const pos = [s.pos[0], s.pos[1], s.pos[2]];
     const all = [];
-    for (let j = 0; j < 16; j++) {
+    for (let j = 0; j < s.depths.length; j++) {
         if (!(s.depths[j] >= -0.25))
             continue;
         const body = [s.points[j * 3], s.points[j * 3 + 1], s.points[j * 3 + 2]];
@@ -119,11 +120,11 @@ export function solveHullContacts(s, p, ground, external, mass, weight, dt) {
     const N0 = Math.max(0, -dot(G, planeN));
     const N = shares.map((sh) => N0 * sh);
     // Recovery (§14.12).
-    const [pRoll, qPitch, rYaw] = s.rates;
+    const pRoll = s.rates[0], qPitch = s.rates[1], rYaw = s.rates[2];
     const omega = [qPitch, rYaw, pRoll];
     const speed = Math.hypot(s.bvel[0], s.bvel[1], s.bvel[2]);
     const vScale = Math.min(speed / 3, 1) * 0.75;
-    const [I1, I2, I3] = p.inertia;
+    const I1 = inertia[0], I2 = inertia[1], I3 = inertia[2];
     const sumN = () => N.reduce((a, n) => a + Math.abs(n), 0);
     const recovery = (c, share, total) => {
         const vp = scale(add([s.bvel[0], s.bvel[1], s.bvel[2]], cross(omega, c.body)), vScale);

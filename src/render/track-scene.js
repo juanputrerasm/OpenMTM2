@@ -109,13 +109,17 @@ export function createModelLibrary(models, modelTextures, look) {
 /** Every placed object, one InstancedMesh per model part. */
 export function placeObjects(library, objects) {
   const byModel = new Map();
+  // Where each SIT box is drawn, for moving it later (plain data: clones copy userData as JSON).
+  const slots = {};
   for (const object of objects) {
     if (!library.has(object.model)) continue;
     if (!byModel.has(object.model)) byModel.set(object.model, []);
+    if (object.sitIndex !== undefined) slots[object.sitIndex] = [object.model, byModel.get(object.model).length];
     byModel.get(object.model).push(object.matrix);
   }
   const group = new THREE.Group();
   group.name = "objects";
+  group.userData.slots = slots;
   const m = new THREE.Matrix4();
   for (const [name, matrices] of byModel) {
     for (const { geometry, material } of library.get(name)) {
@@ -128,6 +132,35 @@ export function placeObjects(library, objects) {
     }
   }
   return group;
+}
+
+/**
+ * Move drawn SIT boxes: `moves` is `[{ sitIndex, matrix }]` with scene-frame matrices. Every
+ * wrapped copy of the tile is updated.
+ */
+export function moveObjects(world, moves) {
+  if (!moves.length) return;
+  const m = new THREE.Matrix4();
+  world.traverse((group) => {
+    if (group.name !== "objects") return;
+    const slots = group.userData.slots ?? {};
+    for (const { sitIndex, matrix } of moves) {
+      const slot = slots[sitIndex];
+      if (!slot) continue;
+      m.fromArray(matrix);
+      for (const mesh of group.children) {
+        if (mesh.name !== slot[0]) continue;
+        mesh.setMatrixAt(slot[1], m);
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.userData.moved = true;
+      }
+    }
+    for (const mesh of group.children) {
+      if (!mesh.userData.moved) continue;
+      mesh.computeBoundingSphere();
+      mesh.userData.moved = false;
+    }
+  });
 }
 
 /** A sky dome around the camera, textured with the level's sky. */
