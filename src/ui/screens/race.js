@@ -110,6 +110,7 @@ export default async function mount(container, context, { track, laps, difficult
         truck: { anchors: model.anchors, scrapePoints: model.scrapePoints },
         start: { pos: grid[e.slot].pos, heading: grid[e.slot].heading },
         autopilot: !e.player || !!context.settings.fullAutopilot,
+        player: e.player,
       };
     }),
     race: { checkpoints: build.sim.checkpoints, laps },

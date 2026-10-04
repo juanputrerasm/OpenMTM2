@@ -42,7 +42,7 @@ function snapshot(state) {
 /**
  * A session from plain data:
  * `{ heights, clr, textureValues, ra0, ra1, boxes, ramps, course, sonicTrack, waterLevelFt, weather, difficulty, trucks, race }`,
- * with `trucks` a list of `{ truck: { anchors, scrapePoints }, start: { pos, heading }, autopilot }`
+ * with `trucks` a list of `{ truck: { anchors, scrapePoints }, start: { pos, heading }, autopilot, player? }`
  * (the first is the player's), or the single-truck form `{ truck, start, autopilot }`.
  * `ra0` / `ra1` are the level's ground-box layers and `boxes` its collision boxes (track-build.js);
  * `race`, when given, is `{ checkpoints, laps }` and runs the race rules (MTM2_PHYSICS.md 14.24).
@@ -62,7 +62,7 @@ export function createSession(init) {
   const movingObjects = [];
   for (const b of init.boxes ?? []) {
     const box = S.createLevelBox(b, b.bounds);
-    if (box) { box.sitIndex = b.sitIndex; levelBoxes.push(box); }
+    if (box) { box.sitIndex = b.sitIndex; box.hasModel = b.hasModel ?? true; levelBoxes.push(box); }
     if (box && b.bvel) movingObjects.push({ box, bvel: b.bvel });
   }
   const allRamps = (init.ramps ?? []).map((r) => S.createRamp(r, r.bounds)).filter(Boolean);
@@ -86,13 +86,15 @@ export function createSession(init) {
       racing: true, player: i === 0 && !autopilot, autopilot, difficulty, summit: false, segment: null, previous: null,
     };
     const ctx = { ground, human: i === 0 && !autopilot, difficulty, sonicTrack, recovery };
-    return { state, params, autopilot, recovery, ctx, radius: S.truckRadius(params), nearBoxes: [] };
+    // The player's truck: slot 0 unless it starts on autopilot, or as the spec says (Full Autopilot).
+    const isPlayer = spec.player ?? (i === 0 && !autopilot);
+    return { state, params, autopilot, isPlayer, recovery, ctx, radius: S.truckRadius(params), nearBoxes: [] };
   });
   const player = trucks[0];
   // Traffic (MTM2_PHYSICS.md 14.25): every truck sees the others' last values.
   if (trucks.length > 1) apCtx.traffic = trucks.map((t) => ({ s: t.state, p: t.params }));
   const race = init.race
-    ? S.createRace(trucks.map((t, i) => ({ s: t.state, p: t.params, player: i === 0 && !t.autopilot })),
+    ? S.createRace(trucks.map((t) => ({ s: t.state, p: t.params, player: t.isPlayer })),
       S.raceCheckpoints(init.race.checkpoints), course, init.race.laps ?? 3, difficulty)
     : null;
 
@@ -114,7 +116,10 @@ export function createSession(init) {
       const range = r + box.radius + 10;
       return Math.abs(box.pos[0] - x) < range && Math.abs(box.pos[2] - z) < range;
     };
-    const nearTruck = (box) => trucks.some((t) => near(t.state.pos[0], t.state.pos[2], t.radius, box));
+    // A CPU truck does not bring in a type 11 box (inside a checkpoint's footprint) or a box
+    // with no model (14.15, single player): it drives through them.
+    const nearTruck = (box) => trucks.some((t) => (t.isPlayer || (box.type !== 11 && box.hasModel !== false))
+      && near(t.state.pos[0], t.state.pos[2], t.radius, box));
     for (const box of levelBoxes) {
       const moving = Math.hypot(box.vel[0], box.vel[1], box.vel[2]) > 0.1;
       if (moving || nearTruck(box) || listed.some((o) => near(o.pos[0], o.pos[2], o.radius, box))) listed.push(box);

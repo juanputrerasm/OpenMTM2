@@ -299,3 +299,28 @@ test("the countdown: every truck sits in Park, so the player's held throttle mov
   for (let i = 0; i < 120; i++) session.step({ accelerate: true });
   assert.ok(Math.hypot(session.trucks[0].state.pos[0] - start[0][0], session.trucks[0].state.pos[2] - start[0][2]) > 5, "the player goes after the start");
 });
+
+test("a CPU truck does not bring in a model-less or type 11 box, and drives through it; the player's truck does not (14.15)", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const vfs = stockVfs();
+  const build = await buildTrackRender(vfs, "WORLD\\WAR.SIT");
+  // Torture Pit's sitIndex 41: an invisible 2 x 2 x 26 ft type 11 post.
+  const post = build.sim.boxes.find((b) => b.sitIndex === 41);
+  assert.equal(post.type, 11);
+  assert.equal(post.hasModel, false);
+  const file = build.sim.start.file;
+  const run = (player) => {
+    const session = createSession({
+      heights: build.heights.buffer, clr: build.sim.clr.buffer, textureValues: build.sim.textureValues.buffer,
+      ra0: build.sim.ra0.buffer, ra1: build.sim.ra1.buffer, boxes: build.sim.boxes, ramps: build.sim.ramps,
+      waterLevelFt: build.waterLevelFt, weather: 0, difficulty: 1,
+      trucks: [{ truck: build.truckModels[file], start: { pos: [post.positionFt[0] - 30, post.positionFt[1], post.positionFt[2]], heading: Math.PI / 2 }, autopilot: false, player }],
+    });
+    const s = session.trucks[0].state;
+    for (let i = 0; i < 60; i++) session.step({});
+    s.bvel[2] = 30;
+    for (let i = 0; i < 120; i++) session.step({});
+    return s.pos[0] - post.positionFt[0];
+  };
+  assert.ok(run(false) > 10, "the CPU truck drove through the post");
+  assert.ok(run(true) < 0, "the player's truck is stopped by it");
+});

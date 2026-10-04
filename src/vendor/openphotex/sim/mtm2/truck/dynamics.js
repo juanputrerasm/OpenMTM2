@@ -406,6 +406,8 @@ function probeContacts(s, p, ground) {
         s.points.set(toBody(m, point[0] - s.pos[0], point[1] - s.pos[1], point[2] - s.pos[2]), (12 + i) * 3);
         sign = -sign;
     }
+    // Every point into its contact-point slot (+0x670), where edge contacts may replace it (§14.26.6).
+    s.contactPoints.set(s.points);
     for (let j = 0; j < 16; j++) {
         s.depths[j] = -9999;
         if (j < 12)
@@ -429,8 +431,9 @@ export function postStepTruck(s, p, ground, dt) {
     s.axles[1].travel = p.hubs[2][1];
     // Push-out (§14.11.2).
     s.contactCount = 0;
+    const cp = s.contactPoints;
     for (let j = 0; j < 16; j++) {
-        const pr = probeGround(s, ground, s.points[j * 3], s.points[j * 3 + 1], s.points[j * 3 + 2], 0);
+        const pr = probeGround(s, ground, cp[j * 3], cp[j * 3 + 1], cp[j * 3 + 2], 0);
         s.waterDepths[j] = pr.water;
         let push;
         if (pr.depth * pr.normal[1] <= s.depths[j] || j >= 12) {

@@ -57,7 +57,8 @@ export function solveHullContacts(s, inertia, ground, external, mass, weight, dt
     for (let j = 0; j < s.depths.length; j++) {
         if (!(s.depths[j] >= -0.25))
             continue;
-        const body = [s.points[j * 3], s.points[j * 3 + 1], s.points[j * 3 + 2]];
+        const cp = s.contactPoints ?? s.points;
+        const body = [cp[j * 3], cp[j * 3 + 1], cp[j * 3 + 2]];
         const normal = [s.normals[j * 3], s.normals[j * 3 + 1], s.normals[j * 3 + 2]];
         const world = add(add(pos, toWorld(body)), scale(normal, s.depths[j]));
         all.push({ body, world, normal });

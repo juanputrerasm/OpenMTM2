@@ -46,6 +46,7 @@ export function createTruckState(pos, heading = 0, gear = GEAR.FIRST, params) {
         tires: [tire(), tire(), tire(), tire()],
         axles,
         points,
+        contactPoints: points.slice(),
         depths: new Float64Array(16).fill(-9999),
         normals: new Float64Array(16 * 3).map((_, i) => (i % 3 === 1 ? 1 : 0)),
         waterDepths: new Float64Array(16),
