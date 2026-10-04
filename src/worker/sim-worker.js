@@ -125,7 +125,7 @@ export function createSession(init) {
     }
   }
 
-  /** The pair tests (14.14, 14.17, 14.20, 14.21), trucks first in list order. */
+  /** The pair tests (14.14, 14.17, 14.19, 14.20, 14.21), trucks first in list order. */
   function pairTests() {
     for (let i = 0; i < trucks.length; i++) {
       for (let j = i + 1; j < trucks.length; j++) {
@@ -139,6 +139,11 @@ export function createSession(init) {
       if (ra0 && ra1) S.groundBoxesAround(ra0, ra1, t.state.pos[0], t.state.pos[2], t.nearBoxes);
       for (const box of t.nearBoxes) S.collideTruckImmovableBox(t.state, t.params, box, STEP);
       for (const box of listed) S.collideTruckBox(t.state, t.params, box, STEP);
+      // Ramp sides and front ends are walls (14.19), for ramps within reach of the truck.
+      for (const ramp of ground.ramps) {
+        const d = Math.hypot(ramp.pos[0] - t.state.pos[0], ramp.pos[1] - t.state.pos[1], ramp.pos[2] - t.state.pos[2]);
+        if (d < ramp.radius + t.radius) S.collideTruckRamp(ramp, t.state, t.params);
+      }
       grounds.push(...t.nearBoxes);
     }
     const all = listed.length ? [...listed, ...grounds] : listed;

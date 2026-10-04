@@ -1302,9 +1302,42 @@ The first ramp that holds the point wins, whatever the point's own height; other
 (`0x550380` is the terrain normal), so on a ramp the probes see the ramp's height with the
 terrain's normal.
 
-The ramp's sides are walls for hull points and wheels (`0x4b2580`: the four wheels through
-`0x4aa110`, hull points 1 to 12 through the inside test `0x48c230` and the push-out `0x4b2950`
-with the force law `0x48c8a0`, then `0x4b17c0`); they are still to be written up here.
+**The ramp as a solid** (the pair test of a truck and a ramp: `0x4b2580`, then the edges
+`0x4b17c0`). In ramp axes the wedge holds a point `P` when
+
+    -b <= P.z <= b,   -a <= P.x <= a,   0 <= P.y <= top,   top = (P.z + b) / (2 b) * H
+
+(`0x48c230`). Its sides, its tall front end and its slope are faces; the slope is also ground
+through the height query above. In order:
+
+1. **The four wheels** (`0x4aa110`, FR, FL, RR, RL). With the hub's world position relative to
+   the ramp `d` (3D), only when `|d| < R_ramp + rho` (the tire's bounding radius, 14.20): `d` in
+   ramp axes; when `|d.x / width| <= |d.z / length|` the direction toward the ramp is
+   `(0, 0, -sign d.z)`, else `(-sign d.x, 0, 0)` (ramp axes; the code forms the sign as
+   `|v| / v`, so a zero there divides by zero; OpenPhotex takes it as +1). That direction in the truck's axes is
+   `g`; the probe point is the hub plus `(s w / 2, r gy', r gz')`, with `s = +1` when `g.x > 0`
+   else -1 and `(gy', gz') = unit((0, g.y, g.z))` (the tread point toward the ramp, at the tyre's
+   side facing it). The point is taken to ramp axes, tested as above, and pushed out as for hull
+   points (`0x4b3540`, the same rule with the probe point).
+2. **Hull points 1 to 12** (`0x48c230`, `0x4b2950`), each in ramp axes. For a point inside, with
+   `w = v_ramp(P) - v_truck(P)` (the ramp's own velocity `+0x78` and rates `+0x84`, zero for stock
+   ramps; the truck's point velocity taken to ramp axes):
+   - distances `dx = |(w.x <= 0 ? -a : a) - P.x|`, `dy = |top - P.y|`, `dz = |(w.z <= 0 ? -b : b) - P.z|`;
+   - times `tx = dx / w.x` (100 when 0), `ty = dy / w.y` (10^6 when 0), `tz = dz / w.z` (100 when 0);
+   - when `|ty| <= |tx|`: the z face if `|tz| < |ty|` and `tz > 0`, else nothing (the slope is
+     left to the height query); otherwise, when `|tz| <= |tx|`: the z face if `tz > 0`, else
+     nothing; otherwise the x face if `tx` is not 0. So only the sides and the front end (`+z`,
+     the tall end, met while moving toward `-z` relative to the ramp) push; the back edge (height
+     0) never does.
+   - The push is `|t| w + 0.2 n` (`n` the face normal, `sign(t)` along its axis), in ramp axes,
+     added to the truck's position (world).
+   - The force law (`0x48c8a0`, 14.20) runs with whatever effective mass the last pair left
+     (`0x6f1bf0`), but the ramp case of the pair dispatcher applies no pair forces: the walls
+     only move the truck.
+3. **The edges** (`0x4b17c0`): with the corners `c0..c5` in world space, the edges
+   `c0 c2`, `c1 c3` (the front's vertical edges), `c2 c4`, `c3 c5` (the slope's sides) and `c2 c3`
+   (the top of the front), each one whose line passes within the truck's radius of its centre,
+   go to the edge system (below, shared with top-crush cars) with its ends in the truck's axes.
 
 ### 14.20 Truck against truck: hull points (`0x4894a0`, `0x48c010`, `0x48eb70`, `0x48c3d0`, `0x48c8a0`)
 
