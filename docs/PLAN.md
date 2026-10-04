@@ -173,8 +173,6 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
 **Pending** (traced in part, written up as open in the physics doc):
 - Ramp side walls (`0x4b2580`: the wheel test `0x4aa110` is read, its response `0x4b3540` and the edge test `0x4b17c0` are not). The edge test uses the edge-against-hull-box system (`0x494fb0`, `0x49b190` and its helpers) that top-crush cars use too, so both come together.
 - Top-crush cars (section 7.6), on that same edge system; after M7 as planned.
-- Wheels against wheels for truck pairs (`0x491950` -> `0x490790` -> `0x48b5d0` -> `0x491e20`); hull points already keep racing trucks apart.
-- Truck against truck in the drive session (it is in OpenPhotex; the session has one truck until the AI trucks).
 
 - Broadphase, separating-axis tests, truck against box (immovable = ground, pushable = inelastic, wheel sweep), ground boxes, ramps, truck against truck, moving objects (type 10), free boxes.
 - Top-crush and box-against-box may first act as immovable ground and get completed after M7.

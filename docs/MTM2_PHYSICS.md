@@ -1346,6 +1346,45 @@ bottom):
   overwrites the pair's forces and only the last one is applied, once, to both trucks'
   accumulators (the code swaps them round so that each truck gets its own).
 
+**Wheels against wheels** (`0x491950`, after each pass). `A` is the pass's box truck (pass 1
+the faster, pass 2 the slower) and `B` the other. Each tire has its hub `c` (body, 14.2), radius
+`r` (`+0x6c`), width `w` (`+0x74`) and bounding radius `rho = sqrt((w/2)^2 + r^2)` (`+0x70`,
+`0x4bd370`); its axle's half axis is `h = (w/2)(cos d cos a, cos d sin a, sin d)` with `a` the
+axle's articulation (`+0x22c`, `+0x230`, 14.2) and `d` its steer angle (`+0x24c`: the front
+steer, or the rear counter-steer). For each wheel `Bw` of `B` within `rho_Bw + R_A` (the truck
+radius) of `A`'s centre, each wheel `Aw` of `A` in the order FR, FL, RR, RL:
+
+1. **Pretest** (`0x490790`): the hubs (world) closer than `rho_Aw + rho_Bw`.
+2. **B's rim point**, in B's axes: `q = M_B^T (hub_Aw - hub_Bw)` (world hubs), `D_B = unit(h_B)`,
+   `t = D_B . q`; the face centre `E = c_Bw - h_B` when `t <= 0`, else `c_Bw + h_B`; the rim
+   point `R_B = E + r_Bw unit(q - t D_B)` (a zero vector unit is `(0, 1, 0)`). In A's axes,
+   `R_A = M_A^T (pos_B + M_B R_B - pos_A)`.
+3. **Inside A's wheel** (`0x48b5d0`): A's axis runs from the inner face outward: for a left
+   wheel (anchor x below 1, as an integer test of the float) from `c_Aw + h_A` along `-h_A`, for a
+   right wheel from `c_Aw - h_A` along `+h_A`; `D = unit(axis)`. The point is inside when its
+   distance from the axis line is at most `r_Aw` and `sqrt(|R_A - c_Aw|^2 - dist^2) <= w_Aw / 2`.
+4. **The response** (`0x491e20`), in A's axes, with `v = v_B(R_B) - v_A(R_A)` (point velocities,
+   B's taken to A's axes), the lighter truck's mass `m` (as 14.20), `n = unit(-v)`:
+   - axial: `k = D . (R_A - c_Aw)`, depth `d_a = max(0, w_Aw / 2 - k)`; `rad = (R_A - c_Aw) - k D`;
+   - `E_A` = B's face centre in A's axes; `cos = |unit(R_A - E_A) . unit(rad)|` (values below
+     1/128 are negated rather than made absolute);
+   - `e = (E_A - c_Aw) - D (D . (E_A - c_Aw))`, `l = |e|`; `p = -v - D (D . -v)` (the motion
+     across the axis); `delta` the distance from A's axis to the line through `e` and `rad - p`
+     (999999 when the two coincide);
+   - radial depth: `lam = sqrt(l^2 - delta^2)`, `mu = sqrt((r_Bw cos + r_Aw)^2 - delta^2)` (each
+     0 when negative); `d_r = mu - lam` when `n . unit(e) >= 0`, else `lam + mu`;
+   - times `t_a = d_a / (-v).x` and `t_r = d_r / (-v).z` (100 when the component is 0; the code
+     divides by those two components, not by the speeds along the normals);
+   - when `|t_r| <= |t_a|` (and `t_r` not 0) the contact is **radial**: depth `d_r`, normal
+     `N = unit(p)`; otherwise (`t_a` not 0) **axial**: depth `d_a`, `N = D`.
+   - The faster truck moves out by `M_A N (depth + 0.05)` (B by `+`, when A is the slower; else
+     A by `-`).
+   - `F = |(v / 2) . N| / dt * m` and `f = F N`. A radial contact adds the tyres' climb: with
+     `G = s / dt * m * 0.05`, `s` = 1/128, replaced by `r_Aw spin_Aw` when `Aw` is on the ground,
+     plus `r_Bw spin_Bw` when `Bw` is (spin is tire `+0xb8`, `v_fwd / r`), `f += (0, -G N.z, G N.y)`.
+   - A gets `-f` at `R_A`, B gets `+f` (to its axes) at `R_B`, in the same last-contact record as
+     the hull points.
+
 The pair also posts crash sounds and damage (`0x532140`, `0x429cb0`, `0x424060`), not physics.
 
 **Wheels against wheels** (`0x491950`): when two wheels' bounding spheres overlap, `0x490790`

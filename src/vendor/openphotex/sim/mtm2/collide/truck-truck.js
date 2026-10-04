@@ -1,9 +1,9 @@
 /*
   A truck against a truck (MTM2_PHYSICS.md §7.4, §14.20): each truck's hull points against the
   other's hull box, the faster truck pushed out along the axis the relative motion leaves by
-  soonest, and the inelastic force law with the lighter truck's mass. As for boxes, each contact
-  replaces the pair's forces and only the last one is applied. The wheels against each other
-  (§14.20, `0x491950`) are not in yet.
+  soonest, and the inelastic force law with the lighter truck's mass; after each pass, the
+  wheels against the wheels (a rim point of one tire against the other's cylinder). As for
+  boxes, each contact replaces the pair's forces and only the last one is applied.
 */
 import { INV_G } from "../constants.js";
 import { truckWeight } from "../truck/dynamics.js";
@@ -43,7 +43,9 @@ export function collideTrucks(a, b, dt) {
     const mEff = Math.min(truckWeight(a.p), truckWeight(b.p)) * INV_G;
     const out = { a: null, b: null };
     pass(fast, slow, slow, mEff, dt, a, out);
+    wheels(fast, slow, slow, mEff, dt, a, out);
     pass(slow, fast, slow, mEff, dt, a, out);
+    wheels(slow, fast, slow, mEff, dt, a, out);
     for (const [t, f] of [[a, out.a], [b, out.b]]) {
         if (!f)
             continue;
@@ -128,5 +130,141 @@ function respond(O, T, slow, P, r, hull, mEff, dt, first, out) {
     else {
         out.a = forT;
         out.b = forO;
+    }
+}
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const scale = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const len = (a) => Math.hypot(a[0], a[1], a[2]);
+/** The game's unit vector: (0, 1, 0) for a zero one. */
+const unit = (a) => { const l = len(a); return l === 0 ? [0, 1, 0] : [a[0] / l, a[1] / l, a[2] / l]; };
+/** A tire's half axis in body axes (§14.20): `(w/2)(cos d cos a, cos d sin a, sin d)`. */
+function halfAxis(t, wheel) {
+    const front = wheel < 2;
+    const a = t.s.axles[front ? 0 : 1].articulation;
+    const d = front ? t.s.controls.steer : t.s.controls.rearSteer;
+    const k = t.p.tireWidthFt * 0.5;
+    return [Math.cos(a) * Math.cos(d) * k, Math.sin(a) * Math.cos(d) * k, Math.sin(d) * k];
+}
+/** The wheels of `B` against the wheels of `A` (`0x491950`, §14.20). */
+function wheels(A, B, slow, mEff, dt, first, out) {
+    const rho = (t) => Math.hypot(t.p.tireWidthFt * 0.5, t.p.tireRadiusFt);
+    const RA = truckRadius(A.p);
+    const hubWorld = (t, k) => add(t.s.pos, toWorld(t.s.matrix, ...t.s.tires[k].hub));
+    for (const bw of [0, 1, 2, 3]) {
+        if (!(len(sub(hubWorld(B, bw), A.s.pos)) < rho(B) + RA))
+            continue;
+        for (const aw of [0, 1, 2, 3])
+            wheelPair(A, aw, B, bw, slow, mEff, dt, first, out, hubWorld, rho);
+    }
+}
+function wheelPair(A, aw, B, bw, slow, mEff, dt, first, out, hubWorld, rho) {
+    const mA = A.s.matrix, mB = B.s.matrix;
+    const hA = hubWorld(A, aw), hB = hubWorld(B, bw);
+    if (!(len(sub(hA, hB)) < rho(A) + rho(B)))
+        return;
+    // B's rim point nearest A's hub, in B's axes, then A's.
+    const cB = B.s.tires[bw].hub, axB = halfAxis(B, bw);
+    const DB = unit(scale(axB, 2));
+    const q = toBody(mB, ...sub(hA, hB));
+    const t = dot(DB, q);
+    const E = t <= 0 ? sub(cB, axB) : add(cB, axB);
+    const RB = add(E, scale(unit(sub(q, scale(DB, t))), B.p.tireRadiusFt));
+    const RA = toBody(mA, ...sub(add(B.s.pos, toWorld(mB, ...RB)), A.s.pos));
+    // Inside A's wheel: the axis from the inner face outward.
+    const cA = A.s.tires[aw].hub, axA = halfAxis(A, aw);
+    const left = A.p.hubs[aw][0] < 1;
+    const S = left ? add(cA, axA) : sub(cA, axA);
+    const axis = left ? scale(axA, -2) : scale(axA, 2);
+    const al = len(axis);
+    const dist = al === 0 ? 999999 : len(cross(sub(RA, S), axis)) / al;
+    if (!(dist <= A.p.tireRadiusFt))
+        return;
+    const rel = sub(RA, cA);
+    if (!(Math.sqrt(Math.max(0, dot(rel, rel) - dist * dist)) <= A.p.tireWidthFt * 0.5))
+        return;
+    respondWheels(A, aw, B, bw, slow, mEff, dt, first, out, RA, RB, E, unit(axis));
+}
+/** The wheel contact's response (`0x491e20`, §14.20), in A's axes. */
+function respondWheels(A, aw, B, bw, slow, mEff, dt, first, out, RA, RB, EB, D) {
+    const mA = A.s.matrix, mB = B.s.matrix;
+    const vBw = toWorld(mB, ...pointVelocity(B.s, RB));
+    const v = sub(toBody(mA, ...vBw), pointVelocity(A.s, RA));
+    const nv = scale(v, -1);
+    const n = unit(nv);
+    const cA = A.s.tires[aw].hub;
+    const rA = A.p.tireRadiusFt, rB = B.p.tireRadiusFt;
+    const off = sub(RA, cA);
+    const k = dot(D, off);
+    const da = Math.max(0, A.p.tireWidthFt * 0.5 - k);
+    const rad = sub(off, scale(D, k));
+    const u = unit(rad);
+    const EA = toBody(mA, ...sub(add(B.s.pos, toWorld(mB, ...EB)), A.s.pos));
+    const w = unit(sub(RA, EA));
+    let cosT = dot(w, u);
+    if (cosT < 1 / 128)
+        cosT = -cosT;
+    const ec = sub(EA, cA);
+    const e = sub(ec, scale(D, dot(D, ec)));
+    const l = len(e);
+    const p = sub(nv, scale(D, dot(D, nv)));
+    // The distance from A's axis to the line through e and rad - p.
+    const c1 = sub(sub(rad, p), e);
+    const c1l = len(c1);
+    const delta = c1l === 0 ? 999999 : len(cross(scale(e, -1), c1)) / c1l;
+    const lam = Math.sqrt(Math.max(0, l * l - delta * delta));
+    const L = rB * cosT + rA;
+    const mu = Math.sqrt(Math.max(0, L * L - delta * delta));
+    const dr = dot(n, unit(e)) >= 0 ? mu - lam : lam + mu;
+    const ta = nv[0] === 0 ? 100 : da / nv[0];
+    const tr = nv[2] === 0 ? 100 : dr / nv[2];
+    let depth, N, radial = false;
+    if (Math.abs(tr) <= Math.abs(ta)) {
+        if (tr === 0)
+            return;
+        depth = dr;
+        N = unit(p);
+        radial = true;
+    }
+    else {
+        if (ta === 0)
+            return;
+        depth = da;
+        N = D;
+    }
+    // The faster truck moves out.
+    const push = toWorld(mA, ...scale(N, depth + 0.05));
+    if (A === slow)
+        for (let i = 0; i < 3; i++)
+            B.s.pos[i] += push[i];
+    else
+        for (let i = 0; i < 3; i++)
+            A.s.pos[i] -= push[i];
+    const F = (Math.abs(dot(scale(v, 0.5), N)) / dt) * mEff;
+    const f = scale(N, F);
+    if (radial) {
+        // Spinning tyres climb.
+        let sp = 1 / 128;
+        const ta_ = A.s.tires[aw], tb = B.s.tires[bw];
+        if (ta_.onGround)
+            sp = rA * ta_.spin;
+        if (tb.onGround)
+            sp += rB * tb.spin;
+        const G = (sp / dt) * mEff * 0.05;
+        f[1] += -G * N[2];
+        f[2] += G * N[1];
+    }
+    const fA = scale(f, -1);
+    const fw = toWorld(mA, ...f);
+    const fB = toBody(mB, ...fw);
+    const forA = { f: fA, m: cross(RA, fA) }, forB = { f: fB, m: cross(RB, fB) };
+    if (A === first) {
+        out.a = forA;
+        out.b = forB;
+    }
+    else {
+        out.a = forB;
+        out.b = forA;
     }
 }
