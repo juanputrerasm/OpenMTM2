@@ -8,6 +8,7 @@
 
   Each cell has its own four vertices so it can carry its own texture tile. The tile comes
   from the cell's .CLR word: bits 0-11 the texture slot, 12-13 mirror, 14-15 quarter turns.
+  `footprint`, when given, limits the drawn cells to a stadium's footprint (MONSTER.EXE 0x4f9ff0).
   Shading comes from the .LTE, whose first byte per grid point is the baked ground brightness
   (classic look); smooth normals are provided for the lit look.
 
@@ -83,7 +84,7 @@ export function buildTerrainAtlas(decoded) {
  * The terrain mesh. `heights` is the level .RAW, `clr` its 16-bit colour grid, `lte` the
  * lighting map or null, `atlas` from buildTerrainAtlas.
  */
-export function buildTerrainMesh({ heights, clr, lte, atlas }) {
+export function buildTerrainMesh({ heights, clr, lte, atlas, footprint = null }) {
   const cells = GRID * GRID;
   const positions = new Float32Array(cells * 4 * 3);
   const normals = new Float32Array(cells * 4 * 3);
@@ -135,6 +136,12 @@ export function buildTerrainMesh({ heights, clr, lte, atlas }) {
       }
 
       const i = cell * 6;
+      const f = footprint;
+      if (f && (col < f.col0 || col >= f.col1 || row < f.row0 || row >= f.row1)) {
+        // Outside a stadium's footprint: the vertices stay, the triangles collapse.
+        indices.fill(v, i, i + 6);
+        continue;
+      }
       if (mtm2Sim.cellSplitsMainDiagonal(row, col)) {
         indices[i] = v; indices[i + 1] = v + 1; indices[i + 2] = v + 2;
         indices[i + 3] = v; indices[i + 4] = v + 2; indices[i + 5] = v + 3;

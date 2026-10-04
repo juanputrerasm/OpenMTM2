@@ -136,3 +136,25 @@ test("ground boxes: only exposed faces, sides start at the terrain", async () =>
   assert.equal(mesh.indices.length, 8 * 6);
   assert.ok(Math.max(...mesh.indices) < 8 * 4);
 });
+
+test("stadium levels draw only the footprint's cells, ground boxes included", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const { buildTrackRender } = await import("../src/worker/track-build.js");
+  const build = await buildTrackRender(stockVfs(), "WORLD\\SUMMIT1.SIT");
+  // Arena Rumble: stadium at cell (120, 100), 14 x 14 cells.
+  assert.deepEqual(build.stadium, { col0: 113, col1: 127, row0: 93, row1: 107 });
+  let drawn = 0;
+  for (let c = 0; c < 65536; c++) if (build.terrain.indices[c * 6] !== build.terrain.indices[c * 6 + 1]) drawn++;
+  assert.equal(drawn, 14 * 14);
+  // The barrier ring around the floor (cells 112/127 and 92/107) is not drawn.
+  for (let i = 0; i < build.groundBoxes.positions.length; i += 3) {
+    const col = Math.floor(build.groundBoxes.positions[i] / 32 - 1e-6), row = Math.floor(-build.groundBoxes.positions[i + 2] / 32 - 1e-6);
+    assert.ok(col >= 112 && col <= 126 && row >= 92 && row <= 106, `${col}, ${row}`);
+  }
+  assert.ok(build.groundBoxes.count < 76);
+});
+
+test("water levels are the LVL value in half feet", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const { loadLevel } = await import("../src/worker/level-load.js");
+  const level = await loadLevel(stockVfs(), "WORLD\\ALASKA.SIT");
+  assert.equal(level.waterLevelFt, 67.5);
+});

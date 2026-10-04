@@ -41,8 +41,15 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
 
   const sources = await Promise.all(level.textureNames.map((n) => loadTextureSource(vfs, n, level.palette)));
   const atlas = buildTerrainAtlas(decodeTerrainTextures(sources));
-  const mesh = buildTerrainMesh({ heights: level.heights, clr: level.clr, lte: level.lte, atlas });
-  const groundBoxes = buildGroundBoxMesh(level.groundBoxes, atlas, level.lte, level.heights);
+  // In a stadium the game draws only the cells inside its footprint (MONSTER.EXE 0x4f9ff0):
+  // [x - sx/2, x + sx/2) by [z - sz/2, z + sz/2).
+  const arena = sit.arena?.modelName ? sit.arena : null;
+  const cells = arena ? {
+    col0: arena.x - Math.trunc(arena.sx / 2), col1: arena.x + Math.trunc(arena.sx / 2),
+    row0: arena.y - Math.trunc(arena.sy / 2), row1: arena.y + Math.trunc(arena.sy / 2),
+  } : null;
+  const mesh = buildTerrainMesh({ heights: level.heights, clr: level.clr, lte: level.lte, atlas, footprint: cells });
+  const groundBoxes = buildGroundBoxMesh(level.groundBoxes, atlas, level.lte, level.heights, cells);
 
   // Models, once each.
   const models = {};
@@ -67,7 +74,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     const bytes = await vfs.read(`MODELS\\${name}`);
     models[name] = bytes ? decodeModel(bytes, name) : null;
     if (models[name]) {
-      const terrain = mtm2Sim.createTerrain(level.heights, level.waterSteps ? level.waterSteps * 2 : null);
+      const terrain = mtm2Sim.createTerrain(level.heights, level.waterLevelFt);
       const xFt = sit.arena.x * 32, zFt = sit.arena.y * 32;
       const y = mtm2Sim.groundHeightAt(terrain, xFt - sit.arena.sx * 16, zFt - sit.arena.sy * 16);
       objects.push({ model: name, type: "stadium", matrix: toSceneMatrix([1, 0, 0, 0, 1, 0, 0, 0, 1], [xFt, y, zFt]) });
@@ -113,7 +120,9 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     groundBoxes,
     // A copy: a VFS read may be a view into a whole archive, which must not be transferred.
     heights: level.heights.slice(),
-    waterLevelFt: level.waterSteps ? level.waterSteps * 2 : null,
+    waterLevelFt: level.waterLevelFt,
+    /** A stadium level: no sky, no wrap, only the stadium's cells drawn. */
+    stadium: cells,
     /** The LVL's sun direction (16.16, game frame), or null. */
     sunVector: level.lvl.sunVector,
     models,

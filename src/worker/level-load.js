@@ -74,8 +74,8 @@ export async function loadLevel(vfs, sitPath) {
     palette,
     groundBoxes,
     sky,
-    /** The LVL's water height in 2 ft steps, or null for none. */
-    waterSteps: lvl.waterHeight || null,
+    /** The water level in feet (the LVL's `!waterHeight` is in half feet), or null for none. */
+    waterLevelFt: lvl.waterHeight ? lvl.waterHeight / 2 : null,
   };
 }
 

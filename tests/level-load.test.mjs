@@ -30,7 +30,7 @@ test("every stock track loads: heightfield, colour grid, textures, types, palett
 
 test("TPARK: no water, ground boxes present, sky named", { skip: skipWithoutStock("POD.INI") }, async () => {
   const level = await loadLevel(stockVfs(), "WORLD\\TPARK.SIT");
-  assert.equal(level.waterSteps, null);
+  assert.equal(level.waterLevelFt, null);
   assert.equal(level.groundBoxes.ra0?.length, 65536);
   assert.equal(level.sky.name, "CLOUDY2.RAW");
   assert.equal(level.lte?.length, 458752);

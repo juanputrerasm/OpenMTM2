@@ -117,10 +117,12 @@ The tire-cut factor table (MONSTER_EXE_ANALYSIS.md section 8.6) multiplies mu pe
 
 ### 2.4 Water
 
-- The water level comes from the LVL `!waterHeight`, in 2 ft steps (`0x5032e0`; 0 = no water,
-  and the level then stays 0). Height units are 1/64 ft (`step << 7`).
+- The water level comes from the LVL `!waterHeight`, in **half feet** (`0x5032e0` stores
+  `value << 7`; 0 = no water, and the level then stays 0). Height units are 1/256 ft, the same as
+  positions: the terrain grid keeps `RAW byte << 7` and the height query returns it times 4, so
+  a 2 ft step is 512 units.
 - **The water bobs** during a race (`0x505740`, while the race loop runs and the weather is not
-  Snow): `level = base + trunc(trunc(sin(phase) / 256) / 4)` units, i.e. +-1 ft, with
+  Snow): `level = base + trunc(trunc(sin(phase) / 256) / 4)` units, i.e. +-0.25 ft, with
   `phase += dt / 8` (16.16, wrapped to 16 bits): one cycle every 8 s. `sin` is the game's table
   `trunc(sin(i * 2 pi / 256) * 65536)`, i = 0..256 (`0x526440`), interpolated on the phase's
   low byte (`0x5264c0`). In Snow the level stays at the base.
@@ -797,6 +799,8 @@ Then the clamp: if `F_drive + D > 0.8 grip`, `F_drive -= (F_drive + D - 0.8 grip
 Above Rookie the grip left for the lateral force is `sqrt(grip^2 - F^2)`.
 
 ### 14.5 Lateral force (`0x47eb30`)
+
+Only for a tire on the ground: an airborne tire returns at once with no force (`0x47f2ff`).
 
     alpha = atan2(v_lat, v_fwd) when |v_fwd| > 10, else atan2(v_lat, +-10) with the sign of
             v_fwd (0 or pi when v_lat = 0)

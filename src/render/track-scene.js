@@ -10,6 +10,7 @@
   - "enhanced": the same art, lit by the level's sun with smooth normals and filtered textures.
 */
 import * as THREE from "three";
+import { WORLD_FT } from "../shared/scene-frame.js";
 
 function dataTexture({ rgba, width, height }, look, repeat = false) {
   const texture = new THREE.DataTexture(rgba, width, height, THREE.RGBAFormat);
@@ -133,7 +134,8 @@ export function placeObjects(library, objects) {
 export function createSky(sky, look) {
   if (!sky) return null;
   const map = dataTexture(sky, look, true);
-  map.repeat.set(4, 2);
+  // Rows are stored top first and the dome's v runs upward, so the texture is flipped in v.
+  map.repeat.set(4, -2);
   const geometry = new THREE.SphereGeometry(6000, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
   const material = new THREE.MeshBasicMaterial({ map, side: THREE.BackSide, fog: false, depthWrite: false });
   const dome = new THREE.Mesh(geometry, material);
@@ -196,15 +198,29 @@ export function createTruck(truck, look) {
 /** Everything static in a track: terrain, ground boxes, objects, water and sky. */
 export function createTrackWorld(build, look) {
   const world = new THREE.Group();
+  const tile = new THREE.Group();
+  tile.name = "tile";
   const atlas = createTerrainAtlas(build.terrain.atlas, look);
-  world.add(createTerrain(build.terrain, look, atlas));
+  tile.add(createTerrain(build.terrain, look, atlas));
   const boxes = createGroundBoxes(build.groundBoxes, atlas, look);
-  if (boxes) world.add(boxes);
-  world.add(placeObjects(createModelLibrary(build.models, build.modelTextures, look), build.objects));
+  if (boxes) tile.add(boxes);
+  tile.add(placeObjects(createModelLibrary(build.models, build.modelTextures, look), build.objects));
   const water = createWater(build.waterLevelFt);
-  if (water) world.add(water);
-  const sky = createSky(build.sky, look);
-  if (sky) world.add(sky);
+  if (water) tile.add(water);
+  world.add(tile);
+  if (!build.stadium) {
+    // The world wraps at 8192 ft: draw the eight neighbouring copies, which share every geometry,
+    // material and texture with the original.
+    for (const dx of [-1, 0, 1]) for (const dz of [-1, 0, 1]) {
+      if (!dx && !dz) continue;
+      const copy = tile.clone();
+      copy.position.set(dx * WORLD_FT, 0, dz * WORLD_FT);
+      world.add(copy);
+    }
+    // A stadium replaces the sky (MONSTER.EXE draws it instead).
+    const sky = createSky(build.sky, look);
+    if (sky) world.add(sky);
+  }
   return world;
 }
 
