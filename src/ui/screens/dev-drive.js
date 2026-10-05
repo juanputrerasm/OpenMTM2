@@ -72,7 +72,7 @@ export default async function mount(container, context, { track, truckFile }) {
   scene.add(truckObject.object);
   status.textContent = `${build.trackName}: ${truck.name}. Arrows or a gamepad drive, Q / Z shift, H helicopter, C camera, R restart.`;
 
-  const keys = createKeyboardInput(window);
+  const keys = createKeyboardInput(window, context.settings.bindings);
   const pad = createGamepadInput();
   // A held drive key wins over a connected pad, so both can be used (the game picks one in setup).
   const sampleInput = () => {

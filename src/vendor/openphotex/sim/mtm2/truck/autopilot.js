@@ -8,7 +8,7 @@
   reversed course is not in yet.
 */
 import { ENGINE, G, INV_G } from "../constants.js";
-import { isArc } from "../world/course.js";
+import { isArc, nextSegmentIndex, orientedCourse } from "../world/course.js";
 import { gearRatio } from "./drivetrain.js";
 import { truckWeight } from "./dynamics.js";
 import { applyTraffic } from "./traffic.js";
@@ -78,7 +78,7 @@ export function segmentEta(s, p, seg, height) {
  * the new segment's end is set too (§14.24).
  */
 export function advanceAutopilotSegment(s, ctx, p) {
-    const { course } = ctx;
+    const course = orientedCourse(ctx.course, ctx.reversed);
     if (course.length === 0)
         return false;
     const seg = course[s.ap.segment];
@@ -97,7 +97,7 @@ export function advanceAutopilotSegment(s, ctx, p) {
         }
     }
     else {
-        const next = course[(s.ap.segment + 1) % course.length];
+        const next = course[nextSegmentIndex(course, s.ap.segment, ctx.reversed) % course.length];
         const N = isArc(next) ? next.centre : next.start;
         distance = distanceToEndLine(seg, N, x, z);
     }
@@ -105,7 +105,7 @@ export function advanceAutopilotSegment(s, ctx, p) {
         return false;
     s.ap.integral = 0;
     s.ap.segmentsPassed++;
-    s.ap.segment = seg.lastEntry ? 0 : s.ap.segment + 1;
+    s.ap.segment = nextSegmentIndex(ctx.course, s.ap.segment, ctx.reversed);
     const entered = course[s.ap.segment];
     if (!isArc(entered)) {
         let bonus = 0;
@@ -176,7 +176,8 @@ function toWorld(m, x, y, z) {
  * into `s.controls`. Run at the start of the step, before `stepTruck`.
  */
 export function applyAutopilot(s, p, ctx) {
-    const { course, dt } = ctx;
+    const { dt } = ctx;
+    const course = orientedCourse(ctx.course, ctx.reversed);
     const fdt = ctx.frameDt ?? AUTOPILOT_FRAME_DT;
     if (course.length === 0)
         return;

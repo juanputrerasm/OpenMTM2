@@ -6,6 +6,7 @@
   turns each SIT box into a scene transform. Pure apart from the VFS reads; the result is
   plain data with typed arrays, listed by `transferablesOf` for postMessage.
 */
+import { weatherSkyStem } from "../game/weather.js";
 import { decodeActPalette, decodeRawTexture, mtm2Sim, podPathTitle, rawTextureSide } from "../vendor/openphotex/index.js";
 import { toSceneMatrix } from "../shared/scene-frame.js";
 import { loadLevel, loadTextureSource } from "./level-load.js";
@@ -35,7 +36,7 @@ export function boxIsDrawn(box, { levelType, raceType, detailLevel }) {
  * @param {string} sitPath
  * @param {{ detailLevel?: number, raceType?: string, truckFiles?: string[] }} [options] `truckFiles`: more trucks to build models for
  */
-export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType = "circuit", truckFiles = [] } = {}) {
+export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType = "circuit", truckFiles = [], weather = 0 } = {}) {
   const level = await loadLevel(vfs, sitPath);
   const { sit } = level;
 
@@ -82,7 +83,16 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       positionFt: box.positionFt, theta: box.theta, phi: box.phi, psi: box.psi, sizeFt: box.sizeFt,
       mass: box.mass, type: box.type, priority: box.priority ?? 0, bounds: name ? boundsOf[name] : null, sitIndex,
       bvel: box.type === 10 && box.bvel ? [...box.bvel] : null,
+      hitSound: box.hitSound ?? null, modelName: name,
     });
+  }
+
+  // Objects that make a sound of their own (SIT "@sound effect entries", second name): a train's
+  // rumble, a crossing's bell, a stand's crowd. Moving ones carry on from the poses the sim sends.
+  const soundObjects = [];
+  for (const [sitIndex, box] of sit.boxes.entries()) {
+    if (!box.loopSound || !box.positionFt) continue;
+    soundObjects.push({ sitIndex, positionFt: box.positionFt, sound: box.loopSound, moving: box.type === 10, model: box.modelName ? podPathTitle(box.modelName) : "" });
   }
 
   // Checkpoint models, for their extents (they are not collision boxes).
@@ -138,7 +148,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     } catch { /* an undecodable texture draws as the mesh colour */ }
   }
 
-  const sky = await loadSky(vfs, level);
+  const sky = await loadSky(vfs, level, weather);
 
   // The SIT's start grid, as a preview of where the trucks stand.
   const truckModels = {};
@@ -158,6 +168,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   const course = sit.primaryCourse?.segments ?? [];
   return {
     title: level.title,
+    /** The level's music file in MUSIC.POD (the LVL names it), e.g. "farm.wav"; null when it names none. */
+    musicName: level.lvl.musicName ?? null,
     trackName: sit.trackName,
     terrain: { ...mesh, atlas: { rgba: atlas.rgba, width: atlas.width, height: atlas.height } },
     groundBoxes,
@@ -169,6 +181,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     /** The LVL's sun direction (16.16, game frame), or null. */
     sunVector: level.lvl.sunVector,
     models,
+    soundObjects,
     modelTextures,
     objects,
     truckModels,
@@ -213,9 +226,12 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   };
 }
 
-/** Sky art by weather (MONSTER.EXE 0x42b430); other weathers use the level's own sky. */
-const WEATHER_SKIES = { 4: "CCLOUDS", 6: "DUSKSKY", 7: "NITESKY" };
 const OLD_MTM_SKY = "CLOUDY2";
+
+/** Just a track's sky for a weather, when the weather changes in a race (GOLD mode). */
+export async function buildSky(vfs, sitPath, weather) {
+  return loadSky(vfs, await loadLevel(vfs, sitPath), weather);
+}
 
 /**
  * The sky texture as the game draws it: the level's sky (or the weather's), its 16 colours
@@ -226,7 +242,7 @@ const OLD_MTM_SKY = "CLOUDY2";
 export async function loadSky(vfs, level, weather = 0) {
   let stem = level.sky ? level.sky.name.replace(/\.RAW$/, "") : null;
   if (level.lvl.levelType === OLD_MTM_LEVEL) stem = OLD_MTM_SKY;
-  if (WEATHER_SKIES[weather]) stem = WEATHER_SKIES[weather];
+  stem = weatherSkyStem(weather, stem);
   if (!stem || !level.palette) return null;
   let raw = await vfs.read(`ART\\${stem}.RAW`);
   let act = await vfs.read(`ART\\${stem}.ACT`);

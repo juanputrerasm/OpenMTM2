@@ -37,3 +37,14 @@ test("Router shows screens, unmounts the previous one and goes back", async () =
   ]);
   await assert.rejects(router.go("missing"), /Unknown screen/);
 });
+
+test("Router: a screen that replaces itself is never a back target (a race ended early)", async () => {
+  const shown = [];
+  const screen = (name) => async () => ({ default: () => { shown.push(name); } });
+  const router = new Router({ replaceChildren() {} }, {}, { select: screen("select"), race: screen("race"), select2: screen("select2") });
+  await router.go("select");
+  await router.go("race");
+  await router.go("select2", {}, { replace: true });
+  await router.back();
+  assert.equal(shown.at(-1), "select");
+});

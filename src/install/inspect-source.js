@@ -6,6 +6,20 @@ import { parsePodIni, installPathKey } from "./pod-ini.js";
 import { inspectExe, classifyExe } from "./validate-exe.js";
 
 /**
+ * An archive POD.INI lists. Installs differ in how the list is written (a drive letter, a
+ * folder that is not the picked one), so when the path as written is missing the same file
+ * name is looked for in the picked folder and its SYSTEM folder.
+ */
+export async function findArchive(source, path) {
+  const base = String(path).replace(/\\/g, "/").split("/").pop();
+  for (const candidate of [path, base, `SYSTEM/${base}`]) {
+    const file = await source.getFile(candidate);
+    if (file) return { path: candidate, file };
+  }
+  return null;
+}
+
+/**
  * @param {{ getFile(path: string): Promise<File|null> }} source
  * @returns {Promise<{ ok: boolean, message: string, build?: string, exe?: object,
  *   podIni?: string, files?: { name: string, file: File }[], missing?: string[],
@@ -20,18 +34,20 @@ export async function inspectSource(source) {
   const verdict = classifyExe(exe);
   if (!verdict.supported) return { ok: false, message: verdict.message, build: verdict.build, exe };
 
-  const iniFile = await source.getFile("POD.INI");
+  // Names match without regard to case; some installs keep the file in SYSTEM.
+  const iniFile = (await source.getFile("POD.INI")) ?? (await source.getFile("SYSTEM/POD.INI"));
   if (!iniFile) return { ok: false, message: "This folder has no POD.INI, which lists the game's archives." };
-  const podIni = await iniFile.text();
-  const ini = parsePodIni(podIni);
+  const ini = parsePodIni(await iniFile.text());
 
   const files = [];
   const missing = [];
   for (const path of ini.paths) {
-    const file = await source.getFile(path);
-    if (file) files.push({ name: installPathKey(path), file });
+    const found = await findArchive(source, path);
+    if (found) files.push({ name: installPathKey(found.path), file: found.file });
     else missing.push(path);
   }
+  // The copy keeps the paths where the archives were found, so the mount matches them.
+  const podIni = `${files.length}\r\n${files.map((f) => f.name.toLowerCase()).join("\r\n")}\r\n`;
   if (files.length === 0) {
     return { ok: false, message: "None of the archives POD.INI lists are in this folder." };
   }
@@ -43,6 +59,7 @@ export async function inspectSource(source) {
       : `${verdict.message} Missing archives: ${missing.join(", ")}.`,
     build: verdict.build,
     exe,
+    exeFile,
     podIni,
     files,
     missing,

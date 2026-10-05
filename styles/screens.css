@@ -76,11 +76,46 @@ table.results tr.player td { color: var(--accent); font-weight: 600; }
 .race-loading { position: absolute; inset: 0; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
 .race-loading-art { max-width: 100%; max-height: 100%; width: auto; height: 100%; object-fit: contain; image-rendering: pixelated; }
 .race-loading-text { position: absolute; bottom: 16px; margin: 0; color: #fff; font: 600 16px/1.4 system-ui, sans-serif; text-shadow: 0 1px 2px #000; }
-.race-hud { position: absolute; left: 6px; min-width: 150px; padding: 2px 6px; color: #fff; background: rgba(0, 0, 0, 0.45); font: 600 15px/1.35 ui-monospace, monospace; }
-.race-hud-times { top: 4px; }
-.race-hud-place { top: 72px; }
-.race-hud-row { display: flex; justify-content: space-between; gap: 12px; }
-.race-message { position: absolute; left: 50%; top: 34%; transform: translateX(-50%); margin: 0; padding: 6px 14px; color: #fff; background: rgba(0, 0, 0, 0.55); font: 700 22px/1.3 system-ui, sans-serif; text-align: center; }
+.race-hud-stack { position: absolute; top: 4px; left: 6px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.race-hud { background: rgba(0, 0, 0, 0.35); color: #fff; font: 600 15px/1.35 ui-monospace, monospace; image-rendering: pixelated; }
+.race-message { position: absolute; left: 50%; top: 34%; transform: translateX(-50%); margin: 0; color: #fff; font: 700 22px/1.3 system-ui, sans-serif; text-align: center; image-rendering: pixelated; }
 .race-pause { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(0, 0, 0, 0.55); }
 .race-pause[hidden], .race-message[hidden], .race-loading[hidden] { display: none; }
 .race-pause-title { margin: 0; color: #fff; font: 800 36px/1 system-ui, sans-serif; text-transform: uppercase; }
+
+/* The classic skin (src/ui/frame.js): the game's 640 x 480 menu art, scaled to fit. */
+.stage-view { position: fixed; inset: 0; background: #000; overflow: hidden; display: grid; place-items: center; }
+.stage { position: relative; flex: none; width: 640px; height: 480px; transform: scale(var(--stage-scale, 1)); transform-origin: center; color: #fff; font-size: 13px; }
+.stage-backdrop { position: absolute; inset: 0; width: 640px; height: 480px; user-select: none; }
+.stage-panel { position: absolute; overflow: auto; padding: 6px 8px; background: rgba(0, 0, 0, 0.62); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 3px; }
+.stage-panel h2 { font-size: 15px; margin: 6px 0; color: #f2c14e; }
+.stage-panel p { margin: 4px 0; line-height: 1.3; }
+.stage-panel button { padding: 3px 10px; font-size: 13px; border-radius: 3px; }
+.stage-panel .pick-list { grid-template-columns: 1fr; gap: 2px; margin: 0 0 6px; }
+.stage-panel .pick-list .pick { padding: 2px 8px; }
+.stage-panel .form-row { gap: 8px; margin: 6px 0; }
+.stage-panel table.results { margin: 0; font-size: 12px; }
+.stage-panel table.results th, .stage-panel table.results td { padding: 2px 5px; }
+.stage-panel select, .stage-panel input { font-size: 13px; }
+.stage-hotspot { position: absolute; padding: 0; border: 0; border-radius: 16px; background: transparent; cursor: pointer; }
+.stage-hotspot:hover:not(:disabled) { background: rgba(255, 255, 255, 0.18); }
+.stage-hotspot:focus-visible { outline: 2px solid #f2c14e; }
+.stage-hotspot:disabled { cursor: default; }
+.garage-dot { position: absolute; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
+.garage-dot:hover { background: rgba(255, 255, 255, 0.15); }
+.garage-dot.on { box-shadow: 0 0 0 2px #f2c14e, 0 0 8px 2px rgba(242, 193, 78, 0.8); }
+.garage-slider { position: absolute; margin: 0; padding: 0; accent-color: #f2c14e; background: transparent; opacity: 0.9; }
+.garage-race { position: absolute; left: 16px; top: 296px; }
+.stage-panel .tabs { flex-direction: column; margin: 0; }
+.stage-panel .tabs button { width: 100%; }
+.stage-panel-first, .stage-panel-second { background: transparent; border: 0; font-size: 18px; font-weight: 700; text-shadow: 0 1px 3px #000; overflow: hidden; }
+.stage-panel .menu { flex-direction: column; align-items: stretch; }
+.stage-panel .menu { gap: 4px; }
+.stage-panel .menu button { padding: 2px 8px; }
+.stage-panel-menu > p { margin: 0 0 4px; }
+.gold-overlay { position: absolute; image-rendering: pixelated; background: rgba(0, 0, 0, 0.35); }
+.gold-overlay[hidden] { display: none; }
+.gold-fps { right: 6px; top: 4px; }
+.gold-z { right: 6px; top: 40px; }
+.commentary-line { position: absolute; left: 50%; bottom: 36px; transform: translateX(-50%); image-rendering: pixelated; background: rgba(0, 0, 0, 0.45); pointer-events: none; }
+.commentary-line[hidden] { display: none; }

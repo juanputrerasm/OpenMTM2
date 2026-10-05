@@ -202,9 +202,7 @@ function respondWheels(A, aw, B, bw, slow, mEff, dt, first, out, RA, RB, EB, D) 
     const u = unit(rad);
     const EA = toBody(mA, ...sub(add(B.s.pos, toWorld(mB, ...EB)), A.s.pos));
     const w = unit(sub(RA, EA));
-    let cosT = dot(w, u);
-    if (cosT < 1 / 128)
-        cosT = -cosT;
+    const cosT = Math.abs(dot(w, u));
     const ec = sub(EA, cA);
     const e = sub(ec, scale(D, dot(D, ec)));
     const l = len(e);
@@ -245,7 +243,7 @@ function respondWheels(A, aw, B, bw, slow, mEff, dt, first, out, RA, RB, EB, D) 
     const f = scale(N, F);
     if (radial) {
         // Spinning tyres climb.
-        let sp = 1 / 128;
+        let sp = 0;
         const ta_ = A.s.tires[aw], tb = B.s.tires[bw];
         if (ta_.onGround)
             sp = rA * ta_.spin;

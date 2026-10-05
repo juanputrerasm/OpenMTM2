@@ -439,6 +439,32 @@ one lap through checkpoints).
 - leaving the summit (state 1 or 2 last tick, 0 now) with the cooldown at zero: **-50 points**
   and a 2-second cooldown (0x20000) before it can happen again.
 
+Exactly (`0x41b330`, from the code):
+
+- **The zone and summit tests are axis-aligned point tests** on the truck's position, ignoring the
+  boxes' angles. The boxes are the **gates** (the first two type 6 boxes, section 6.2; not the
+  tripled detectors). A truck is inside a box when `|dx| < 0.5 * width`, `|dz| < 0.5 * length` and
+  `|dy| < 0.5 * height` (the constant at `0x6078b0` is the double 0.5; sizes are full extents).
+  State 2 when inside the zone box, else 1 when inside the summit box, else 0.
+- Order each tick: the previous states are kept; each truck's knock-off cooldown (16.16 fixed
+  point, 0x20000 = 2 s) counts down by the frame time, not below 0; the state is computed; the
+  knock-off test runs (state 0 now, not 0 last tick, cooldown 0: score -50 and the cooldown set
+  to 2 s); then a per-truck accumulator gains the frame time, and when it passes 1 s (0x10000)
+  it loses 1 s and the score gains 10 in state 2 or loses 1 in state 0 (the doubles at
+  `0x6078b8` and `0x6078c0` are 50 and 10). A score can go negative.
+- The sounds `buzzer3.wav` (knock-off), `buzz3.wav` (-1) and `shutter.wav` (+10) play for the
+  human driver only.
+- The round: when the countdown ends, `0x6407ac` is set to `laps * 60` seconds (laps being the
+  Rumble's minutes, default 5) and the race ends when it runs out. Every truck's course (the
+  SIT's 12-segment arena path) is followed by the CPU autopilot as in a Circuit, with its target
+  speed never below 17 ft/s outside drag races (`0x4805d0`); there are no laps or checkpoints
+  tests (section 6.2 is skipped in mode 4).
+- Nothing in the CPU code reads the zone or the summit (the globals holding their positions are
+  used only by scoring, the HUD and prop placement), so CPU trucks never aim for the summit: they
+  follow the course, and in the three stock Rumbles they stay outside the zone and only lose
+  points. The human player is the only one who scores.
+- Places are by score, highest first.
+
 The score is a float at truck `+0xf50`, sent in every network state packet in this mode. The
 loading screen (Title.c 0x4d5b5c) prints the same four rules: "+10 in scoring zone", "-50 per
 knock off", "-1 point off summit", "0 points outside zone".
@@ -912,11 +938,54 @@ stereo separation, `UseRedBook` and `UseModMusic`.
   (`IDLE2M1.KLP` = `1 86339 0`).
 - **Engine**: start, idle and rev loops (`STARTIDL`, `IDLE2M1`, `M1-2-M2`, `M2-2-M1`, `ACCEL3B`),
   gear change sounds (`2ndgear.wav`, `3rdgear.wav`).
+  **The engine routine** (`0x41e030`, every frame per truck) keeps three loops playing,
+  `startidl` (idle), `m1-2-m2` (mid) and `accel3b` (under throttle), each started at a random
+  point in its loop. With `rpm` (`+0x52c`), `throttle` (`+0x560`) and `n` the wheels off the
+  ground (4 minus the tires with their on-ground flag set):
+  - pitch: `f = (n * 0.02 + 1) * rpm / 3700`; the rate is `1 + 0.5 (f - 1)`, or for `f < 1`
+    the inverse of `1 + 0.5 (1/f - 1)`; clamped to 0.625..1.6; then `+ (2 u - 1) * 0.07` for a
+    random `u`; times the truck's own scale (`+0x94`). Mid plays at that rate, accel at 0.65 of
+    it, idle at the scale alone;
+  - idle weight: 1 below 1000 rpm, falling linearly to 0 at 3000. Through the last 1.5 s of the
+    countdown the running part (1 - idle weight) is held at 0 and ramps up to 1 at the start.
+    Idle's gain is the idle weight times 0.97 for the player's truck, 0.85 for the others;
+  - the other two share `(1 - idle weight) * k * (rpm * 5e-5 + throttle * 0.3 + 0.55)`; the accel
+    weight is `taper * throttle * 0.8 + (rpm - 5500) / 2750`, clamped to 0..1, with `taper` 1
+    below 2000 rpm, falling to 0.2 at 7000; mid gets `(1 - 0.95 w)` of the share and accel
+    `(0.2 + 0.8 w)`;
+  - the player's truck plays unpositioned, the others in 3D; with all four wheels off the ground
+    and no helicopter flight, a large enough vertical speed may trigger YeeHaw.
+  Samples have loop points in a `.KLP` beside them (the game starts them at random offsets).
 - **Skids by surface** (0x41d2b0): concrete `skid-c2`, dirt `skid-d%d`, grass and gravel
   `skid-g%d`, ice and snow `spinice`/`snwskid%d`, rocks `spinroc%d`/`cornroc%d`.
 - **World**: crashes, suspension, rollover, horn, YeeHaw, splash, underwater, trains
   (`tr-horn`, `train22.wav`), helicopter (`huey`), blimp, crowd, and object-specific hits by
   model name (`strike`, `hickz`, `flush`, `barn1`, `cowpain`, `doctor`, `coffin`).
+- **MOD music** (`UseModMusic`, the "%u-channel MOD" player at 0x5580f0): `MUSIC\SEX.MOD` in
+  `SOUND.POD` is a six-channel ProTracker module ("(C) Terminal Reality", 14 orders, about 96 s
+  at 22 kHz); a level whose music name ends in `.mod` plays one too. OpenPhotex's `parseMod` and
+  `renderMod` read and play ProTracker modules (the effects are listed in `src/audio/mod.ts`).
+- **Object sounds** (SIT, under "@sound effect entries", two names): the sound an object makes
+  when something hits it (`0x428bc0` plays it from the object's place; with none, by type: 1 post
+  `hitPost1`, 2 barricade `barricad`, 4 pylon `pylon`, 10 train `crash1`) and the sound it makes by
+  itself, looping (TPARK's train `TRAIN22.WAV`, a crossing's `cross5.wav`, a stand's `CROWD.WAV`).
+  Gains by name prefix: `strike` becomes `strike1` x3, `hickz` x2, `flush` x1.5, `hay` x0.6,
+  `dino` x2.2, `rock` x1.3, `barn1` x2, `cowpain` x4, `doctor` x2.5, `coffin` x2.8.
+- **Horn and YeeHaw** (`0x429490`, `0x429350`): `horn1.wav` at the truck's horn volume, or with
+  the kooky horn on one of `horn1`, `horn-a` and `horn-f` (the last two x1.5, never the same
+  twice); `yeehaw.wav` at x1.8. High in the air with all four wheels off the ground (`0x41e030`)
+  a truck randomly honks or whoops.
+- **Commentary phrases**: each is a script of clips. Plain `name.wav` tokens, and `(<<n>>`,
+  `*<<n>>`, `)<<n>>` for driver n's name clip in one of three voices: the three names under a
+  truck's "Wave File" in its `.TRK` (for Bigfoot `bfootf`, `bfootu`, `bfootd`): `*` the first,
+  `(` the second, `)` the third. The script string is followed in the EXE by the English line
+  (`<<n>>` for the name), which goes through the message table (`.LOC`) like every string and is
+  shown for one second plus a thirty-second per character (`0x414660`); the clips play at 0.7
+  (`0x421600`). The EXE lists about 120 of them, in groups by code address: the start (`0x4277ff`:
+  four for races, six for Rumbles), the finish (`0x42214f`), passes, leads, crashes, water, air,
+  rolls, the helicopter, trains, a cow, missed checkpoints, `hasfin`, `haswon` and stealth.
+  Shuffle bags (RANDGEN, `0x421ef0`) keep a phrase from repeating until the rest have played.
+  What fires each group is not traced; the port decides (src/game/commentary-events.js).
 - **Track ambience** `DATA\SOUNDnnn.TXT` (`SOUND.POD`), chosen by the SIT's ambient number:
 
       checkpoint wav file            e.g. airhorn.wav
@@ -959,6 +1028,18 @@ stereo separation, `UseRedBook` and `UseModMusic`.
 
 A track's `weatherMask` bit *n* allows weather *n*. `useRandomWeather` picks from the allowed
 set. Rain also drives a lightning model (`boltTimer`, `flashTimer`, `light%d.wav`, thunder).
+
+**What each weather does to the picture** (`0x5745e0`, `0x5753b0`, `0x503210`, `0x503290`). Every
+weather sets a fog colour (RGB): Foggy (140, 140, 140), Dense Fog (139, 139, 139), Rain
+(72, 74, 72), Snow (192, 192, 192), Dusk, Night and Pitch Black black, and Clear and Cloudy
+(140, 140, 140). The fog's end is `viewRange * k * 8192` in 24.8 fixed point, with `viewRange`
+(`0x64cfb0`) 16 and `k` = 10/16 (Foggy, 320 ft), 4/16 (Dense Fog, 128 ft) and 1 (Snow, 512 ft),
+starting at 0. Rain, Dusk, Night and Pitch Black do not fog but cut the view at
+`viewRange * 0x4000` = 1024 ft; Clear and Cloudy use the same cut-off with the daylight colours.
+Rain also starts the rain and lightning code (0x575b50, 0x577c30, `light%d.wav`), Snow the
+snowflakes (0x575b50 with 35.0 against Rain's 130.0). The fog tables (`FOG\<track>.MAP`) the
+software renderer used for the darkness of Dusk, Night and Pitch Black are not traced; the port
+approximates them (src/game/weather.js).
 
 **Lens flare** (`STARTUP.POD` `DATA\SUN.TXT`, read by `weather.cpp`): type (point or offset),
 initial position (256 = 1 ft), master radius (full-screen size), then 10 layers of
@@ -1038,7 +1119,16 @@ autopilot cycle and the slew freeze flag are confirmed in code; the rest is not 
 | Ctrl+T | cycles autopilot: off, auto throttle, full autopilot |
 | Ctrl+B | shows the collision boxes: solid, wireframe, off |
 | 0 (4 in slew) | writes consecutive screenshots (PCX in software, RAW in hardware) |
-| (Ctrl key) | reverse course direction (`0x647564`), debug overlay toggles |
+| R | **reverse course direction** (`0x647564`): in the controls routine (`0x584490`) the key-state array at `0x694ee0` is indexed by DirectInput scan code, and scan code 0x13 (R) flips the flag while GOLD is on. Scan code 0x0B (0) is the screenshot key, 0x2D (X) toggles the CPU trucks' flag at `0xa9a4d0`. |
+
+**In OpenMTM2** (`src/ui/gold-mode.js`): typing GOLD or FRAME during a race works as in the game
+(the last 8 letters are compared). With GOLD on, R reverses the course, Ctrl+T cycles the
+player's autopilot (off, speed control only, full), Ctrl+B cycles the collision boxes (off,
+wireframe, solid), Ctrl+Y is slew mode, Z the technical overlay in slew mode, and 0 (4 in slew
+mode) saves a screenshot as a PNG download. Alt works in place of Ctrl, since browsers keep
+Ctrl+T and Ctrl+W. Not done: Ctrl+W (the weather cycle waits for M10), Ctrl+L (load a SIT by
+name), Ctrl+4 and Ctrl+5 (BlimpCam and RaceCam), the X key's CPU flag (`0xa9a4d0`, meaning
+untraced), the DEMO, NOLOCK, CHUCK and 3DFX codes.
 
 **Torture Pit unlock** (0x585da0): on Sidewinder Canyon (`Snake.sit`), park the player truck
 where `x / 32` is 155..159 and `z / 32` is 182..186, that is **x 4960-5119 ft, z
@@ -1071,6 +1161,16 @@ texture cache statistics, sector and polygon counts, screenshots as PCX (`vel%s.
   `@@COMMENT` / `@@STRING` (the translation). Every on-screen string goes through it
   (0x523a50). `MTM2-PIG.LOC` is a **Pig Latin** test localisation; `MTM2-FUN.LOC` another test.
   `MTM2.loc` itself is not in `UI.POD`, so the English keys are used as is.
+- **Bitmap fonts** (`MtmFont.cpp`, 0x4d6c10; loader 0x591200, glyph finder 0x591700): four font
+  objects (Small LCD, Small, Medium, Large) are loaded from `ART\FNT*_<h>.RAW` (+ `.ACT`) for the
+  screen height `h` (200, 400 or 480). At 480: `FNTO` (Small LCD, 248 x 330), `FNT1` (Small and
+  Medium, 248 x 330) and `FNT2` (Large, 384 x 520). At 400: `FNTO` and `FNTP` 132 x 432, `FNT1`
+  148 x 464. The loader is given the sheet size, and background colour 255. Layout: a **marker
+  row** (colour 254) marks the top of each glyph box, one run per glyph; the glyphs hang below it
+  until the next marker row; runs read line by line, left to right, give `!` to `~` (94 glyphs),
+  a box for the missing 0x7F, then 0x80 to 0xFF (128), then a last marker row ends the sheet.
+  Glyph pixels are colour 0 (a mask the game recolours). Space has no glyph. `STARTUP\FONT.NDX`
+  (95 widths, text) and `FONT.BIN` belong to a separate startup font.
 - **`UI\RADIODLG.RGN`**: a raw Win32 `RGNDATA` for the shaped radio dialog window.
 - **`STARTUP.POD`**: palettes and fog for the software renderer (`FOG\VGA.LTE/.MAP`,
   `OLDMTM.LTE/.MAP`), `STARTUP\FONT.NDX`, `DATA\SUN.TXT`, shared art and models, a zero-byte

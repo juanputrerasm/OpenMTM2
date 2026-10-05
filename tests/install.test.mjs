@@ -76,3 +76,12 @@ test("the stock POD.INI lists 19 archives", { skip: skipWithoutStock("POD.INI") 
   assert.equal(ini.keys[0], "STARTUP.POD");
   assert.deepEqual(ini.warnings, []);
 });
+
+test("findArchive falls back to the file name in the folder, then in SYSTEM", async () => {
+  const { findArchive } = await import("../src/install/inspect-source.js");
+  const files = { "STARTUP.POD": 1, "SYSTEM/TRUCK.POD": 2 };
+  const source = { getFile: async (p) => (files[installPathKey(p)] ? { name: p } : null) };
+  assert.equal((await findArchive(source, "C:\\Games\\MTM2\\startup.pod")).path, "startup.pod");
+  assert.equal((await findArchive(source, "truck.pod")).path, "SYSTEM/truck.pod");
+  assert.equal(await findArchive(source, "x.pod"), null);
+});

@@ -69,3 +69,11 @@ test("the loading screen: ART\\DATA480.RAW with its palette, 640 x 480", { skip:
   const summit = await loadingScreen(stockVfs(), { raceType: "summit" });
   assert.ok(summit && summit.rgba.some((v, i) => v !== image.rgba[i]), "the Summit Rumble screen differs");
 });
+
+test("each stock truck lists its three name clips for the announcer", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const { buildCatalog } = await import("../src/worker/catalog.js");
+  const { trucks } = await buildCatalog(stockVfs());
+  const bigfoot = trucks.find((t) => t.file === "BIGFOOT.TRK");
+  assert.deepEqual(bigfoot.waves, ["bfootf.wav", "bfootu.wav", "bfootd.wav"]);
+  assert.ok(trucks.every((t) => t.waves.length === 3), "three each");
+});

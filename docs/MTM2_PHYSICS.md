@@ -536,6 +536,8 @@ passes **-5 s** the truck is **reset** (below). Otherwise it counts back up by d
 
 Then, for any truck, a timer below **-5 s** calls the **lift-off** (below).
 
+**Not through the countdown.** The caller (`0x46da30`) acts on an at-rest truck only in the race state (4), not while the start countdown runs, so parked trucks are never reset or lifted from their grid slots, on any difficulty. (Without this, a Professional CPU truck was put back on its segment start during the countdown, the others were lifted.)
+
 **At rest** (the velocity zeroed by section 14.9): the player truck tries a reset; a CPU truck
 on Rookie or Intermediate tries a lift-off; a CPU truck on Professional is reset instead
 (`0x46f7b0`, unless +0x17a8 is set, when it lifts off): placed on the start of its course

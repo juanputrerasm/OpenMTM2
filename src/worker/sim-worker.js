@@ -39,6 +39,22 @@ function snapshot(state) {
   };
 }
 
+/** What the sound needs from a truck, over the steps since the last look (it is reset on reading). */
+function soundOf(t, ground) {
+  const s = t.state;
+  const air = 4 - s.tires.filter((x) => x.onGround).length;
+  const tires = s.tires.map((x) => ({ onGround: x.onGround, grip: x.grip, force: [x.force[0], x.force[1], x.force[2]], spin: x.spin }));
+  const out = {
+    rpm: s.rpm, throttle: s.controls.throttle, gear: s.controls.gear, airborne: air, forward: s.bvel[2],
+    speed: Math.hypot(s.bvel[0], s.bvel[1], s.bvel[2]), 
+    impact: t.snd.impact, hit: t.snd.hit, clearance: s.pos[1] - ground.height(s.pos[0], s.pos[2]), splash: t.snd.splash, tires, surface: S.surfaceType(ground.surface(s.pos[0], s.pos[1] + 100, s.pos[2])), heli: s.heliTimer > 0,
+  };
+  t.snd.impact = 0;
+  t.snd.hit = null;
+  t.snd.splash = false;
+  return out;
+}
+
 /**
  * A session from plain data:
  * `{ heights, clr, textureValues, ra0, ra1, boxes, ramps, course, sonicTrack, waterLevelFt, weather, difficulty, trucks, race }`,
@@ -52,7 +68,8 @@ export function createSession(init) {
   const surfaces = init.clr && init.textureValues
     ? S.createSurfaceMap(new Uint16Array(init.clr), new Int32Array(init.textureValues))
     : null;
-  const ground = S.createTerrainGround(terrain, surfaces, init.weather ?? 0, init.waterLevelFt ?? null);
+  let weather = init.weather ?? 0;
+  const ground = S.createTerrainGround(terrain, surfaces, weather, init.waterLevelFt ?? null);
   const difficulty = init.difficulty ?? S.DIFFICULTY.INTERMEDIATE;
   const sonicTrack = !!init.sonicTrack;
   const ra0 = init.ra0 ? new Uint8Array(init.ra0) : null;
@@ -77,7 +94,7 @@ export function createSession(init) {
   const trucks = specs.map((spec, i) => {
     const params = S.createTruckParams(
       { wheelAnchors: spec.truck.anchors, scrapePoints: spec.truck.scrapePoints },
-      { difficulty, autoShift: init.autoShift ?? true },
+      { difficulty, autoShift: init.autoShift ?? true, ...spec.setup },
     );
     const state = S.createTruckState(spec.start.pos, spec.start.heading ?? 0, S.GEAR.FIRST, params);
     const autopilot = !!spec.autopilot && course.length > 0;
@@ -86,14 +103,14 @@ export function createSession(init) {
       racing: true, player: i === 0 && !autopilot, autopilot, difficulty, summit: false, segment: null, previous: null,
     };
     const ctx = { ground, human: i === 0 && !autopilot, difficulty, sonicTrack, recovery };
-    return { state, params, autopilot, recovery, ctx, radius: S.truckRadius(params), nearBoxes: [] };
+    return { state, params, autopilot, recovery, ctx, radius: S.truckRadius(params), nearBoxes: [], snd: { impact: 0, hit: null, splash: false, surface: 1 } };
   });
   const player = trucks[0];
   // Traffic (MTM2_PHYSICS.md 14.25): every truck sees the others' last values.
   if (trucks.length > 1) apCtx.traffic = trucks.map((t) => ({ s: t.state, p: t.params }));
   const race = init.race
     ? S.createRace(trucks.map((t, i) => ({ s: t.state, p: t.params, player: i === 0 && !t.autopilot })),
-      S.raceCheckpoints(init.race.checkpoints), course, init.race.laps ?? 3, difficulty)
+      S.raceCheckpoints(init.race.checkpoints), course, init.race.laps ?? 3, difficulty, init.race.mode ?? "circuit")
     : null;
 
   const listed = [];
@@ -158,15 +175,69 @@ export function createSession(init) {
   /** A truck's recovery context, aimed at its course segment when it has one (10.3). */
   function recoveryOf(t) {
     if (course.length) {
-      t.recovery.segment = course[t.state.ap.segment];
-      t.recovery.previous = course[(t.state.ap.segment + course.length - 1) % course.length];
+      const driven = S.orientedCourse(course, apCtx.reversed);
+      const i = t.state.ap.segment;
+      t.recovery.segment = driven[i];
+      t.recovery.previous = driven[apCtx.reversed ? (i + 1) % course.length : (i + course.length - 1) % course.length];
     }
     return t.recovery;
   }
 
+  // GOLD mode (MONSTER_EXE_ANALYSIS.md 15): the player's autopilot level, slew mode, the
+  // reversed course.
+  const gold = { slew: false };
+  /** 0 manual, 1 speed control only (the player steers), 2 full autopilot (Ctrl+T cycles them). */
+  player.apLevel = player.autopilot ? 2 : 0;
+  function setAutopilotLevel(level) {
+    if (!course.length) return player.apLevel;
+    player.apLevel = level;
+    player.autopilot = level === 2;
+    player.ctx.human = level !== 2;
+    player.recovery.player = level !== 2;
+    player.recovery.autopilot = level === 2;
+    if (race) race.trucks[0].player = level !== 2;
+    return level;
+  }
+  /** Slew mode: the simulation stands still and the player's truck is moved by hand. */
+  function slewMove(slew) {
+    const s = player.state;
+    const speed = (slew.fast ? 160 : 40) * STEP;
+    const sin = Math.sin(s.euler[2]), cos = Math.cos(s.euler[2]);
+    s.pos[0] += (sin * slew.forward + cos * slew.right) * speed;
+    s.pos[2] += (cos * slew.forward - sin * slew.right) * speed;
+    s.pos[1] += slew.up * speed;
+    const turn = (slew.fast ? 1.6 : 0.6) * STEP;
+    s.euler[2] += slew.yaw * turn;
+    s.euler[1] += slew.roll * turn;
+    s.euler[0] += slew.pitch * turn;
+    S.eulerToMatrix(s.euler[0], s.euler[1], s.euler[2], s.matrix);
+    s.prevPos.set(s.pos);
+    s.bvel.fill(0);
+    s.rates.fill(0);
+  }
+  /** A debug command from the page; returns the new state of what it changed. */
+  function command(name, value) {
+    if (name === "weather") {
+      // The grip changes at once (A section 2.3); snow's frozen water stays as it was set up.
+      ground.weather = value;
+      weather = value;
+      return value;
+    }
+    if (name === "reverse") return (apCtx.reversed = !apCtx.reversed);
+    if (name === "autopilot") return setAutopilotLevel((player.apLevel + 1) % 3);
+    if (name === "slew") return (gold.slew = !gold.slew);
+    throw new Error(`Unknown command "${name}"`);
+  }
+
   /** Step one fixed step with the held keys (the player's truck). */
   function step(input) {
-    const { joystick = null, helicopter = false, ...held } = input ?? {};
+    const { joystick = null, helicopter = false, slew = null, ...held } = input ?? {};
+    if (gold.slew) {
+      if (slew) slewMove(slew);
+      for (const t of trucks) t.previous = snapshot(t.state);
+      time += STEP;
+      return;
+    }
     Object.assign(keys, held);
     if (helicopter) {
       S.pressHelicopterKey(player.state, { dragRace: false, summit: player.recovery.summit });
@@ -177,6 +248,8 @@ export function createSession(init) {
       S.raceTick(race, STEP, apCtx, { ground, rc: (rt) => recoveryOf(trucks[race.trucks.indexOf(rt)]) });
     }
     const go = !race || S.raceStarted(race);
+    // The at-rest reset and lift-off run only in the race state, not through the countdown (10.3).
+    for (const t of trucks) t.recovery.racing = go;
     for (const [i, t] of trucks.entries()) {
       if (t.autopilot) {
         if (!race) S.advanceAutopilotSegment(t.state, apCtx);
@@ -190,6 +263,13 @@ export function createSession(init) {
         // The keyboard routine always runs; a joystick then overwrites it (MONSTER_EXE_ANALYSIS.md §7).
         S.applyKeyboard(t.state.controls, keys, controlCtx);
         if (joystick) S.applyJoystick(t.state.controls, joystick, controlCtx);
+        if (t.apLevel === 1 && course.length && go) {
+          // Speed control only: the autopilot drives the pedals, the player the wheel.
+          const { steer, rearSteer } = t.state.controls;
+          recoveryOf(t);
+          S.applyAutopilot(t.state, t.params, apCtx);
+          Object.assign(t.state.controls, { steer, rearSteer });
+        }
       }
     }
     // The countdown (MONSTER_EXE_ANALYSIS.md 6.1): every truck sits in Park, so revving moves
@@ -209,13 +289,17 @@ export function createSession(init) {
     // Moving objects move before the frame's list is built, once the race runs.
     if (go) {
       for (const { box, bvel } of movingObjects) {
-        S.stepMovingObject(box, bvel, terrain, ra0, ra1, STEP, (init.weather ?? 0) === S.WEATHER.SNOW);
+        S.stepMovingObject(box, bvel, terrain, ra0, ra1, STEP, weather === S.WEATHER.SNOW);
         dirty.add(box);
       }
     }
     listBoxes();
     const before = listed.map(poseKey);
-    for (const t of trucks) S.stepTruck(t.state, t.params, t.ctx, STEP);
+    for (const t of trucks) {
+      S.stepTruck(t.state, t.params, t.ctx, STEP);
+      t.snd.impact = Math.max(t.snd.impact, t.state.impactForce);
+      t.snd.splash = t.snd.splash || t.state.splash;
+    }
     for (const box of listed) S.stepBox(box, ground, STEP);
     pairTests();
     for (const t of trucks) S.postStepTruck(t.state, t.params, ground, STEP);
@@ -223,6 +307,17 @@ export function createSession(init) {
       S.postStepBox(box, ground);
       if (before[i] !== poseKey(box)) dirty.add(box);
     });
+    // Which object a hard hit was against, for its own sound (SIT "@sound effect entries").
+    for (const t of trucks) {
+      if (t.state.impactForce <= 400) continue;
+      let best = null, bestGap = t.radius + 6;
+      for (const box of listed) {
+        if (box.sitIndex === undefined) continue;
+        const gap = Math.hypot(box.pos[0] - t.state.pos[0], box.pos[1] - t.state.pos[1], box.pos[2] - t.state.pos[2]) - box.radius;
+        if (gap < bestGap) { bestGap = gap; best = box; }
+      }
+      if (best && (!t.snd.hit || t.state.impactForce > t.snd.hit.force)) t.snd.hit = { sitIndex: best.sitIndex, force: t.state.impactForce };
+    }
     time += STEP;
     if (race) handOverFinished();
   }
@@ -249,8 +344,11 @@ export function createSession(init) {
       clock: Math.max(0, since),
       laps: race.laps,
       over: race.over,
+      /** Summit Rumble: scores and the seconds left in the round (6.3), else null. */
+      summit: race.summit ? { left: Math.max(0, race.roundSeconds - since), states: race.summit.trucks.map((t) => t.state) } : null,
       trucks: race.trucks.map((rt) => ({
         place: rt.place,
+        score: race.summit ? race.summit.trucks[race.trucks.indexOf(rt)].score : 0,
         laps: rt.laps,
         lap: Math.min(rt.laps + 1, race.laps),
         lapTime: rt.finished ? (rt.lapTimes[rt.lapTimes.length - 1] ?? 0) : Math.max(0, since - rt.raceTime),
@@ -282,16 +380,17 @@ export function createSession(init) {
     while (time + STEP <= target) { step(input); steps++; }
     const boxes = [...dirty].map(boxPose);
     dirty.clear();
-    const poses = trucks.map((t) => ({ previous: t.previous, current: snapshot(t.state) }));
+    const poses = trucks.map((t) => ({ previous: t.previous, current: snapshot(t.state), sound: soundOf(t, ground) }));
     return {
       previous: poses[0].previous, current: poses[0].current, alpha: (target - time) / STEP, time, steps, boxes,
       others: poses.slice(1).map((x) => x.current), poses, race: raceView(),
+      gold: { reversed: !!apCtx.reversed, apLevel: player.apLevel, slew: gold.slew, weather },
     };
   }
 
   return {
     state: player.state, params: player.params, trucks, race, ground, levelBoxes, course,
-    step, advance, raceView, finishRace, now: () => time, snapshot: () => snapshot(player.state),
+    step, advance, raceView, finishRace, command, gold, now: () => time, snapshot: () => snapshot(player.state),
   };
 }
 
@@ -314,6 +413,11 @@ if (typeof self !== "undefined" && typeof self.postMessage === "function" && typ
     resume() {
       origin = null;
       return true;
+    },
+    /** A GOLD-mode debug command: "reverse", "autopilot" or "slew". */
+    command({ name, value }) {
+      if (!session) throw new Error("No session.");
+      return session.command(name, value);
     },
     finish() {
       if (!session) throw new Error("No session.");

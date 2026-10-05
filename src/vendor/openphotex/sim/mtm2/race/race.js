@@ -11,7 +11,8 @@ import { HULL_ORDER, depthInside, faceNormal, nearestFace } from "../collide/fac
 import { advanceAutopilotSegment, headingOf, segmentEta, wrapGame } from "../truck/autopilot.js";
 import { liftOff, truckRadius } from "../truck/recovery.js";
 import { autopilotGain } from "../truck/state.js";
-import { isArc } from "../world/course.js";
+import { isArc, orientedCourse } from "../world/course.js";
+import { createSummit, summitTick } from "./summit.js";
 const toWorld = (m, x, y, z) => [m[0] * x + m[1] * y + m[2] * z, m[3] * x + m[4] * y + m[5] * z, m[6] * x + m[7] * y + m[8] * z];
 const toBody = (m, x, y, z) => [m[0] * x + m[3] * y + m[6] * z, m[1] * x + m[4] * y + m[7] * z, m[2] * x + m[5] * y + m[8] * z];
 /** The countdown before the start (§6.1), seconds. */
@@ -26,13 +27,16 @@ export function raceCheckpoints(cps) {
         psi: c.gate.angles[2],
     }));
 }
-export function createRace(trucks, checkpoints, course, laps, difficulty) {
+export function createRace(trucks, checkpoints, course, laps, difficulty, mode = "circuit") {
     return {
         trucks: trucks.map((t, i) => ({
             s: t.s, p: t.p, player: !!t.player, checkpoint: 0, passed: 0, passCount: 0, laps: 0, lapTimes: [], raceTime: 0,
             fastestLap: 0, splits: [], finishLap: laps, finished: false, state: 0, progress: 0, place: i + 1,
         })),
         checkpoints, course, laps, clock: 0, startTime: COUNTDOWN_S, over: false, difficulty,
+        // A Rumble's zone and summit are the first two checkpoints' gates; its laps are minutes.
+        summit: mode === "summit" && checkpoints.length >= 2 ? createSummit(trucks.length, checkpoints[0].gate, checkpoints[1].gate) : null,
+        roundSeconds: mode === "summit" ? laps * 60 : 0,
     };
 }
 /** Whether the countdown has run out. */
@@ -203,14 +207,37 @@ export function raceOrder(race) {
 export function raceTick(race, dt, ap, recover) {
     if (raceStarted(race)) {
         for (const t of race.trucks) {
-            testCheckpoint(race, t, dt, recover ? { ground: recover.ground, rc: recover.rc(t) } : undefined);
-            const seg = race.course[t.s.ap.segment];
+            if (!race.summit)
+                testCheckpoint(race, t, dt, recover ? { ground: recover.ground, rc: recover.rc(t) } : undefined);
+            const seg = orientedCourse(race.course, ap.reversed)[t.s.ap.segment];
             if (seg)
                 t.s.ap.eta += (segmentEta(t.s, t.p, seg, ap.height) - t.s.ap.eta) * dt * 0.75;
             advanceAutopilotSegment(t.s, { ...ap, place: t.place, rubberBand: !t.player && !race.trucks.some((o) => o.player && o.place === 1) && race.trucks.some((o) => o.player) }, t.p);
-            t.progress = t.s.ap.progress = segmentProgress(t, race.course, race.difficulty);
+            t.progress = t.s.ap.progress = segmentProgress(t, orientedCourse(race.course, ap.reversed), race.difficulty);
         }
-        raceOrder(race);
+        if (race.summit)
+            summitRound(race, dt);
+        else
+            raceOrder(race);
     }
     race.clock += dt;
+}
+/** A Summit Rumble tick (§6.3): the scores, the places by score, and the end of the round. */
+function summitRound(race, dt) {
+    const summit = race.summit;
+    summitTick(summit, race.trucks.map((t) => t.s.pos), dt);
+    race.trucks.forEach((a, i) => {
+        let place = 1;
+        race.trucks.forEach((b, j) => {
+            const sa = summit.trucks[i].score, sb = summit.trucks[j].score;
+            if (sb > sa || (sb === sa && j < i))
+                place++;
+        });
+        a.place = place;
+    });
+    if (race.clock + dt - race.startTime >= race.roundSeconds) {
+        race.over = true;
+        for (const t of race.trucks)
+            t.finished = true;
+    }
 }

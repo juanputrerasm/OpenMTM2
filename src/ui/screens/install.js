@@ -76,6 +76,7 @@ export default function mount(container, context) {
         podIni: result.podIni,
         build: result.build,
         exe: result.exe,
+        exeFile: result.exeFile,
       });
     } finally {
       off();

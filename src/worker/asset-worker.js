@@ -8,8 +8,13 @@
 */
 import { copyInstall, mountInstall, readManifest, removeInstall } from "./install-store.js";
 import { buildCatalog } from "./catalog.js";
-import { buildTrackRender, transferablesOf } from "./track-build.js";
+import { buildSky, buildTrackRender, transferablesOf } from "./track-build.js";
 import { loadingScreen } from "./screen-art.js";
+import { decodeActPalette, decodeRawTexture, parseKlp, parseLoc, parseMod, parseMtmAmbientSounds, parseMtmSun, renderMod } from "../vendor/openphotex/index.js";
+import { FONT_SHEETS, parseBitmapFont } from "./bitmap-font.js";
+import { commentaryLines } from "./exe-strings.js";
+import { readFile } from "../shared/opfs.js";
+import { readUserData, writeUserData } from "./user-data.js";
 
 /** A reply whose buffers move to the main thread instead of being copied. */
 const TRANSFER = Symbol("transfer");
@@ -54,9 +59,126 @@ const handlers = {
   },
 
   /** Everything needed to draw a track; `{ path }` is its SIT, e.g. "WORLD\\TPARK.SIT". */
-  async trackRender({ path, detailLevel, raceType, truckFiles }) {
-    const build = await buildTrackRender(await mounted(), path, { detailLevel, raceType, truckFiles });
+  async trackRender({ path, detailLevel, raceType, truckFiles, weather }) {
+    const build = await buildTrackRender(await mounted(), path, { detailLevel, raceType, truckFiles, weather });
     return withTransfer(build, transferablesOf(build));
+  },
+
+  /** A player's data file (profiles, Hall of Fame) as parsed JSON, or null when missing. */
+  async userData({ key }) {
+    return readUserData(key);
+  },
+
+  async saveUserData({ key, value }) {
+    await writeUserData(key, value);
+    return true;
+  },
+
+  /** A `UI\\*.BMP` as raw bytes (browsers show BMP natively), or null. */
+  async uiImage({ name }) {
+    if (!/^[A-Za-z0-9_-]+$/.test(String(name))) throw new Error(`Bad image name "${name}"`);
+    const bytes = await (await mounted()).read(`UI\\${name.toUpperCase()}.BMP`);
+    return bytes ? withTransfer(bytes.slice(), []) : null;
+  },
+
+  /**
+   * The sun's lens flare (`DATA\\SUN.TXT`) with its textures decoded: `{ masterRadius, layers, rays,
+   * textures: { SUN06: { width, height, rgba } } }`, or null when the install lacks the file.
+   */
+  async flare() {
+    const vfs = await mounted();
+    const text = await vfs.read("DATA\\SUN.TXT");
+    if (!text) return null;
+    const sun = parseMtmSun(text);
+    const names = new Set(sun.layers.map((l) => l.texture.replace(/\.raw$/i, "").toUpperCase()));
+    names.add("SUN02");
+    names.add("MOON");
+    const textures = {};
+    for (const name of names) {
+      const raw = await vfs.read(`ART\\${name}.RAW`), act = await vfs.read(`ART\\${name}.ACT`);
+      const palette = act && decodeActPalette(act);
+      if (!raw || !palette) continue;
+      try {
+        const image = decodeRawTexture(raw, palette, { cutout: name === "MOON" });
+        textures[name] = { width: image.width, height: image.height, rgba: image.rgba };
+      } catch { /* a texture that does not decode is left out */ }
+    }
+    return withTransfer({ masterRadius: sun.masterRadius, layers: sun.layers, rays: sun.rays, textures },
+      Object.values(textures).map((t) => t.rgba.buffer));
+  },
+
+  /**
+   * The announcer's English lines by clip script, read from the executable kept at install; an
+   * empty table for an install made before the executable was kept (the voices still play).
+   */
+  async commentaryText() {
+    try {
+      const file = await readFile("install/MONSTER.EXE");
+      return commentaryLines(new Uint8Array(await file.arrayBuffer()));
+    } catch {
+      return {};
+    }
+  },
+
+  /**
+   * A tracker module (`MUSIC\\<name>.MOD`, or SOUND\\) played through into stereo PCM:
+   * `{ sampleRate, left, right, loopStartFrame }`, or null. The page loops it.
+   */
+  async mod({ name }) {
+    if (!/^[A-Za-z0-9_-]+$/.test(String(name).replace(/\.mod$/i, ""))) throw new Error(`Bad module name "${name}"`);
+    const stem = name.replace(/\.mod$/i, "").toUpperCase();
+    const vfs = await mounted();
+    const bytes = (await vfs.read(`MUSIC\\${stem}.MOD`)) ?? (await vfs.read(`SOUND\\${stem}.MOD`));
+    const song = bytes && parseMod(bytes);
+    if (!song) return null;
+    const out = renderMod(song, { sampleRate: 22050 });
+    return withTransfer(out, [out.left.buffer, out.right.buffer]);
+  },
+
+  /** A sound by name, `SOUND\\<name>.WAV` with its `.KLP` loop points: `{ name, wav, klp }`, or null. */
+  async sound({ name }) {
+    if (!/^[A-Za-z0-9_.-]+$/.test(String(name))) throw new Error(`Bad sound name "${name}"`);
+    const stem = name.replace(/\.wav$/i, "").toUpperCase();
+    const vfs = await mounted();
+    const wav = await vfs.read(`SOUND\\${stem}.WAV`);
+    if (!wav) return null;
+    const klp = await vfs.read(`SOUND\\${stem}.KLP`);
+    const copy = wav.slice().buffer;
+    return withTransfer({ name: stem, wav: copy, klp: klp ? parseKlp(klp) : null }, [copy]);
+  },
+
+  /** A level's ambient sounds (`DATA\\SOUNDnnn.TXT`), or null. */
+  async ambience({ number }) {
+    const bytes = await (await mounted()).read(`DATA\\SOUND${String(Number(number)).padStart(3, "0")}.TXT`);
+    return bytes ? parseMtmAmbientSounds(bytes) : null;
+  },
+
+  /** The `.LOC` message tables in the install: `[{ path }]`. */
+  async locFiles() {
+    return (await mounted()).list(".LOC").map(({ path }) => ({ path }));
+  },
+
+  /** One `.LOC` parsed into `[{ tag, text }]`, or null. */
+  async loc({ path }) {
+    const bytes = await (await mounted()).read(path);
+    return bytes ? parseLoc(bytes) : null;
+  },
+
+  /** One of the game's bitmap fonts by stem ("FNT1_480"): its glyph boxes and a 0/255 mask. */
+  async font({ stem }) {
+    const size = FONT_SHEETS[stem];
+    if (!size) throw new Error(`Unknown font "${stem}"`);
+    const raw = await (await mounted()).read(`ART\\${stem}.RAW`);
+    if (!raw) return null;
+    const font = parseBitmapFont(raw, size[0], size[1]);
+    const reply = { ...font, glyphs: [...font.glyphs] };
+    return withTransfer(reply, [font.mask.buffer]);
+  },
+
+  /** A track's sky for another weather, `{ name, width, height, rgba }` or null. */
+  async sky({ path, weather }) {
+    const sky = await buildSky(await mounted(), path, weather);
+    return sky ? withTransfer(sky, [sky.rgba.buffer]) : null;
   },
 
   /** The race loading screen, `{ width, height, rgba }` or null. */

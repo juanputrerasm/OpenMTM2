@@ -65,8 +65,9 @@ export { parseNocturneZth, NOCTURNE_ZTH_WIDTH, NOCTURNE_ZTH_HEIGHT, NOCTURNE_ZTH
 export { parseKlp, parseMtmAmbientSounds, weatherMaskIncludes } from "./mtm/sound.js";
 export { parseMtmSun } from "./mtm/sun.js";
 export { parseLoc } from "./mtm/loc.js";
+export { modChannels, parseMod, renderMod } from "./audio/mod.js";
 export { parseCockpitLayout, parseCockpitSections } from "./mtm/cockpit.js";
 export * as mtm2Sim from "./sim/mtm2/index.js";
 export { PodFormatError } from "./errors.js";
 /** The library version, as published in package.json. */
-export const VERSION = "1.0.0";
+export const VERSION = "1.0.1";

@@ -36,7 +36,7 @@ export async function removeInstall() {
  * @param {{ files: { name: string, file: File }[], podIni: string, build: string, exe: object }} request
  * @param {(progress: { copied: number, total: number, name: string }) => void} onProgress
  */
-export async function copyInstall({ files, podIni, build, exe }, onProgress) {
+export async function copyInstall({ files, podIni, build, exe, exeFile }, onProgress) {
   await removeInstall();
   const total = files.reduce((sum, f) => sum + f.file.size, 0);
   let copied = 0;
@@ -46,6 +46,8 @@ export async function copyInstall({ files, podIni, build, exe }, onProgress) {
       onProgress({ copied, total, name });
     });
   }
+  // The executable too: the announcer's English lines are in it (src/worker/exe-strings.js).
+  if (exeFile) await copyFile(exeFile, `${INSTALL_DIR}/MONSTER.EXE`, () => {});
   await writeBytesToFile(`${INSTALL_DIR}/POD.INI`, new TextEncoder().encode(podIni));
   const manifest = {
     format: MANIFEST_FORMAT,

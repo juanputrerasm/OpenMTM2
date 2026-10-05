@@ -3,6 +3,11 @@
 */
 import { Router } from "./router.js";
 import { loadSettings } from "./settings.js";
+import { createStrings } from "../game/strings.js";
+import { loadStrings } from "./strings-store.js";
+import { createAudio } from "../audio/audio-engine.js";
+import { attachMenuSounds } from "../audio/menu-sounds.js";
+import { createMenuMusic } from "../audio/menu-music.js";
 import { WorkerClient } from "../shared/worker-client.js";
 
 const screens = {
@@ -11,6 +16,9 @@ const screens = {
   "race-select": () => import("../ui/screens/race-select.js"),
   garage: () => import("../ui/screens/garage.js"),
   race: () => import("../ui/screens/race.js"),
+  drivers: () => import("../ui/screens/drivers.js"),
+  hall: () => import("../ui/screens/hall.js"),
+  options: () => import("../ui/screens/options.js"),
   results: () => import("../ui/screens/results.js"),
   unsupported: () => import("../ui/screens/unsupported.js"),
   "dev-track": () => import("../ui/screens/dev-track.js"),
@@ -30,7 +38,7 @@ export function missingFeatures(env = globalThis) {
 
 async function boot() {
   const container = document.getElementById("app");
-  const context = { settings: loadSettings() };
+  const context = { settings: loadSettings(), t: createStrings() };
   const router = new Router(container, context, screens);
   context.router = router;
 
@@ -41,6 +49,15 @@ async function boot() {
   }
   context.assets = new WorkerClient(new URL("../worker/asset-worker.js", import.meta.url));
   const { installed } = await context.assets.call("installStatus");
+  if (installed) {
+    await loadStrings(context);
+    // The menus click; the race has its own audio and the menus fall quiet under it.
+    context.menuAudio = createAudio(context.assets, context.settings.sound);
+    attachMenuSounds(document, context.menuAudio, context.settings);
+    context.menuMusic = createMenuMusic(context.menuAudio, context.settings);
+    context.menuMusic.start();
+    window.__openmtm2Menu = context.menuAudio;
+  }
   await router.go(installed ? "start" : "install");
 }
 

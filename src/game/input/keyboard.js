@@ -1,19 +1,14 @@
 /*
   Keyboard driving input (the actions of MONSTER_EXE_ANALYSIS.md section 7): arrows or WASD to
-  drive, Q / Z (or Page Up / Down) to shift, H for the helicopter. Rebinding comes with the
-  options screen (M9).
+  drive, Q / Z (or Page Up / Down) to shift, H for the helicopter. The keys come from the
+  bindings (bindings.js), rebindable in the options.
 */
-const BINDINGS = {
-  accelerate: ["ArrowUp", "KeyW"],
-  brake: ["ArrowDown", "KeyS"],
-  left: ["ArrowLeft", "KeyA"],
-  right: ["ArrowRight", "KeyD"],
-};
-const SHIFT_UP = ["KeyQ", "PageUp"];
-const SHIFT_DOWN = ["KeyZ", "PageDown"];
-const HELICOPTER = ["KeyH"];
+import { mergeBindings } from "./bindings.js";
 
-export function createKeyboardInput(target = window) {
+export function createKeyboardInput(target = window, saved = {}) {
+  const bindings = mergeBindings(saved);
+  const BINDINGS = { accelerate: bindings.accelerate, brake: bindings.brake, left: bindings.left, right: bindings.right };
+  const SHIFT_UP = bindings.shiftUp, SHIFT_DOWN = bindings.shiftDown, HELICOPTER = bindings.helicopter;
   const down = new Set();
   let shiftUp = false, shiftDown = false, helicopter = false;
   const onDown = (e) => {

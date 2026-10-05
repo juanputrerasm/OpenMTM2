@@ -201,6 +201,16 @@ export function createSky(sky, look) {
   return dome;
 }
 
+/** Put a new sky (another weather) on an existing dome. */
+export function updateSky(dome, sky, look) {
+  if (!dome || !sky) return;
+  const old = dome.material.map;
+  dome.material.map = dataTexture(sky, look, true);
+  dome.material.map.repeat.set(4, -2);
+  dome.material.needsUpdate = true;
+  old?.dispose();
+}
+
 /** The average colour of the sky art, for the clear colour and fog. */
 export function skyColor(sky) {
   if (!sky) return new THREE.Color(0x8fb6d8);

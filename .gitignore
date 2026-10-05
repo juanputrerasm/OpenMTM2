@@ -153,3 +153,9 @@ vite.config.ts.timestamp-*
 
 # Python bytecode from tools/re
 __pycache__/
+
+# macOS
+.DS_Store
+
+# The reverse engineering workspace as an archive, never published
+/re.zip

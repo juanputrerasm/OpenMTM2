@@ -13,7 +13,18 @@ export const DEFAULT_SETTINGS = Object.freeze({
   detailLevel: 2,             // MONSTER.INI detailLevel: boxes with a higher priority are not drawn
   difficulty: 1,              // 0 Rookie, 1 Intermediate, 2 Professional
   laps: 3,
+  weather: 0,                 // 0 Clear ... 8 Pitch Black, or "random" (a track may not allow it)
   opponents: 3,               // MONSTER.INI defaultOpponents (built-in default 3)
+  wording: "",                // a .LOC from the install that rewords the game's text ("" is the standard wording)
+  skin: "classic",            // "classic" (the game's own menu art from UI.POD) or "modern"
+  developer: false,           // list tracks and trucks with the developer views on the Start screen
+  sound: Object.freeze({ master: 1, effects: 1, music: 0.6, muted: false }),
+  commentary: false,          // MONSTER.INI commentaryFlag: the announcer's voice (off by default)
+  textCommentary: false,      // textCommentaryFlag: its lines as text (off by default)
+  menuMusic: true,            // the menus play MUSIC\\SEX.MOD (UseModMusic)
+  kookyHorn: false,           // MONSTER.INI kookyHorn: three horns instead of one
+  autoShift: true,            // automatic gears (the game's default)
+  bindings: Object.freeze({}), // key code overrides by action, see game/input/bindings.js
   fullAutopilot: false,       // the game's "Full Autopilot": the player's truck drives itself
   showHiddenTracks: false,
   showHiddenTrucks: false,

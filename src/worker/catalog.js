@@ -70,6 +70,8 @@ export async function buildCatalog(vfs) {
         file,
         name: parsed.manifest.truckName || file,
         dialect: parsed.manifest.dialect,
+        /** The truck's three name clips (the .TRK "Wave File" names), for the announcer. */
+        waves: parsed.manifest.waveFiles ?? [],
         hidden: HIDDEN_TRUCKS.includes(file),
       });
     } catch (err) {

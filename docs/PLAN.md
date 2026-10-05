@@ -201,14 +201,21 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
   - Missing a checkpoint does not count the lap; flipped CPUs recover; the results order agrees with the sim.
   - No console errors and 60 fps on a mid-range laptop.
 
+### M8: Rally and Summit Rumble (OpenMTM2)
+**Status: in progress.** Done: Start offers Circuit Race, Rally Race and Summit Rumble; race select lists the mode's tracks (a Rumble's laps are minutes, default 5); Rally runs through the Circuit race code with one lap (every stock Rally track ends with CPU trucks only, headless); Summit scoring and the round timer (exe analysis 6.3, OpenPhotex `race/summit.ts`), the Rumble HUD (time, score, place) and a score table in Results. Left: a manual playthrough in the browser, and Rally specifics found on play. The reversed course and GOLD mode are debug cheats (exe analysis 15), not part of Rally or Rumble; they move to M9 with the options.
+
+### Pending, low priority
+- **Game file formats for player data:** decode `player.pro` (the driver profile, versioned, ProjNet.cpp 0x4dae90) and `highscor.mtr` (the Hall of Fame, written by 0x4c7540) so profiles and the Hall of Fame can be imported from, and exported to, a real install. Until then both are JSON in OPFS.
+- **GOODY.BIN blimp** that follows the course on every track but Rumbles (M10, optional).
+
 ### Later (separate plans)
 
 | # | Milestone |
 |---|---|
 | M8 | Rally and Summit Rumble |
-| M9 | Garage tuning, driver profiles, Hall of Fame, options and bindings, classic skin, LOC strings |
-| M10 | Weather and the enhanced look |
-| M11 | Sound and music (engine, skids, ambience, MUSIC.POD + KLP; Redbook music and Smacker videos are unavailable) |
+| M9 | **In progress.** Done: Garage tuning (suspension, transfer gear, tire cut), driver profiles (JSON in OPFS, each with its own Garage setup and race tally), Hall of Fame (top ten per track and mode, JSON in OPFS), options with rebindable keys and the game's switches. Also done: the classic skin (the game's own menu art from UI.POD, with a switch back to the modern layout) and the HUD in the game's bitmap fonts. Also done: the game's message tables (UI\\MTM2-FUN.LOC, MTM2-PIG.LOC and any other .LOC in the install) as a Wording option that rewords the HUD, difficulty names and key names, and GOLD mode (reversed course, autopilot levels, collision boxes, slew and Z mode, screenshots, FRAME). Left in M9: the weather cycle key (M10), Ctrl+L, BlimpCam and RaceCam, and routing more of the menu text through the message tables. The GOODY.BIN blimp that follows the course is an optional extra (M10) |
+| M10 | **Mostly done.** Weather: a Weather choice on the Races screen (only what the track's mask allows, or Random), the grip in the sim, the weather's sky, fog and light level, rain with lightning, snow, and the trucks' headlights in Dusk, Night and Pitch Black; GOLD mode's Ctrl+W cycles it. Enhanced look: cascaded sun shadows, and the sun, moon and lens flare from the game's own `SUN.TXT` and textures. Pending (low priority): the GOODY.BIN blimp; the game's snow and rain textures (`SNOW0-3.RAW`, `SNOFLAKS.RAW`) and the fog tables for the dark weathers (the port approximates both); rain, thunder and wind sounds (M11); shadows from the terrain and from the wrapped copies of the world; objects hiding the sun from the flare |
+| M11 | **Done apart from the items below.** Web Audio with master, effects and music volumes: each truck's three engine loops from the game's own routine, skids and wheelspin by surface, gear changes, hull impacts, landings, splashes, the recovery helicopter, the horn (N) and YeeHaw (Y), objects' own hit sounds from the SIT and the sounds they make by themselves (train, crossing bell, crowds), train horns; the level's ambience, rain, thunder, checkpoint and lap sounds, music loop from `MUSIC.POD` (or a `.MOD`); the announcer, with the drivers' own name clips and its lines as text read from the player's `MONSTER.EXE` (kept at install, so an older install hears the voices but needs a reinstall for the text); `SEX.MOD` as menu music through OpenPhotex's new MOD player; menu click sounds. Pending: when the announcer speaks is the port's design (the game's own triggers are not traced); `RAINRF8` and underwater and cockpit sounds; blimp and helicopter-in-the-sky sounds; the weather phrases (`fog_`, `snow_`, `night_`) which the EXE does not reference; voice chat, Redbook tracks, force feedback; Smacker videos (unavailable) |
 | M12 | Cockpit, finder, map, all 10 cameras |
 | M13 | Damage deformation |
 | M14 | Instant replay |
