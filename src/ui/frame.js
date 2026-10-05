@@ -17,6 +17,7 @@ const BUTTONS = {
   driver: [16, 410, 116, 40], races: [136, 410, 116, 40], garage: [256, 410, 114, 40], multi: [374, 410, 116, 40],
   go: [508, 408, 118, 44], continue: [508, 408, 118, 44], hall: [16, 408, 116, 44], replay: [136, 408, 116, 44],
   startDriver: [506, 408, 122, 44],
+  startWeb: [54, 406, 70, 50], startDemo: [208, 406, 64, 50], startManual: [376, 406, 64, 50],
 };
 
 /** The hotspots per bar: [button, label, action name]; `null` actions are drawn nowhere in the game either. */
@@ -24,7 +25,7 @@ const BARS = {
   main: [["driver", "Driver Check-in", "drivers"], ["races", "Races", "races"], ["garage", "Garage", "garage"], ["multi", "Multiplayer", null], ["go", "GO", "go"]],
   hall: [["continue", "Continue", "back"]],
   results: [["hall", "Hall of Fame", "hall"], ["replay", "Instant Replay", null], ["continue", "Continue", "start"]],
-  start: [["startDriver", "Driver Check-in", "drivers"]],
+  start: [["startWeb", "Web Page", "web"], ["startDemo", "Monster Demo", null], ["startManual", "Monster Manual", null], ["startDriver", "Driver Check-in", "drivers"]],
   none: [],
 };
 
@@ -41,15 +42,17 @@ export function uiImageUrl(assets, name) {
 /**
  * @param {HTMLElement} container
  * @param {object} context
- * @param {{ title: string, backdrop?: string, bar?: keyof typeof BARS, regions?: Record<string, number[]> }} spec
+ * @param {{ title: string, backdrop?: string, bar?: keyof typeof BARS, regions?: Record<string, number[]>, options?: boolean }} spec
  *   `regions`: classic panel rectangles by name; the modern skin stacks them in one panel.
  * @returns {Promise<{ classic: boolean, regions: Record<string, HTMLElement>, unmount?: () => void }>}
  */
-export async function frame(container, context, { title, backdrop, bar = "main", regions = { main: [24, 120, 592, 280] } }) {
+export async function frame(container, context, { title, backdrop, bar = "main", regions = { main: [24, 120, 592, 280] }, options = true }) {
   const url = context.settings.skin === "classic" && backdrop ? await uiImageUrl(context.assets, backdrop) : null;
   if (!url) {
     const panel = el("div", { class: "screen-panel" });
-    container.append(el("section", { class: "screen" }, el("h1", { class: "screen-title" }, title), panel));
+    const screen = el("section", { class: "screen" }, el("h1", { class: "screen-title" }, title), panel);
+    if (options) screen.append(optionsButton(context, "screen-utility"));
+    container.append(screen);
     return { classic: false, regions: Object.fromEntries(Object.keys(regions).map((name) => [name, panel])) };
   }
 
@@ -65,11 +68,13 @@ export async function frame(container, context, { title, backdrop, bar = "main",
   for (const [button, label, action] of BARS[bar] ?? []) {
     const hotspot = el("button", {
       class: "stage-hotspot", "aria-label": label, title: label, disabled: action === null,
+      "data-menu-sound": action === "go" ? "GOOFF" : action && action !== "web" ? "STARTOFF" : null,
       onclick: () => navigate(context, action),
     });
     place(hotspot, BUTTONS[button]);
     stage.append(hotspot);
   }
+  if (options) stage.append(optionsButton(context, "stage-utility"));
   const view = el("section", { class: "stage-view" }, stage);
   container.append(view);
   const fit = () => stage.style.setProperty("--stage-scale", String(Math.min(view.clientWidth / 640, view.clientHeight / 480)));
@@ -77,6 +82,13 @@ export async function frame(container, context, { title, backdrop, bar = "main",
   observer.observe(view);
   fit();
   return { classic: true, regions: panels, unmount: () => observer.disconnect() };
+}
+
+function optionsButton(context, className) {
+  return el("button", {
+    class: className, "aria-label": "Options",
+    onclick: async () => (await import("./screens/options.js")).openOptionsModal(context),
+  }, "Options");
 }
 
 function place(node, [x, y, w, h]) {
@@ -87,6 +99,7 @@ async function navigate(context, action) {
   const { router } = context;
   if (action === "back") return router.back();
   if (action === "go") return goRace(context);
+  if (action === "web") return window.open("https://mtm2.com/", "_blank", "noopener");
   const screens = { drivers: ["drivers"], garage: ["garage"], hall: ["hall"], start: ["start"], races: ["race-select", { mode: context.raceConfig?.mode ?? "circuit" }] };
   const [name, params = {}] = screens[action];
   return router.go(name, params, { replace: true });

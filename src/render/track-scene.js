@@ -80,11 +80,17 @@ export function createModelLibrary(models, modelTextures, look) {
   const library = new Map();
   for (const [name, model] of Object.entries(models)) {
     if (!model?.meshes?.length) continue;
-    const parts = model.meshes.map((mesh) => {
+    const parts = model.meshes.map((mesh, meshIndex) => {
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute("position", new THREE.BufferAttribute(mesh.positions, 3));
       geometry.setAttribute("normal", new THREE.BufferAttribute(mesh.normals, 3));
       geometry.setAttribute("uv", new THREE.BufferAttribute(mesh.uvs, 2));
+      if (model.keyframes?.length >= 2) {
+        geometry.morphAttributes.position = model.keyframes.slice(1).map((frame) =>
+          new THREE.BufferAttribute(frame.meshes[meshIndex].positions, 3));
+        geometry.morphAttributes.normal = model.keyframes.slice(1).map((frame) =>
+          new THREE.BufferAttribute(frame.meshes[meshIndex].normals, 3));
+      }
       const map = mesh.textureName ? textureFor(mesh.textureName) : null;
       const params = {
         map,
@@ -100,7 +106,7 @@ export function createModelLibrary(models, modelTextures, look) {
         material.emissive = new THREE.Color(0xffffff);
         material.emissiveMap = map;
       }
-      return { geometry, material };
+      return { geometry, material, frameCount: model.keyframes?.length ?? 0 };
     });
     library.set(name, parts);
   }
@@ -137,6 +143,8 @@ export function placeObjects(library, objects) {
   const slots = {};
   for (const object of objects) {
     if (!library.has(object.model)) continue;
+    const animated = library.get(object.model).some((part) => part.frameCount > 1);
+    if (object.billboard || animated) continue;
     if (!byModel.has(object.model)) byModel.set(object.model, []);
     if (object.sitIndex !== undefined) slots[object.sitIndex] = [object.model, byModel.get(object.model).length];
     byModel.get(object.model).push(object.matrix);
@@ -155,6 +163,32 @@ export function placeObjects(library, objects) {
       group.add(instanced);
     }
   }
+  // Facing and keyframed objects need their own Object3D state. Static scenery stays instanced.
+  for (const object of objects) {
+    const parts = library.get(object.model);
+    if (!parts) continue;
+    const animated = parts.some((part) => part.frameCount > 1);
+    if (!object.billboard && !animated) continue;
+    const placed = new THREE.Group();
+    placed.name = "placedObject";
+    placed.userData.sitIndex = object.sitIndex;
+    placed.userData.billboard = !!object.billboard;
+    m.fromArray(object.matrix);
+    if (object.billboard) placed.position.setFromMatrixPosition(m);
+    else {
+      placed.matrixAutoUpdate = false;
+      placed.matrix.copy(m);
+    }
+    for (const part of parts) {
+      const mesh = new THREE.Mesh(part.geometry, part.material);
+      if (part.frameCount > 1) {
+        mesh.updateMorphTargets();
+        mesh.userData.frameCount = part.frameCount;
+      }
+      placed.add(mesh);
+    }
+    group.add(placed);
+  }
   return group;
 }
 
@@ -166,6 +200,15 @@ export function moveObjects(world, moves) {
   if (!moves.length) return;
   const m = new THREE.Matrix4();
   world.traverse((group) => {
+    if (group.name === "placedObject") {
+      const moved = moves.find((item) => item.sitIndex === group.userData.sitIndex);
+      if (moved) {
+        m.fromArray(moved.matrix);
+        if (group.userData.billboard) group.position.setFromMatrixPosition(m);
+        else { group.matrix.copy(m); group.matrixWorldNeedsUpdate = true; }
+      }
+      return;
+    }
     if (group.name !== "objects") return;
     const slots = group.userData.slots ?? {};
     for (const { sitIndex, matrix } of moves) {
@@ -184,6 +227,50 @@ export function moveObjects(world, moves) {
       mesh.computeBoundingSphere();
       mesh.userData.moved = false;
     }
+  });
+}
+
+/** Draw the SIT backdrop models as camera-centred scenery behind the world. */
+export function createBackdrops(build, look) {
+  if (!build.backdrops?.length) return null;
+  const library = createModelLibrary(build.models, build.modelTextures, look);
+  const group = new THREE.Group();
+  group.name = "backdrops";
+  // After the sky dome, before ordinary depth-writing world geometry.
+  group.renderOrder = -0.5;
+  for (const name of build.backdrops) {
+    for (const part of library.get(name) ?? []) {
+      const source = part.material;
+      const material = new THREE.MeshBasicMaterial({
+        map: source.map, color: source.color, transparent: source.transparent,
+        alphaTest: source.alphaTest, side: source.side, depthTest: false, depthWrite: false,
+        fog: false,
+      });
+      const mesh = new THREE.Mesh(part.geometry, material);
+      mesh.renderOrder = -0.5;
+      group.add(mesh);
+    }
+  }
+  return group.children.length ? group : null;
+}
+
+/** Face billboards, advance keyframe morphs and keep the backdrop around the camera. */
+export function updateTrackWorld(world, camera, dt) {
+  world.userData.animationTime = (world.userData.animationTime ?? 0) + dt;
+  const phase = world.userData.animationTime / 0.5;
+  const target = new THREE.Vector3();
+  world.traverse((object) => {
+    if (object.name === "backdrops") object.position.copy(camera.position);
+    if (object.userData.billboard) {
+      target.set(camera.position.x, object.position.y, camera.position.z);
+      object.lookAt(target);
+    }
+    const n = object.userData.frameCount;
+    if (!n || !object.morphTargetInfluences) return;
+    const p = phase % n, from = Math.floor(p), to = (from + 1) % n, t = p - from;
+    object.morphTargetInfluences.fill(0);
+    if (from > 0) object.morphTargetInfluences[from - 1] += 1 - t;
+    if (to > 0) object.morphTargetInfluences[to - 1] += t;
   });
 }
 
@@ -275,6 +362,8 @@ export function createTrackWorld(build, look) {
   const water = createWater(build.waterLevelFt);
   if (water) tile.add(water);
   world.add(tile);
+  const backdrops = createBackdrops(build, look);
+  if (backdrops && !build.stadium) world.add(backdrops);
   if (!build.stadium) {
     // The world wraps at 8192 ft: draw the eight neighbouring copies, which share every geometry,
     // material and texture with the original.

@@ -100,8 +100,9 @@ export function buildGroundBoxMesh({ ra0, ra1, cl0 }, atlas, lte = null, heights
 
       const slot = box.faceTexture[FACE_TO_CL0[face]];
       const rect = atlas.rects[Math.max(0, Math.min(slot, atlas.rects.length - 1))];
-      const u0 = rect[0] / atlas.width, u1 = (rect[0] + rect[2]) / atlas.width;
-      const t0 = rect[1] / atlas.height, t1 = (rect[1] + rect[3]) / atlas.height;
+      const inset = Math.min(2, Math.max(0, (Math.min(rect[2], rect[3]) - 1) / 2));
+      const u0 = (rect[0] + inset) / atlas.width, u1 = (rect[0] + rect[2] - inset) / atlas.width;
+      const t0 = (rect[1] + inset) / atlas.height, t1 = (rect[1] + rect[3] - inset) / atlas.height;
       const cu = [u0, u1, u1, u0], cv = [t1, t1, t0, t0];
       const base = face === 2 ? TOP_CORNERS : face === 3 ? FLAT_CORNERS : SIDE_CORNERS;
       const rot = box.faceRotation[FACE_TO_CL0[face]];

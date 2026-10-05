@@ -80,14 +80,15 @@ export async function loadLevel(vfs, sitPath) {
 }
 
 /**
- * A texture as the game loads it: ART\<name>.RAW with ART\<stem>.ACT, or the level palette
- * when the texture has no .ACT of its own (cTextureMap::load, 0x55a690).
+ * A texture and the palette selected by `paletteResolver` (palette-resolver.js).
  * Returns `{ name, raw, palette }` or null when the texture is missing.
  */
-export async function loadTextureSource(vfs, name, levelPalette) {
+export async function loadTextureSource(vfs, name, paletteResolver, kind = "terrain") {
   const title = podPathTitle(name);
-  const raw = await vfs.read(`ART\\${title.endsWith(".RAW") ? title : `${stemOf(title)}.RAW`}`);
-  if (!raw) return null;
-  const own = decodeActPalette(await vfs.read(`ART\\${stemOf(title)}.ACT`));
-  return { name: title, raw, palette: own ?? levelPalette };
+  const path = `ART\\${title.endsWith(".RAW") ? title : `${stemOf(title)}.RAW`}`;
+  const hit = vfs.find(path);
+  if (!hit) return null;
+  const raw = await hit.mount.readEntry(hit.entry);
+  const resolved = await paletteResolver.resolve(title, hit.entry, kind);
+  return { name: title, raw, palette: resolved.palette, paletteSource: resolved.source };
 }

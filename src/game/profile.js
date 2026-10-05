@@ -58,6 +58,18 @@ export function addDriver(profiles, name) {
   return null;
 }
 
+/** Select an existing driver by name, or create and select a new one from the editable combo box. */
+export function selectOrAddDriver(profiles, name) {
+  const clean = cleanName(name);
+  if (!clean) return "Enter a name.";
+  const existing = indexOfName(profiles, clean);
+  if (existing >= 0) {
+    profiles.current = existing;
+    return null;
+  }
+  return addDriver(profiles, clean);
+}
+
 export function renameDriver(profiles, index, name) {
   const clean = cleanName(name);
   if (!clean) return "Enter a name.";

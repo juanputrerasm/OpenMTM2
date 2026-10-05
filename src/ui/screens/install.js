@@ -4,6 +4,8 @@
 import { el } from "../dom.js";
 import { pickInstallFolder } from "../../install/picker.js";
 import { inspectSource } from "../../install/inspect-source.js";
+import { loadStrings } from "../../app/strings-store.js";
+import { primeMenuAudio, startMenuAudio } from "../../app/menu-audio.js";
 
 const MB = 1024 * 1024;
 
@@ -27,6 +29,7 @@ export default function mount(container, context) {
 
   async function pick() {
     if (busy) return;
+    primeMenuAudio(context);
     busy = true;
     pickButton.disabled = true;
     try {
@@ -81,6 +84,8 @@ export default function mount(container, context) {
     } finally {
       off();
     }
+    await loadStrings(context);
+    startMenuAudio(context);
     await context.router.go("start", {}, { replace: true });
   }
 

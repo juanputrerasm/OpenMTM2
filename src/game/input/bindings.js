@@ -25,9 +25,9 @@ export const DEFAULT_BINDINGS = Object.freeze({
   shiftUp: Object.freeze(["KeyQ", "PageUp"]),
   shiftDown: Object.freeze(["KeyZ", "PageDown"]),
   helicopter: Object.freeze(["KeyH"]),
-  horn: Object.freeze(["KeyN"]),
+  horn: Object.freeze(["Space"]),
   yeehaw: Object.freeze(["KeyY"]),
-  camera: Object.freeze(["KeyC"]),
+  camera: Object.freeze(["KeyV"]),
   pause: Object.freeze(["Escape", "KeyP"]),
 });
 

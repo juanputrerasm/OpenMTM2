@@ -29,6 +29,15 @@ test("entrants: drawing the player's truck leaves one opponent fewer; the built-
   assert.deepEqual(e.map((x) => x.file), ["A.TRK", "B.TRK", "C.TRK"]);
 });
 
+test("entrants: the Races dialog's selected trucks become the exact CPU field", () => {
+  const e = raceEntrants({
+    playerTruck: "A.TRK", trucks, slots: 8,
+    opponents: ["D.TRK", "B.TRK", "D.TRK", "A.TRK", "missing.trk"], random: seeded(2),
+  });
+  assert.deepEqual(e.map((x) => x.file), ["A.TRK", "D.TRK", "B.TRK"]);
+  assert.deepEqual(e.slice(1).map((x) => x.name), ["Mark", "Greg"]);
+});
+
 test("the grid: every driver gets a different one of the first slots", () => {
   for (let seed = 1; seed < 20; seed++) {
     const e = raceEntrants({ playerTruck: "A.TRK", trucks, slots: 8, opponents: 5, random: seeded(seed) });

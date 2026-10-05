@@ -39,6 +39,11 @@ Everything lives in the Origin Private File System:
 Small per-browser preferences (look, difficulty, laps) are in `localStorage`
 (`src/app/settings.js`).
 
+The Options menu has two separate storage actions. Use a different install removes only the
+copied install and preserves profiles, Hall of Fame entries and preferences. Clear browser game
+data removes both OpenMTM2 OPFS directories, `install` and `userdata`, plus its
+`openmtm2.settings` local-storage entry, after an explicit confirmation.
+
 ## Coordinates
 
 Game code works in the game's own units and axes: feet, seconds, radians; world y up; body

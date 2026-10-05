@@ -20,7 +20,8 @@ const THUNDER = ["THUNDR3B", "THUNDR5", "THUNDR6B", "THUNDR9B"];
 export function createWorldAudio(audio, { ambient, weather, music, random = Math.random, objects = [], hitInfo = new Map(), onEvent = () => {} }) {
   let current = weather, disposed = false;
   const loops = [];
-  const timers = (ambient?.oneShots ?? []).map((shot) => ({ shot, left: nextDelay(shot.timerMin, shot.timerMax, random) }));
+  let ambientShot = null, ambientLeft = Infinity, ambientVoice = null, ambientPending = false;
+  let lastAmbientWav = null;
   let musicVoice = null, rainVoice = null;
   const pending = [];
 
@@ -48,6 +49,46 @@ export function createWorldAudio(audio, { ambient, weather, music, random = Math
     musicVoice = /\.mod$/i.test(music) ? audio.playMod(music, { gain: 0.8 }) : audio.play(music, { loop: true, gain: 1, bus: "music" });
   }
 
+  // The port plays SOUNDnnn.TXT as one ambience programme for the track. Pick one
+  // weather-eligible entry, wait its interval, and wait for it to finish before scheduling
+  // another. Independent row timers make The Heights' birds and eagles pile up.
+  function scheduleAmbientShot() {
+    const eligible = (ambient?.oneShots ?? []).filter((shot) => weatherMaskIncludes(shot.weatherMask, current));
+    if (!eligible.length) { ambientShot = null; ambientLeft = Infinity; return; }
+    const fresh = eligible.filter((shot) => shot.wav.toLowerCase() !== lastAmbientWav);
+    const choices = fresh.length ? fresh : eligible;
+    ambientShot = choices[Math.min(choices.length - 1, Math.floor(random() * choices.length))];
+    ambientLeft = nextDelay(ambientShot.timerMin, ambientShot.timerMax, random);
+  }
+
+  function playAmbientShot(listener) {
+    const shot = ambientShot;
+    if (!shot || ambientPending || ambientVoice) return;
+    ambientShot = null;
+    ambientLeft = Infinity;
+    ambientPending = true;
+    lastAmbientWav = shot.wav.toLowerCase();
+    const angle = random() * Math.PI * 2, distance = 150 + random() * 500;
+    audio.play(shot.wav, {
+      gain: Math.min(1.5, shot.volume),
+      position: [listener[0] + Math.sin(angle) * distance, listener[1] + 20, listener[2] + Math.cos(angle) * distance],
+    }).then((voice) => {
+      ambientPending = false;
+      if (disposed) { voice?.stop(); return; }
+      if (!voice) { scheduleAmbientShot(); return; }
+      ambientVoice = voice;
+      voice.done.finally(() => {
+        if (ambientVoice !== voice) return;
+        ambientVoice = null;
+        if (!disposed) scheduleAmbientShot();
+      });
+    }).catch(() => {
+      ambientPending = false;
+      if (!disposed) scheduleAmbientShot();
+    });
+  }
+
+  scheduleAmbientShot();
   startLoops();
   startRain();
   startMusic();
@@ -81,16 +122,9 @@ export function createWorldAudio(audio, { ambient, weather, music, random = Math
   function update(dt, listener, moved = new Map()) {
     clock += dt;
     updateEmitters(listener, moved);
-    for (const t of timers) {
-      t.left -= dt;
-      if (t.left > 0) continue;
-      t.left = nextDelay(t.shot.timerMin, t.shot.timerMax, random);
-      if (!weatherMaskIncludes(t.shot.weatherMask, current)) continue;
-      const angle = random() * Math.PI * 2, distance = 150 + random() * 500;
-      audio.play(t.shot.wav, {
-        gain: Math.min(1.5, t.shot.volume),
-        position: [listener[0] + Math.sin(angle) * distance, listener[1] + 20, listener[2] + Math.cos(angle) * distance],
-      });
+    if (!ambientPending && !ambientVoice && ambientShot) {
+      ambientLeft -= dt;
+      if (ambientLeft <= 0) playAmbientShot(listener);
     }
     for (let i = pending.length - 1; i >= 0; i--) {
       pending[i].left -= dt;
@@ -105,6 +139,7 @@ export function createWorldAudio(audio, { ambient, weather, music, random = Math
       current = next;
       startLoops();
       startRain();
+      if (!ambientPending && !ambientVoice) scheduleAmbientShot();
     },
     /** Lightning flashed: the thunder follows after a moment. */
     thunder() {
@@ -127,6 +162,7 @@ export function createWorldAudio(audio, { ambient, weather, music, random = Math
       for (const voice of loops) voice.then((v) => v?.stop());
       musicVoice?.then((v) => v?.stop());
       rainVoice?.then((v) => v?.stop());
+      ambientVoice?.stop();
       for (const e of emitters) e.voice?.then((v) => v?.stop());
     },
   };

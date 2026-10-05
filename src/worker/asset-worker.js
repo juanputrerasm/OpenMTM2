@@ -14,7 +14,7 @@ import { decodeActPalette, decodeRawTexture, parseKlp, parseLoc, parseMod, parse
 import { FONT_SHEETS, parseBitmapFont } from "./bitmap-font.js";
 import { commentaryLines } from "./exe-strings.js";
 import { readFile } from "../shared/opfs.js";
-import { readUserData, writeUserData } from "./user-data.js";
+import { readUserData, removeUserData, writeUserData } from "./user-data.js";
 
 /** A reply whose buffers move to the main thread instead of being copied. */
 const TRANSFER = Symbol("transfer");
@@ -50,6 +50,14 @@ const handlers = {
     vfs = null;
     catalog = null;
     await removeInstall();
+    return true;
+  },
+
+  /** Remove every OpenMTM2 OPFS record. Preferences are cleared by the main thread. */
+  async clearGameData() {
+    vfs = null;
+    catalog = null;
+    await Promise.all([removeInstall(), removeUserData()]);
     return true;
   },
 

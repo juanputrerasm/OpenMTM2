@@ -18,17 +18,28 @@ export const DEFAULT_OPPONENTS = 3;
  */
 export function raceEntrants({ playerTruck, trucks, slots, opponents = DEFAULT_OPPONENTS, playerName = "You", random = Math.random }) {
   const catalogue = trucks.filter((t) => !t.hidden);
-  // The CPU flags: up to 5 * opponents draws, each flagging a truck not yet flagged.
-  const flagged = new Set();
-  for (let tries = opponents * 5; tries > 0 && flagged.size < opponents; tries--) {
-    flagged.add(Math.min(catalogue.length - 1, Math.floor(random() * catalogue.length)));
-  }
   const drivers = [{ name: playerName, file: playerTruck, player: true }];
-  catalogue.forEach((t, i) => {
-    if (flagged.has(i) && t.file !== playerTruck && drivers.length < Math.min(8, slots)) {
-      drivers.push({ name: CPU_NAMES[drivers.length - 1], file: t.file, player: false });
+  if (Array.isArray(opponents)) {
+    const byFile = new Map(catalogue.map((t) => [t.file.toUpperCase(), t]));
+    const selected = [...new Set(opponents.map((file) => String(file).toUpperCase()))];
+    for (const file of selected) {
+      const truck = byFile.get(file);
+      if (truck && truck.file !== playerTruck && drivers.length < Math.min(8, slots)) {
+        drivers.push({ name: CPU_NAMES[drivers.length - 1], file: truck.file, player: false });
+      }
     }
-  });
+  } else {
+    // The game's default path: up to 5 * opponents draws, each flagging a catalogue truck.
+    const flagged = new Set();
+    for (let tries = opponents * 5; tries > 0 && flagged.size < opponents; tries--) {
+      flagged.add(Math.min(catalogue.length - 1, Math.floor(random() * catalogue.length)));
+    }
+    catalogue.forEach((t, i) => {
+      if (flagged.has(i) && t.file !== playerTruck && drivers.length < Math.min(8, slots)) {
+        drivers.push({ name: CPU_NAMES[drivers.length - 1], file: t.file, player: false });
+      }
+    });
+  }
   // The start slots, shuffled among the drivers.
   const order = drivers.map((_, i) => i);
   for (let i = order.length - 1; i > 0; i--) {

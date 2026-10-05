@@ -190,7 +190,7 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
 **Moved on:** the per-track default lap count and `fastSimulateRemaining` (0.25 s ticks, sub-steps of at most 0.1 s) are part of M7's race flow; Summit Rumble scoring (MONSTER_EXE_ANALYSIS.md 6.3), Rally specifics, the reversed course and GOLD mode come with those modes; the missed-checkpoint announcer with the sounds (M11).
 
 ### M7: First playable (OpenMTM2)
-**Status: in progress.** Done: Start, Race select (Circuit tracks, the track's default laps, the number of opponents, difficulty), Garage, the game's choice of CPU trucks and its shuffled start grid, the loading screen (`ART\DATA480.RAW`), the race (every truck drawn, the 3 s countdown in Park with the start gantry's lamps, the game's HUD rows, missed-checkpoint and final-lap messages, pause, the camera key), "Determining times for remaining trucks" and Results, plus the game's Full Autopilot as a setting. A 1-lap Farm Road 29 race runs start to results in headless Chromium with no console errors. Left: the acceptance runs in Chrome, Firefox and Safari and the frame-rate check.
+**Status: in progress.** Done: Start, Race select (all track types, the track's default laps or minutes, the chosen CPU trucks and weather), Garage, the game's choice of CPU trucks and its shuffled start grid, the loading screen (`ART\DATA480.RAW`), the race (every truck drawn, the 3 s countdown in Park with the start gantry's lamps, the compact game HUD, chase speedometer, tachometer and gear display, missed-checkpoint and final-lap messages, pause, the camera key), "Determining times for remaining trucks" and the Winner's Circle table, plus the game's Full Autopilot as a setting. The two black Winner's Circle panels are reserved for the future first- and second-place truck previews. A 1-lap Farm Road 29 race runs start to results in headless Chromium with no console errors. Left: the acceptance runs in Chrome, Firefox and Safari and the frame-rate check.
 
 - **Flow:** Start → Race select (Circuit tracks, laps, difficulty) → Garage (truck pick) → Loading screen (`DATA%d.RAW`) → race → "Determining times…" → Results.
 - **The race:** 3 s countdown with start lights; HUD with Place n/8, Lap n/n, time and best lap; pause; helicopter key.
@@ -214,13 +214,41 @@ A debug "classic timing" option (variable step per frame, split above 0.1 s) is 
 |---|---|
 | M8 | Rally and Summit Rumble |
 | M9 | **In progress.** Done: Garage tuning (suspension, transfer gear, tire cut), driver profiles (JSON in OPFS, each with its own Garage setup and race tally), Hall of Fame (top ten per track and mode, JSON in OPFS), options with rebindable keys and the game's switches. Also done: the classic skin (the game's own menu art from UI.POD, with a switch back to the modern layout) and the HUD in the game's bitmap fonts. Also done: the game's message tables (UI\\MTM2-FUN.LOC, MTM2-PIG.LOC and any other .LOC in the install) as a Wording option that rewords the HUD, difficulty names and key names, and GOLD mode (reversed course, autopilot levels, collision boxes, slew and Z mode, screenshots, FRAME). Left in M9: the weather cycle key (M10), Ctrl+L, BlimpCam and RaceCam, and routing more of the menu text through the message tables. The GOODY.BIN blimp that follows the course is an optional extra (M10) |
-| M10 | **Mostly done.** Weather: a Weather choice on the Races screen (only what the track's mask allows, or Random), the grip in the sim, the weather's sky, fog and light level, rain with lightning, snow, and the trucks' headlights in Dusk, Night and Pitch Black; GOLD mode's Ctrl+W cycles it. Enhanced look: cascaded sun shadows, and the sun, moon and lens flare from the game's own `SUN.TXT` and textures. Pending (low priority): the GOODY.BIN blimp; the game's snow and rain textures (`SNOW0-3.RAW`, `SNOFLAKS.RAW`) and the fog tables for the dark weathers (the port approximates both); rain, thunder and wind sounds (M11); shadows from the terrain and from the wrapped copies of the world; objects hiding the sun from the flare |
-| M11 | **Done apart from the items below.** Web Audio with master, effects and music volumes: each truck's three engine loops from the game's own routine, skids and wheelspin by surface, gear changes, hull impacts, landings, splashes, the recovery helicopter, the horn (N) and YeeHaw (Y), objects' own hit sounds from the SIT and the sounds they make by themselves (train, crossing bell, crowds), train horns; the level's ambience, rain, thunder, checkpoint and lap sounds, music loop from `MUSIC.POD` (or a `.MOD`); the announcer, with the drivers' own name clips and its lines as text read from the player's `MONSTER.EXE` (kept at install, so an older install hears the voices but needs a reinstall for the text); `SEX.MOD` as menu music through OpenPhotex's new MOD player; menu click sounds. Pending: when the announcer speaks is the port's design (the game's own triggers are not traced); `RAINRF8` and underwater and cockpit sounds; blimp and helicopter-in-the-sky sounds; the weather phrases (`fog_`, `snow_`, `night_`) which the EXE does not reference; voice chat, Redbook tracks, force feedback; Smacker videos (unavailable) |
+| M10 | **Mostly done.** Weather: a Weather choice on the Races screen (only what the track's mask allows, or Random), the grip in the sim, the weather's sky, fog and light level, rain with lightning, snow, and the trucks' headlights in Dusk, Night and Pitch Black; GOLD mode's Ctrl+W cycles it. Enhanced look: cascaded sun shadows, and the sun, moon and lens flare from the game's own `SUN.TXT` and textures. Track rendering also uses OpenPhotex's JSTrackViewer palette ranking, including METALCR2 for Crazy '98's palette-less REX art; crops two pixels from every edge of a legacy terrain and ground-box tile; draws type 8 and 9 camera-facing objects as billboards; resolves and blends animated BIN keyframes; and draws the SIT backdrop models around the camera. Pending (low priority): the GOODY.BIN blimp; the game's snow and rain textures (`SNOW0-3.RAW`, `SNOFLAKS.RAW`) and the fog tables for the dark weathers (the port approximates both); rain, thunder and wind sounds (M11); shadows from the terrain and from the wrapped copies of the world; objects hiding the sun from the flare |
+| M11 | **Done apart from the items below.** Web Audio with master, effects and music volumes: each truck's three engine loops from the game's own routine, skids and wheelspin by surface, gear changes, hull impacts, landings, splashes, the recovery helicopter, the horn (Space), camera switch (V) and YeeHaw (Y), objects' own hit sounds from the SIT and the sounds they make by themselves (train, crossing bell, crowds), train horns; the level's per-track ambience, serialized so its one-shots do not overlap or form echo-like bursts, rain, thunder, checkpoint and lap sounds, music loop from `MUSIC.POD` (or a `.MOD`); announcer lines as text read from the player's `MONSTER.EXE` (kept at install, so an older install needs a reinstall for the text); `SOUND\SPLASH.WAV` from `MUSIC.POD` as the start and menu music; the menu's screen, track, Garage slider, GO and ordinary click sounds from `UI.POD`. The port prioritises commentary about the player's own race and does not announce unrelated world events. Announcer voice playback is temporarily disabled, including its Options switch, until its sequencing is corrected. Pending: voice commentary; when the announcer speaks is the port's design (the game's own triggers are not traced); `RAINRF8` and underwater and cockpit sounds; blimp and helicopter-in-the-sky sounds; the weather phrases (`fog_`, `snow_`, `night_`) which the EXE does not reference; voice chat, Redbook tracks, force feedback; Smacker videos (unavailable) |
 | M12 | Cockpit, finder, map, all 10 cameras |
 | M13 | Damage deformation |
 | M14 | Instant replay |
 | M15 | Multiplayer (WebRTC; each client owns its truck) |
 | M16 | Community Patch 3 support |
+
+### M9 menu layout refinement
+
+The classic menu controls use the empty regions and labels already present in the `UI.POD`
+backdrops:
+
+- Start contains only the Web Page, Monster Demo, Monster Manual and Driver Check-in switches.
+  Web Page opens `https://mtm2.com/`; the demo and online manual remain deferred. Menu music is
+  requested as soon as the installed game boots, subject to the browser's autoplay policy.
+- Driver Check-in has one editable driver-name combo box. Choosing an existing name selects that
+  profile; entering a new name creates it. The skill selector has no extra label. Truck selection
+  is on this screen only, above the future mini-garage truck preview.
+- Races lists every available race type in one two-column Track Name and Track Type table. The
+  selected track labels the small value as Laps or Minutes immediately to its left and applies the corresponding amount.
+  Its stock BMP fills the preview region, Weather lists only the track's allowed weather, and Computer
+  Opponents opens a two-list dialog for choosing the actual CPU trucks.
+- Garage contains tuning only. The transfer display combines its value with the tire-cut letter
+  (`s`, `m`, `d`) and suspension letter (`s`, `m`, `h`), for example `1500 m/s`.
+- Hall Of Fame always lists every available track in the track selector. Its one table follows the
+  artwork's columns: Place, Player, Truck display name, Skill Level, Points and Time. Points remain
+  blank where the stored result has none.
+- Every framed menu screen has an Options button at the top right. It opens a modal containing the
+  available settings, with Hall Of Fame, Use a different install and Clear browser game data
+  actions at the bottom. Clearing is confirmed first and removes the copied install, profiles,
+  Hall Of Fame entries and preferences.
+- Winner's Circle leaves the first- and second-place black panels empty for future 3D truck
+  previews. The table follows the artwork's Place, Player Name, Truck, Skill Level, Points, Time
+  and Fast Lap columns without drawing a second header row.
 
 ---
 

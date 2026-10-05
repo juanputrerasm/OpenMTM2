@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { mtm2Sim } from "../src/vendor/openphotex/index.js";
 import { buildTerrainAtlas, buildTerrainMesh, decodeTerrainTextures } from "../src/worker/terrain-mesh.js";
 import { loadLevel, loadTextureSource } from "../src/worker/level-load.js";
+import { createPaletteResolver } from "../src/worker/palette-resolver.js";
 import { skipWithoutStock, stockVfs } from "./helpers/stock.mjs";
 
 /** Height of the mesh under game point (x, z), from the triangle that contains it. */
@@ -66,17 +67,32 @@ test("faces point up; CLR rotation and mirror pick the tile corners", () => {
   }
   const [rx, ry, rw, rh] = atlas.rects[1];
   const corner = (k) => [mesh.uvs[k * 2], mesh.uvs[k * 2 + 1]];
-  const u0 = rx / atlas.width, u1 = (rx + rw) / atlas.width, v0 = ry / atlas.height, v1 = (ry + rh) / atlas.height;
+  const u0 = (rx + 2) / atlas.width, u1 = (rx + rw - 2) / atlas.width;
+  const v0 = (ry + 2) / atlas.height, v1 = (ry + rh - 2) / atlas.height;
   // Unturned corner order is (u0, v1), (u1, v1), (u1, v0), (u0, v0); a quarter turn shifts it by one.
   assert.deepEqual(corner(0).map((n) => +n.toFixed(6)), [u1, v1].map((n) => +n.toFixed(6)));
   // Mirror bit 0 maps corner k to 3 - k.
   assert.deepEqual(corner(4).map((n) => +n.toFixed(6)), [u0, v0].map((n) => +n.toFixed(6)));
 });
 
+test("terrain UVs crop two legacy pixels at every tile edge", () => {
+  const atlas = buildTerrainAtlas([null]);
+  const mesh = buildTerrainMesh({ heights: new Uint8Array(65536), clr: new Uint16Array(65536), lte: null, atlas });
+  const [rx, ry, rw, rh] = atlas.rects[0];
+  const us = [mesh.uvs[0], mesh.uvs[2], mesh.uvs[4], mesh.uvs[6]];
+  const vs = [mesh.uvs[1], mesh.uvs[3], mesh.uvs[5], mesh.uvs[7]];
+  const near = (got, want) => assert.ok(Math.abs(got - want) < 1e-7, `${got} != ${want}`);
+  near(Math.min(...us), (rx + 2) / atlas.width);
+  near(Math.max(...us), (rx + rw - 2) / atlas.width);
+  near(Math.min(...vs), (ry + 2) / atlas.height);
+  near(Math.max(...vs), (ry + rh - 2) / atlas.height);
+});
+
 test("stock TPARK: atlas from ART textures, LTE shading", { skip: skipWithoutStock("POD.INI") }, async () => {
   const vfs = stockVfs();
   const level = await loadLevel(vfs, "WORLD\\TPARK.SIT");
-  const sources = await Promise.all(level.textureNames.map((n) => loadTextureSource(vfs, n, level.palette)));
+  const palettes = createPaletteResolver(vfs, "MTM2", level.palette);
+  const sources = await Promise.all(level.textureNames.map((n) => loadTextureSource(vfs, n, palettes, "terrain")));
   const decoded = decodeTerrainTextures(sources);
   assert.ok(decoded.filter(Boolean).length >= decoded.length - 1);
   const atlas = buildTerrainAtlas(decoded);
@@ -105,6 +121,20 @@ test("stock tracks build for rendering: objects placed, textures decoded", { ski
   const buffers = transferablesOf(build);
   assert.equal(new Set(buffers).size, buffers.length);
   assert.ok(buffers.every((b) => b.byteLength < 64 * 1024 * 1024));
+});
+
+test("stock animated objects, facing objects and backdrops are prepared for rendering", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const { buildTrackRender } = await import("../src/worker/track-build.js");
+  const vfs = stockVfs();
+  const crazy = await buildTrackRender(vfs, "WORLD\\CRAZY98.SIT");
+  assert.deepEqual(crazy.backdrops, ["EE4DROP.BIN"]);
+  assert.equal(crazy.models["REX.BIN"].keyframes.length, 4);
+  assert.ok(crazy.objects.some((object) => object.type === 8 && object.billboard));
+  assert.ok(crazy.objects.every((object) => object.type !== 7 || !object.billboard));
+
+  const aussie = await buildTrackRender(vfs, "WORLD\\AUSSIE.SIT");
+  assert.deepEqual(aussie.backdrops, ["HH4DROP.BIN"]);
+  assert.equal(aussie.models["PUMPJACK.BIN"].keyframes.length, 8);
 });
 
 test("which boxes are drawn", async () => {

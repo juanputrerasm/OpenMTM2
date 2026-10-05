@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addDriver, cleanGarage, currentDriver, emptyProfiles, normalizeProfiles, recordRace, removeDriver, renameDriver } from "../src/game/profile.js";
+import { addDriver, cleanGarage, currentDriver, emptyProfiles, normalizeProfiles, recordRace, removeDriver, renameDriver, selectOrAddDriver } from "../src/game/profile.js";
 import { addEntry, emptyHall, normalizeHall, topFor } from "../src/game/hall-of-fame.js";
 
 test("profiles: add, rename and remove drivers; names are unique and the last driver stays", () => {
@@ -15,6 +15,16 @@ test("profiles: add, rename and remove drivers; names are unique and the last dr
   assert.equal(removeDriver(p, 1), null);
   assert.equal(p.current, 0);
   assert.match(removeDriver(p, 0), /At least one/);
+});
+
+test("profiles: the editable driver combo selects an existing name or creates a new driver", () => {
+  const p = emptyProfiles();
+  addDriver(p, "Ana");
+  assert.equal(selectOrAddDriver(p, "player"), null);
+  assert.equal(p.current, 0);
+  assert.equal(selectOrAddDriver(p, "Sam"), null);
+  assert.equal(currentDriver(p).name, "Sam");
+  assert.equal(p.drivers.length, 3);
 });
 
 test("profiles: stored data is repaired, the garage kept in range, races counted", () => {

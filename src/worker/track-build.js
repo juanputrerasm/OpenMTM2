@@ -12,8 +12,10 @@ import { toSceneMatrix } from "../shared/scene-frame.js";
 import { loadLevel, loadTextureSource } from "./level-load.js";
 import { buildTerrainAtlas, buildTerrainMesh, decodeTerrainTextures } from "./terrain-mesh.js";
 import { decodeModel } from "./models.js";
+import { resolveKeyframeModel } from "./keyframes.js";
 import { buildGroundBoxMesh } from "./ground-box-mesh.js";
 import { buildTruckRender } from "./truck-build.js";
+import { createPaletteResolver } from "./palette-resolver.js";
 
 const RAMP_TYPE = 99;
 const CHECKPOINT_TYPE = 6;
@@ -39,8 +41,9 @@ export function boxIsDrawn(box, { levelType, raceType, detailLevel }) {
 export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType = "circuit", truckFiles = [], weather = 0 } = {}) {
   const level = await loadLevel(vfs, sitPath);
   const { sit } = level;
+  const palettes = createPaletteResolver(vfs, "MTM2", level.palette);
 
-  const sources = await Promise.all(level.textureNames.map((n) => loadTextureSource(vfs, n, level.palette)));
+  const sources = await Promise.all(level.textureNames.map((n) => loadTextureSource(vfs, n, palettes, "terrain")));
   const atlas = buildTerrainAtlas(decodeTerrainTextures(sources));
   // In a stadium the game draws only the cells inside its footprint (MONSTER.EXE 0x4f9ff0):
   // [x - sx/2, x + sx/2) by [z - sz/2, z + sz/2).
@@ -54,19 +57,36 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
 
   // Models, once each.
   const models = {};
+  const decoded = new Map();
+  const decodeNamed = async (name) => {
+    const title = podPathTitle(name);
+    if (!decoded.has(title)) decoded.set(title, vfs.read(`MODELS\\${title}`).then((bytes) => bytes ? decodeModel(bytes, title) : null));
+    return decoded.get(title);
+  };
+  const loadModel = async (name) => {
+    const title = podPathTitle(name);
+    if (title in models) return models[title];
+    const model = await decodeNamed(title);
+    models[title] = await resolveKeyframeModel(model, decodeNamed);
+    return models[title];
+  };
   const objects = [];
   for (const [sitIndex, box] of sit.boxes.entries()) {
     const name = box.modelName ? podPathTitle(box.modelName) : "";
     if (!name || box.type === RAMP_TYPE) continue;
     if (!boxIsDrawn(box, { levelType: level.lvl.levelType, raceType, detailLevel })) continue;
-    if (!(name in models)) {
-      const bytes = await vfs.read(`MODELS\\${name}`);
-      models[name] = bytes ? decodeModel(bytes, name) : null;
-    }
+    if (!(name in models)) await loadModel(name);
     if (!models[name] || !box.positionFt) continue;
     const m = mtm2Sim.eulerToMatrix(box.theta, box.phi, box.psi, new Array(9));
-    objects.push({ model: name, type: box.type, sitIndex, matrix: toSceneMatrix(m, box.positionFt) });
+    objects.push({
+      model: name, type: box.type, sitIndex, matrix: toSceneMatrix(m, box.positionFt),
+      billboard: box.type === 8 || box.type === 9,
+    });
   }
+
+  // Backdrops are ordinary BIN assets with a special camera-centred draw policy.
+  const backdrops = (sit.backdropModelNames ?? []).map(podPathTitle).filter(Boolean);
+  for (const name of backdrops) await loadModel(name);
 
   // Collision boxes (MTM2_PHYSICS.md 14.15): every solid box, sized by its model's vertex
   // bounds when it has one. Drawn or not does not matter; the same priority rule applies.
@@ -76,7 +96,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     if (box.type === RAMP_TYPE || !box.positionFt || !mtm2Sim.levelBoxCollides(box, detailLevel)) continue;
     const name = box.modelName ? podPathTitle(box.modelName) : "";
     if (name && !(name in boundsOf)) {
-      const model = name in models ? models[name] : await vfs.read(`MODELS\\${name}`).then((b) => (b ? decodeModel(b, name) : null));
+      const model = name in models ? models[name] : await loadModel(name);
       boundsOf[name] = model?.bounds ?? null;
     }
     collisionBoxes.push({
@@ -100,7 +120,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     if (box.type !== 6 || !box.modelName) continue;
     const name = podPathTitle(box.modelName);
     if (name in boundsOf) continue;
-    const model = name in models ? models[name] : await vfs.read(`MODELS\\${name}`).then((b) => (b ? decodeModel(b, name) : null));
+    const model = name in models ? models[name] : await loadModel(name);
     boundsOf[name] = model?.bounds ?? null;
   }
 
@@ -110,7 +130,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     if (box.type !== RAMP_TYPE || !box.positionFt) continue;
     const name = box.modelName ? podPathTitle(box.modelName) : "";
     if (name && !(name in boundsOf)) {
-      const model = name in models ? models[name] : await vfs.read(`MODELS\\${name}`).then((b) => (b ? decodeModel(b, name) : null));
+      const model = name in models ? models[name] : await loadModel(name);
       boundsOf[name] = model?.bounds ?? null;
     }
     ramps.push({ positionFt: box.positionFt, theta: box.theta, phi: box.phi, psi: box.psi, sizeFt: box.sizeFt, mass: box.mass, bounds: name ? boundsOf[name] : null });
@@ -120,8 +140,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   // the ground height of its footprint's low corner.
   if (sit.arena?.modelName) {
     const name = podPathTitle(sit.arena.modelName);
-    const bytes = await vfs.read(`MODELS\\${name}`);
-    models[name] = bytes ? decodeModel(bytes, name) : null;
+    models[name] = await loadModel(name);
     if (models[name]) {
       const terrain = mtm2Sim.createTerrain(level.heights, level.waterLevelFt);
       const xFt = sit.arena.x * 32, zFt = sit.arena.y * 32;
@@ -140,7 +159,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   }
   const modelTextures = {};
   for (const [name, cutout] of textureUse) {
-    const source = await loadTextureSource(vfs, name, level.palette);
+    const source = await loadTextureSource(vfs, name, palettes, "model");
     if (!source || !rawTextureSide(source.raw.length)) continue;
     try {
       const image = decodeRawTexture(source.raw, source.palette, { cutout });
@@ -155,14 +174,14 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   const trucks = [];
   for (const truck of sit.trucks.filter((t) => !t.playerSlot && t.positionFt)) {
     const file = podPathTitle(truck.name).toUpperCase();
-    if (!(file in truckModels)) truckModels[file] = await buildTruckRender(vfs, file, level.palette);
+    if (!(file in truckModels)) truckModels[file] = await buildTruckRender(vfs, file, palettes);
     if (!truckModels[file]) continue;
     const m = mtm2Sim.eulerToMatrix(truck.theta, truck.phi, truck.psi, new Array(9));
     trucks.push({ file, matrix: toSceneMatrix(m, truck.positionFt) });
   }
   // The trucks a race puts on the grid instead (the player's pick and the CPU trucks).
   for (const file of truckFiles.map((f) => podPathTitle(f).toUpperCase())) {
-    if (!(file in truckModels)) truckModels[file] = await buildTruckRender(vfs, file, level.palette);
+    if (!(file in truckModels)) truckModels[file] = await buildTruckRender(vfs, file, palettes);
   }
 
   const course = sit.primaryCourse?.segments ?? [];
@@ -184,6 +203,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     soundObjects,
     modelTextures,
     objects,
+    backdrops,
     truckModels,
     trucks,
     sky,

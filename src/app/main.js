@@ -5,9 +5,7 @@ import { Router } from "./router.js";
 import { loadSettings } from "./settings.js";
 import { createStrings } from "../game/strings.js";
 import { loadStrings } from "./strings-store.js";
-import { createAudio } from "../audio/audio-engine.js";
-import { attachMenuSounds } from "../audio/menu-sounds.js";
-import { createMenuMusic } from "../audio/menu-music.js";
+import { startMenuAudio } from "./menu-audio.js";
 import { WorkerClient } from "../shared/worker-client.js";
 
 const screens = {
@@ -51,12 +49,8 @@ async function boot() {
   const { installed } = await context.assets.call("installStatus");
   if (installed) {
     await loadStrings(context);
-    // The menus click; the race has its own audio and the menus fall quiet under it.
-    context.menuAudio = createAudio(context.assets, context.settings.sound);
-    attachMenuSounds(document, context.menuAudio, context.settings);
-    context.menuMusic = createMenuMusic(context.menuAudio, context.settings);
-    context.menuMusic.start();
-    window.__openmtm2Menu = context.menuAudio;
+    // Menu and race sounds share one unlocked audio context; the menu music stops during a race.
+    startMenuAudio(context);
   }
   await router.go(installed ? "start" : "install");
 }

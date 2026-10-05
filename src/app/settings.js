@@ -15,13 +15,14 @@ export const DEFAULT_SETTINGS = Object.freeze({
   laps: 3,
   weather: 0,                 // 0 Clear ... 8 Pitch Black, or "random" (a track may not allow it)
   opponents: 3,               // MONSTER.INI defaultOpponents (built-in default 3)
+  opponentTrucks: Object.freeze([]), // explicitly selected CPU truck files from the Races dialog
   wording: "",                // a .LOC from the install that rewords the game's text ("" is the standard wording)
   skin: "classic",            // "classic" (the game's own menu art from UI.POD) or "modern"
   developer: false,           // list tracks and trucks with the developer views on the Start screen
   sound: Object.freeze({ master: 1, effects: 1, music: 0.6, muted: false }),
-  commentary: false,          // MONSTER.INI commentaryFlag: the announcer's voice (off by default)
+  commentary: false,          // reserved for commentaryFlag; voice playback is temporarily disabled
   textCommentary: false,      // textCommentaryFlag: its lines as text (off by default)
-  menuMusic: true,            // the menus play MUSIC\\SEX.MOD (UseModMusic)
+  menuMusic: true,            // the menus play SOUND\\SPLASH.WAV from MUSIC.POD
   kookyHorn: false,           // MONSTER.INI kookyHorn: three horns instead of one
   autoShift: true,            // automatic gears (the game's default)
   bindings: Object.freeze({}), // key code overrides by action, see game/input/bindings.js
@@ -44,5 +45,13 @@ export function saveSettings(settings) {
     localStorage.setItem(KEY, JSON.stringify(settings));
   } catch {
     // Not persisted; the session keeps working with what it has.
+  }
+}
+
+export function clearSettings(storage = globalThis.localStorage) {
+  try {
+    storage.removeItem(KEY);
+  } catch {
+    // The OPFS data can still be cleared when local storage is unavailable.
   }
 }

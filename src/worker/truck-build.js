@@ -21,9 +21,9 @@ async function model(vfs, name) {
 /**
  * @param {ReturnType<import("./vfs.js").createVfs>} vfs
  * @param {string} trkName e.g. "bigfoot.trk"
- * @param {Uint8Array|null} fallbackPalette for textures without their own .ACT
+ * @param {ReturnType<import("./palette-resolver.js").createPaletteResolver>} paletteResolver
  */
-export async function buildTruckRender(vfs, trkName, fallbackPalette = null) {
+export async function buildTruckRender(vfs, trkName, paletteResolver) {
   const title = podPathTitle(trkName).toUpperCase();
   const bytes = await vfs.read(`TRUCK\\${title.endsWith(".TRK") ? title : `${title}.TRK`}`);
   if (!bytes) return null;
@@ -45,7 +45,7 @@ export async function buildTruckRender(vfs, trkName, fallbackPalette = null) {
     for (const mesh of part?.meshes ?? []) {
       const name = mesh.textureName;
       if (!name || name in textures) continue;
-      const source = await loadTextureSource(vfs, name, fallbackPalette);
+      const source = await loadTextureSource(vfs, name, paletteResolver, "model");
       if (!source?.palette || !rawTextureSide(source.raw.length)) { textures[name] = null; continue; }
       const image = decodeRawTexture(source.raw, source.palette, { cutout: mesh.cutout });
       textures[name] = { width: image.width, height: image.height, rgba: image.rgba };

@@ -16,12 +16,14 @@ export function createAudio(assets, volumes = {}) {
   const AudioContextClass = globalThis.AudioContext ?? globalThis.webkitAudioContext;
   if (!AudioContextClass) return createSilentAudio();
   const ctx = new AudioContextClass();
-  const master = ctx.createGain(), effects = ctx.createGain(), music = ctx.createGain();
+  const master = ctx.createGain(), effects = ctx.createGain(), music = ctx.createGain(), commentary = ctx.createGain();
   effects.connect(master);
   music.connect(master);
+  commentary.connect(master);
   master.connect(ctx.destination);
   const buffers = new Map();
   let active = 0;
+  let ducked = false, currentVolumes = {};
 
   /** The decoded sample (and its loop region in seconds, or null) for a name; null when the install lacks it. */
   function sample(name) {
@@ -38,16 +40,24 @@ export function createAudio(assets, volumes = {}) {
   }
 
   function setVolumes(v) {
+    currentVolumes = v;
     const level = (x, fallback) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : fallback);
     master.gain.value = v.muted ? 0 : level(v.master, 1);
-    effects.gain.value = level(v.effects, 1);
-    music.gain.value = level(v.music, 0.6);
+    const effectsLevel = level(v.effects, 1), musicLevel = level(v.music, 0.6);
+    effects.gain.value = effectsLevel * (ducked ? 0.35 : 1);
+    music.gain.value = musicLevel * (ducked ? 0.25 : 1);
+    commentary.gain.value = effectsLevel;
+  }
+  function setDucking(on) {
+    ducked = !!on;
+    setVolumes(currentVolumes);
   }
   setVolumes(volumes);
 
   /**
    * Start a sample. Options: `gain`, `rate`, `loop` (use its loop points), `position` ([x, y, z]
-   * feet; unpositioned when absent), `bus` ("effects" or "music"), `randomStart`. Resolves to a
+   * feet; unpositioned when absent), `bus` ("effects", "music" or "commentary"), `randomStart`.
+   * Resolves to a
    * voice `{ setGain, setRate, setPosition, stop }`, or null when the sample is missing.
    */
   async function play(name, { gain = 1, rate = 1, loop = false, position = null, bus = "effects", randomStart = false } = {}) {
@@ -71,9 +81,9 @@ export function createAudio(assets, volumes = {}) {
       panner.positionY.value = position[1];
       panner.positionZ.value = -position[2];
       volume.connect(panner);
-      panner.connect(bus === "music" ? music : effects);
+      panner.connect(bus === "music" ? music : bus === "commentary" ? commentary : effects);
     } else {
-      volume.connect(bus === "music" ? music : effects);
+      volume.connect(bus === "music" ? music : bus === "commentary" ? commentary : effects);
     }
     let offset = 0;
     if (loop) {
@@ -131,9 +141,9 @@ export function createAudio(assets, volumes = {}) {
   }
 
   return {
-    context: ctx, sample, play, playMod, setVolumes, setListener,
+    context: ctx, sample, play, playMod, setVolumes, setDucking, setListener,
     /** For tests and debugging: the context state, the samples asked for and the voices playing. */
-    stats: () => ({ state: ctx.state, samples: buffers.size, voices: active }),
+    stats: () => ({ state: ctx.state, samples: buffers.size, sampleNames: [...buffers.keys()], voices: active }),
     resume: () => (ctx.state === "suspended" ? ctx.resume().catch(() => {}) : Promise.resolve()),
     suspend: () => ctx.suspend().catch(() => {}),
     dispose: () => ctx.close().catch(() => {}),
@@ -144,7 +154,7 @@ export function createAudio(assets, volumes = {}) {
 export function createSilentAudio() {
   const voice = { done: Promise.resolve(), stopped: true, setGain() {}, setRate() {}, setPosition() {}, stop() {} };
   return {
-    context: null, stats: () => ({ state: "none", samples: 0, voices: 0 }), sample: async () => null, play: async () => voice, playMod: async () => voice, setVolumes() {}, setListener() {},
-    resume: async () => {}, suspend: async () => {}, dispose: async () => {},
+    context: null, stats: () => ({ state: "none", samples: 0, sampleNames: [], voices: 0 }), sample: async () => null, play: async () => voice, playMod: async () => voice, setVolumes() {}, setListener() {},
+    setDucking() {}, resume: async () => {}, suspend: async () => {}, dispose: async () => {},
   };
 }

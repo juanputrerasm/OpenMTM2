@@ -49,6 +49,11 @@ button.primary {
   color: var(--accent-text);
   font-weight: bold;
 }
+button.danger {
+  border-color: var(--danger);
+  color: #ff9d8d;
+}
+button.danger:hover:not(:disabled) { background: #3a1713; border-color: #ff735e; }
 
 .muted { color: var(--muted); }
 .error { color: var(--danger); }

@@ -1,16 +1,18 @@
 /*
-  The menus' click sounds (`SOUND\MOUSEON.WAV` as the pointer reaches a button, `DOWN.WAV` and
-  `UP.WAV` as it is pressed and released, from UI.POD). One listener on the document covers every
-  button, including the classic skin's hotspots.
+  Menu interface sounds from UI.POD. An ordinary button uses CONOPTUP. A button can select a
+  specific sound with data-menu-sound, including "none". One listener covers modern controls
+  and the classic skin's invisible hotspots.
 */
+export function playMenuSound(audio, settings, name, gain = 0.6) {
+  if (!audio || settings.sound?.muted || !name || name === "none") return;
+  audio.resume();
+  audio.play(name, { gain });
+}
+
 export function attachMenuSounds(doc, audio, settings) {
   let lastHover = null;
   const isButton = (target) => target?.closest?.("button:not(:disabled), .stage-hotspot:not(:disabled)");
-  const play = (name, gain) => {
-    if (settings.sound?.muted) return;
-    audio.resume();
-    audio.play(name, { gain });
-  };
+  const play = (name, gain) => playMenuSound(audio, settings, name, gain);
   const onOver = (e) => {
     const button = isButton(e.target);
     if (!button || button === lastHover) return;
@@ -18,8 +20,11 @@ export function attachMenuSounds(doc, audio, settings) {
     play("MOUSEON", 0.35);
   };
   const onOut = (e) => { if (!e.relatedTarget || !isButton(e.relatedTarget)) lastHover = null; };
-  const onDown = (e) => { if (isButton(e.target)) play("DOWN", 0.5); };
-  const onUp = (e) => { if (isButton(e.target)) play("UP", 0.5); };
+  const onDown = () => audio.resume();
+  const onUp = (e) => {
+    const button = isButton(e.target);
+    if (button) play(button.dataset.menuSound ?? "CONOPTUP", 0.6);
+  };
   doc.addEventListener("pointerover", onOver);
   doc.addEventListener("pointerout", onOut);
   doc.addEventListener("pointerdown", onDown);

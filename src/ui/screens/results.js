@@ -10,6 +10,18 @@ import { recordRace } from "../../game/profile.js";
 import { goRace } from "../../app/flow.js";
 import { frame } from "../frame.js";
 
+const DIFFICULTIES = ["Rookie", "Intermediate", "Professional"];
+
+/** The seven cells under the headings already painted into RESULTS.BMP. */
+export function winnerCells(row, { summit = false, laps = 1, difficulty = 1 } = {}) {
+  return [
+    ordinal(row.place), row.name, row.truckName, DIFFICULTIES[difficulty] ?? DIFFICULTIES[1],
+    summit ? String(Math.round(row.score)) : "",
+    summit ? formatRaceTime(laps * 60) : (row.finished ? formatRaceTime(row.raceTime) : `${row.laps}/${laps}`),
+    row.best ? formatRaceTime(row.best) : "",
+  ];
+}
+
 export default async function mount(container, context, { track, laps, difficulty = 1, rows, mode, truck }) {
   const summit = mode === "summit";
   const me = rows.find((r) => r.player);
@@ -35,27 +47,20 @@ export default async function mount(container, context, { track, laps, difficult
   const sorted = [...rows].sort((a, b) => a.place - b.place);
   const ui = await frame(container, context, {
     title: "Winner's Circle", backdrop: "RESULTS", bar: "results",
-    regions: { first: [24, 170, 170, 40], second: [470, 108, 160, 40], table: [32, 286, 572, 98] },
+    regions: { first: [12, 92, 410, 140], second: [470, 108, 160, 143], table: [32, 287, 572, 95] },
   });
-  if (ui.classic) {
-    ui.regions.first.append(sorted[0]?.name ?? "");
-    ui.regions.second.append(sorted[1]?.name ?? "");
-  }
+  // The first and second regions are reserved for future 3D truck previews.
+  ui.regions.first.classList.add("winner-preview");
+  ui.regions.second.classList.add("winner-preview");
   ui.regions.table.append(
-    el("p", { class: "muted" }, summit ? `${track.name}, ${laps} minutes` : `${track.name}, ${laps} ${laps === 1 ? "lap" : "laps"}`),
-    hallNote ? el("p", { class: "hall-note" }, hallNote) : null,
-    el("table", { class: "results" },
-      el("thead", {}, el("tr", {}, ...(summit ? ["Place", "Driver", "Truck", "Score"] : ["Place", "Driver", "Truck", "Time", "Best lap"]).map((h) => el("th", {}, h)))),
-      el("tbody", {}, ...sorted.map((r) => el("tr", { class: r.player ? "player" : null },
-        el("td", {}, ordinal(r.place)),
-        el("td", {}, r.name),
-        el("td", {}, r.truckName),
-        ...(summit ? [el("td", {}, String(Math.round(r.score)))] : [
-          el("td", {}, r.finished ? formatRaceTime(r.raceTime) : `${r.laps} of ${laps} laps`),
-          el("td", {}, r.best ? formatRaceTime(r.best) : "")])))),
-    ),
-    el("div", { class: "screen-actions" },
-      ui.classic ? null : el("button", { onclick: () => context.router.go("start", {}, { replace: false }) }, "Main menu"),
-      el("button", { class: "primary", onclick: () => goRace(context) }, "Race again")));
+    el("table", { class: "results winners-table", title: hallNote ?? "" },
+      el("tbody", {}, ...sorted.map((r) => {
+        const cells = winnerCells(r, { summit, laps, difficulty });
+        cells[3] = context.t(cells[3]);
+        return el("tr", { class: r.player ? "player" : null }, ...cells.map((cell) => el("td", {}, cell)));
+      }))));
+  if (!ui.classic) ui.regions.table.append(el("div", { class: "screen-actions" },
+    el("button", { "data-menu-sound": "STARTOFF", onclick: () => context.router.go("start", {}, { replace: false }) }, "Main menu"),
+    el("button", { class: "primary", "data-menu-sound": "GOOFF", onclick: () => goRace(context) }, "Race again")));
   return { unmount: ui.unmount };
 }

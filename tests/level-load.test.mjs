@@ -4,6 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadLevel, loadTextureSource } from "../src/worker/level-load.js";
+import { createPaletteResolver } from "../src/worker/palette-resolver.js";
 import { buildCatalog } from "../src/worker/catalog.js";
 import { skipWithoutStock, stockVfs } from "./helpers/stock.mjs";
 
@@ -18,11 +19,12 @@ test("every stock track loads: heightfield, colour grid, textures, types, palett
     assert.ok(level.textureNames.length > 0, `${track.file} textures`);
     assert.ok(level.textureValues.some((v) => v > 0), `${track.file} surface types`);
     assert.equal(level.palette?.length, 768, `${track.file} palette`);
+    const palettes = createPaletteResolver(vfs, "MTM2", level.palette);
     // Every texture the grid uses is in the list and loads from ART\.
     const used = new Set([...level.clr].map((w) => w & 0xfff));
     for (const slot of used) {
       assert.ok(slot < level.textureNames.length, `${track.file} slot ${slot}`);
-      const source = await loadTextureSource(vfs, level.textureNames[slot], level.palette);
+      const source = await loadTextureSource(vfs, level.textureNames[slot], palettes, "terrain");
       assert.ok(source, `${track.file} ${level.textureNames[slot]}`);
     }
   }

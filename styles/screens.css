@@ -76,8 +76,8 @@ table.results tr.player td { color: var(--accent); font-weight: 600; }
 .race-loading { position: absolute; inset: 0; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
 .race-loading-art { max-width: 100%; max-height: 100%; width: auto; height: 100%; object-fit: contain; image-rendering: pixelated; }
 .race-loading-text { position: absolute; bottom: 16px; margin: 0; color: #fff; font: 600 16px/1.4 system-ui, sans-serif; text-shadow: 0 1px 2px #000; }
-.race-hud-stack { position: absolute; top: 4px; left: 6px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
-.race-hud { background: rgba(0, 0, 0, 0.35); color: #fff; font: 600 15px/1.35 ui-monospace, monospace; image-rendering: pixelated; }
+.race-hud { position: absolute; z-index: 3; top: 4px; left: 6px; color: #fff; font: 600 15px/1.35 ui-monospace, monospace; image-rendering: pixelated; }
+.race-gauges { position: absolute; z-index: 3; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; pointer-events: none; }
 .race-message { position: absolute; left: 50%; top: 34%; transform: translateX(-50%); margin: 0; color: #fff; font: 700 22px/1.3 system-ui, sans-serif; text-align: center; image-rendering: pixelated; }
 .race-pause { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(0, 0, 0, 0.55); }
 .race-pause[hidden], .race-message[hidden], .race-loading[hidden] { display: none; }
@@ -108,14 +108,89 @@ table.results tr.player td { color: var(--accent); font-weight: 600; }
 .garage-race { position: absolute; left: 16px; top: 296px; }
 .stage-panel .tabs { flex-direction: column; margin: 0; }
 .stage-panel .tabs button { width: 100%; }
-.stage-panel-first, .stage-panel-second { background: transparent; border: 0; font-size: 18px; font-weight: 700; text-shadow: 0 1px 3px #000; overflow: hidden; }
+.stage-panel-first, .stage-panel-second { background: transparent; border: 0; overflow: hidden; }
 .stage-panel .menu { flex-direction: column; align-items: stretch; }
 .stage-panel .menu { gap: 4px; }
 .stage-panel .menu button { padding: 2px 8px; }
 .stage-panel-menu > p { margin: 0 0 4px; }
+.screen-utility { position: fixed; z-index: 20; top: 14px; right: 14px; }
+.stage-utility { position: absolute; z-index: 20; top: 10px; right: 10px; padding: 5px 12px; background: rgba(0, 0, 0, 0.72); }
+
+/* The controls below sit inside labelled openings already present in the classic BMPs. */
+.stage-panel-name, .stage-panel-skill, .stage-panel-truck, .stage-panel-message,
+.stage-panel-lengthLabel, .stage-panel-length, .stage-panel-opponents, .stage-panel-preview, .stage-panel-weather,
+.stage-panel-summary, .stage-panel-tracks {
+  padding: 0; border: 0; border-radius: 0; background: transparent; overflow: hidden;
+}
+.stage-panel-name input, .stage-panel-skill select, .stage-panel-truck select,
+.stage-panel-length input, .stage-panel-weather select, .stage-panel-tracks select {
+  width: 100%; height: 100%; margin: 0;
+}
+.stage-panel-message { background: transparent; }
+.driver-message { font-size: 11px; }
+.truck-preview-placeholder { min-height: 160px; display: grid; place-items: center; margin: 12px 0; border: 1px dashed var(--panel-edge); color: var(--muted); text-align: center; }
+
+.stage-panel-list { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.race-track-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.race-track-table td { padding: 3px 5px; border: 0; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.race-track-table td:first-child { width: 56%; }
+.race-track-table tr:hover td { background: rgba(255, 255, 255, 0.18); }
+.race-track-table tr.selected td { background: #293a92; color: #fff; }
+.stage-panel-list .race-track-table { font-size: 10px; line-height: 1.05; }
+.stage-panel-list .race-track-table td { padding: 1px 5px; }
+.stage-panel-opponents .opponents-button { width: 100%; height: 100%; padding: 0; border: 0; border-radius: 12px; background: transparent; }
+.stage-panel-opponents .opponents-button:hover { background: rgba(255, 255, 255, 0.16); }
+.track-preview { display: block; width: 100%; height: 100%; object-fit: fill; image-rendering: auto; }
+.track-preview-modern { width: 257px; height: 210px; margin: 12px 0; background: #000; }
+.race-length { text-align: center; }
+.stage-panel-lengthLabel { display: grid; place-items: center end; padding: 0 4px 0 0; border: 0; background: transparent; }
+.race-length-label { color: #fff; font-weight: 700; text-shadow: 0 1px 3px #000; }
+
+.garage-summary { display: inline-block; width: 100%; color: #fff; font-weight: 700; text-transform: lowercase; text-align: center; text-shadow: 0 1px 3px #000; }
+.stage-panel-summary { display: grid; align-items: center; }
+
+.stage-panel-table { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.stage-panel-table .hall-results { font-size: 11px; table-layout: fixed; }
+.stage-panel-table .hall-results td { padding: 2px 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; border: 0; }
+.stage-panel-table .hall-results td:nth-child(1) { width: 9%; }
+.stage-panel-table .hall-results td:nth-child(2) { width: 21%; }
+.stage-panel-table .hall-results td:nth-child(3) { width: 26%; }
+.stage-panel-table .hall-results td:nth-child(4) { width: 22%; }
+.stage-panel-table .hall-results td:nth-child(5) { width: 10%; }
+.stage-panel-table .hall-results td:nth-child(6) { width: 12%; }
+.stage-panel-table .winners-table { width: 100%; height: 100%; table-layout: fixed; color: #111; font-size: 10px; line-height: 1; }
+.stage-panel-table .winners-table td { padding: 1px 3px; border: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.stage-panel-table .winners-table tr.player td { color: #213a9a; }
+.stage-panel-table .winners-table td:nth-child(1) { width: 8%; }
+.stage-panel-table .winners-table td:nth-child(2) { width: 17%; }
+.stage-panel-table .winners-table td:nth-child(3) { width: 26%; }
+.stage-panel-table .winners-table td:nth-child(4) { width: 16%; }
+.stage-panel-table .winners-table td:nth-child(5) { width: 10%; }
+.stage-panel-table .winners-table td:nth-child(6) { width: 11%; }
+.stage-panel-table .winners-table td:nth-child(7) { width: 12%; }
+
+dialog { color: var(--text); background: var(--panel); border: 1px solid var(--panel-edge); border-radius: var(--radius); }
+dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
+.options-modal { width: min(820px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0; overflow: hidden; }
+.options-modal-title { padding: 18px 22px 8px; border-bottom: 1px solid var(--panel-edge); }
+.options-modal-title h1 { margin: 0; color: var(--accent); text-transform: uppercase; }
+.options-modal-panel { max-height: calc(100vh - 112px); padding: 18px 22px; overflow: auto; }
+.options-footer { position: sticky; bottom: -18px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin: 18px -22px -18px; padding: 14px 22px; background: var(--panel); border-top: 1px solid var(--panel-edge); }
+.bindings .form-row { align-items: center; }
+.binding-label { min-width: 180px; }
+.opponents-modal { width: min(720px, calc(100vw - 32px)); }
+.opponent-lists { display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr); gap: 14px; align-items: center; }
+.opponent-lists label { display: grid; gap: 6px; }
+.opponent-lists select { min-height: 260px; }
+.opponent-moves { display: grid; gap: 10px; }
+
+@media (max-width: 620px) {
+  .opponent-lists { grid-template-columns: 1fr; }
+  .opponent-moves { grid-template-columns: 1fr 1fr; }
+}
 .gold-overlay { position: absolute; image-rendering: pixelated; background: rgba(0, 0, 0, 0.35); }
 .gold-overlay[hidden] { display: none; }
 .gold-fps { right: 6px; top: 4px; }
 .gold-z { right: 6px; top: 40px; }
-.commentary-line { position: absolute; left: 50%; bottom: 36px; transform: translateX(-50%); image-rendering: pixelated; background: rgba(0, 0, 0, 0.45); pointer-events: none; }
+.commentary-line { position: absolute; z-index: 12; left: 50%; bottom: 36px; max-width: calc(100vw - 24px); transform: translateX(-50%); image-rendering: pixelated; background: rgba(0, 0, 0, 0.68); pointer-events: none; }
 .commentary-line[hidden] { display: none; }

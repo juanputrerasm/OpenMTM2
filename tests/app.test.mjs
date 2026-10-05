@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { missingFeatures } from "../src/app/main.js";
 import { Router } from "../src/app/router.js";
+import { clearSettings } from "../src/app/settings.js";
 
 test("missingFeatures lists what a browser lacks", () => {
   assert.deepEqual(missingFeatures({}), [
@@ -15,6 +16,13 @@ test("missingFeatures lists what a browser lacks", () => {
     navigator: { storage: { getDirectory() {} } },
   };
   assert.deepEqual(missingFeatures(complete), []);
+});
+
+test("clearSettings removes only OpenMTM2's preference entry", () => {
+  const removed = [];
+  clearSettings({ removeItem: (key) => removed.push(key) });
+  assert.deepEqual(removed, ["openmtm2.settings"]);
+  assert.doesNotThrow(() => clearSettings({ removeItem() { throw new Error("blocked"); } }));
 });
 
 test("Router shows screens, unmounts the previous one and goes back", async () => {

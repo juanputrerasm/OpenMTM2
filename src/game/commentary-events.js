@@ -16,7 +16,7 @@ const AIR_SECONDS = 1.2, FLIPPED_SECONDS = 2, AIR_CLEARANCE_FT = 16, CLASH_FT = 
 export function createCommentaryWatcher({ drivers, player = 0, summit = false }) {
   const me = player + 1;
   let intro = false, go = false, place = null, lastPlaceAt = -1e9;
-  let airTime = 0, flippedTime = 0, wasHeli = false, wasMissed = false, finishedSeen = new Set(), winnerSaid = false;
+  let airTime = 0, flippedTime = 0, wasHeli = false, wasMissed = false, playerFinished = false;
   let lastNow = null;
 
   return {
@@ -66,18 +66,12 @@ export function createCommentaryWatcher({ drivers, player = 0, summit = false })
       if (missed && !wasMissed && !summit) events.push({ group: "missedCheckpoint", args: [me], priority: 4 });
       wasMissed = missed;
 
-      // Finishes: the winner, then everyone else who finishes (the player's own gets the line).
-      if (!summit) {
-        race.trucks.forEach((t, i) => {
-          if (!t.finished || finishedSeen.has(i)) return;
-          finishedSeen.add(i);
-          if (!winnerSaid) {
-            winnerSaid = true;
-            events.push({ group: "finishWinner", args: [i + 1, i + 1], priority: 6 });
-          } else if (i === player) {
-            events.push({ group: "hasFinished", args: [me], priority: 5 });
-          }
-        });
+      // Finish commentary is only about the player, never a CPU truck finishing elsewhere.
+      if (!summit && race.trucks[player].finished && !playerFinished) {
+        playerFinished = true;
+        events.push(race.trucks[player].place === 1
+          ? { group: "finishWinner", args: [me, me], priority: 6 }
+          : { group: "hasFinished", args: [me], priority: 5 });
       }
       return events;
     },

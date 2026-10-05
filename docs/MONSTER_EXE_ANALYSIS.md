@@ -293,6 +293,16 @@ Box `type 6` is a checkpoint; `type 10` is a moving object ("train"). Types 1 (p
 pick the collision sound; 8 and 9 are camera-facing (their length and width are made equal, a
 cylinder); 6, 7 and 8 never enter the collision list (0x5543c0).
 
+The renderer-facing consequences are separate from collision. Type 7 is non-colliding but keeps
+its authored orientation. Types 8 and 9 yaw around the vertical axis to face the camera. An
+animated BIN is a control model containing frame model names rather than polygons; those named
+BINs supply the geometry and compatible frames blend in a loop. The SIT's backdrop model list is
+drawn without depth testing and follows the camera, independently of ordinary placed objects.
+
+Terrain and ground-box tiles use the game's two-pixel overlap treatment: the UV rectangle crops
+two legacy pixels from each edge of a tile. The atlas still keeps a clamped skirt outside the
+cropped rectangle so filtering cannot sample an adjacent tile.
+
 **The sky** (0x42b430): the LVL's sky `.RAW`, or by weather `DUSKSKY` (Dusk), `NITESKY` (Night),
 `CCLOUDS` (Rain), and `CLOUDY2` on an old-MTM level or when a file is missing. Its palette is
 not its own: entries 192-207 of the sky's `.ACT` are copied into the game palette at 230-245,
@@ -495,7 +505,9 @@ Evil", "Whirlwind Circuit Madness") reference MTM1 tracks (`DRAG5.SIT`, `CIRC4.S
 
 ### 6.6 Results and Hall of Fame
 
-Results show per-truck place, time, laps and the winner model (`winner.bin`, `WINNASS*.RAW`),
+The Winner's Circle artwork labels a seven-column table: Place, Player Name, Truck, Skill Level,
+Points, Time and Fast Lap. Its two black panels are 3D views of the first- and second-place trucks,
+not text panels. Results show per-truck place, time, laps and the winner model (`winner.bin`, `WINNASS*.RAW`),
 then win, lose or "other" videos chosen at random from `[Video] Win*`, `Lose*`, `Other*`,
 `WinWCW*`, `LoseWCW*`. The Hall of Fame persists in `highscor.mtr`, one line per entry written as
 `%d,%s,%d,%s,%d,%f,%f` (0x4c7540): **hypothesis** rank, player name, skill level, truck name,
@@ -933,7 +945,7 @@ stereo separation, `UseRedBook` and `UseModMusic`.
 
 - **Music**: Redbook CD audio (the SIT's CD track, next/previous CD track keys) or the MOD
   and WAV loops in `MUSIC.POD` (`AZTEC`, `BREAK`, `FARM`, `GRAVEX`, `ROCKX`, `SCRAP`, `SPLASH`,
-  `SURF`, `VOODOO`, each `.WAV` + `.KLP`).
+  `SURF`, `VOODOO`, each `.WAV` + `.KLP`). `SOUND\SPLASH.WAV` is the start and menu music.
 - **`.KLP` loop files**: text, `count loopStart loopEnd` in samples, `0` for "to the end"
   (`IDLE2M1.KLP` = `1 86339 0`).
 - **Engine**: start, idle and rev loops (`STARTIDL`, `IDLE2M1`, `M1-2-M2`, `M2-2-M1`, `ACCEL3B`),
@@ -965,6 +977,9 @@ stereo separation, `UseRedBook` and `UseModMusic`.
   `SOUND.POD` is a six-channel ProTracker module ("(C) Terminal Reality", 14 orders, about 96 s
   at 22 kHz); a level whose music name ends in `.mod` plays one too. OpenPhotex's `parseMod` and
   `renderMod` read and play ProTracker modules (the effects are listed in `src/audio/mod.ts`).
+- **Menu interface sounds** (`UI.POD`): `STARTOFF.WAV` when changing screens, `TRACK.WAV` when
+  changing the selected track, `SLIDERUP.WAV` and `SLIDERDN.WAV` when raising and lowering the
+  Garage transfer gear, `GOOFF.WAV` for GO, and `CONOPTUP.WAV` for an ordinary click.
 - **Object sounds** (SIT, under "@sound effect entries", two names): the sound an object makes
   when something hits it (`0x428bc0` plays it from the object's place; with none, by type: 1 post
   `hitPost1`, 2 barricade `barricad`, 4 pylon `pylon`, 10 train `crash1`) and the sound it makes by
@@ -986,6 +1001,10 @@ stereo separation, `UseRedBook` and `UseModMusic`.
   rolls, the helicopter, trains, a cow, missed checkpoints, `hasfin`, `haswon` and stealth.
   Shuffle bags (RANDGEN, `0x421ef0`) keep a phrase from repeating until the rest have played.
   What fires each group is not traced; the port decides (src/game/commentary-events.js).
+  The port has a dedicated commentary bus, but voice playback is temporarily disabled while its
+  sequencing is corrected; only the text switch is currently available. The port prioritises events involving the player's truck and does not
+  announce unrelated trains, cows or another truck's finish. Its text uses the message bitmap
+  font in front of the race view.
 - **Track ambience** `DATA\SOUNDnnn.TXT` (`SOUND.POD`), chosen by the SIT's ambient number:
 
       checkpoint wav file            e.g. airhorn.wav
@@ -996,7 +1015,12 @@ stereo separation, `UseRedBook` and `UseModMusic`.
       wavName, vol, weatherMask                          repeated
 
   One-shots fire at random intervals between the two timers (seconds) when the current
-  weather's bit is set in the mask.
+  weather's bit is set in the mask. This is separate from the announcer. For example, The
+  Heights selects `SOUND005.TXT`, whose daytime entries are birds and eagles and whose dark
+  weather entries are owl, bear and wolf sounds. The port serializes the eligible one-shots:
+  it chooses one entry, waits that entry's random interval, lets the sample finish, then chooses
+  and schedules another. This preserves each track's own ambience without several independent
+  timers producing overlapping, echo-like bursts.
 - **Commentary**: an announcer system (`Trucksfx.c` 0x421600) with event-triggered phrases
   (start, lead changes, passes, air, water, trains, missed checkpoints, finishes), each a WAV
   plus the same line as on-screen text, with `<<1>>`/`<<2>>` driver-name slots. `[Game]
@@ -1175,7 +1199,7 @@ texture cache statistics, sector and polygon counts, screenshots as PCX (`vel%s.
 - **`STARTUP.POD`**: palettes and fog for the software renderer (`FOG\VGA.LTE/.MAP`,
   `OLDMTM.LTE/.MAP`), `STARTUP\FONT.NDX`, `DATA\SUN.TXT`, shared art and models, a zero-byte
   `DEMO\DEMO1.DMO`, and the dead `TOURNEY\*.TRN`.
-- **Where files live** (stock PODs): textures `ART\*.RAW` with a same-stem `ART\*.ACT`, models
+- **Where files live** (stock PODs): textures `ART\*.RAW`, usually with a same-stem `ART\*.ACT`, models
   `MODELS\*.BIN`, sounds `SOUND\*.WAV`/`.KLP`, trucks `TRUCK\*.TRK`, tracks `WORLD\*.SIT` and
   `LEVELS\*.LVL`, and the per-track files below in `DATA\`.
 - **Per track** (`DATA\<name>.*`): `.ANI` texture animation, `.RA0-.RA5` and `.CL0-.CL2` ground
@@ -1220,6 +1244,11 @@ Concrete behaviours OpenMTM2 should reproduce, beyond what JSTrackViewer's Test 
 1. **Content model**: mount archives from a list in priority order, first match wins, then
    loose files; discover tracks as every `.SIT` and trucks as every `.TRK` in the mounted set.
    OPFS can hold the user's PODs plus a `POD.INI`-like list.
+   Texture palettes follow OpenPhotex's origin-aware ranking from JSTrackViewer: a same-stem
+   `.ACT`, POD1 palette metadata, the mounted `METALCR2.ACT`, the bundled MTM palette, then the
+   level palette. For MTM2 model art and shared terrain, METALCR2 precedes the level palette.
+   This is required by Crazy '98's REX textures such as `SAURHULL.RAW`, which have no companion
+   `.ACT` and are not authored against `CRAZY98.ACT`.
 2. **Time**: 16.16 seconds everywhere; one simulation step per frame with dt capped at 0.1 s per
    substep. In a Worker the natural design is a fixed step, which is fine: the original's
    variable step is an implementation accident, not a feature.

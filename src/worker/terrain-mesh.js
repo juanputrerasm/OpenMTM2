@@ -123,8 +123,11 @@ export function buildTerrainMesh({ heights, clr, lte, atlas, footprint = null })
       const slot = Math.min(word & 0x0fff, atlas.rects.length - 1);
       const mirror = (word >> 12) & 3, rot = (word >> 14) & 3;
       const [rx, ry, rw, rh] = atlas.rects[slot];
-      const u0 = rx / atlas.width, u1 = (rx + rw) / atlas.width;
-      const t0 = ry / atlas.height, t1 = (ry + rh) / atlas.height;
+      // MTM2 overlaps neighbouring terrain tiles by cropping two legacy pixels at each edge.
+      // The atlas skirt outside this rectangle remains available to linear filtering.
+      const inset = Math.min(2, Math.max(0, (Math.min(rw, rh) - 1) / 2));
+      const u0 = (rx + inset) / atlas.width, u1 = (rx + rw - inset) / atlas.width;
+      const t0 = (ry + inset) / atlas.height, t1 = (ry + rh - inset) / atlas.height;
       const cu = [u0, u1, u1, u0], cv = [t1, t1, t0, t0];
       for (let k = 0; k < 4; k++) {
         let corner = k;

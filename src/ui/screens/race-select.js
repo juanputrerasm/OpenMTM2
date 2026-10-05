@@ -1,85 +1,170 @@
-/*
-  Race select: a track of the chosen mode (Circuit, Rally or Summit Rumble), the laps (the
-  track's default, MONSTER_EXE_ANALYSIS.md 3; a Rumble's are minutes), the number of CPU
-  opponents (`defaultOpponents`, section 9) and the difficulty. Then the garage.
-*/
+/* One all-types track table, track preview, exact CPU field and allowed weather selection. */
 import { el } from "../dom.js";
+import { currentDriver, getProfiles } from "../../app/profile-store.js";
 import { saveSettings } from "../../app/settings.js";
 import { setRaceConfig } from "../../app/flow.js";
-import { frame } from "../frame.js";
+import { raceLengthLabel, raceTypeName, trackPreviewName } from "../../game/menu-data.js";
 import { WEATHER_NAMES, allowedWeathers, resolveWeather } from "../../game/weather.js";
+import { playMenuSound } from "../../audio/menu-sounds.js";
+import { frame, uiImageUrl } from "../frame.js";
 
-const DIFFICULTIES = ["Rookie", "Intermediate", "Professional"];
-const MODES = {
-  circuit: { title: "Circuit Race", unit: "Laps", noun: "laps" },
-  rally: { title: "Rally Race", unit: "Laps", noun: "laps" },
-  summit: { title: "Summit Rumble", unit: "Minutes", noun: "minutes" },
-};
+const SUPPORTED = new Set(["circuit", "rally", "summit"]);
 
-export default async function mount(container, context, { mode = "circuit" } = {}) {
-  const info = MODES[mode] ?? MODES.circuit;
+export default async function mount(container, context) {
   const { settings } = context;
   const catalog = await context.assets.call("catalog");
-  const tracks = catalog.tracks.filter((t) => t.raceType === mode && (settings.showHiddenTracks || !t.hidden));
-  let track = tracks.find((t) => t.file === settings.lastTrack) ?? tracks[0];
+  const tracks = catalog.tracks.filter((item) => settings.showHiddenTracks || !item.hidden);
+  const trucks = catalog.trucks.filter((item) => settings.showHiddenTrucks || !item.hidden);
+  const driver = currentDriver(await getProfiles(context));
+  let track = tracks.find((item) => item.file === settings.lastTrack) ?? tracks[0];
   if (!track) {
-    container.append(el("section", { class: "screen" }, el("p", { class: "error" }, `The install has no ${info.title} tracks.`)));
+    container.append(el("section", { class: "screen" }, el("p", { class: "error" }, "The install has no tracks.")));
     return;
   }
 
-  const laps = el("input", { type: "number", min: 1, max: 99, value: track.defaultLaps, class: "laps-input", "aria-label": info.unit });
-  const opponents = el("select", { "aria-label": "Opponents" },
-    ...[1, 2, 3, 4, 5, 6, 7].map((n) => el("option", { value: n, selected: n === settings.opponents }, String(n))));
-  const difficulty = el("select", { "aria-label": "Difficulty" },
-    ...DIFFICULTIES.map((name, i) => el("option", { value: i, selected: i === settings.difficulty }, context.t(name))));
-  const weather = el("select", { "aria-label": "Weather" });
+  const validOpponentFiles = new Set(trucks.filter((item) => item.file !== driver.lastTruck).map((item) => item.file));
+  let selectedOpponents = (Array.isArray(settings.opponentTrucks) ? settings.opponentTrucks : [])
+    .filter((file, index, all) => validOpponentFiles.has(file) && all.indexOf(file) === index).slice(0, 7);
+  if (!selectedOpponents.length) {
+    const count = Number.isInteger(settings.opponents) ? settings.opponents : 3;
+    selectedOpponents = trucks.filter((item) => item.file !== driver.lastTruck).slice(0, count).map((item) => item.file);
+  }
+
+  const laps = el("input", { type: "number", min: 1, max: 99, value: track.defaultLaps, class: "race-length", "aria-label": "Laps or minutes" });
+  const lengthLabel = el("span", { class: "race-length-label" });
+  const weather = el("select", { "aria-label": "Weather", class: "race-weather" });
+  const tableBody = el("tbody");
+  const table = el("table", { class: "race-track-table", role: "listbox", "aria-label": "Tracks" }, tableBody);
+  const preview = el("img", { class: "track-preview", alt: "" });
+  const opponentsButton = el("button", { class: "opponents-button" }, "Computer Opponents");
+  const goButton = el("button", { class: "primary", "data-menu-sound": "STARTOFF" }, "Race");
+  let previewRequest = 0;
+
   const fillWeather = () => {
     const allowed = allowedWeathers(track.weatherMask);
     const chosen = resolveWeather(settings.weather, track.weatherMask);
     weather.replaceChildren(
-      ...allowed.map((w) => el("option", { value: w, selected: settings.weather !== "random" && w === chosen }, context.t(WEATHER_NAMES[w]))),
-      allowed.length > 1 ? el("option", { value: "random", selected: settings.weather === "random" }, "Random") : null);
+      ...allowed.map((value) => el("option", {
+        value, selected: settings.weather !== "random" && value === chosen,
+      }, context.t(WEATHER_NAMES[value]))),
+      allowed.length > 1 ? el("option", { value: "random", selected: settings.weather === "random" }, "Random") : null,
+    );
   };
-  const list = el("ul", { class: "pick-list", role: "listbox" });
-  const detail = el("p", { class: "muted" });
-  const show = () => {
-    list.replaceChildren(...tracks.map((t) => el("li", {},
-      el("button", {
-        class: t === track ? "pick selected" : "pick", role: "option", "aria-selected": t === track,
-        onclick: () => { track = t; laps.value = t.defaultLaps; fillWeather(); show(); remember(); },
-      }, t.name))));
-    detail.textContent = `${track.locale ?? ""}${track.locale ? ". " : ""}${track.defaultLaps} ${info.noun} by default.`;
+  const showPreview = async () => {
+    const request = ++previewRequest;
+    const url = await uiImageUrl(context.assets, trackPreviewName(track.file));
+    if (request !== previewRequest) return;
+    preview.hidden = !url;
+    if (url) { preview.src = url; preview.alt = `${track.name} preview`; }
   };
-  show();
-
-  // What GO starts: the choice as it stands, kept up to date (and saved) as it changes.
   const remember = () => {
+    const value = Math.max(1, Math.min(99, Math.trunc(Number(laps.value)) || track.defaultLaps));
+    laps.value = String(value);
     const chosen = {
-      mode, track: track.file,
-      laps: Math.max(1, Math.min(99, Math.trunc(Number(laps.value)) || track.defaultLaps)),
-      difficulty: Number(difficulty.value), opponents: Number(opponents.value),
-      weather: weather.value === "random" ? "random" : Number(weather.value),
+      mode: track.raceType, track: track.file, laps: value, difficulty: settings.difficulty,
+      opponents: [...selectedOpponents], weather: weather.value === "random" ? "random" : Number(weather.value),
     };
-    Object.assign(settings, { lastTrack: track.file, difficulty: chosen.difficulty, opponents: chosen.opponents, weather: chosen.weather });
+    Object.assign(settings, {
+      lastTrack: track.file, weather: chosen.weather, opponentTrucks: [...selectedOpponents], opponents: selectedOpponents.length,
+    });
     saveSettings(settings);
     setRaceConfig(context, chosen);
+    goButton.disabled = !SUPPORTED.has(track.raceType);
     return chosen;
   };
+  const chooseTrack = (item) => {
+    if (item !== track) playMenuSound(context.menuAudio, settings, "TRACK", 0.7);
+    track = item;
+    laps.value = String(item.defaultLaps);
+    lengthLabel.textContent = raceLengthLabel(item.raceType);
+    fillWeather();
+    show();
+    showPreview();
+    remember();
+  };
+  const show = () => tableBody.replaceChildren(...tracks.map((item) => el("tr", {
+    class: item === track ? "selected" : null, role: "option", "aria-selected": item === track,
+    onclick: () => chooseTrack(item), ondblclick: () => { chooseTrack(item); if (SUPPORTED.has(item.raceType)) context.router.go("garage"); },
+  }, el("td", {}, item.name), el("td", {}, context.t(raceTypeName(item.raceType))))));
+
+  opponentsButton.addEventListener("click", async () => {
+    selectedOpponents = await chooseOpponents(trucks, driver.lastTruck, selectedOpponents);
+    remember();
+  });
+  laps.addEventListener("change", remember);
+  weather.addEventListener("change", remember);
+  goButton.addEventListener("click", () => { remember(); context.router.go("garage"); });
   fillWeather();
-  for (const input of [laps, opponents, difficulty, weather]) input.addEventListener("change", remember);
+  lengthLabel.textContent = raceLengthLabel(track.raceType);
+  show();
+  await showPreview();
   remember();
 
   const ui = await frame(container, context, {
-    title: info.title, backdrop: "RACES",
-    regions: { list: [42, 134, 274, 196], side: [344, 126, 256, 206], weather: [490, 348, 108, 28] },
+    title: "Races", backdrop: "RACES",
+    regions: {
+      list: [42, 141, 274, 189], lengthLabel: [48, 350, 58, 24], length: [106, 350, 38, 24],
+      opponents: [343, 81, 132, 38], preview: [342, 124, 258, 210], weather: [488, 349, 109, 27],
+    },
   });
-  ui.regions.list.append(list, detail);
-  if (ui.classic) ui.regions.weather.append(weather);
-  else ui.regions.side.append(el("div", { class: "form-row" }, el("label", {}, "Weather ", weather)));
-  ui.regions.side.append(
-    el("div", { class: "form-row" }, el("label", {}, `${info.unit} `, laps), el("label", {}, "Opponents ", opponents), el("label", {}, "Difficulty ", difficulty)),
-    el("div", { class: "screen-actions" },
-      ui.classic ? null : el("button", { onclick: () => context.router.back() }, "Back"),
-      el("button", { class: "primary", onclick: () => { remember(); context.router.go("garage"); } }, "Garage")));
+  if (ui.classic) {
+    opponentsButton.textContent = "";
+    opponentsButton.title = "Computer Opponents";
+    ui.regions.list.append(table);
+    ui.regions.lengthLabel.append(lengthLabel);
+    ui.regions.length.append(laps);
+    ui.regions.opponents.append(opponentsButton);
+    ui.regions.preview.append(preview);
+    ui.regions.weather.append(weather);
+  } else {
+    ui.regions.list.append(table,
+      el("div", { class: "form-row" },
+        el("label", {}, lengthLabel, " ", laps), el("label", {}, "Weather ", weather), opponentsButton),
+      el("div", { class: "track-preview-modern" }, preview),
+      el("div", { class: "screen-actions" }, goButton));
+  }
   return { unmount: ui.unmount };
+}
+
+async function chooseOpponents(trucks, playerTruck, initial) {
+  return new Promise((resolve) => {
+    let selected = [...initial];
+    const availableList = el("select", { multiple: true, size: 10, "aria-label": "Available trucks" });
+    const selectedList = el("select", { multiple: true, size: 10, "aria-label": "Selected opponents" });
+    const draw = () => {
+      const picked = new Set(selected);
+      availableList.replaceChildren(...trucks.filter((item) => item.file !== playerTruck && !picked.has(item.file))
+        .map((item) => el("option", { value: item.file }, item.name)));
+      selectedList.replaceChildren(...selected.map((file) => {
+        const item = trucks.find((truck) => truck.file === file);
+        return el("option", { value: file }, item?.name ?? file);
+      }));
+    };
+    const add = () => {
+      for (const option of availableList.selectedOptions) {
+        if (selected.length < 7 && !selected.includes(option.value)) selected.push(option.value);
+      }
+      draw();
+    };
+    const remove = () => {
+      const removed = new Set([...selectedList.selectedOptions].map((option) => option.value));
+      selected = selected.filter((file) => !removed.has(file));
+      draw();
+    };
+    const dialog = el("dialog", { class: "opponents-modal", "aria-label": "Computer Opponents" },
+      el("h1", {}, "Computer Opponents"),
+      el("div", { class: "opponent-lists" },
+        el("label", {}, "Available trucks", availableList),
+        el("div", { class: "opponent-moves" }, el("button", { onclick: add }, "Add >"), el("button", { onclick: remove }, "< Remove")),
+        el("label", {}, "Selected opponents", selectedList)),
+      el("div", { class: "screen-actions" },
+        el("button", { onclick: () => { selected = [...initial]; dialog.close(); } }, "Cancel"),
+        el("button", { class: "primary", onclick: () => dialog.close() }, "Done")));
+    availableList.addEventListener("dblclick", add);
+    selectedList.addEventListener("dblclick", remove);
+    dialog.addEventListener("close", () => { dialog.remove(); resolve(selected); }, { once: true });
+    document.body.append(dialog);
+    draw();
+    dialog.showModal();
+  });
 }

@@ -8,7 +8,7 @@
   truck sits in Park and the start gantry's red lamps glow; at the start the green ones light. When the player finishes, the trucks still racing are fast-simulated
   ("Determining times for remaining trucks", section 5) and the results follow.
 
-  Keys: arrows or WASD drive, Q / Z shift, H helicopter, C camera, Esc or P pause.
+  Keys: arrows or WASD drive, Q / Z shift, H helicopter, Space horn, V camera, Esc or P pause.
 */
 import * as THREE from "three";
 import { el } from "../dom.js";
@@ -21,7 +21,7 @@ import { SunFlare } from "../../render/sun-flare.js";
 import { SunShadows } from "../../render/sun-shadows.js";
 import { mtm2Sim } from "../../vendor/openphotex/index.js";
 import { createAudio } from "../../audio/audio-engine.js";
-import { createCommentaryAudio } from "../../audio/commentary-audio.js";
+import { VOICE_COMMENTARY_ENABLED, createCommentaryAudio } from "../../audio/commentary-audio.js";
 import { createAnnouncer, textSeconds } from "../../game/commentary.js";
 import { createCommentaryWatcher } from "../../game/commentary-events.js";
 import { createTruckAudio } from "../../audio/truck-audio.js";
@@ -31,8 +31,9 @@ import { resolveWeather } from "../../game/weather.js";
 import { createGoldMode } from "../gold-mode.js";
 import { createGamepadInput } from "../../game/input/gamepad.js";
 import { createTextPanel, loadFont, wrapText } from "../../render/bitmap-text.js";
+import { createRaceGauges } from "../../render/race-gauges.js";
 import { formatRaceTime, raceEntrants } from "../../game/race-setup.js";
-import { createTrackWorld, disposeObject, moveObjects, setStartLights, skyColor, updateSky } from "../../render/track-scene.js";
+import { createTrackWorld, disposeObject, moveObjects, setStartLights, skyColor, updateSky, updateTrackWorld } from "../../render/track-scene.js";
 import { createTruckObject, interpolatePose } from "../../render/truck-object.js";
 import { toSceneMatrix } from "../../shared/scene-frame.js";
 
@@ -49,17 +50,16 @@ export default async function mount(container, context, { track, laps, difficult
   loading.append(loadingText);
   // The HUD is drawn with the game's own fonts (ART\FNT1_480 for rows, FNT2_480 for messages).
   const [hudFont, messageFont] = await Promise.all([loadFont(context.assets, "FNT1_480"), loadFont(context.assets, "FNT2_480")]);
-  const scale = Math.max(1, Math.round(window.innerHeight / 480));
-  const hudTimes = createTextPanel(hudFont, { width: 110, scale });
-  const hudPlace = createTextPanel(hudFont, { width: 110, scale });
+  const scale = Math.max(1, window.innerHeight / 480);
+  const hud = createTextPanel(hudFont, { width: 190, scale, labelColor: "#f7f7f7", valueColor: "#c7c9ed" });
+  const gauges = createRaceGauges(hudFont);
   const message = createTextPanel(messageFont, { width: 360, scale: Math.max(1, scale / 1.5), align: "center" });
-  hudTimes.element.classList.add("race-hud");
-  hudPlace.element.classList.add("race-hud");
+  hud.element.classList.add("race-hud");
   message.element.classList.add("race-message");
   message.element.hidden = true;
   const showMessage = (text) => { message.set([text]); message.element.hidden = false; };
   const pauseMenu = el("div", { class: "race-pause", hidden: true });
-  const view = el("section", { class: "race-view" }, canvas, el("div", { class: "race-hud-stack" }, hudTimes.element, hudPlace.element), message.element, pauseMenu, loading);
+  const view = el("section", { class: "race-view" }, canvas, hud.element, gauges.element, message.element, pauseMenu, loading);
   container.append(view);
 
   let disposed = false;
@@ -89,7 +89,7 @@ export default async function mount(container, context, { track, laps, difficult
   const entrants = raceEntrants({ playerTruck, trucks: usable, slots: grid.length, opponents, playerName: driver.name });
   if (!grid.length || !build.truckModels[playerTruck]) {
     loadingText.textContent = `${track.name} has no start grid, or ${truckName(playerTruck)} could not be built.`;
-    loading.append(el("button", { onclick: () => context.router.back() }, "Back"));
+    loading.append(el("button", { "data-menu-sound": "STARTOFF", onclick: () => context.router.back() }, "Back"));
     return { unmount };
   }
 
@@ -112,14 +112,15 @@ export default async function mount(container, context, { track, laps, difficult
   scene.add(world);
   // Sound: the engines, skids and impacts of every truck, and the world's ambience and music.
   context.menuMusic?.stop();
-  const audio = createAudio(context.assets, context.settings.sound);
+  // Reuse the already unlocked menu context. A newly created context after the asynchronous
+  // track load can be blocked by autoplay policy even though GO was clicked.
+  const audio = context.menuAudio ?? createAudio(context.assets, context.settings.sound);
+  const ownsAudio = !context.menuAudio;
   const ambience = await context.assets.call("ambience", { number: track.ambientSound ?? 0 }).catch(() => null);
   const musicName = context.settings.sound?.music > 0 ? (build.musicName ?? null) : null;
-  const external = [];
   const worldAudio = createWorldAudio(audio, {
     ambient: ambience, weather: weatherId, music: musicName, objects: build.soundObjects,
     hitInfo: new Map(build.sim.boxes.map((b) => [b.sitIndex, { hitSound: b.hitSound, type: b.type }])),
-    onEvent: (group) => external.push(group),
   });
   const truckAudio = createTruckAudio(audio, {
     count: entrants.length, player: 0, kookyHorn: !!context.settings.kookyHorn,
@@ -127,15 +128,17 @@ export default async function mount(container, context, { track, laps, difficult
   });
   // The announcer: phrases from events in the race, spoken in the drivers' own name clips, and
   // shown as text from the lines in the executable.
-  const commentaryOn = !!context.settings.commentary, textOn = !!context.settings.textCommentary;
-  const texts = commentaryOn || textOn ? await context.assets.call("commentaryText").catch(() => ({})) : {};
-  const announcer = createAnnouncer();
+  // Voice commentary is deliberately disabled until its clip sequencing is corrected.
+  const commentaryOn = VOICE_COMMENTARY_ENABLED && !!context.settings.commentary;
+  const textOn = !!context.settings.textCommentary;
+  const texts = textOn ? await context.assets.call("commentaryText").catch(() => ({})) : {};
+  const announcer = createAnnouncer({ gap: 8 });
   const watcher = createCommentaryWatcher({ drivers: entrants.length, summit });
   const commentary = createCommentaryAudio(audio, {
     drivers: entrants.map((e) => ({ name: e.name, waves: catalogTrucks.find((c) => c.file === e.file)?.waves ?? [] })),
     texts,
   });
-  const lineBox = createTextPanel(hudFont, { width: 520, scale: Math.max(1, scale * 0.9), align: "center" });
+  const lineBox = createTextPanel(messageFont, { width: 520, scale: Math.max(1, scale * 0.9), align: "center" });
   lineBox.element.classList.add("commentary-line");
   lineBox.element.hidden = true;
   view.append(lineBox.element);
@@ -144,11 +147,11 @@ export default async function mount(container, context, { track, laps, difficult
     for (const event of events.sort((a, b) => b.priority - a.priority)) {
       const said = announcer.say(event.group, event.args, now, { priority: event.priority });
       if (!said) continue;
-      const { line, done } = commentary.speak(said);
-      if (commentaryOn) done.then(() => announcer.finished(performance.now() / 1000));
+      const line = commentary.line(said);
+      if (commentaryOn) commentary.speak(said).done.then(() => announcer.finished(performance.now() / 1000));
       else setTimeout(() => announcer.finished(performance.now() / 1000), 1000 * textSeconds(line ?? ""));
       if (textOn && line) {
-        lineBox.set(hudFont ? wrapText(hudFont, context.t(line), 520) : [context.t(line)]);
+        lineBox.set(messageFont ? wrapText(messageFont, context.t(line), 520) : [context.t(line)]);
         lineBox.element.hidden = false;
         lineUntil = now + textSeconds(line);
       }
@@ -160,13 +163,13 @@ export default async function mount(container, context, { track, laps, difficult
   window.addEventListener("keydown", resumeAudio);
   window.addEventListener("pointerdown", resumeAudio);
   cleanups.push(() => {
-    context.menuMusic?.start();
     commentary.dispose();
     window.removeEventListener("keydown", resumeAudio);
     window.removeEventListener("pointerdown", resumeAudio);
     worldAudio.dispose();
     truckAudio.dispose();
-    audio.dispose();
+    if (ownsAudio) audio.dispose();
+    context.menuMusic?.start();
   });
   const forwardVector = new THREE.Vector3();
   let shadows = null, flare = null, flareBlocked = () => false;
@@ -266,7 +269,10 @@ export default async function mount(container, context, { track, laps, difficult
       saveSettings(context.settings);
       e.target.textContent = sound.muted ? "Sound off" : "Sound on";
     } }, context.settings.sound.muted ? "Sound off" : "Sound on"),
-    el("button", { onclick: () => context.router.go("race-select", { mode: track.raceType }, { replace: true }) }, "End race"),
+    el("button", {
+      "data-menu-sound": "STARTOFF",
+      onclick: () => context.router.go("race-select", { mode: track.raceType }, { replace: true }),
+    }, "End race"),
   );
   const keyMap = mergeBindings(context.settings.bindings);
   const onKey = (e) => {
@@ -329,14 +335,16 @@ export default async function mount(container, context, { track, laps, difficult
     lastCheckpoint = me.checkpoint;
     if (summit) {
       // A Rumble: the score and the round's time left, then the place by score (6.3).
-      hudTimes.set([[t("Time Remaining:"), formatRaceTime(race.summit?.left ?? 0)], ["Score:", String(Math.round(me.score))]]);
-      hudPlace.set([[t("Place:"), `${me.place}/${race.trucks.length}`]]);
+      hud.set([[t("Time Remaining:"), formatRaceTime(race.summit?.left ?? 0)], ["Score:", String(Math.round(me.score))], ["", ""], [t("Place:"), `${me.place}/${race.trucks.length}`]]);
       message.element.hidden = now > messageUntil;
       message.set([shownMessage]);
       return;
     }
-    hudTimes.set([[t("Lap:"), formatRaceTime(me.lapTime)], [t("Best:"), formatRaceTime(me.best)], [t("Clock:"), formatRaceTime(race.clock)]]);
-    hudPlace.set([[t("Place:"), `${me.place}/${race.trucks.length}`], [t("Lap:"), `${me.lap}/${race.laps}`]]);
+    hud.set([
+      [t("Lap:"), formatRaceTime(me.lapTime)], [t("Best:"), formatRaceTime(me.best)], [t("Clock:"), formatRaceTime(race.clock)],
+      ["", ""], [me.place === 1 ? t("Lead:") : t("Back:"), "--:--.--"],
+      [t("Place:"), `${me.place}/${race.trucks.length}    ${t("Lap:")} ${me.lap}/${race.laps}`],
+    ]);
     if (me.missed && !wasMissed) flash("Missed checkpoint! Turn around.", now);
     wasMissed = me.missed;
     if (!finalLapShown && race.laps > 1 && me.lap === race.laps && race.started && !me.finished) {
@@ -361,7 +369,7 @@ export default async function mount(container, context, { track, laps, difficult
   let frame = 0, last = performance.now(), busy = false, latest = null;
   const movedBoxes = new Set();
   const movedPositions = new Map();
-  window.__openmtm2Race = { audio, scene, camera, renderer, sim, entrants, get latest() { return latest; } };
+  window.__openmtm2Race = { audio, scene, camera, renderer, sim, entrants, musicName, get latest() { return latest; } };
   cleanups.push(() => { cancelAnimationFrame(frame); delete window.__openmtm2Race; });
   const loop = (now) => {
     frame = requestAnimationFrame(loop);
@@ -397,18 +405,19 @@ export default async function mount(container, context, { track, laps, difficult
             now, race: raceNow,
             trucks: latest.poses.map((p, i) => ({ pos: shown[i].pos, up: p.current.matrix[4], sound: p.sound })),
           });
-          for (const group of external.splice(0)) events.push({ group, args: [], priority: 1 });
-          if (events.length) speakEvents(events, now);
+          if ((commentaryOn || textOn) && events.length) speakEvents(events, now);
         }
       }
       camera.getWorldDirection(forwardVector);
       audio.setListener(camera.position, forwardVector, camera.up);
       weatherScene.update(dt, shown.map((p) => ({ x: p.pos[0], y: p.pos[1], z: p.pos[2], heading: p.euler[2] })));
       placeCamera(shown[0], dt);
+      gauges.set(latest.poses[0].current);
       if (latest.race && !finishing) showRace(latest.race, now);
     }
     const sky = world.getObjectByName("sky");
     if (sky) sky.position.set(camera.position.x, 0, camera.position.z);
+    updateTrackWorld(world, camera, dt);
     if (shadows) {
       shadows.setupMaterials();
       shadows.invalidateDynamic();

@@ -55,13 +55,19 @@ test("the player's truck: hard hits, air, water, a flip, the helicopter, a misse
   assert.deepEqual(groups(w.update(frame(14, [1, 2], { missed: true }))), [], "once");
 });
 
-test("finishes: the first truck home is the winner, then the player's own finish if it was not first", () => {
+test("finishes: only the player's finish is announced", () => {
   const w = createCommentaryWatcher({ drivers: 3 });
   w.update(frame(3.1, [1, 2, 3]));
   const f = frame(60, [1, 2, 3]);
   f.race.trucks[1].finished = true;
-  assert.deepEqual(w.update(f).map((e) => [e.group, e.args]), [["finishWinner", [2, 2]]]);
+  assert.deepEqual(w.update(f), []);
   const g = frame(65, [1, 2, 3]);
   g.race.trucks[1].finished = g.race.trucks[0].finished = true;
-  assert.deepEqual(w.update(g).map((e) => e.group), ["hasFinished"]);
+  assert.deepEqual(w.update(g).map((e) => [e.group, e.args]), [["finishWinner", [1, 1]]]);
+
+  const behind = createCommentaryWatcher({ drivers: 3 });
+  behind.update(frame(3.1, [2, 1, 3]));
+  const h = frame(60, [2, 1, 3]);
+  h.race.trucks[0].finished = true;
+  assert.deepEqual(behind.update(h).map((e) => [e.group, e.args]), [["hasFinished", [1]]]);
 });

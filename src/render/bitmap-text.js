@@ -74,7 +74,10 @@ export function textWidth(font, text, scale = 1) {
  * pairs drawn at the left and right of `width`. Falls back to plain text when the font is
  * missing. `set(rows)` redraws only when the text changes.
  */
-export function createTextPanel(font, { width = 160, scale = 1, color = "#fff", align = "left", shadow = "#000" } = {}) {
+export function createTextPanel(font, {
+  width = 160, scale = 1, color = "#fff", labelColor = color, valueColor = color,
+  align = "left", shadow = "#000",
+} = {}) {
   // Without the font (an install lacking it) the rows fall back to plain text.
   const canvas = document.createElement(font ? "canvas" : "div");
   canvas.className = "bitmap-text";
@@ -109,11 +112,11 @@ export function createTextPanel(font, { width = 160, scale = 1, color = "#fff", 
         const draw = (text, x, c) => drawText(ctx, font, text, x, y, { color: c, scale });
         const place = (text) => (align === "center" ? (canvas.width - textWidth(font, text, scale)) / 2 : pad);
         if (shadow) draw(left, place(left) + scale, shadow);
-        draw(left, place(left), color);
+        draw(left, place(left), labelColor);
         if (right !== null) {
           const x = canvas.width - pad - textWidth(font, right, scale);
           if (shadow) draw(right, x + scale, shadow);
-          draw(right, x, color);
+          draw(right, x, valueColor);
         }
       });
     },
