@@ -192,5 +192,3 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 .gold-overlay[hidden] { display: none; }
 .gold-fps { right: 6px; top: 4px; }
 .gold-z { right: 6px; top: 40px; }
-.commentary-line { position: absolute; z-index: 12; left: 50%; bottom: 36px; max-width: calc(100vw - 24px); transform: translateX(-50%); image-rendering: pixelated; background: rgba(0, 0, 0, 0.68); pointer-events: none; }
-.commentary-line[hidden] { display: none; }

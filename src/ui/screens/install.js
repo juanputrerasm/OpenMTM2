@@ -12,7 +12,7 @@ const MB = 1024 * 1024;
 export default function mount(container, context) {
   const status = el("p", { class: "muted" },
     "OpenMTM2 reads the tracks, trucks, art and sounds from your own Monster Truck Madness 2 "
-    + "install. Pick the folder it is installed in (the one holding MONSTER.EXE and POD.INI). "
+    + "install. Pick the folder it is installed in (the one holding POD.INI). "
     + "Its archives are copied once into this browser's private storage; nothing is uploaded.");
   const detail = el("div");
   const pickButton = el("button", { class: "primary", onclick: pick }, "Choose game folder");
@@ -77,9 +77,6 @@ export default function mount(container, context) {
       await context.assets.call("install", {
         files: result.files,
         podIni: result.podIni,
-        build: result.build,
-        exe: result.exe,
-        exeFile: result.exeFile,
       });
     } finally {
       off();

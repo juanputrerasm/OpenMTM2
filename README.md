@@ -3,7 +3,8 @@
 An open reimplementation of **Monster Truck Madness 2** that runs in the browser.
 
 OpenMTM2 contains no game data. It reads the tracks, trucks, art and sounds from your own retail
-Monster Truck Madness 2 install (version 2.00.42), which you pick once and which then stays in
+Monster Truck Madness 2 install (version 2.0.41 or 2.00.42; only `POD.INI` and the archives it
+lists are read, not `MONSTER.EXE`), which you pick once and which then stays in
 your browser's private storage.
 
 **Status:** early development. See [docs/PLAN.md](docs/PLAN.md) for the milestones.

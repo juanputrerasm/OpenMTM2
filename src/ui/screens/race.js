@@ -22,7 +22,7 @@ import { SunShadows } from "../../render/sun-shadows.js";
 import { mtm2Sim } from "../../vendor/openphotex/index.js";
 import { createAudio } from "../../audio/audio-engine.js";
 import { VOICE_COMMENTARY_ENABLED, createCommentaryAudio } from "../../audio/commentary-audio.js";
-import { createAnnouncer, textSeconds } from "../../game/commentary.js";
+import { createAnnouncer } from "../../game/commentary.js";
 import { createCommentaryWatcher } from "../../game/commentary-events.js";
 import { createTruckAudio } from "../../audio/truck-audio.js";
 import { createWorldAudio } from "../../audio/world-audio.js";
@@ -30,7 +30,7 @@ import { createWeatherScene } from "../../render/weather-scene.js";
 import { resolveWeather } from "../../game/weather.js";
 import { createGoldMode } from "../gold-mode.js";
 import { createGamepadInput } from "../../game/input/gamepad.js";
-import { createTextPanel, loadFont, wrapText } from "../../render/bitmap-text.js";
+import { createTextPanel, loadFont } from "../../render/bitmap-text.js";
 import { createRaceGauges } from "../../render/race-gauges.js";
 import { formatRaceTime, raceEntrants } from "../../game/race-setup.js";
 import { createTrackWorld, disposeObject, moveObjects, setStartLights, skyColor, updateSky, updateTrackWorld } from "../../render/track-scene.js";
@@ -126,35 +126,19 @@ export default async function mount(container, context, { track, laps, difficult
     count: entrants.length, player: 0, kookyHorn: !!context.settings.kookyHorn,
     onHit: (sitIndex, force, pos) => worldAudio.hit(sitIndex, force, pos),
   });
-  // The announcer: phrases from events in the race, spoken in the drivers' own name clips, and
-  // shown as text from the lines in the executable.
+  // The announcer: phrases from events in the race, spoken in the drivers' own name clips.
   // Voice commentary is deliberately disabled until its clip sequencing is corrected.
   const commentaryOn = VOICE_COMMENTARY_ENABLED && !!context.settings.commentary;
-  const textOn = !!context.settings.textCommentary;
-  const texts = textOn ? await context.assets.call("commentaryText").catch(() => ({})) : {};
   const announcer = createAnnouncer({ gap: 8 });
   const watcher = createCommentaryWatcher({ drivers: entrants.length, summit });
   const commentary = createCommentaryAudio(audio, {
     drivers: entrants.map((e) => ({ name: e.name, waves: catalogTrucks.find((c) => c.file === e.file)?.waves ?? [] })),
-    texts,
   });
-  const lineBox = createTextPanel(messageFont, { width: 520, scale: Math.max(1, scale * 0.9), align: "center" });
-  lineBox.element.classList.add("commentary-line");
-  lineBox.element.hidden = true;
-  view.append(lineBox.element);
-  let lineUntil = 0;
   const speakEvents = (events, now) => {
     for (const event of events.sort((a, b) => b.priority - a.priority)) {
       const said = announcer.say(event.group, event.args, now, { priority: event.priority });
       if (!said) continue;
-      const line = commentary.line(said);
-      if (commentaryOn) commentary.speak(said).done.then(() => announcer.finished(performance.now() / 1000));
-      else setTimeout(() => announcer.finished(performance.now() / 1000), 1000 * textSeconds(line ?? ""));
-      if (textOn && line) {
-        lineBox.set(messageFont ? wrapText(messageFont, context.t(line), 520) : [context.t(line)]);
-        lineBox.element.hidden = false;
-        lineUntil = now + textSeconds(line);
-      }
+      commentary.speak(said).done.then(() => announcer.finished(performance.now() / 1000));
       break;
     }
   };
@@ -399,13 +383,12 @@ export default async function mount(container, context, { track, laps, difficult
       worldAudio.update(dt, listener, movedPositions);
       {
         const now = performance.now() / 1000;
-        if (lineUntil && now > lineUntil) { lineBox.element.hidden = true; lineUntil = 0; }
         if (raceNow && !paused && !finishing) {
           const events = watcher.update({
             now, race: raceNow,
             trucks: latest.poses.map((p, i) => ({ pos: shown[i].pos, up: p.current.matrix[4], sound: p.sound })),
           });
-          if ((commentaryOn || textOn) && events.length) speakEvents(events, now);
+          if (commentaryOn && events.length) speakEvents(events, now);
         }
       }
       camera.getWorldDirection(forwardVector);

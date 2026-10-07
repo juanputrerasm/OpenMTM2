@@ -1,9 +1,8 @@
 /*
-  Look at a picked folder before copying anything: which build of the game it is, and which of
-  the archives POD.INI lists are present.
+  Look at a picked folder before copying anything: which of the archives POD.INI lists are
+  present.
 */
 import { parsePodIni, installPathKey } from "./pod-ini.js";
-import { inspectExe, classifyExe } from "./validate-exe.js";
 
 /**
  * An archive POD.INI lists. Installs differ in how the list is written (a drive letter, a
@@ -20,23 +19,20 @@ export async function findArchive(source, path) {
 }
 
 /**
+ * The executable is not looked at: the archives are the same in every retail build, so any
+ * folder with a POD.INI and its archives will do.
  * @param {{ getFile(path: string): Promise<File|null> }} source
- * @returns {Promise<{ ok: boolean, message: string, build?: string, exe?: object,
- *   podIni?: string, files?: { name: string, file: File }[], missing?: string[],
- *   totalBytes?: number, warnings?: string[] }>}
+ * @returns {Promise<{ ok: boolean, message: string, podIni?: string,
+ *   files?: { name: string, file: File }[], missing?: string[], totalBytes?: number,
+ *   warnings?: string[] }>}
  */
 export async function inspectSource(source) {
-  const exeFile = await source.getFile("MONSTER.EXE");
-  if (!exeFile) {
-    return { ok: false, message: "This folder has no MONSTER.EXE. Pick the folder Monster Truck Madness 2 is installed in." };
-  }
-  const exe = inspectExe(new Uint8Array(await exeFile.arrayBuffer()));
-  const verdict = classifyExe(exe);
-  if (!verdict.supported) return { ok: false, message: verdict.message, build: verdict.build, exe };
-
   // Names match without regard to case; some installs keep the file in SYSTEM.
   const iniFile = (await source.getFile("POD.INI")) ?? (await source.getFile("SYSTEM/POD.INI"));
-  if (!iniFile) return { ok: false, message: "This folder has no POD.INI, which lists the game's archives." };
+  if (!iniFile) {
+    return { ok: false, message: "This folder has no POD.INI, which lists the game's archives. "
+      + "Pick the folder Monster Truck Madness 2 is installed in." };
+  }
   const ini = parsePodIni(await iniFile.text());
 
   const files = [];
@@ -55,11 +51,8 @@ export async function inspectSource(source) {
   return {
     ok: missing.length === 0,
     message: missing.length === 0
-      ? verdict.message
-      : `${verdict.message} Missing archives: ${missing.join(", ")}.`,
-    build: verdict.build,
-    exe,
-    exeFile,
+      ? "Monster Truck Madness 2 found."
+      : `Monster Truck Madness 2 found. Missing archives: ${missing.join(", ")}.`,
     podIni,
     files,
     missing,

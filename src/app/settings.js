@@ -21,7 +21,6 @@ export const DEFAULT_SETTINGS = Object.freeze({
   developer: false,           // list tracks and trucks with the developer views on the Start screen
   sound: Object.freeze({ master: 1, effects: 1, music: 0.6, muted: false }),
   commentary: false,          // reserved for commentaryFlag; voice playback is temporarily disabled
-  textCommentary: false,      // textCommentaryFlag: its lines as text (off by default)
   menuMusic: true,            // the menus play SOUND\\SPLASH.WAV from MUSIC.POD
   kookyHorn: false,           // MONSTER.INI kookyHorn: three horns instead of one
   autoShift: true,            // automatic gears (the game's default)

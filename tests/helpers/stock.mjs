@@ -23,12 +23,12 @@ export function stockPath(name) {
   return join(STOCK_DIR, name.toLowerCase());
 }
 
-export function hasStock(name = "MONSTER.EXE") {
+export function hasStock(name = "POD.INI") {
   return existsSync(stockPath(name));
 }
 
 /** Reason string for node:test's `skip`, or false when the file is present. */
-export function skipWithoutStock(name = "MONSTER.EXE") {
+export function skipWithoutStock(name = "POD.INI") {
   return hasStock(name) ? false : `no local MTM2 install with ${name} under ${STOCK_DIR}`;
 }
 

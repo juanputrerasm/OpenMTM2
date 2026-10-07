@@ -12,8 +12,6 @@ import { buildSky, buildTrackRender, transferablesOf } from "./track-build.js";
 import { loadingScreen } from "./screen-art.js";
 import { decodeActPalette, decodeRawTexture, parseKlp, parseLoc, parseMod, parseMtmAmbientSounds, parseMtmSun, renderMod } from "../vendor/openphotex/index.js";
 import { FONT_SHEETS, parseBitmapFont } from "./bitmap-font.js";
-import { commentaryLines } from "./exe-strings.js";
-import { readFile } from "../shared/opfs.js";
 import { readUserData, removeUserData, writeUserData } from "./user-data.js";
 
 /** A reply whose buffers move to the main thread instead of being copied. */
@@ -113,19 +111,6 @@ const handlers = {
     }
     return withTransfer({ masterRadius: sun.masterRadius, layers: sun.layers, rays: sun.rays, textures },
       Object.values(textures).map((t) => t.rgba.buffer));
-  },
-
-  /**
-   * The announcer's English lines by clip script, read from the executable kept at install; an
-   * empty table for an install made before the executable was kept (the voices still play).
-   */
-  async commentaryText() {
-    try {
-      const file = await readFile("install/MONSTER.EXE");
-      return commentaryLines(new Uint8Array(await file.arrayBuffer()));
-    } catch {
-      return {};
-    }
   },
 
   /**

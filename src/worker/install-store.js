@@ -33,10 +33,10 @@ export async function removeInstall() {
 
 /**
  * Copy the archives into OPFS, replacing any previous install.
- * @param {{ files: { name: string, file: File }[], podIni: string, build: string, exe: object }} request
+ * @param {{ files: { name: string, file: File }[], podIni: string }} request
  * @param {(progress: { copied: number, total: number, name: string }) => void} onProgress
  */
-export async function copyInstall({ files, podIni, build, exe, exeFile }, onProgress) {
+export async function copyInstall({ files, podIni }, onProgress) {
   await removeInstall();
   const total = files.reduce((sum, f) => sum + f.file.size, 0);
   let copied = 0;
@@ -46,13 +46,9 @@ export async function copyInstall({ files, podIni, build, exe, exeFile }, onProg
       onProgress({ copied, total, name });
     });
   }
-  // The executable too: the announcer's English lines are in it (src/worker/exe-strings.js).
-  if (exeFile) await copyFile(exeFile, `${INSTALL_DIR}/MONSTER.EXE`, () => {});
   await writeBytesToFile(`${INSTALL_DIR}/POD.INI`, new TextEncoder().encode(podIni));
   const manifest = {
     format: MANIFEST_FORMAT,
-    build,
-    exe: { size: exe.size, timeDateStamp: exe.timeDateStamp, fileVersion: exe.fileVersion },
     archives: files.map(({ name, file }) => ({ name, size: file.size })),
     installedAt: new Date().toISOString(),
   };
