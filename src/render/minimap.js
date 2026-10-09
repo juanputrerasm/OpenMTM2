@@ -68,7 +68,7 @@ export function createCourseMap(course, { font = null } = {}) {
   const ctx = canvas.getContext("2d");
   const loop = courseLoop(course);
   const offsets = loop.length > 2 ? edgeOffsets(loop) : [];
-  let shown = false, names = false, blink = 0;
+  let shown = false, blink = 0;
 
   function fit() {
     const w = canvas.clientWidth || canvas.parentElement?.clientWidth || 640, h = canvas.clientHeight || canvas.parentElement?.clientHeight || 480;
@@ -81,10 +81,9 @@ export function createCourseMap(course, { font = null } = {}) {
     get visible() { return shown; },
     toggle() { shown = !shown; canvas.hidden = !shown; return shown; },
     setVisible(on) { shown = !!on; canvas.hidden = !shown; },
-    /** The Names key: show each driver's name with the place. */
-    toggleNames() { names = !names; return names; },
     /**
-     * `trucks`: `{ pos, heading, place, name }` in game feet, the player first.
+     * `trucks`: `{ pos, heading, place, label }` in game feet, the player first; `label` (a truck's or a driver's
+     * name, or null) is shown with the place (the Names key, game/names.js).
      */
     set(trucks, dt = 0.016) {
       if (!shown) return;
@@ -117,7 +116,7 @@ export function createCourseMap(course, { font = null } = {}) {
         if (x < 6 * unitPx || y < 7 * unitPx || x > w - 6 * unitPx || y > h - 7 * unitPx) continue;
         ctx.fillStyle = `rgb(${pulse},${pulse},${pulse})`;
         for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) ctx.fillRect(x + (dx - 0.5) * unitPx, y + (dy - 0.5) * unitPx, unitPx, unitPx);
-        const label = names && t.name ? `${t.name} (${t.place})` : String(t.place);
+        const label = t.label ? `${t.label} (${t.place})` : String(t.place);
         const colour = i === 0 ? "#ffffff" : "#b5b5b5";
         if (font) {
           const s = unitPx * 0.6, width = textWidth(font, label, s), left = x - width / 2, top = y + 3 * unitPx;

@@ -15,6 +15,7 @@ import { decodeModel } from "./models.js";
 import { resolveKeyframeModel } from "./keyframes.js";
 import { buildGroundBoxMesh } from "./ground-box-mesh.js";
 import { buildTruckRender } from "./truck-build.js";
+import { loadVehicleModels } from "./vehicle-models.js";
 import { createPaletteResolver } from "./palette-resolver.js";
 
 const RAMP_TYPE = 99;
@@ -167,6 +168,21 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     } catch { /* an undecodable texture draws as the mesh colour */ }
   }
 
+  // The blimp (game/blimp.js) and the recovery helicopter (game/heli-flight.js): GOODY.BIN, HELI.BIN and the
+  // pterodactyl's four wing frames (TERYL.BIN lists TERYL1 to TERYL4), each with its textures.
+  const loadVehicle = (names) => loadVehicleModels(vfs, palettes, names);
+  const goody = await loadVehicle(["GOODY.BIN"]);
+  const blimp = goody.models.length ? { model: goody.models[0], textures: goody.textures } : null;
+  // The pterodactyl is an animated BIN: TERYL.BIN lists four wing frames that become morph targets of the first.
+  const heliBytes = await vfs.read("MODELS\\TERYL.BIN");
+  const terylList = heliBytes ? decodeModel(heliBytes, "TERYL.BIN") : null;
+  const terylNames = (terylList?.frameNames ?? []).map((n) => n.toUpperCase());
+  const helicopter = await loadVehicle(["HELI.BIN", ...terylNames]);
+  const frameOf = async (name) => helicopter.models.find((m) => m.name === name.toUpperCase()) ?? null;
+  const teryl = terylList ? await resolveKeyframeModel(terylList, frameOf) : null;
+  const heliModel = helicopter.models.find((m) => m.name === "HELI.BIN") ?? null;
+  const heli = heliModel || teryl?.meshes?.length ? { heli: heliModel, teryl: teryl?.meshes?.length ? teryl : null, textures: helicopter.textures } : null;
+
   const sky = await loadSky(vfs, level, weather);
 
   // The SIT's start grid, as a preview of where the trucks stand.
@@ -203,6 +219,9 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     soundObjects,
     modelTextures,
     objects,
+    blimp, heli,
+    /** Where each SIT box started (x, y, z feet, theta, phi, psi): the replay file's `Original object locations`. */
+    originals: sit.boxes.map((b) => (b.positionFt ? [b.positionFt[0], b.positionFt[1], b.positionFt[2], b.theta ?? 0, b.phi ?? 0, b.psi ?? 0] : [0, 0, 0, 0, 0, 0])),
     backdrops,
     truckModels,
     trucks,

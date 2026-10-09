@@ -8,11 +8,14 @@
   headlights, four spot lights on the trucks nearest the camera, light it.
 */
 import * as THREE from "three";
+import { setBackdropWeather } from "./track-scene.js";
 import { UNDERWATER_FOG_FT, WEATHER_LOOK } from "../game/weather.js";
 import { joinSheets } from "../game/sheets.js";
 import { createBillboards } from "./billboards.js";
 
 const SUN_BASE = 2.2, AMBIENT_BASE = 0.9;
+/** A headlight's pool: about the irradiance of a clear day's sun on the ground it meets. */
+const SPOT_INTENSITY = 2.4;
 const BOX_FT = 90, RAIN_COUNT = 1800, SNOW_COUNT = 1600, SPOTS = 4;
 
 function sprite() {
@@ -34,7 +37,7 @@ function sprite() {
  *   onSun?: (intensity: number) => void, onLightning?: () => void }} env
  */
 export function createWeatherScene(env) {
-  const { scene, camera, world, sun, ambient, skyAverage, look, random = Math.random } = env;
+  const { scene, camera, world, sun, ambient, skyAverage, look, random = Math.random, drawDistance = 20000 } = env;
   const root = new THREE.Group();
   root.name = "weather";
   scene.add(root);
@@ -85,9 +88,10 @@ export function createWeatherScene(env) {
   rain.object.visible = snow.object.visible = false;
   root.add(rain.object, snow.object);
 
-  // Headlights: a few spot lights, moved to the trucks nearest the camera.
+  // Headlights: a few spot lights, moved to the trucks nearest the camera. As JSTrackViewer lights them: no fall-off with
+  // distance (a 1/d pool is a glare at the bumper and nothing beyond), a soft edge, and a reach well past the drawn beam.
   const spots = Array.from({ length: SPOTS }, () => {
-    const light = new THREE.SpotLight(0xfff2d0, 0, 420, 0.55, 0.7, 1);
+    const light = new THREE.SpotLight(0xfff2d8, 0, 300, 0.55, 0.65, 0);
     light.visible = false;
     root.add(light, light.target);
     return light;
@@ -111,11 +115,15 @@ export function createWeatherScene(env) {
     if (underwater) {
       scene.fog = new THREE.Fog(color, 0, UNDERWATER_FOG_FT);
       scene.background = color;
+    } else if (env.backdrops && current !== 2 && current !== 3) {
+      // With the backdrop drawn the horizon is scenery, not haze: no distance fog (Foggy and Dense Fog keep theirs).
+      scene.fog = null;
+      scene.background = w.fogEndFt ? color : skyAverage;
     } else if (w.fogEndFt) {
-      scene.fog = new THREE.Fog(color, w.fogStartFt ?? 0, w.fogEndFt);
+      scene.fog = new THREE.Fog(color, Math.min(w.fogStartFt ?? 0, drawDistance * 0.5), Math.min(w.fogEndFt, drawDistance));
       scene.background = color;
     } else {
-      scene.fog = new THREE.Fog(skyAverage, 2500, 7000);
+      scene.fog = new THREE.Fog(skyAverage, Math.min(2500, drawDistance * 0.35), Math.min(7000, drawDistance * 0.9));
       scene.background = skyAverage;
     }
   }
@@ -128,7 +136,8 @@ export function createWeatherScene(env) {
     for (const s of surfaces) s.mesh.material = lit ? s.lit : s.unlit;
     rain.object.visible = w.precipitation === "rain";
     snow.object.visible = w.precipitation === "snow";
-    for (const light of spots) { light.visible = w.headlights; light.intensity = w.headlights ? 90 : 0; }
+    for (const light of spots) { light.visible = w.headlights; light.intensity = w.headlights ? SPOT_INTENSITY : 0; }
+    setBackdropWeather(world, current);
     nextBolt = time + 6 + random() * 14;
     flash = 0;
     applyLight();

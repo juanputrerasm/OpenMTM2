@@ -19,6 +19,7 @@ export { stepTruck, postStepTruck, tireGeometry, probeGround, lateralCoefficient
 export { solveHullContacts } from "./truck/contacts.js";
 export { fluidAreas, hullFaceWaterArea, wheelWaterAreas, SPLASH_SPEED } from "./truck/water-drag.js";
 export * from "./truck/recovery.js";
+export * from "./truck/damage.js";
 export * from "./truck/autopilot.js";
 export * from "./truck/traffic.js";
 export * from "./collide/box.js";

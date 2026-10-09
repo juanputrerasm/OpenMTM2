@@ -7,6 +7,7 @@ import { createStrings } from "../game/strings.js";
 import { loadStrings } from "./strings-store.js";
 import { startMenuAudio } from "./menu-audio.js";
 import { WorkerClient } from "../shared/worker-client.js";
+import { mountWatermark } from "../ui/watermark.js";
 
 const screens = {
   install: () => import("../ui/screens/install.js"),
@@ -18,6 +19,7 @@ const screens = {
   hall: () => import("../ui/screens/hall.js"),
   options: () => import("../ui/screens/options.js"),
   results: () => import("../ui/screens/results.js"),
+  replay: () => import("../ui/screens/replay.js"),
   unsupported: () => import("../ui/screens/unsupported.js"),
   "dev-track": () => import("../ui/screens/dev-track.js"),
   "dev-drive": () => import("../ui/screens/dev-drive.js"),
@@ -46,7 +48,11 @@ async function boot() {
     return;
   }
   context.assets = new WorkerClient(new URL("../worker/asset-worker.js", import.meta.url));
-  const { installed } = await context.assets.call("installStatus");
+  const { installed, manifest } = await context.assets.call("installStatus");
+  // MONSTER.EXE's version, read when the folder was picked: only the retail builds get the classic menus.
+  // An install made before the version was recorded (no `exeVersion` key at all) is taken as the retail build it was made for.
+  context.exeVersion = manifest && !("exeVersion" in manifest) ? "2.00.42" : manifest?.exeVersion ?? null;
+  mountWatermark(installed ? context.assets : null);
   if (installed) {
     await loadStrings(context);
     // Menu and race sounds share one unlocked audio context; the menu music stops during a race.

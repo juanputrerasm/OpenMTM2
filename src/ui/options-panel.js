@@ -1,4 +1,5 @@
 /* Shared contents of the Options screen and the Options modal opened from every menu screen. */
+import { classicUiAllowed } from "../install/exe-version.js";
 import { el } from "./dom.js";
 import { clearSettings, saveSettings } from "../app/settings.js";
 import { loadStrings } from "../app/strings-store.js";
@@ -41,61 +42,75 @@ export async function mountOptionsPanel(container, context, { close = () => {} }
   };
   window.addEventListener("keydown", onKey);
 
-  const toggle = (label, key) => el("label", {}, el("input", {
-    type: "checkbox", checked: !!settings[key],
+  // Every option is one row of the same height: its name on the left, its control on the right.
+  const row = (label, control, title = null) => el("label", { class: "opt-row", title }, el("span", { class: "opt-label" }, label), el("span", { class: "opt-control" }, control));
+  const toggle = (label, key, title = null) => row(label, el("input", {
+    type: "checkbox", class: "opt-switch", checked: !!settings[key], "aria-label": label,
     onchange: (event) => { settings[key] = event.target.checked; save(); context.menuMusic?.refresh(); },
-  }), ` ${label}`);
-  const choose = (label, key, names, values = names.map((_, index) => index)) => el("label", {}, `${label} `,
+  }), title);
+  const choose = (label, key, names, values = names.map((_, index) => index)) => row(label,
     el("select", { "aria-label": label, onchange: (event) => {
       settings[key] = typeof values[0] === "number" ? Number(event.target.value) : event.target.value;
       save();
     } }, ...names.map((name, index) => el("option", { value: values[index], selected: values[index] === settings[key] }, name))));
+  const slider = (label, { min, max, step, value, format, set }) => {
+    const out = el("output", { class: "opt-value" }, format(value));
+    return row(label, el("span", { class: "opt-slider" }, el("input", {
+      type: "range", min, max, step, value, "aria-label": label,
+      oninput: (event) => { const v = Number(event.target.value); out.textContent = format(v); set(v); },
+    }), out));
+  };
+  const percent = (v) => `${Math.round(v * 100)}%`;
+  const sound = (label, key) => slider(label, {
+    min: 0, max: 1, step: 0.05, value: settings.sound[key], format: percent,
+    set: (v) => { settings.sound = { ...settings.sound, [key]: v }; save(); context.menuAudio?.setVolumes(settings.sound); context.menuMusic?.refresh(); },
+  });
 
   const locFiles = await context.assets.call("locFiles").catch(() => []);
-  const wording = el("label", {}, "Wording ", el("select", { "aria-label": "Wording" },
+  const wording = row("Wording", el("select", { "aria-label": "Wording" },
     el("option", { value: "", selected: !settings.wording }, "Standard"),
     ...locFiles.map(({ path }) => el("option", { value: path, selected: path === settings.wording }, locName(path)))));
-  const sound = (label, key) => el("label", {}, `${label} `, el("input", {
-    type: "range", min: 0, max: 1, step: 0.05, value: settings.sound[key], "aria-label": label,
-    oninput: (event) => {
-      settings.sound = { ...settings.sound, [key]: Number(event.target.value) };
-      save(); context.menuAudio?.setVolumes(settings.sound); context.menuMusic?.refresh();
-    },
-  }));
+  const menus = classicUiAllowed(context.exeVersion)
+    ? choose("Menus", "skin", ["Classic (game art)", "Modern"], ["classic", "modern"])
+    : row("Menus", el("span", { class: "opt-fixed" }, "Modern"), `MONSTER.EXE ${context.exeVersion ?? "(not found)"}: the classic menus fit only 2.00.41 and 2.00.42.`);
+  const button = (label, onclick, cls = null) => el("button", { class: cls, "data-menu-sound": "STARTOFF", onclick }, label);
 
-  container.append(
-    el("h2", {}, "Keys"), note, keyRows,
-    el("div", { class: "screen-actions" }, el("button", {
-      onclick: () => { Object.assign(bindings, mergeBindings({})); settings.bindings = {}; save(); note.textContent = "Keys reset."; showKeys(); },
-    }, "Reset keys")),
-    el("h2", {}, "Game"),
-    el("div", { class: "form-row" },
-      toggle("Automatic gears", "autoShift"), toggle("Full Autopilot (the truck drives itself)", "fullAutopilot"),
-      toggle("Show hidden tracks", "showHiddenTracks"),
-      toggle("Kooky horn (three horns)", "kookyHorn"), toggle("Menu music", "menuMusic"),
-      el("label", { title: "Voice commentary is temporarily disabled." },
-        el("input", { type: "checkbox", checked: false, disabled: !VOICE_COMMENTARY_ENABLED }), " Announcer voice (temporarily disabled)")),
-    el("div", { class: "form-row" },
-      choose("Look", "look", ["Classic", "Enhanced"], ["classic", "enhanced"]),
-      choose("Detail", "detailLevel", ["Low", "Medium", "High"]),
-      choose("Speed", "units", ["MPH", "KPH"], ["mph", "kph"]),
-      choose("Menus", "skin", ["Classic (game art)", "Modern"], ["classic", "modern"]), wording),
-    el("h2", {}, "Sound"),
-    el("div", { class: "form-row" }, sound("Master", "master"), sound("Effects", "effects"), sound("Music", "music"),
-      el("label", {}, el("input", {
-        type: "checkbox", checked: !!settings.sound.muted,
-        onchange: (event) => {
-          settings.sound = { ...settings.sound, muted: event.target.checked };
-          save(); context.menuAudio?.setVolumes(settings.sound); context.menuMusic?.refresh();
-        },
-      }), " Mute")),
-    el("div", { class: "options-footer" },
-      el("button", {
-        "data-menu-sound": "STARTOFF", onclick: async () => { close(); await context.router.go("hall"); },
-      }, "Hall Of Fame"),
-      el("button", { "data-menu-sound": "STARTOFF", onclick: async () => {
-        close(); await context.assets.call("uninstall"); await context.router.go("install", {}, { replace: true });
-      } }, "Use a different install"),
+  const sections = [
+    ["Game", [
+      toggle("Automatic gears", "autoShift"), toggle("Crash damage (dents)", "crashDamage"),
+      toggle("Full Autopilot", "fullAutopilot", "The truck drives itself"), toggle("Show hidden tracks", "showHiddenTracks"),
+      toggle("Kooky horn", "kookyHorn", "Three horns instead of one"), choose("Speed", "units", ["MPH", "KPH"], ["mph", "kph"]),
+      row("Announcer voice", el("input", { type: "checkbox", class: "opt-switch", checked: false, disabled: !VOICE_COMMENTARY_ENABLED }), "Voice commentary is temporarily disabled."),
+    ]],
+    ["Display", [
+      choose("Look", "look", ["Classic", "Enhanced"], ["classic", "enhanced"]), choose("Detail", "detailLevel", ["Low", "Medium", "High"]),
+      slider("Draw distance", { min: 1000, max: 20000, step: 500, value: settings.drawDistance ?? 20000, format: (v) => `${v} ft`, set: (v) => { settings.drawDistance = v; save(); } }),
+      toggle("Track backdrops", "backdrops"), menus, wording,
+    ]],
+    ["Effects", [
+      toggle("Dust", "dustEffects"), toggle("Tire tracks", "tireTracks"), toggle("Sparks", "sparks"), toggle("Water splashes", "waterSplash"),
+    ]],
+    ["Sound", [
+      sound("Master", "master"), sound("Effects", "effects"), sound("Music", "music"),
+      row("Mute", el("input", { type: "checkbox", class: "opt-switch", checked: !!settings.sound.muted, onchange: (event) => {
+        settings.sound = { ...settings.sound, muted: event.target.checked };
+        save(); context.menuAudio?.setVolumes(settings.sound); context.menuMusic?.refresh();
+      } })),
+      toggle("Menu music", "menuMusic"),
+    ]],
+    ["Keys", [note, keyRows, el("div", { class: "opt-actions" }, button("Reset keys", () => {
+      Object.assign(bindings, mergeBindings({})); settings.bindings = {}; save(); note.textContent = "Keys reset."; showKeys();
+    }))]],
+    ["Data", [el("div", { class: "opt-actions opt-data" },
+      button("Hall Of Fame", async () => { close(); await context.router.go("hall"); }),
+      button("Open replay (.rpl)", async () => {
+        const { pickReplayFile } = await import("./screens/replay.js");
+        const replay = await pickReplayFile();
+        if (!replay) { window.alert("That file is not a Monster Truck Madness 2 replay."); return; }
+        close();
+        await context.router.go("replay", { replay });
+      }),
+      button("Use a different install", async () => { close(); await context.assets.call("uninstall"); await context.router.go("install", {}, { replace: true }); }),
       el("button", { class: "danger", onclick: async (event) => {
         if (!window.confirm(
           "Clear all OpenMTM2 data from this browser? This permanently removes the copied install, "
@@ -110,8 +125,21 @@ export async function mountOptionsPanel(container, context, { close = () => {} }
           event.currentTarget.disabled = false;
           window.alert(`Could not clear the browser data: ${error.message}`);
         }
-      } }, "Clear browser game data"),
-      el("button", { class: "primary", onclick: close }, "Close")),
+      } }, "Clear browser game data"))]],
+  ];
+  // One category at a time, chosen from the tabs; the last one shown is remembered for the session.
+  const pages = sections.map(([, rows]) => el("div", { class: "opt-page" }, ...rows));
+  const tabs = sections.map(([name], i) => el("button", { class: "opt-tab", onclick: () => pick(i) }, name));
+  const pick = (i) => {
+    context.optionsTab = i;
+    pages.forEach((page, k) => { page.hidden = k !== i; });
+    tabs.forEach((tab, k) => tab.classList.toggle("selected", k === i));
+  };
+  pick(Math.min(context.optionsTab ?? 0, sections.length - 1));
+  container.append(
+    el("div", { class: "opt-tabs" }, ...tabs),
+    el("div", { class: "opt-pages" }, ...pages),
+    el("div", { class: "options-footer" }, el("button", { class: "primary", onclick: close }, "Close")),
   );
 
   const onChange = (event) => {

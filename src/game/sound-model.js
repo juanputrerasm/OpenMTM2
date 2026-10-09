@@ -130,3 +130,42 @@ export function hornSample(kooky, last = -1, random = Math.random) {
 
 /** YeeHaw's volume (0x429350). */
 export const YEEHAW_GAIN = 1.8;
+
+/*
+  The mixer (MONSTER_EXE_ANALYSIS.md 12, "The mixer": 0x563800 each frame, 0x462d60 per sound). At most 16
+  sounds are mixed at once; a positioned sound's gain falls with the square root of its distance over the
+  audible range, which the weather sets; a sound below 1/128 is inaudible and not mixed; when more than 16
+  are audible the loudest 16 are kept.
+*/
+export const MAX_VOICES = 16;
+export const INAUDIBLE_GAIN = 1 / 128;
+
+/** The audible range in feet (0x41f980): 1000, 500 in Fog, 300 in Dense Fog, 800 in Rain, 700 in Snow. */
+export const soundRange = (weather) => ({ 2: 500, 3: 300, 4: 800, 5: 700 }[weather] ?? 1000);
+
+/** The gain a positioned sound keeps at `distance` feet: 1 close, 0 at the range, falling like 1 - sqrt(d / range). */
+export const attenuation = (distance, range) => (distance >= range ? 0 : clamp(1 - Math.sqrt(Math.max(0, distance) / range), 0, 1));
+
+/**
+ * Which of the sounds (by loudness) are mixed: `true` for the loudest `max` that are audible. `held[i]` marks a sound
+ * that was mixed the last time; it keeps its place unless another is a quarter louder, so two sounds of near level do not
+ * trade places every frame (which would be heard as a flutter).
+ */
+export function cullVoices(levels, max = MAX_VOICES, held = []) {
+  const order = levels.map((level, i) => ({ level, i, rank: level * (held[i] ? 1.25 : 1) })).filter(({ level }) => level >= INAUDIBLE_GAIN).sort((a, b) => b.rank - a.rank || a.i - b.i);
+  const keep = levels.map(() => false);
+  for (const { i } of order.slice(0, max)) keep[i] = true;
+  return keep;
+}
+
+/**
+ * A `.KLP` the strict reader refuses but that still names its loop: `ACCEL3B.KLP` says five loops and lists four (the game
+ * rejects it as well and restarts the sample at a random place whenever it ends). The first `end start` pair is taken (an end
+ * of 0 is the sample's end), so the accel sample loops its steady tail instead of replaying its attack every cycle.
+ */
+export function lenientKlp(bytes) {
+  const tokens = new TextDecoder("latin1").decode(bytes).trim().split(/\s+/).map((t) => parseInt(t, 10));
+  if (tokens.length < 4 || tokens.some((n) => !Number.isFinite(n)) || tokens[0] < 3 || tokens[0] > 6) return null;
+  const end = tokens[2], start = tokens[3];
+  return start >= 0 ? { loops: [{ start, end: end <= 0 ? null : end }] } : null;
+}

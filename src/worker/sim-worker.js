@@ -11,6 +11,7 @@
 */
 import { mtm2Sim as S } from "../vendor/openphotex/index.js";
 import { createCrossingLog, raceGap, recordCrossings } from "../game/timing.js";
+import { createFlight, departVisual, flightVisual, nearestCourseSpot, stepFlight, timerVisual } from "../game/heli-flight.js";
 
 export const STEP = 1 / 60;
 
@@ -37,7 +38,45 @@ function snapshot(state) {
     rpm: state.rpm,
     throttle: state.controls.throttle,
     heliTimer: state.heliTimer,
+    // What the instant replay records (game/replay.js).
+    bvel: Array.from(state.bvel),
+    rates: Array.from(state.rates),
+    brakeFront: state.controls.brakeFront,
+    brakeRear: state.controls.brakeRear,
+    course: state.ap.segment,
+    // The recovery helicopter, when one is flying (game/heli-flight.js): `{ pos, heading, teryl }`.
+    heli: state.heliVisual ?? null,
   };
+}
+
+/**
+ * Crash damage (MONSTER_EXE_ANALYSIS.md 10): each step, every hull point in contact (depth of
+ * at least -0.25 ft) counts for its zone, with the truck's impact force. The renderer pushes
+ * the body's vertices for each counted step.
+ */
+function noteHull(t) {
+  const s = t.state;
+  for (let j = 0; j < 12; j++) {
+    if (!(s.depths[j] >= -0.25)) continue;
+    const zone = t.dmg.get(j + 1) ?? { steps: 0, force: 0 };
+    zone.steps++;
+    zone.force = Math.max(zone.force, s.impactForce);
+    t.dmg.set(j + 1, zone);
+  }
+}
+
+/** The hull contacts counted since the last look, `[{ zone, steps, force }]`; reset on reading. */
+function damageOf(t) {
+  const out = [...t.dmg].map(([zone, { steps, force }]) => ({ zone, steps, force }));
+  t.dmg.clear();
+  return out;
+}
+
+/** A hull-against-hull contact with another truck since the last look, `{ force, pos, steps }` or null; reset on reading. */
+function takeTouch(t) {
+  const touch = t.touch ?? null;
+  t.touch = null;
+  return touch;
 }
 
 /** What the sound needs from a truck, over the steps since the last look (it is reset on reading). */
@@ -48,7 +87,7 @@ function soundOf(t, ground) {
   const out = {
     rpm: s.rpm, throttle: s.controls.throttle, gear: s.controls.gear, airborne: air, forward: s.bvel[2],
     speed: Math.hypot(s.bvel[0], s.bvel[1], s.bvel[2]), 
-    impact: t.snd.impact, hit: t.snd.hit, clearance: s.pos[1] - ground.height(s.pos[0], s.pos[2]), splash: t.snd.splash, tires, surface: S.surfaceType(ground.surface(s.pos[0], s.pos[1] + 100, s.pos[2])), heli: s.heliTimer > 0,
+    impact: t.snd.impact, hit: t.snd.hit, clearance: s.pos[1] - ground.height(s.pos[0], s.pos[2]), splash: t.snd.splash, tires, surface: S.surfaceType(ground.surface(s.pos[0], s.pos[1] + 100, s.pos[2])), heli: s.heliTimer > 0, heliTeryl: !!s.heliVisual?.teryl, heliPos: s.heliVisual ? [...s.heliVisual.pos] : null,
   };
   t.snd.impact = 0;
   t.snd.hit = null;
@@ -104,7 +143,7 @@ export function createSession(init) {
       racing: true, player: i === 0 && !autopilot, autopilot, difficulty, summit: false, segment: null, previous: null,
     };
     const ctx = { ground, human: i === 0 && !autopilot, difficulty, sonicTrack, recovery };
-    return { state, params, autopilot, recovery, ctx, radius: S.truckRadius(params), nearBoxes: [], snd: { impact: 0, hit: null, splash: false, surface: 1 } };
+    return { state, params, autopilot, recovery, ctx, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, hit: null, splash: false, surface: 1 } };
   });
   const player = trucks[0];
   // Traffic (MTM2_PHYSICS.md 14.25): every truck sees the others' last values.
@@ -149,7 +188,16 @@ export function createSession(init) {
   function pairTests() {
     for (let i = 0; i < trucks.length; i++) {
       for (let j = i + 1; j < trucks.length; j++) {
-        S.collideTrucks({ s: trucks[i].state, p: trucks[i].params }, { s: trucks[j].state, p: trucks[j].params }, STEP);
+        const a = trucks[i], b = trucks[j];
+        const before = [...a.state.extForce, ...b.state.extForce];
+        S.collideTrucks({ s: a.state, p: a.params }, { s: b.state, p: b.params }, STEP);
+        // A hull against a hull: the pair's forces changed. Remember the hardest hit and where the trucks met.
+        const force = Math.hypot(a.state.extForce[0] - before[0], a.state.extForce[1] - before[1], a.state.extForce[2] - before[2]);
+        if (force > 0) {
+          const where = [0, 1, 2].map((k) => (a.state.pos[k] + b.state.pos[k]) / 2);
+          for (const t of [a, b]) if (!t.touch || force > t.touch.force) t.touch = { force, pos: where, steps: (t.touch?.steps ?? 0) + 1 };
+          else t.touch.steps++;
+        }
       }
     }
     const grounds = [];
@@ -173,7 +221,7 @@ export function createSession(init) {
   }
 
   /** A moved box's pose for drawing. */
-  const boxPose = (box) => ({ sitIndex: box.sitIndex, pos: [...box.pos], matrix: Array.from(box.matrix) });
+  const boxPose = (box) => ({ sitIndex: box.sitIndex, pos: [...box.pos], matrix: Array.from(box.matrix), euler: Array.from(box.euler) });
 
   /** A truck's recovery context, aimed at its course segment when it has one (10.3). */
   function recoveryOf(t) {
@@ -243,7 +291,7 @@ export function createSession(init) {
     }
     Object.assign(keys, held);
     if (helicopter) {
-      S.pressHelicopterKey(player.state, { dragRace: false, summit: player.recovery.summit });
+      callHelicopter(player);
       input.helicopter = false;
     }
     // The race tick comes first in the game's frame (0x487300): checkpoints, segments, the order.
@@ -300,6 +348,8 @@ export function createSession(init) {
     listBoxes();
     const before = listed.map(poseKey);
     for (const t of trucks) {
+      // The player's helicopter holds the truck still and carries it itself (game/heli-flight.js).
+      if (t.flight) { flyTruck(t); continue; }
       S.stepTruck(t.state, t.params, t.ctx, STEP);
       t.snd.impact = Math.max(t.snd.impact, t.state.impactForce);
       t.snd.splash = t.snd.splash || t.state.splash;
@@ -307,6 +357,7 @@ export function createSession(init) {
     for (const box of listed) S.stepBox(box, ground, STEP);
     pairTests();
     for (const t of trucks) S.postStepTruck(t.state, t.params, ground, STEP);
+    for (const t of trucks) noteHull(t);
     listed.forEach((box, i) => {
       S.postStepBox(box, ground);
       if (before[i] !== poseKey(box)) dirty.add(box);
@@ -322,8 +373,65 @@ export function createSession(init) {
       }
       if (best && (!t.snd.hit || t.state.impactForce > t.snd.hit.force)) t.snd.hit = { sitIndex: best.sitIndex, force: t.state.impactForce };
     }
+    updateHeliVisuals();
     time += STEP;
     if (race) handOverFinished();
+  }
+
+  /**
+   * The player's Helicopter key: at any time once the race runs, the helicopter takes the truck (frozen in the
+   * air) to the nearest point of the course and sets it down facing along it; pressed again, it lets go where it is.
+   * Every third call brings the pterodactyl instead (the game's counter at `0x651798`).
+   */
+  let heliCalls = 0;
+  function callHelicopter(t) {
+    if (t.recovery.summit || !(!race || S.raceStarted(race)) || gold.slew) return;
+    if (t.flight) { releaseTruck(t); return; }
+    if (t.state.heliTimer !== 0) return;
+    heliCalls = (heliCalls + 1) % 3;
+    const driven = course.length ? S.orientedCourse(course, apCtx.reversed) : [];
+    const here = t.state.pos;
+    const spot = nearestCourseSpot(driven, here, (x, z) => ground.height(x, z))
+      ?? { pos: [here[0], ground.height(here[0], here[2]), here[2]], heading: t.state.euler[2] };
+    t.flight = createFlight(t.state, spot, { teryl: heliCalls === 2, height: (x, z) => ground.height(x, z) });
+    t.state.heliTimer = 1;
+    t.exit = null;
+  }
+  function flyTruck(t) {
+    const s = t.state;
+    s.bvel.fill(0);
+    s.rates.fill(0);
+    s.heliTimer = 1;
+    for (const tire of s.tires) tire.onGround = false;
+    const done = stepFlight(t.flight, s, STEP);
+    S.eulerToMatrix(s.euler[0], s.euler[1], s.euler[2], s.matrix);
+    s.prevPos.set(s.pos);
+    s.heliVisual = flightVisual(t.flight, s);
+    if (done) releaseTruck(t);
+  }
+  function releaseTruck(t) {
+    const s = t.state;
+    t.exit = { t: 0, pos: [...s.pos], heading: s.euler[2], teryl: t.flight.teryl };
+    t.flight = null;
+    s.heliTimer = 0;
+    s.hover = 0;
+    s.bvel.fill(0);
+    s.rates.fill(0);
+    s.depths.fill(-9999);
+    s.heliVisual = departVisual(t.exit);
+  }
+  /** The helicopter drawn for each truck: the player's own flight or departure, the game's flight for the others. */
+  function updateHeliVisuals() {
+    for (const t of trucks) {
+      const s = t.state;
+      if (t.exit) {
+        t.exit.t += STEP;
+        s.heliVisual = departVisual(t.exit);
+        if (!s.heliVisual) t.exit = null;
+      } else if (!t.flight) {
+        s.heliVisual = timerVisual(s.heliTimer, s.pos, s.euler[2]);
+      }
+    }
   }
 
   /** Finished trucks go on autopilot (MTM2_PHYSICS.md 14.24); the player's too. */
@@ -386,7 +494,7 @@ export function createSession(init) {
     while (time + STEP <= target) { step(input); steps++; }
     const boxes = [...dirty].map(boxPose);
     dirty.clear();
-    const poses = trucks.map((t) => ({ previous: t.previous, current: snapshot(t.state), sound: soundOf(t, ground) }));
+    const poses = trucks.map((t) => ({ previous: t.previous, current: snapshot(t.state), sound: soundOf(t, ground), damage: damageOf(t), touch: takeTouch(t) }));
     return {
       previous: poses[0].previous, current: poses[0].current, alpha: (target - time) / STEP, time, steps, boxes,
       others: poses.slice(1).map((x) => x.current), poses, race: raceView(),

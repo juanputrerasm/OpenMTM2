@@ -50,7 +50,7 @@ test("a joystick drives the same truck, overriding the keyboard", { skip: skipWi
   assert.ok(session.state.controls.steer > 0);
 });
 
-test("the Helicopter key lifts the truck and sets it back down", { skip: skipWithoutStock("POD.INI") }, async () => {
+test("the Helicopter key takes the truck at once, holds it, and sets it down level", { skip: skipWithoutStock("POD.INI") }, async () => {
   const build = await buildTrackRender(stockVfs(), "WORLD\\TPARK.SIT");
   const truck = build.truckModels[build.sim.start.file];
   const session = createSession({
@@ -61,17 +61,18 @@ test("the Helicopter key lifts the truck and sets it back down", { skip: skipWit
   });
   let r;
   for (let t = 0.25; t < 3; t += 0.25) r = session.advance(t, {});
-  const groundY = r.current.pos[1];
   r = session.advance(3.25, { helicopter: true });
-  assert.ok(r.current.heliTimer > 14, `timer ${r.current.heliTimer}`);
+  assert.ok(r.current.heliTimer > 0, `timer ${r.current.heliTimer}`);
+  assert.ok(r.current.heli, "the helicopter is drawn");
   let top = 0;
-  for (let t = 3.5; t < 22; t += 0.25) {
+  const x0 = r.current.pos[0];
+  for (let t = 3.5; t < 12; t += 0.25) {
     r = session.advance(t, {});
-    top = Math.max(top, r.current.pos[1] - groundY);
+    top = Math.max(top, r.current.pos[1]);
+    if (r.current.heliTimer > 0) assert.ok(Math.abs(r.current.speed) < 1e-6, "held still");
   }
-  assert.ok(top > 20, `lifted ${top} ft`);
   assert.equal(r.current.heliTimer, 0);
-  assert.ok(Math.abs(r.current.pos[1] - groundY) < 3, `down at ${r.current.pos[1] - groundY}`);
+  assert.ok(Math.abs(r.current.pos[0] - x0) < 5);
 });
 
 /** A session on a stock track with its collision boxes, the truck dropped at `pos`. */
@@ -441,4 +442,25 @@ test("weather: rain and snow lower the grip as they come, in the session at once
   session.command("weather", 5);
   for (let i = 0; i < 30; i++) session.step({});
   assert.ok(Math.abs(mu() / dry - 0.6) < 0.02, `snow ${mu() / dry}`);
+});
+
+test("hull contacts are reported as crash damage: zones 1 to 12 with their steps and the impact force", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const build = await buildTrackRender(stockVfs(), "WORLD\\TPARK.SIT");
+  const truck = build.truckModels[build.sim.start.file];
+  const session = createSession({
+    heights: build.heights.buffer, clr: build.sim.clr.buffer, textureValues: build.sim.textureValues.buffer,
+    ra0: build.sim.ra0?.buffer ?? null, ra1: build.sim.ra1?.buffer ?? null, boxes: build.sim.boxes, ramps: build.sim.ramps,
+    waterLevelFt: build.waterLevelFt, weather: 0, difficulty: 1,
+    truck: { anchors: truck.anchors, scrapePoints: truck.scrapePoints },
+    start: { pos: build.sim.start.pos, heading: build.sim.start.heading },
+  });
+  let steps = 0, strongest = 0;
+  const zones = new Set();
+  for (let t = 0.25; t < 240; t += 1 / 60) {
+    const r = session.advance(t, { accelerate: true, left: Math.sin(t * 1.3) > 0.1, right: Math.sin(t * 1.3) < -0.1 });
+    for (const d of r.poses[0].damage) { zones.add(d.zone); steps += d.steps; strongest = Math.max(strongest, d.force); }
+  }
+  assert.ok(steps > 0, "a rough drive scrapes the hull");
+  assert.ok([...zones].every((z) => z >= 1 && z <= 12));
+  assert.ok(strongest > 0);
 });

@@ -12,7 +12,7 @@
 import * as THREE from "three";
 import { WORLD_FT } from "../shared/scene-frame.js";
 
-function dataTexture({ rgba, width, height }, look, repeat = false) {
+export function dataTexture({ rgba, width, height }, look, repeat = false) {
   const texture = new THREE.DataTexture(rgba, width, height, THREE.RGBAFormat);
   texture.colorSpace = THREE.SRGBColorSpace;
   // Texture rows are stored top first; three.js reads the first row as the bottom.
@@ -21,6 +21,8 @@ function dataTexture({ rgba, width, height }, look, repeat = false) {
   texture.magFilter = nearest ? THREE.NearestFilter : THREE.LinearFilter;
   texture.minFilter = nearest ? THREE.NearestMipmapNearestFilter : THREE.LinearMipmapLinearFilter;
   texture.generateMipmaps = true;
+  // The enhanced look filters sharply at a slant (clamped to what the GPU offers).
+  if (!nearest) texture.anisotropy = 8;
   if (repeat) texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   texture.needsUpdate = true;
   return texture;
@@ -236,22 +238,57 @@ export function createBackdrops(build, look) {
   const library = createModelLibrary(build.models, build.modelTextures, look);
   const group = new THREE.Group();
   group.name = "backdrops";
-  // After the sky dome, before ordinary depth-writing world geometry.
-  group.renderOrder = -0.5;
+  const uniforms = { backdropTint: { value: new THREE.Color(0xffffff) }, backdropSaturation: { value: 1 } };
+  // After the sky dome, before ordinary depth-writing world geometry. three.js sorts by the nearest Group's renderOrder
+  // first (the sky dome counts as part of `world`, order 0), so this group keeps 0 and its meshes carry the -0.5; a group
+  // order below the sky's would draw the backdrop first and the dome would paint over it.
+  group.renderOrder = 0;
   for (const name of build.backdrops) {
     for (const part of library.get(name) ?? []) {
       const source = part.material;
       const material = new THREE.MeshBasicMaterial({
         map: source.map, color: source.color, transparent: source.transparent,
-        alphaTest: source.alphaTest, side: source.side, depthTest: false, depthWrite: false,
+        alphaTest: source.alphaTest, side: THREE.DoubleSide, depthTest: false, depthWrite: false,
         fog: false,
       });
+      installBackdropShader(material, uniforms);
       const mesh = new THREE.Mesh(part.geometry, material);
       mesh.renderOrder = -0.5;
       group.add(mesh);
     }
   }
+  group.userData.uniforms = uniforms;
   return group.children.length ? group : null;
+}
+
+/*
+  The backdrop is unlit, so it would stay in full daylight under a dusk or night sky; the weather tints and greys it instead,
+  with JSTrackViewer's values for Clear, Cloudy, Dusk and Night and the port's for the rest.
+*/
+export const BACKDROP_WEATHER = Object.freeze({
+  0: [0xffffff, 1], 1: [0xb4b4b8, 0.45], 2: [0x9c9ca2, 0.35], 3: [0x8a8a90, 0.25], 4: [0x8c8c96, 0.4],
+  5: [0xc6c8cc, 0.4], 6: [0x7a6466, 0.9], 7: [0x3c3d58, 0.8], 8: [0x16161e, 0.6],
+});
+
+function installBackdropShader(material, uniforms) {
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform vec3 backdropTint;\nuniform float backdropSaturation;")
+      .replace("#include <map_fragment>", `#include <map_fragment>
+        float backdropGrey = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+        diffuseColor.rgb = mix(vec3(backdropGrey), diffuseColor.rgb, backdropSaturation) * backdropTint;`);
+  };
+  material.customProgramCacheKey = () => "backdrop-weather";
+}
+
+/** Tint the world's backdrop for `weather` (0 Clear ... 8 Pitch Black). */
+export function setBackdropWeather(world, weather) {
+  const uniforms = world?.getObjectByName("backdrops")?.userData.uniforms;
+  if (!uniforms) return;
+  const [tint, saturation] = BACKDROP_WEATHER[weather] ?? BACKDROP_WEATHER[0];
+  uniforms.backdropTint.value.setHex(tint);
+  uniforms.backdropSaturation.value = saturation;
 }
 
 /** Face billboards, advance keyframe morphs and keep the backdrop around the camera. */
@@ -264,6 +301,9 @@ export function updateTrackWorld(world, camera, dt) {
     if (object.userData.billboard) {
       target.set(camera.position.x, object.position.y, camera.position.z);
       object.lookAt(target);
+      // The copies that cast the shadow keep a fixed turn to the sun, whatever way the object turns (race.js enableShadows).
+      const facing = world.userData.shadowFacing;
+      if (facing) for (const child of object.children) if (child.userData.shadowProxy) child.quaternion.copy(object.quaternion).invert().multiply(facing);
     }
     const n = object.userData.frameCount;
     if (!n || !object.morphTargetInfluences) return;
@@ -274,17 +314,68 @@ export function updateTrackWorld(world, camera, dt) {
   });
 }
 
-/** A sky dome around the camera, textured with the level's sky. */
-export function createSky(sky, look) {
+/** Sixteen sides, four rings (MONSTER_EXE_ANALYSIS.md 11c, 0x42bca0). */
+const SKY_SIDES = 16;
+/** Elevation of each ring: the first a hair over the horizon, then 22.5, 45 and 67.5 degrees. */
+const SKY_RINGS = [0.019634955, Math.PI / 8, Math.PI / 4, (Math.PI * 3) / 8];
+/** Where each ring reads the sky texture, in pixels of its 256 rows: bottom to top, clamped to 2..254. */
+const SKY_ROWS = [254, 170 + 2 / 3, 85 + 1 / 3, 2];
+
+/**
+ * The sky dome the game draws (0x42bca0): a ring of 16 quads around the viewer for each band between
+ * four rings of elevation. Each quad takes 64 texels of the texture across (so it repeats four times
+ * around the horizon) and the rows run from the bottom of the texture at the horizon to its top at 67.5
+ * degrees. Above that a flat cap (createSky) fills the hole.
+ */
+export function skyGeometry(radius = 6000) {
+  const positions = [], uvs = [], index = [];
+  for (let i = 0; i <= SKY_SIDES; i++) {
+    const azimuth = (i / SKY_SIDES) * Math.PI * 2;
+    SKY_RINGS.forEach((elevation, ring) => {
+      // The game's axes are x right, y up, z forward; the scene mirrors z.
+      positions.push(Math.sin(azimuth) * Math.cos(elevation) * radius, Math.sin(elevation) * radius, -Math.cos(azimuth) * Math.cos(elevation) * radius);
+      uvs.push((i * 64) / 256, SKY_ROWS[ring] / 256);
+    });
+  }
+  const at = (i, ring) => i * SKY_RINGS.length + ring;
+  for (let i = 0; i < SKY_SIDES; i++) {
+    for (let ring = 0; ring < SKY_RINGS.length - 1; ring++) {
+      index.push(at(i, ring), at(i + 1, ring), at(i + 1, ring + 1), at(i, ring), at(i + 1, ring + 1), at(i, ring + 1));
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(index);
+  return geometry;
+}
+
+/** The colour of the sky texture's top rows (the ring edge at 67.5 degrees reads row 2), for the cap over the dome's hole. */
+export function skyCapColor(sky) {
+  const row = Math.min(2, sky.height - 1) * sky.width * 4;
+  let r = 0, g = 0, b = 0;
+  for (let x = 0; x < sky.width; x++) { r += sky.rgba[row + x * 4]; g += sky.rgba[row + x * 4 + 1]; b += sky.rgba[row + x * 4 + 2]; }
+  return new THREE.Color().setRGB(r / sky.width / 255, g / sky.width / 255, b / sky.width / 255, THREE.SRGBColorSpace);
+}
+
+/**
+ * A sky dome around the camera, textured with the level's sky. The game fills what the rings leave open
+ * above them with a flat square of one colour from the sky texture (0x42bca0, drawn first); the cap is that.
+ */
+export function createSky(sky, look, radius = 6000) {
   if (!sky) return null;
   const map = dataTexture(sky, look, true);
-  // Rows are stored top first and the dome's v runs upward, so the texture is flipped in v.
-  map.repeat.set(4, -2);
-  const geometry = new THREE.SphereGeometry(6000, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
-  const material = new THREE.MeshBasicMaterial({ map, side: THREE.BackSide, fog: false, depthWrite: false });
-  const dome = new THREE.Mesh(geometry, material);
+  const material = new THREE.MeshBasicMaterial({ map, side: THREE.DoubleSide, fog: false, depthWrite: false });
+  const dome = new THREE.Mesh(skyGeometry(radius), material);
   dome.name = "sky";
   dome.renderOrder = -1;
+  const half = radius * 0.5556;
+  const cap = new THREE.Mesh(new THREE.PlaneGeometry(half * 2, half * 2).rotateX(Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: skyCapColor(sky), side: THREE.DoubleSide, fog: false, depthWrite: false }));
+  cap.position.y = radius;
+  cap.renderOrder = -2;
+  dome.add(cap);
+  dome.userData.cap = cap;
   return dome;
 }
 
@@ -293,8 +384,8 @@ export function updateSky(dome, sky, look) {
   if (!dome || !sky) return;
   const old = dome.material.map;
   dome.material.map = dataTexture(sky, look, true);
-  dome.material.map.repeat.set(4, -2);
   dome.material.needsUpdate = true;
+  dome.userData.cap?.material.color.copy(skyCapColor(sky));
   old?.dispose();
 }
 
@@ -352,7 +443,8 @@ export function createTruck(truck, look) {
 }
 
 /** Everything static in a track: terrain, ground boxes, objects, water and sky. */
-export function createTrackWorld(build, look) {
+/** `options.backdrops` draws the SIT's backdrop models (off unless asked), `options.drawDistance` the world's reach in feet (the sky dome stays inside it). */
+export function createTrackWorld(build, look, { backdrops: showBackdrops = false, drawDistance = 20000 } = {}) {
   const world = new THREE.Group();
   const tile = new THREE.Group();
   tile.name = "tile";
@@ -365,7 +457,7 @@ export function createTrackWorld(build, look) {
   if (water) tile.add(water);
   world.add(tile);
   const backdrops = createBackdrops(build, look);
-  if (backdrops && !build.stadium) world.add(backdrops);
+  if (backdrops && showBackdrops && !build.stadium) world.add(backdrops);
   if (!build.stadium) {
     // The world wraps at 8192 ft: draw the eight neighbouring copies, which share every geometry,
     // material and texture with the original.
@@ -376,7 +468,7 @@ export function createTrackWorld(build, look) {
       world.add(copy);
     }
     // A stadium replaces the sky (MONSTER.EXE draws it instead).
-    const sky = createSky(build.sky, look);
+    const sky = createSky(build.sky, look, Math.min(6000, drawDistance * 0.95));
     if (sky) world.add(sky);
   }
   return world;

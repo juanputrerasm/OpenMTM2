@@ -24,13 +24,21 @@ export const DEFAULT_SETTINGS = Object.freeze({
   wording: "",                // a .LOC from the install that rewords the game's text ("" is the standard wording)
   skin: "classic",            // "classic" (the game's own menu art from UI.POD) or "modern"
   developer: false,           // list tracks and trucks with the developer views on the Start screen
-  sound: Object.freeze({ master: 1, effects: 1, music: 0.6, muted: false }),
+  sound: Object.freeze({ master: 1, effects: 1, music: 0.8, muted: false }),
   commentary: false,          // reserved for commentaryFlag; voice playback is temporarily disabled
   menuMusic: true,            // the menus play SOUND\\SPLASH.WAV from MUSIC.POD
   kookyHorn: false,           // MONSTER.INI kookyHorn: three horns instead of one
+  crashDamage: true,          // MONSTER.INI allowCrashDamage (the game's own default is off): collisions dent the bodies
   autoShift: true,            // automatic gears (the game's default)
   bindings: Object.freeze({}), // key code overrides by action, see game/input/bindings.js
   fullAutopilot: false,       // the game's "Full Autopilot": the player's truck drives itself
+  dustEffects: true,          // MONSTER.INI smokeEffectFlag: dust puffs behind the wheels on soft ground
+  tireTracks: true,           // MONSTER.INI tireTrackFlag: treads left on soft ground (the game reads it but never draws them)
+  waterSplash: true,          // drops thrown up where wheels run through water, more with speed (not in the game)
+  sparks: true,               // sparks from hull contacts (not in the game)
+  sonicTrucks: false,         // Professional only: the computer trucks drive as on a Sonic track, whatever the SIT's fly-by line says
+  drawDistance: 20000,        // feet: how far the world is drawn (the camera's far plane and the fog)
+  backdrops: false,           // the SIT's backdrop models behind the world (off by default)
   showHiddenTracks: true,     // the two hidden tracks are listed unless this is turned off
 });
 

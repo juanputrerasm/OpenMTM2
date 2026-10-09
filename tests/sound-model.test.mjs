@@ -90,3 +90,44 @@ test("the horn: horn1 alone, or the kooky horn's three without a repeat", () => 
   assert.equal(hornSample(true, 1, () => seq.shift()).name, "HORN1");
   assert.equal(hornSample(true, -1, () => 0.9).gain, 1.5);
 });
+
+import { INAUDIBLE_GAIN, MAX_VOICES, attenuation, cullVoices, soundRange } from "../src/game/sound-model.js";
+
+test("a positioned sound fades like 1 - sqrt(d / range) and is silent at the range", () => {
+  assert.equal(attenuation(0, 1000), 1);
+  assert.ok(Math.abs(attenuation(250, 1000) - 0.5) < 1e-9);
+  assert.equal(attenuation(1000, 1000), 0);
+  assert.equal(attenuation(4000, 1000), 0);
+});
+
+test("the weather sets the audible range", () => {
+  assert.deepEqual([0, 2, 3, 4, 5, 7].map(soundRange), [1000, 500, 300, 800, 700, 1000]);
+});
+
+test("only the loudest sixteen audible sounds are kept", () => {
+  const levels = Array.from({ length: 20 }, (_, i) => (i + 1) / 40);
+  const keep = cullVoices(levels);
+  assert.equal(keep.filter(Boolean).length, MAX_VOICES);
+  assert.equal(keep[19], true);
+  assert.equal(keep[0], false);
+  const faint = cullVoices([INAUDIBLE_GAIN / 2, 0.5]);
+  assert.deepEqual(faint, [false, true]);
+});
+
+import { lenientKlp } from "../src/game/sound-model.js";
+test("ACCEL3B.KLP, which promises five loops and lists four, loops its tail from sample 11828", () => {
+  const bytes = new TextEncoder().encode("3\r\n5\r\n0 11828\r\n0 11828\r\n13631 11828\r\n0 11828\r\n");
+  const klp = lenientKlp(bytes);
+  assert.deepEqual(klp, { loops: [{ start: 11828, end: null }] });
+  assert.deepEqual(loopRegion(klp, 18686), { start: 11828, end: 18686 });
+  assert.equal(lenientKlp(new TextEncoder().encode("1 5")), null);
+});
+
+test("a sound that was mixed keeps its place against one only a little louder", () => {
+  const levels = Array.from({ length: 17 }, () => 0.5);
+  levels[16] = 0.55;
+  const held = levels.map((_, i) => i < 16);
+  assert.equal(cullVoices(levels, 16, held)[16], false);
+  levels[16] = 0.9;
+  assert.equal(cullVoices(levels, 16, held)[16], true);
+});

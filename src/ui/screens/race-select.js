@@ -101,21 +101,26 @@ export default async function mount(container, context) {
   remember();
 
   const ui = await frame(container, context, {
-    title: "Races", backdrop: "RACES",
+    title: "Races", backdrop: "RACES", current: "races",
     regions: {
       list: [42, 141, 274, 189], lengthLabel: [48, 350, 58, 24], length: [106, 350, 38, 24],
-      opponents: [343, 81, 132, 38], preview: [342, 124, 258, 210], weather: [488, 349, 109, 27],
+      opponents: [343, 81, 132, 38], preview: [342, 124, 258, 210], weather: [488, 349, 109, 27], weatherLabel: [0, 0, 0, 0],
     },
+    // Without the art: the list takes its own column headings, and Weather sits beside Laps under the list, in the same type.
+    modernRegions: { list: [42, 122, 274, 208], weatherLabel: [150, 350, 70, 24], weather: [222, 350, 94, 24] },
   });
   if (ui.classic) {
-    opponentsButton.textContent = "";
-    opponentsButton.title = "Computer Opponents";
+    if (ui.art) { opponentsButton.textContent = ""; opponentsButton.title = "Computer Opponents"; }
     ui.regions.list.append(table);
     ui.regions.lengthLabel.append(lengthLabel);
     ui.regions.length.append(laps);
     ui.regions.opponents.append(opponentsButton);
     ui.regions.preview.append(preview);
     ui.regions.weather.append(weather);
+    if (!ui.art) {
+      ui.regions.weatherLabel.append(el("span", { class: "race-length-label" }, context.t("Weather")));
+      table.prepend(el("thead", {}, el("tr", {}, el("th", {}, context.t("Track Name")), el("th", {}, context.t("Track Type")))));
+    }
   } else {
     ui.regions.list.append(table,
       el("div", { class: "form-row" },

@@ -65,6 +65,7 @@ export { parseNocturneZth, NOCTURNE_ZTH_WIDTH, NOCTURNE_ZTH_HEIGHT, NOCTURNE_ZTH
 export { parseKlp, parseMtmAmbientSounds, weatherMaskIncludes } from "./mtm/sound.js";
 export { parseMtmSun } from "./mtm/sun.js";
 export { parseLoc } from "./mtm/loc.js";
+export { parseMtmReplay, writeMtmReplay, REPLAY_RING_RECORDS, REPLAY_FRAME_TICKS, REPLAY_TICKS_PER_SECOND } from "./mtm/replay.js";
 export { modChannels, parseMod, renderMod } from "./audio/mod.js";
 export { parseCockpitLayout, parseCockpitSections } from "./mtm/cockpit.js";
 export * as mtm2Sim from "./sim/mtm2/index.js";

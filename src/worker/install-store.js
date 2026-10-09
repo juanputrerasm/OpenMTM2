@@ -36,7 +36,7 @@ export async function removeInstall() {
  * @param {{ files: { name: string, file: File }[], podIni: string }} request
  * @param {(progress: { copied: number, total: number, name: string }) => void} onProgress
  */
-export async function copyInstall({ files, podIni }, onProgress) {
+export async function copyInstall({ files, podIni, exeVersion = null }, onProgress) {
   await removeInstall();
   const total = files.reduce((sum, f) => sum + f.file.size, 0);
   let copied = 0;
@@ -50,6 +50,7 @@ export async function copyInstall({ files, podIni }, onProgress) {
   const manifest = {
     format: MANIFEST_FORMAT,
     archives: files.map(({ name, file }) => ({ name, size: file.size })),
+    exeVersion,
     installedAt: new Date().toISOString(),
   };
   await writeBytesToFile(MANIFEST, new TextEncoder().encode(JSON.stringify(manifest, null, 2)));

@@ -34,6 +34,10 @@ export function fileListSource(files) {
     async getFile(path) {
       return byPath.get(installPathKey(path)) ?? null;
     },
+    /** Every file's path relative to the picked folder (upper case, forward slashes). */
+    async list() {
+      return [...byPath.keys()];
+    },
   };
 }
 

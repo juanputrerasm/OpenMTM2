@@ -18,6 +18,8 @@ export const ACTIONS = Object.freeze([
   { id: "map", label: "Map" },
   { id: "names", label: "Names" },
   { id: "finder", label: "Finder" },
+  { id: "headlights", label: "Headlights" },
+  { id: "crashDamage", label: "Crash Damage" },
   { id: "pause", label: "Pause" },
 ]);
 
@@ -36,6 +38,8 @@ export const DEFAULT_BINDINGS = Object.freeze({
   map: Object.freeze(["Tab", "KeyM"]),
   names: Object.freeze(["KeyN"]),
   finder: Object.freeze(["KeyF"]),
+  headlights: Object.freeze(["KeyL"]),
+  crashDamage: Object.freeze(["KeyX"]),
   pause: Object.freeze(["Escape", "KeyP"]),
 });
 

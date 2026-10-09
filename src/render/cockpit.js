@@ -78,24 +78,28 @@ export function createCockpit(art, { needle = null, font = null, units = "mph" }
     finder,
     mirror: mirror2d,
     setUnits(next) { units = next; lastDash = ""; },
-    /** The cockpit's own panel, wheel, needles and shifter; `visible` is whether the view is the cockpit. */
-    setDashboard({ visible, speed = 0, rpm = 0, gear = 1, steer = 0 }) {
+    /**
+     * The cockpit's own panel, wheel, needles and shifter; `visible` is whether the view is the cockpit.
+     */
+    setDashboard({ visible, speed = 0, rpm = 0, gear = 1, steer = 0, instruments = true }) {
       dash.hidden = !visible;
       if (!visible) return;
       const kph = units === "kph";
       const reading = Math.abs(speed) * 3600 / 5280 * (kph ? 1.609344 : 1);
-      const key = `${reading.toFixed(1)}|${Math.round(rpm / 10)}|${gear}|${wheelFrame(steer)}|${units}`;
+      const key = `${reading.toFixed(1)}|${Math.round(rpm / 10)}|${gear}|${wheelFrame(steer)}|${units}|${instruments}`;
       if (key === lastDash) return;
       lastDash = key;
       dashCtx.clearRect(0, 0, 640, 480);
       const draw = (image, x, y) => { if (image) dashCtx.drawImage(image, x, y); };
       draw(panels.front, 0, 0);
       const { speedometer: speedo, tachometer: tacho } = layout;
-      drawNeedle(dashCtx, needle, speedo.center[0], speedo.center[1], gaugeAngle(reading / (kph ? 1.609344 : 1), speedo.zeroAngle - 90, speedo.degreesPerUnit, 110), speedo.radius);
-      drawNeedle(dashCtx, needle, tacho.center[0], tacho.center[1], gaugeAngle(rpm, tacho.zeroAngle - 90, tacho.degreesPerUnit, 9000), tacho.radius);
+      if (instruments) {
+        drawNeedle(dashCtx, needle, speedo.center[0], speedo.center[1], gaugeAngle(reading / (kph ? 1.609344 : 1), speedo.zeroAngle - 90, speedo.degreesPerUnit, 110), speedo.radius);
+        drawNeedle(dashCtx, needle, tacho.center[0], tacho.center[1], gaugeAngle(rpm, tacho.zeroAngle - 90, tacho.degreesPerUnit, 9000), tacho.radius);
+      }
       draw(wheel[wheelFrame(steer)], layout.steeringWheel[0], layout.steeringWheel[1]);
-      draw(shifter[["", "P", "R", "N", "1", "2", "3"][gear]], layout.shifterRect[0], layout.shifterRect[1]);
-      if (rpm >= SHIFT_LIGHT_RPM) draw(light, layout.shiftLightRect[0], layout.shiftLightRect[1]);
+      if (instruments) draw(shifter[["", "P", "R", "N", "1", "2", "3"][gear]], layout.shifterRect[0], layout.shifterRect[1]);
+      if (instruments && rpm >= SHIFT_LIGHT_RPM) draw(light, layout.shiftLightRect[0], layout.shiftLightRect[1]);
       if (layout.mirrors[0]) draw(mirror, layout.mirrors[0].bitmapRect[0], layout.mirrors[0].bitmapRect[1]);
     },
     /** The rear-view mirror's window in 640 x 480 pixels, or null. */

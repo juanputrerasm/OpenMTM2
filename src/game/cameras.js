@@ -27,6 +27,19 @@ export const CAMERA_MODES = Object.freeze([
 /** The mode after `mode` going forward (View) or back (Shift + View), wrapping 0 to 9. */
 export const nextMode = (mode, back = false) => (mode + (back ? 9 : 1)) % CAMERA_MODES.length;
 
+/**
+ * The view a shortcut key picks: Ctrl (or Alt) with 1 to 9 and 0 picks the ten views in order, 1 the
+ * cockpit, 2 Chase Near, 3 Chase Far, 4 BlimpCam, 5 RaceCam, 6 Chase Front, 7 Chase Left, 8 Chase Right,
+ * 9 Chase Big Rear, 0 Chase Big Front. Returns null for any other key. `e` is a keyboard event.
+ */
+export function modeForShortcut(e) {
+  if (!(e.ctrlKey || e.altKey) || e.metaKey) return null;
+  const m = /^(?:Digit|Numpad)(\d)$/.exec(e.code ?? "");
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n === 0 ? 9 : n - 1;
+}
+
 /** The vertical field of view of a mode, degrees; the game's zoom factor scales the view plane. */
 export const fovFor = (mode, baseDegrees = 60) => {
   // The cockpit's 3D window is 90 degrees across 640 pixels: 73.7 degrees over the 480 of the screen.
@@ -48,13 +61,14 @@ export function createChaseCamera() {
   let heading = null, lastMode = -1, settle = 0;
   return {
     reset() { heading = null; lastMode = -1; },
-    update(mode, pos, yaw, height, dt) {
+    /** `turn` (radians) swings the camera round the truck and `scale` stretches its distance: the replay's rotate and zoom. */
+    update(mode, pos, yaw, height, dt, { turn = 0, scale = 1 } = {}) {
       const m = CAMERA_MODES[mode];
       if (!m?.dist) throw new RangeError(`camera mode ${mode} is not a chase view`);
       // Choosing a view arms a two second timer (0x52b780); nothing else is blended: the distance, pitch
       // and zoom change at once and only the heading, which follows the truck's, takes time.
       if (mode !== lastMode) { lastMode = mode; settle = 2; }
-      const wanted = yaw + ANGLE(m.offset);
+      const wanted = yaw + ANGLE(m.offset) + turn;
       if (heading === null) heading = wanted;
       else if (m.id === 5 || m.id === 9) {
         // The front views ease the heading only until the timer runs out or it has nearly caught up;
@@ -67,7 +81,7 @@ export function createChaseCamera() {
         // The others follow the truck's heading by 4 per second of the remaining difference, always.
         heading += turnBetween(heading, wanted) * Math.min(1, 4 * dt);
       }
-      const dist = m.dist / 256, pitch = ANGLE(m.pitch);
+      const dist = (m.dist / 256) * scale, pitch = ANGLE(m.pitch);
       const at = (t, p) => [pos[0] - Math.sin(heading) * Math.cos(p) * t, pos[1] + Math.sin(p) * t, pos[2] - Math.cos(heading) * Math.cos(p) * t];
       // Tilt up in 0x200 steps (at most 0x3fff) until the camera at full distance is over the ground.
       let tilt = pitch;
@@ -93,41 +107,80 @@ export const COCKPIT_EYE = Object.freeze([0, 4, 1]);
 /** Ground height for a camera, from the simulation's terrain. */
 export const groundHeightFn = (terrain) => (x, z) => terrainHeightAt(terrain, x, z);
 
-/**
- * BlimpCam: the port's own view from above and behind (the game's follows a blimp that is not
- * modelled yet): 250 ft up and 160 ft back, looking down at the truck.
- */
-export function blimpCamera(pos, yaw, height) {
-  const position = [pos[0] - Math.sin(yaw) * 160, pos[1] + 250, pos[2] - Math.cos(yaw) * 160];
-  position[1] = Math.max(position[1], height(position[0], position[2]) + 40);
-  return { position, target: [...pos] };
+/** The field of view that goes with the game's zoom factor (16.16, 0x1000 to 0x8000) in the two special views. */
+export const zoomToFov = (zoom, baseDegrees = 60) => (2 * Math.atan(Math.tan((baseDegrees * Math.PI) / 360) * zoom) * 180) / Math.PI;
+/** The special views' zoom from their horizontal distance to the truck: 65536 / (distance x 0.0625), held to 0x1000..0x8000, as a factor. */
+export const distanceZoom = (horizontalFt) => Math.max(0x1000, Math.min(0x8000, 65536 / Math.max(horizontalFt * 0.0625, 1e-9))) / 65536;
+
+/** The camera's view of `target` from `position`: yaw and pitch clamped as the game does, as a point to look at, plus the zoom. */
+function lookFrom(position, target, maxPitch, extraZoom = null) {
+  const dx = target[0] - position[0], dy = target[1] - position[1], dz = target[2] - position[2];
+  const horizontal = Math.hypot(dx, dz);
+  const yaw = Math.atan2(dx, dz);
+  const pitch = Math.max(-maxPitch, Math.min(maxPitch, Math.atan2(-dy, horizontal)));
+  const reach = 100;
+  return {
+    position, zoom: extraZoom ?? distanceZoom(horizontal),
+    target: [position[0] + Math.sin(yaw) * Math.cos(pitch) * reach, position[1] - Math.sin(pitch) * reach, position[2] + Math.cos(yaw) * Math.cos(pitch) * reach],
+  };
+}
+
+/** The average of the course's straights' midpoints, feet (the game's `0x730728`, read as the course loads). */
+export function courseCentroid(course) {
+  const segments = course.filter((g) => g.startFt && g.endFt);
+  if (!segments.length) return null;
+  const sum = [0, 0, 0];
+  for (const g of segments) for (let k = 0; k < 3; k++) sum[k] += (g.startFt[k] + g.endFt[k]) / 2;
+  return sum.map((v) => v / segments.length);
 }
 
 /**
- * RaceCam: the port's own trackside view. The camera stands beside the course a little ahead of
- * the truck and watches it go by; it moves on to the next spot once the truck is past it or far from it.
- * `loop` is the course's centre line, `[x, z]` points (see render/minimap.js `courseLoop`).
+ * BlimpCam (0x52c280): the camera hangs 100 ft from the truck on the line to a point 1000 ft above the
+ * course's centre, looking back at it (pitch within 67.5 degrees), zoomed by its horizontal distance.
  */
-export function createRaceCamera(loop) {
-  let spot = null;
-  return {
-    reset() { spot = null; },
-    update(pos, height) {
-      if (loop.length < 3) return blimpCamera(pos, 0, height);
-      if (spot) {
-        const d = Math.hypot(pos[0] - spot.at[0], pos[2] - spot.at[1]);
-        const ahead = (spot.at[0] - pos[0]) * spot.dir[0] + (spot.at[1] - pos[2]) * spot.dir[1];
-        if (d > 700 || ahead < -60) spot = null;
-      }
-      if (!spot) {
-        let best = 0, bestD = Infinity;
-        loop.forEach((p, i) => { const d = Math.hypot(p[0] - pos[0], p[1] - pos[2]); if (d < bestD) { bestD = d; best = i; } });
-        const target = loop[(best + 2) % loop.length], next = loop[(best + 3) % loop.length];
-        const dx = next[0] - target[0], dz = next[1] - target[1], len = Math.hypot(dx, dz) || 1;
-        const dir = [dx / len, dz / len];
-        spot = { at: [target[0] - dir[1] * 110, target[1] + dir[0] * 110], dir };
-      }
-      return { position: [spot.at[0], height(spot.at[0], spot.at[1]) + 14, spot.at[1]], target: [...pos] };
-    },
-  };
+export const BLIMP_CAM_HEIGHT_FT = 1000, BLIMP_CAM_REACH_FT = 100;
+export function blimpCamera(truckPos, centroid) {
+  const high = [centroid[0], centroid[1] + BLIMP_CAM_HEIGHT_FT, centroid[2]];
+  const d = [high[0] - truckPos[0], high[1] - truckPos[1], high[2] - truckPos[2]];
+  const length = Math.hypot(...d);
+  const k = length > BLIMP_CAM_REACH_FT ? BLIMP_CAM_REACH_FT / length : 1;
+  const position = [truckPos[0] + d[0] * k, truckPos[1] + d[1] * k, truckPos[2] + d[2] * k];
+  return lookFrom(position, truckPos, (0x3000 / 65536) * Math.PI * 2);
+}
+
+/** Without a course the BlimpCam has no centre to hang over: it looks down from above and behind. */
+export function blimpCameraNoCourse(pos, yaw, height) {
+  const position = [pos[0] - Math.sin(yaw) * 160, Math.max(pos[1] + 250, height(pos[0], pos[2]) + 40), pos[2] - Math.cos(yaw) * 160];
+  return { position, target: [...pos], zoom: 1 };
+}
+
+/**
+ * RaceCam (0x52ba90): the camera stands on the straight the truck is heading for, a quarter of the way along
+ * it (the middle of a straight longer than 320 ft when the truck is nearer the middle than the start), held at
+ * least 14 ft over the highest ground between it and the truck, and no farther than the view allows.
+ * `straights` are the course's straights (`startFt`, `endFt`); the truck's `segment` is its index in the course
+ * with the arcs in (straights at the even places); `height(x, z)` the ground; `viewCells` the view range in cells.
+ */
+export function raceCamera(straights, truckPos, segment, height, viewCells = 32) {
+  if (!straights.length) return null;
+  const k = (segment % 2 === 0 ? segment / 2 : (segment + 1) / 2) % straights.length;
+  const { startFt: a, endFt: b } = straights[k];
+  const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  let spot = [a[0] + d[0] * 0.25, a[1] + d[1] * 0.25, a[2] + d[2] * 0.25];
+  const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+  if (Math.hypot(...d) > 320) {
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+    if (dist(truckPos, mid) < dist(truckPos, a)) spot = mid;
+  }
+  // Over the highest ground along the line of sight, plus 14 ft.
+  let top = -Infinity;
+  for (let i = 0; i < 10; i++) {
+    const t = i / 10;
+    top = Math.max(top, height(spot[0] + (truckPos[0] - spot[0]) * t, spot[2] + (truckPos[2] - spot[2]) * t));
+  }
+  if (spot[1] < top + 14) spot = [spot[0], top + 14, spot[2]];
+  const v = [spot[0] - truckPos[0], spot[1] - truckPos[1], spot[2] - truckPos[2]];
+  const horizontal = Math.hypot(v[0], v[2]), limit = (viewCells - 2) * 32;
+  if (horizontal > limit) { const s = limit / horizontal; spot = [truckPos[0] + v[0] * s, truckPos[1] + v[1] * s, truckPos[2] + v[2] * s]; }
+  return lookFrom(spot, truckPos, (0x37ff / 65536) * Math.PI * 2);
 }

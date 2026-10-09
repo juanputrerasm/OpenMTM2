@@ -359,9 +359,30 @@ first two checkpoints are the scoring zone and the summit (SUMMIT1: 64x64x92 and
 
 ### End of race
 
-When the player finishes a single-player Circuit or Rally, the remaining CPU trucks are
-**fast-simulated** to give them times: the tick runs with dt = 0x4000 (0.25 s) up to 960 times
-(240 s of race time) while "Determining times for remaining trucks" is shown (0x53034c).
+Finishing does not stop the simulation (the race loop is `0x52fb40`, the lap routine `0x52ee50`):
+
+- The first truck to complete the race's laps (`laps == 0x6407a4`) sets the race-over flag
+  `0x6407a8`. In single player every truck's finish lap (`0x9f5818`) becomes the lap it is on
+  plus one, at most the race's laps, so the others only finish the lap they are on. That truck
+  goes on autopilot (`+0x894`, `+0xfb0` flags), the finish commentary plays (`0x428300`), and if it
+  is the player's the camera becomes the **RaceCam** (view 4) on it.
+- Every lap completed after that is checked (`0x52ee50` again): a truck reaching its finish lap
+  gets its finish commentary (`0x428050`), and if the player has finished, the RaceCam moves to the
+  best-placed truck still racing.
+- When no active truck is still short of its finish lap, a **cooldown of 5 seconds** (`0x6407ac` =
+  0x50000) is armed. It counts down in the race loop (`0x6407ac -= dt`), the simulation, the
+  trucks, the camera and the HUD all still running. When it reaches zero the end flag
+  `0x640794` is set, and the next pass goes to the end of the race (`0x53034c`): the fast
+  simulation below, which does nothing when everyone has already finished, then the results.
+- Quitting from the Escape menu before that goes to the same place, so the remaining trucks are
+  **fast-simulated** to give them times: the tick runs with dt = 0x4000 (0.25 s) up to 960 times
+  (240 s of race time) while "Determining times for remaining trucks" is shown, until every truck
+  has its laps.
+- Demo mode (`0x9f675c`) sets the end flag at once with a timer of 30 s in a drag race (`0x1e0000`)
+  and 90 s otherwise (`0x5a0000`). A Summit Rumble arms `0x6407ac` with the round length instead and goes
+  to the results when it runs out, without the 5 s.
+- The port adds a guard the game lacks: after the player has finished it waits at most two
+  minutes for the others (a stuck CPU truck), then fast-simulates them.
 
 ---
 
@@ -504,6 +525,12 @@ Evil", "Whirlwind Circuit Madness") reference MTM1 tracks (`DRAG5.SIT`, `CIRC4.S
   `+0x176c` flag set).
 
 ### 6.6 Results and Hall of Fame
+
+**Points** (`0x4192c0`, run when the results are built; a drag race differs): the players are ordered by laps then
+race time and given the place. The base by place is 900, 700, 500, 400, 300, 200, 150, 100. In a race of more
+than one lap the one truck with the fastest lap (a tie gives none) gets 100 more, and the winner `floor(100 / laps)`
+more (each truck's share is 100 / laps times its flag `+0x900`, which only the winner had in the retail screenshot:
+1050, 700, 500, 400 in a 2 lap Rookie race). A one lap race gives the base only (900 in a Hall of Fame screenshot).
 
 The Winner's Circle artwork labels a seven-column table: Place, Player Name, Truck, Skill Level,
 Points, Time and Fast Lap. Its two black panels are 3D views of the first- and second-place trucks,
@@ -659,6 +686,38 @@ While `heliTimer` (+0x1078) is positive, steps 1-10 are skipped and the helicopt
 
 A kind 1 rigid body (`0x470d70`) uses the same integrator with a box inertia
 `I = m * (a^2 + b^2) / 12` from the box's length, width and height and its mass in slugs.
+
+### 8.2b The helicopter and the pterodactyl
+
+The flight timer `heliTimer` (+0x1078) starts at 15 s (0x41700000) and counts down; `0x46ed90` runs the
+truck's flight, and `0x54f570` draws the flyer for every truck with the timer above 0.
+- **Draw:** `HELI.BIN` at the truck's helicopter position (`+0x1794..+0x179c`, feet) raised 12 ft (0xc00 units of
+  1/256 ft, kept at least 10 units over the ground), its heading `+0x17a0` plus half a turn (0x8000), scale 0x2000. The model is real
+  size (about 8 x 8 x 22 ft). For the **player's** truck, when the counter `0x651798` is 2, `TERYL.BIN` is drawn
+  instead: it is a list of four wing frames (`TERYL1` to `TERYL4`, wingspan 30 ft). The counter goes up by one
+  (modulo 3) at each press of the Helicopter key that starts a call, so the second call of every three
+  brings the pterodactyl. Textures `NEWHELO1/2.RAW` and `JPTER*.RAW`.
+- **Flight (0x46ed90):** timer from 15 down to 11.5 s: the flyer waits at the spot where the lift-off put it,
+  turning to face the truck. From 11.5 to 10 s it spirals in at 40 ft per second of timer (that is the radius and
+  the height above the truck, 60 ft down to 0) and turns toward the truck at twice the angle left per
+  second. Below 10 s it hangs over the truck's position, the heading the truck's, and carries it: the
+  truck's pitch, roll and heading drain at 0.1 of the lift-off error per second, x and z toward the
+  course segment's start, the hover height rising 5 ft/s and, for the last 4 s, falling.
+- **Sounds** (0x41bbd0, while `heliTimer` is above 0): the helicopter plays `huey.wav` at gain 1.4 from its own position
+  (`+0x1794`), started again whenever it ends. The pterodactyl has no `huey`: a timer (`+0x98`, in 1/65536 s) runs
+  down and at 0 plays `Teradcy1.wav` or `Teradcy2.wav` at random, gain 1.5, from the pterodactyl, then is set to 1
+  to 5 seconds.
+- **Animation:** `TERYL.BIN` is an animated BIN (sig 0x20, four frames, all with the same vertex layout), so the
+  frames blend into each other as morph targets. `HELI.BIN` holds the airframe only (no rotor geometry, nothing
+  wider than 8 ft); the port adds a spinning main and tail rotor as an addition.
+- **The key** (scan 0x640858, only outside a drag race and Summit Rumble): with `heliTimer` zero it is set to -15 and
+  the counter goes up; otherwise it is set to 0. In the player's truck that timer is only counted while the hull rests on the
+  ground with no wheel down (`updateStuck`), so in the original the key did nothing for a truck that could still
+  drive: it called the helicopter only for a truck lying stuck.
+- **This port** changes that: the key works at any time and at once. The truck stays frozen in the air, the
+  helicopter spirals in over 1.5 s, carries it 4 s to the nearest point of the course (straights and arcs) with
+  the heading the course runs there and pitch and roll levelled, sets it down in 1.5 s, and climbs away.
+  Pressed again during the flight, it lets go where it is. The CPU trucks keep the game's flight above.
 
 ### 8.3 The truck object
 
@@ -844,17 +903,64 @@ CPU trucks and the player's autopilot use the same code.
 
 ## 10. Crash damage
 
-`core/TruckDmg.c`, 0x532140, called from collision response with the impact force (`+0x1760`):
+`core/TruckDmg.c`, `0x531e40` to `0x5334ac`. What the code does, read in full:
 
-- `damageCode` (`+0x1764`) holds **12 zones x 2 bits**: zone *n* (1..12) at bits `2n..2n+1`.
-- Level from the impact force: up to 10000 = 1, up to 30000 = 2, above = 3. A zone only gets
-  worse.
-- Every damageable vertex within the zone's radius of the impact is pushed in, in all three LODs
-  at once (16, 10 and 08). Radii (`0x650ef8`, squared before use): 512 for zones 1-4, 384 for
-  zones 5-12, in model units.
-- Off when Crash Damage is toggled off (`0x647748`); toggling off repairs (`0x4c17f0`).
-- Damage is replicated in network games (packet 0x20 from 0x532900).
-- `GOODY.BIN` is loaded alongside (**hypothesis**: the parts that fly off, `partsFlag`).
+- **Zones are the 12 hull points.** Zone *n* (1 to 12) is the truck's *n*th hull (scrape) point,
+  at body position `+0x5a4 + 12 n` (the TRK's scrape points). The collision response
+  (`0x475960`, `0x48eb70`) runs for each hull point whose contact depth is at least -0.25 ft
+  (the 12 points of `+0x808`), once per frame, and calls the damage routine `0x532140` with the
+  zone and the truck's last impact force (`+0x1760`). In a single-player race every truck is
+  damaged, not only the player's.
+- **Switch.** `allowCrashDamage` (`0x647748`, MONSTER.INI, **0 by default**). The Crash Damage
+  key (default scan code 0x2D, X) flips it and shows "Crash damage on", or "Crash damage off,
+  truck repaired" (one truck) or "Crash damage off, trucks repaired" for 3 seconds; switching off
+  repairs every truck (`0x4c17f0`, `0x4c1490`: the vertices go back to their stored copies).
+- **Level.** `damageCode` (`+0x1764`) holds 12 zones x 2 bits, zone *n* at bits `2n` to `2n+1`.
+  The level is 0 for a force of 0 or less, 1 up to 10000, 2 up to 30000 and 3 above. A zone's
+  level only rises. A truck with any bit set is "damaged": its hull impacts play `suspen1` or
+  `suspen3` instead of `suspen5` or `suspen6` (section 8).
+- **Damageable vertices.** When a truck's models load (`0x532fa0`) each of the three levels of
+  detail of the body (16, 10 and 08) gets, per zone, the list of its vertices that lie within
+  the zone's radius of the zone's point. Model units are 1/256 ft (the BIN's own). Radii
+  (`0x650ef8`): 512 (2 ft) for zones 1 to 4 and 384 (1.5 ft) for zones 5 to 12.
+- **The push** (`0x5323e0`) runs on every call, whatever the level: each listed vertex whose
+  *current* position is within the radius of the zone's point (in model units) moves by the
+  zone's direction `D` (`0x650f30`, three signs per zone) times `(level + 1) x 16` plus a random
+  0 to 8 units (`((level + 1) x 0xfffe + rand) x 16 >> 16`), every call, each vertex drawing its own
+  random. Over several frames of contact a dent builds up: level 3 pushes 64 to 72 units (about
+  a quarter foot) a call. `D` by zone 1 to 12 (x, y, z): (+,+,-), (-,+,-), (+,-,-), (-,-,-),
+  (+,-,-), (-,-,-), (+,-,+), (-,-,+), (+,-,+), (-,-,+), (+,+,+), (-,+,+).
+- On the lowest level of detail the push also moves the truck's lights (`+0x1178`, 0x68 bytes
+  each) that lie near the zone's point and turns their cones by a random amount.
+- `0x531e40` also throws two scrape sparks every eighth of a second from a zone in contact while
+  the truck is moving.
+- Damage is replicated in network games (packet 0x20 from 0x532900). `GOODY.BIN` is loaded
+  alongside (**hypothesis**: the parts that fly off, `partsFlag`).
+
+---
+
+## 10b. The truck's suspension parts
+
+Read from the truck draw `0x54cdb0` (axles), `0x54bc00` (bars and shocks), `0x54bf00` (driveshaft)
+and the ribbon routine `0x54b650`. Distances are 1/256 ft in the code, feet here. The TRK
+supplies `axlebarOffset` (`+0x1744`, x y z), `driveshaftPos` (`+0x1750`), `shockTextureName`
+(`+0x1110`, default `shock.raw`), `barTextureName` (`+0x1120`, default `axlebar.raw`) and
+`axleModelName`; a truck's axles stand at the TRK's static z of its right front and right rear tire
+(`+0x1734`, `+0x173c`), at the axle's current height and tilted by its articulation (`+0x274`, `+0x4e4`).
+
+- **Axle bars**, two per axle: a ribbon from the axle's end (axle frame: x +-512, y -79, z 79
+  toward the chassis, so behind the front axle and ahead of the rear) to a chassis point in
+  the body frame: x +-(offset.x pulled in 0.1 ft toward the centre), y the offset's y held at 2 ft
+  below the body origin or lower plus 39.68 units, z the offset's z. Half width 40.96 units.
+- **Shocks**, four per axle: a ribbon from the foot on the axle (x +-542, y +84, z +-71) to the
+  top on the body (x +-542, y 0, z = the axle's z +-71.68). Half width 38.4 units.
+- **Ribbons** (`0x54b650`) are flat quads that face the viewer: the width is perpendicular to the
+  line of sight, the texture runs across the width (u 4 to 250 of 256) and along the length (v 4 to
+  250), stretched once between the two ends.
+- **Driveshafts**, two: `drvshaft.bin` (unit length along z, radius 0.2 ft) scaled to the distance
+  in the y-z plane between the transfer point (`driveshaftPos`) and the axle's centre, which
+  changes as the axle moves, and turned to point from one to the other.
+- The textures have no palette of their own; they use the model palette like the truck's models.
 
 ---
 
@@ -900,8 +1006,24 @@ difference. The camera sits at the truck's position (x, y, z) minus `sin(h) cos(
 raised in 0x200 steps (at most 0x3fff) until the camera at full distance is above the terrain,
 then `d` is the largest of 32 equal steps that stays above it. The View keys turn the heading
 offset and pitch, and two more keys change the zoom in steps of 0x1000 (0x1000 to 0x20000);
-View Next steps the mode 0 to 9 (Shift reverses). BlimpCam (3) and RaceCam (4) have their own
-routines (`0x52c280`, `0x52ba90`, not traced; the port draws its own). **Cockpit** (0): the eye
+View Next steps the mode 0 to 9 (Shift reverses). BlimpCam (3, `0x52c280`) and RaceCam (4, `0x52ba90`) place the camera by their own rules and set its zoom from the
+horizontal distance `h` to the truck: `65536 / (h x 0.0625)` held to 0x1000..0x8000, a telephoto (about 4 to 10
+degrees of view at the base of 60 degrees):
+- **BlimpCam**: the target point is 1000 ft above the course's centre (`0x730728`, the average of the
+  straights' midpoints). The camera is the point 100 ft from the truck on the line toward it, looking back at the
+  truck, its pitch held within 0x3000 (67.5 degrees).
+- **RaceCam**: the course segment `cnumber` (`+0x898`, the course with arcs between its straights) names the
+  straight the truck is heading for (the next one, when it is on an arc). The camera stands a quarter of the
+  way along it, or at the middle of a straight longer than 320 ft when the truck is nearer the middle than the start;
+  it is held at least 14 ft over the highest of ten ground samples between it and the truck; and it is
+  no farther than `(view cells - 2) x 32` ft from the truck. Pitch within 0x37ff (78.7 degrees).
+- **The blimp** (`GOODY.BIN`, set up `0x5334a0`, flight `0x533590`, present at detail level 2 or more in a Circuit or
+  Rally, never in a Rumble): it starts over the first straight, 100 ft above the ground, and flies to the start of
+  each straight in turn at 20 ft/s, switching when within 100 ft. Its heading turns toward the target by
+  pi/8 of the angle left per second; it climbs or sinks at the distance to 100 ft above the highest ground in 11 samples at
+  20 ft steps ahead (on its heading and a diagonal 25 ft either side), a sink at 0.3 of that. It is drawn
+  except in the BlimpCam, and hums (`blimp2.wav`, looped from the blimp, volume 1.4 and pitch 1.5 outside the BlimpCam).
+**Cockpit** (0): the eye
 is the point (0, 4, 1) ft in the truck's own frame, looking along the whole body's orientation
 (`0x553cf0`). The cockpit's 3D window is 640 x 285 at y 88 and the panel art covers the rest.
 
@@ -1002,7 +1124,69 @@ boxes only while they move. Playback (`CMCReplayFormView`, VCR buttons: play, pa
 frame step, zoom, rotate, save, open) interpolates between records. The same data saved to text
 is the `.rpl`/demo format (`demoLevel`, `weather`, `vehicleCount`, `detailLevel`,
 `demoRecordPtr`, `demoRecordCount`, `Original object locations`, then records; writer 0x5659f0,
-reader 0x565050).
+reader 0x565050). The writer prints, per vehicle, the truck file then the driver name (interleaved), and the ring's write
+pointer and count; records are written from the start of the ring. The port records the same
+frames (`game/replay.js`) and reads and writes the file with OpenPhotex.
+
+---
+
+### 11b. The truck's lamps
+
+(The exe has this code, but in play the lamps never showed; the port draws them as an addition, see `docs/PLAN.md`.)
+
+The TRK lists up to 14 lamps (`Number of Lights`; 0xe or more is an error "Too many lights"), read by
+`0x4bddc0` into 0x68-byte records from truck `+0x1178` (count at `+0x1174`). A record holds, in float
+words: `[0]` type, `[1..3]` body position (ft), `[4..6]` the current position (a copy that damage
+moves), `[7]` lens bitmap radius (ft), `[8]` heading and `[9]` its current copy, `[10]` pitch and
+`[11]` its copy, `[12]` spin speed (rad/s), `[13]` cone length, `[14]` base radius, `[15]` rim
+radius, `[16..19]` the cone texture name, `[20..23]` the lens bitmap name, `[24]`/`[25]` ms on and
+ms off. A TRK without a lamp section gets four defaults (`0x4c1890`): two headlights (type 0,
+`headlite.raw`, cone 75 ft, radius 0.7 to 11 ft, `litefuzz.raw`, pitch -10 degrees) and two brake
+lamps (type 1, `brltroun.raw`, radius 0.8). Every shipped MTM2 truck has its own list, like
+Monster's: two type 0 headlights (radius 1.25, heading 0, pitch -10 degrees, a 75 ft cone of
+`litefuzz.raw`), two type 1 side lamps and one centre lamp (x = 0) on the cab (`brltchev.raw`,
+`brlttcab.raw`, ...), type 5 reverse lamps (`brltrv.raw`), and for some trucks type 3 running lights
+(a 40 ft cone) or type 4 beacons (7 ft cones of `redfuzz.raw` or `bluefuzz.raw` spinning at -2 pi rad/s,
+some blinking 300 ms on, 700 off). The art is in `SOUND.POD`/`TRUCK2.POD` (lens bitmaps, 64 x 64, each
+with its own `.ACT`) and `STARTUP.POD` (the cones' `*FUZZ.RAW`, 256 x 256 noise).
+
+`0x579f10` calls `0x57a080` per lamp for every truck, every frame. The truck's **lamp switch** (`+0x1170`)
+starts at 2 when the weather's lamp flag (`0x657878 + 4`: Dusk, Night, Pitch Black) is set, else 0. The
+**Headlights key** (default L, scan code 38; not with Ctrl held) sets it to 2, or to 0 when it was not 0,
+for the player's truck and sends packet 0x20 (code 0x1f) in a network game. A lamp's brightness `b`
+by type, with "cockpit" the viewer sitting in this truck in the cockpit view (`viewCockpit` 2, head
+not turned):
+
+| Type | Lit |
+|---|---|
+| 0, 3 | switch = 2 and (not cockpit, or the forward cockpit): 1.0 |
+| 1 | not cockpit. On the centre line (x = 0): rear brake `+0x524` > 0.01 gives 0.6, 1.0 with the switch on. Elsewhere: 0.6 when braking plus 0.4 when the switch is on |
+| 2 | not cockpit, switch > 0: 1.0 |
+| 5 | not cockpit, the current gear ratio (`+0x568 + 4 x gear`) negative (reverse): 1.0 |
+| below 0 | the lamp flag: 1.0 |
+| others (4) | switch = 2: 1.0 |
+
+A lamp with `msOff` above 0 is lit only while `clock mod (on + off) < on`. A lit lamp's lens is a
+flat bitmap decal on its body position (rotated by its heading, mirrored for lamps with x > 0), drawn
+only when the viewer is in the half space the heading faces; the glow's strength is `b` times a fade
+that is 1 inside the view range and 0.2 beyond it (in Foggy, Dense Fog and Snow weather also scaled
+by the angle to the viewer). Where the lamp has a positive cone length and the lamp flag is set, the
+beam is a six-sided truncated cone (base radius at the lamp, rim radius at the cone length) textured with
+the cone bitmap and added to the scene; a beacon's heading advances by its spin speed over time.
+Damage (section 10) also knocks the lamps askew: on the lowest level of detail `0x5323e0` moves the
+current position and turns the heading and pitch of lamps within 2 ft of a zone's point by a random amount
+(at most 20 degrees).
+
+### 11c. The sky dome
+
+`0x42bca0` draws the dome when `skyTextureFlag` (Graphics, `0x63f4f8`) is not 0; with 0, a flat colour
+cap and one textured quad are drawn instead. The dome is 16 sides around the viewer and four
+rings of elevation, 0.0196 rad (1.1 degrees, not 0), 22.5, 45 and 67.5 degrees: vertex = (sin a cos e, sin e,
+cos a cos e). Each side takes 64 texels of the 256 x 256 sky across (u = 64 x side), so the art repeats four times
+around the horizon, and the rows go from 254 at the horizon through 170.7 and 85.3 to 2 at the top ring
+(v = (1 - ring / 3) x 256, clamped to 2..254). Above 67.5 degrees the dome is open, and `0x42bca0` first draws a flat square (half width 0.556 of the dome radius, at the dome's radius height) in one colour read from a pixel of the sky texture (`0x6a93f8`, `0x695f68`), under the dome quads. The port uses the average of the texture's row 2, the colour at the top ring's edge.
+The port builds exactly that dome (`skyGeometry`); it used a hemisphere with the texture stretched over it twice, which
+repeated at the top.
 
 ---
 
@@ -1037,6 +1221,23 @@ stereo separation, `UseRedBook` and `UseModMusic`.
   - the player's truck plays unpositioned, the others in 3D; with all four wheels off the ground
     and no helicopter flight, a large enough vertical speed may trigger YeeHaw.
   Samples have loop points in a `.KLP` beside them (the game starts them at random offsets).
+- **The mixer** (software DirectSound mixer; `0x525260` starts a sound, `0x563800` runs each frame, `0x462d60` computes one
+  sound's levels):
+  - A sound object (0x10c bytes) holds its place, velocity, gain (`+0x70`), pitch (`+0xc4`, `+0xc8`), range scale (`+0xd8`,
+    1.0) and flags; 140 handles at most (`0x6bcc90`, 0x14c bytes each). Flag `0x400` is a menu sound that always plays; the others
+    only play while their group bit is on (`0x657398`).
+  - **Audible range** (`0x41f980`, set on every race start): 1000 ft, or 500 in Foggy, 300 in Dense Fog, 800 in Rain and
+    700 in Snow (`0x570290` stores the range `R`, `R^2` for the cut-off and `sqrt(R)`). A sound beyond `R` is silent; inside, its
+    gain is `1 - sqrt(d) / (sqrt(R) x range scale)`, that is `1 - sqrt(d / R)`: 0.5 at a quarter of the range, 0.29 at half. A
+    positioned sound is also panned and, with flags clear, given a pitch shift from the speeds (doppler) and a cone gain.
+  - **Inaudible**: a sound whose left, right and mixed gains are all below 1/128 (`0x657378`) is not mixed (priority class 1);
+    an audible one is class 3, or 2 while its sequence number is below `0x657458`.
+  - **At most 16** sounds are mixed (`0x657450` = 16; `0x563800`): the audible ones are sorted by class, then age, then
+    loudness (`0x563ab0`), and every sound past the sixteenth, or of class 1, is stopped (`0x4625d0`, stop). The master gain
+    is smoothed with a product of the sounds' own scale factors.
+  - The player's truck is not positioned; the other trucks play at 0.9 of the scale and their engine idle at 0.85.
+  The port's `audio-engine.js` does the same: its own distance fade by `soundRange(weather)`, only the loudest 16 mixed,
+  and a compressor on the master standing in for the game's master smoothing. The effects bus sits at 0.65 under the music.
 - **Skids by surface** (0x41d2b0): concrete `skid-c2`, dirt `skid-d%d`, grass and gravel
   `skid-g%d`, ice and snow `spinice`/`snwskid%d`, rocks `spinroc%d`/`cornroc%d`.
 - **Hull impacts** (`0x429080`, called from the contact response at `0x46ba80`): `suspen5` or
@@ -1456,3 +1657,39 @@ left.
 | 0x682d88 | frame dt (16.16) |
 | 0x6f58d8 | game mode |
 | 0xa2fd60, 0xa2fd70, 0xa98490 | vehicle count, player truck pointer, vehicle table |
+
+## Driver Check-in truck preview
+
+`MODELS\GARAGE.BIN` (24 KB, textures `GARAGE1` to `GARAGE4`, a room about 48 x 48 x 24 ft) is the mini garage the
+selected truck is shown in on Driver Check-in (the right-hand window of `DRIVER.BMP`, 242 x 184 at 354, 199) and, with
+`winner.bin`, in the results window (`0x5191f0`, `0x519212`). The port stands the selected truck on the floor and
+turns it slowly, seen from a corner; the game's exact camera is not known.
+
+**Winner's Circle and Hall of Fame.** `RESWIN1.BMP` and `RESWIN2.BMP` (631 x 187, drawn at about 7, 78 over `RESULTS.BMP`) light
+the first frame or the second green; the player's own frame is lit (RESWIN2 when the player came second). The first-place
+preview (114 x 85 at 35, 96) is `WINNER.BIN` (a globe with a crown over it, `WINNASS1` to `5`) with the winner's truck standing on
+the globe; the second-place preview (113 x 85 at 493, 157) is a still shot of the truck in the mini garage. Beside them,
+the name, truck and skill, and Points, Lap (fastest) and Time, in a yellow italic font. The list shows `RESULT<n>.BMP` place
+icons and the player's row in blue. The Hall of Fame shows the selected row's details at the left and the crowned
+truck in the black window (194 x 146 at 398, 75), for every entry.
+
+## Dust, tire tracks and sparks
+
+**Dust puffs** (`smokeEffectFlag`, `0x640748`). `0x4de010` takes a free slot in a pool of 96 (0x44 bytes each, from `0x702794`) when
+the flag is on, the weather is neither Rain nor Snow and the camera is near: position, a life of 1.5 to 3.5 s
+(`(rand << 17) / 0x7fff + 0x18000` in 16.16), a half size of 384 to 640 units (1.5 to 2.5 ft) and one of two kinds,
+`PUFF2` or `PUFF3`. `0x4de390` draws it as a camera-facing quad that grows by a foot over its life, showing frame
+`floor(12 x age / life)` of `PUFF2_01` to `PUFF2_12` (or `PUFF3_`), 64 x 64 images with an `.ACT` each, fainter with the ground's
+light. `0x4deab0` decides per tire: a tire on a surface with flag 8 set, with the truck faster than 10 mph (`|bvel.z| x 0.6818`)
+and within 512 ft of the camera, puffs at its contact point 0.5 ft up each frame; above 20 mph a second puff at its pair with even
+odds. `0x4de300` and `0x4de9e0` put single puffs at a point (hits and landings).
+
+The port draws wheel dust at 2.2 times these sizes, and a collision's smoke dark grey at 3.2 times (additions).
+
+**Backdrops** are drawn in the sky pass with depth off; in three.js the backdrop group has to share the sky's group order (0), or the sky dome paints over it.
+
+**Tire tracks** (`tireTrackFlag`, `0x64074c`): the flag is read from `MONSTER.INI` and never used; `ART\TREAD.RAW` (a herringbone tread) is
+unused art. The port draws tracks on soft ground as an addition.
+
+**Sparks**: `0x531e40` throws two scrape sparks every eighth of a second from a hull zone in contact while the truck moves. The port draws
+them (and a burst with dust on a hard hit) as points under gravity; it is an addition, as the game shows none.

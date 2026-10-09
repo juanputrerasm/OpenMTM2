@@ -57,3 +57,13 @@ test("inspectSource needs only POD.INI and its archives, not MONSTER.EXE", async
   delete files["POD.INI"];
   assert.match((await inspectSource(source)).message, /no POD\.INI/);
 });
+
+test("a Community Patch 3 build mounts what POD.INI lists, like the retail game, and its version is read", async () => {
+  const { inspectSource } = await import("../src/install/inspect-source.js");
+  const utf16 = (str) => Uint8Array.from([...str].flatMap((c) => [c.charCodeAt(0), 0]));
+  const exe = { name: "MONSTER.EXE", size: 1, arrayBuffer: async () => Uint8Array.from([...utf16("FileVersion"), 0, 0, 0, 0, ...utf16("2.0.52.0"), 0, 0]).buffer };
+  const entries = { "POD.INI": { text: async () => "1\r\nstartup.pod\r\n" }, "STARTUP.POD": { name: "STARTUP.POD", size: 10 }, "GAME.POD": { name: "GAME.POD", size: 10 }, "MONSTER.EXE": exe };
+  const result = await inspectSource({ getFile: async (p) => entries[p.toUpperCase().replace(/\\/g, "/")] ?? null });
+  assert.deepEqual(result.files.map((f) => f.name), ["STARTUP.POD"]);
+  assert.equal(result.exeVersion, "2.00.52");
+});

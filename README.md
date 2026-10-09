@@ -34,6 +34,8 @@ OpenMTM2 contains **no game data**. It needs your own retail Monster Truck Madne
   (MPH or KPH), gear strip and the message bar.
 - **Weather and water:** Clear, Cloudy, Fog, Rain, Snow, Dusk, Night and Pitch Black, animated
   water, underwater fog, wheel spray and ripples.
+- **Instant replay:** watch the race again from any truck and any of the ten cameras, with VCR
+  controls, and save or open `.rpl` replay files.
 - **Sound and music:** engines, skids, impacts, ambience, objects' own sounds, MOD music.
 - **Garage and options:** tuning, rebindable keys, GOLD mode cheats, an enhanced look with sun
   shadows and lens flare or the classic 1998 look.

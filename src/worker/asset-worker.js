@@ -9,6 +9,8 @@
 import { copyInstall, mountInstall, readManifest, removeInstall } from "./install-store.js";
 import { buildCatalog } from "./catalog.js";
 import { buildSky, buildTrackRender, transferablesOf } from "./track-build.js";
+import { lenientKlp } from "../game/sound-model.js";
+import { buildTruckPreview } from "./preview-build.js";
 import { loadingScreen } from "./screen-art.js";
 import { loadCockpit } from "./cockpit-art.js";
 import { loadEffectsArt } from "./effects-art.js";
@@ -70,6 +72,12 @@ const handlers = {
   /** Everything needed to draw a track; `{ path }` is its SIT, e.g. "WORLD\\TPARK.SIT". */
   async trackRender({ path, detailLevel, raceType, truckFiles, weather }) {
     const build = await buildTrackRender(await mounted(), path, { detailLevel, raceType, truckFiles, weather });
+    return withTransfer(build, transferablesOf(build));
+  },
+
+  /** A truck's models and the mini garage for the Driver Check-in preview; `{ file }` is its TRK. */
+  async truckPreview({ file, winner = false }) {
+    const build = await buildTruckPreview(await mounted(), file, { winner });
     return withTransfer(build, transferablesOf(build));
   },
 
@@ -173,7 +181,7 @@ const handlers = {
     if (!wav) return null;
     const klp = await vfs.read(`SOUND\\${stem}.KLP`);
     const copy = wav.slice().buffer;
-    return withTransfer({ name: stem, wav: copy, klp: klp ? parseKlp(klp) : null }, [copy]);
+    return withTransfer({ name: stem, wav: copy, klp: klp ? parseKlp(klp) ?? lenientKlp(klp) : null }, [copy]);
   },
 
   /** A level's ambient sounds (`DATA\\SOUNDnnn.TXT`), or null. */

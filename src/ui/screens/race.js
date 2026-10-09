@@ -20,7 +20,13 @@ import { mergeBindings } from "../../game/input/bindings.js";
 import { SunFlare } from "../../render/sun-flare.js";
 import { SunShadows } from "../../render/sun-shadows.js";
 import { mtm2Sim } from "../../vendor/openphotex/index.js";
-import { COCKPIT_EYE, CAMERA_MODES, blimpCamera, createChaseCamera, createRaceCamera, fovFor, groundHeightFn, nextMode } from "../../game/cameras.js";
+import { COCKPIT_EYE, CAMERA_MODES, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, createChaseCamera, fovFor, groundHeightFn, nextMode, raceCamera, zoomToFov } from "../../game/cameras.js";
+import { createBlimp, hasBlimp } from "../../game/blimp.js";
+import { soundRange, surfaceFamily } from "../../game/sound-model.js";
+import { createTireEffects } from "../../render/tire-effects.js";
+import { createHelicopters } from "../../render/heli-object.js";
+import { createNameTags } from "../../render/name-tags.js";
+import { nameLabel, nextNamesMode } from "../../game/names.js";
 import { createAudio } from "../../audio/audio-engine.js";
 import { VOICE_COMMENTARY_ENABLED, createCommentaryAudio } from "../../audio/commentary-audio.js";
 import { createAnnouncer } from "../../game/commentary.js";
@@ -28,17 +34,21 @@ import { createCommentaryWatcher } from "../../game/commentary-events.js";
 import { createTruckAudio } from "../../audio/truck-audio.js";
 import { createWorldAudio } from "../../audio/world-audio.js";
 import { createWeatherScene } from "../../render/weather-scene.js";
-import { isUnderwater, resolveWeather, waterOffsetFt } from "../../game/weather.js";
+import { WEATHER_LOOK, isUnderwater, resolveWeather, waterOffsetFt } from "../../game/weather.js";
+import { lampsAtStart, toggleLamps } from "../../game/truck-lights.js";
 import { createGoldMode } from "../gold-mode.js";
 import { createGamepadInput } from "../../game/input/gamepad.js";
 import { createTextPanel, loadFont } from "../../render/bitmap-text.js";
 import { createRaceGauges } from "../../render/race-gauges.js";
 import { createWaterEffects, createWaterSurface } from "../../render/water-effects.js";
+import { createReplayRecorder } from "../../game/replay.js";
+import { createRaceEnd } from "../../game/race-end.js";
+import { createCrashDamage, crashDamageMessage } from "../../game/crash-damage.js";
 import { createCaption } from "../../render/caption.js";
 import { courseLoop, createCourseMap } from "../../render/minimap.js";
 import { createCockpit, finderAngle } from "../../render/cockpit.js";
 import { formatRaceTime, raceEntrants } from "../../game/race-setup.js";
-import { createTrackWorld, disposeObject, moveObjects, setStartLights, skyColor, updateSky, updateTrackWorld } from "../../render/track-scene.js";
+import { createModelLibrary, createTrackWorld, disposeObject, moveObjects, setStartLights, skyColor, updateSky, updateTrackWorld } from "../../render/track-scene.js";
 import { createTruckObject, interpolatePose } from "../../render/truck-object.js";
 import { toSceneMatrix } from "../../shared/scene-frame.js";
 
@@ -69,6 +79,8 @@ export default async function mount(container, context, { track, laps, difficult
   const caption = createCaption(messageFont);
   const showMessage = (text) => caption.show(text, Infinity);
   const pauseMenu = el("div", { class: "race-pause", hidden: true });
+  // The Names key (game/names.js): what the course map and the labels over the trucks say.
+  let namesMode = 0;
   const view = el("section", { class: "race-view" }, canvas, ...(cockpit ? [cockpit.dashboard, cockpit.mirror, cockpit.finder] : []), hud.element, gauges.element, caption.element, pauseMenu, loading);
   container.append(view);
 
@@ -101,6 +113,8 @@ export default async function mount(container, context, { track, laps, difficult
   const grid = build.sim.grid;
   const usable = catalogTrucks.filter((t) => build.truckModels[t.file]);
   const entrants = raceEntrants({ playerTruck, trucks: usable, slots: grid.length, opponents, playerName: driver.name });
+  const nameTags = createNameTags(entrants.length);
+  view.append(nameTags.element);
   if (!grid.length || !build.truckModels[playerTruck]) {
     loadingText.textContent = `${track.name} has no start grid, or ${truckName(playerTruck)} could not be built.`;
     loading.append(el("button", { "data-menu-sound": "STARTOFF", onclick: () => context.router.back() }, "Back"));
@@ -111,7 +125,8 @@ export default async function mount(container, context, { track, laps, difficult
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(60, 1, 0.5, 20000);
+  const drawDistance = context.settings.drawDistance ?? 20000;
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.5, drawDistance);
   const background = skyColor(build.sky);
   scene.background = background;
   scene.fog = new THREE.Fog(background, 2500, 7000);
@@ -122,7 +137,7 @@ export default async function mount(container, context, { track, laps, difficult
   const sunTravel = sun.position.clone().negate();
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
   scene.add(sun, ambientLight);
-  const world = createTrackWorld(build, look);
+  const world = createTrackWorld(build, look, { backdrops: !!context.settings.backdrops, drawDistance });
   scene.add(world);
   // Sound: the engines, skids and impacts of every truck, and the world's ambience and music.
   context.menuMusic?.stop();
@@ -172,8 +187,9 @@ export default async function mount(container, context, { track, laps, difficult
   const forwardVector = new THREE.Vector3();
   const terrain = mtm2Sim.createTerrain(new Uint8Array(build.heights), build.waterLevelFt ?? null);
   let shadows = null, flare = null, flareBlocked = () => false;
+  audio.setRange?.(soundRange(weatherId));
   const weatherScene = createWeatherScene({
-    scene, camera, world, sun, ambient: ambientLight, skyAverage: background, look, art: effectsArt,
+    scene, camera, world, sun, ambient: ambientLight, skyAverage: background, look, drawDistance, backdrops: !!context.settings.backdrops, art: effectsArt,
     onSun: (i) => shadows?.setIntensity(i), onLightning: () => worldAudio.thunder(),
   });
   weatherScene.set(weatherId);
@@ -183,6 +199,7 @@ export default async function mount(container, context, { track, laps, difficult
     await sim.call("command", { name: "weather", value: next });
     updateSky(world.getObjectByName("sky"), await context.assets.call("sky", { path: track.path, weather: next }), look);
     weatherScene.set(next);
+    audio.setRange?.(soundRange(next));
     worldAudio.setWeather(next);
     flare?.setMode(celestialFor(next));
   };
@@ -194,6 +211,14 @@ export default async function mount(container, context, { track, laps, difficult
     const object = createTruckObject(model, model.anchors, look);
     scene.add(object.object);
     return object;
+  });
+
+  // Crash damage (game/crash-damage.js): the hull contacts the simulation reports dent the bodies.
+  const crash = createCrashDamage(entrants.length, { enabled: context.settings.crashDamage !== false });
+  // Instant replay (game/replay.js): a frame every quarter second, kept for the results screen.
+  const recorder = createReplayRecorder({
+    level: track.path.split(/[\\/]/).pop().toLowerCase(), weather: weatherId, detailLevel: context.settings.detailLevel ?? 2,
+    vehicles: entrants.map((e) => ({ truck: e.file, driver: e.name })), originals: build.originals ?? [],
   });
 
   // The enhanced look (settings.look): the sun's shadows, and the sun, moon and lens flare.
@@ -219,7 +244,8 @@ export default async function mount(container, context, { track, laps, difficult
     boxes: build.sim.boxes,
     ramps: build.sim.ramps,
     course: build.sim.course,
-    sonicTrack: build.sim.sonicTrack,
+    // The SIT's fly-by flag makes a track Sonic; on Professional the player can also ask for Sonic computer trucks anywhere.
+    sonicTrack: build.sim.sonicTrack || (Number(difficulty) === 2 && !!context.settings.sonicTrucks),
     waterLevelFt: build.waterLevelFt,
     weather: weatherId,
     difficulty,
@@ -251,6 +277,9 @@ export default async function mount(container, context, { track, laps, difficult
   };
 
   let viewMode = CAMERA_MODES[context.settings.view]?.id ?? 1, paused = false, finishing = false;
+  // Each truck's lamp switch (game/truck-lights.js) and the clock the blinking lamps and beacons run on.
+  const lamps = entrants.map(() => lampsAtStart(WEATHER_LOOK[weatherId]?.headlights));
+  let lampClockMs = 0;
   const setPaused = async (on) => {
     if (finishing || paused === on) return;
     paused = on;
@@ -272,12 +301,16 @@ export default async function mount(container, context, { track, laps, difficult
       onclick: () => context.router.go("race-select", { mode: track.raceType }, { replace: true }),
     }, "End race"),
   );
+  /** The cockpit view's G state (0 the cockpit, 1 no cockpit with the gauges, 2 neither). */
+  const cockpitMode = () => context.settings.cockpitMode ?? 0;
   const keyMap = mergeBindings(context.settings.bindings);
   const onKey = (e) => {
     if (keyMap.horn.includes(e.code) && !e.repeat) truckAudio.horn(0, latest?.poses[0].current.pos);
     if (keyMap.yeehaw.includes(e.code) && !e.repeat) truckAudio.yeehaw(0, latest?.poses[0].current.pos);
-    if (keyMap.camera.includes(e.code) && !e.repeat) {
-      viewMode = nextMode(viewMode, e.shiftKey);
+    const shortcut = modeForShortcut(e);
+    if (shortcut !== null) e.preventDefault();
+    if ((keyMap.camera.includes(e.code) || shortcut !== null) && !e.repeat) {
+      viewMode = shortcut ?? nextMode(viewMode, e.shiftKey);
       context.settings.view = viewMode;
       saveSettings(context.settings);
       // "Chase Far of Bear Foot": the view's name and the truck being watched (0x52d180).
@@ -285,10 +318,20 @@ export default async function mount(container, context, { track, laps, difficult
     }
     if (keyMap.pause.includes(e.code)) setPaused(!paused);
     if (keyMap.dashboard.includes(e.code) && !e.repeat) {
-      context.settings.dashboard = gauges.toggle();
+      // In the cockpit the key goes round three states: the cockpit; no cockpit with the gauges of the other views; no cockpit and no gauges.
+      if (viewMode === 0) context.settings.cockpitMode = (cockpitMode() + 1) % 3;
+      else context.settings.dashboard = gauges.toggle();
       saveSettings(context.settings);
     }
-    if (keyMap.names.includes(e.code) && !e.repeat) minimap.toggleNames();
+    if (keyMap.names.includes(e.code) && !e.repeat) namesMode = nextNamesMode(namesMode);
+    // The Headlights key (L) switches the player's lamps; every other truck keeps what the weather gave it.
+    if (keyMap.headlights.includes(e.code) && !e.repeat && !e.ctrlKey) lamps[0] = toggleLamps(lamps[0]);
+    if (keyMap.crashDamage.includes(e.code) && !e.repeat) {
+      const on = crash.toggle((i) => drawn[i].repair());
+      context.settings.crashDamage = on;
+      saveSettings(context.settings);
+      flash(t(crashDamageMessage(on, entrants.length)), performance.now(), 3);
+    }
     if (keyMap.finder.includes(e.code) && !e.repeat) {
       context.settings.finder = context.settings.finder === false;
       saveSettings(context.settings);
@@ -320,19 +363,40 @@ export default async function mount(container, context, { track, laps, difficult
   // Ice over the water in Snow, and the spray and ripples of wheels in water (render/water-effects.js).
   const waterFx = createWaterEffects({ scene, art: effectsArt, levelFt: build.waterLevelFt ?? null, ground });
   cleanups.push(() => waterFx.dispose());
+  // Dust, tire tracks and sparks (render/tire-effects.js), each switched in Options.
+  const tireFx = createTireEffects({ scene, art: effectsArt, ground, count: entrants.length });
+  cleanups.push(() => tireFx.dispose());
+  const effectFlags = () => ({ dust: context.settings.dustEffects !== false, tracks: context.settings.tireTracks !== false, sparks: context.settings.sparks !== false, splash: context.settings.waterSplash !== false });
   const waterSurface = createWaterSurface(world.getObjectByName("water"), effectsArt, look);
   cleanups.push(() => waterSurface?.dispose());
-  const chase = createChaseCamera(), raceCam = createRaceCamera(courseLoop(build.sim.course));
+  const chase = createChaseCamera();
+  const straights = build.sim.course, centroid = courseCentroid(straights);
+  // The blimp flies the course (game/blimp.js); the BlimpCam hangs over the course's centre (game/cameras.js).
+  const blimp = build.blimp && hasBlimp({ detailLevel: context.settings.detailLevel ?? 2, raceType: track.raceType }) && straights.length
+    ? createBlimp(straights, ground) : null;
+  // The recovery helicopter and the pterodactyl (game/heli-flight.js).
+  const helicopters = createHelicopters(build.heli, look, scene);
+  if (helicopters) cleanups.push(() => helicopters.dispose());
+  let blimpObject = null, blimpHum = null;
+  if (blimp) {
+    const library = createModelLibrary({ [build.blimp.model.name]: build.blimp.model }, build.blimp.textures, look);
+    blimpObject = new THREE.Group();
+    for (const { geometry, material } of library.get(build.blimp.model.name) ?? []) blimpObject.add(new THREE.Mesh(geometry, material));
+    scene.add(blimpObject);
+    // Its engine hum (blimp2.wav) from where it is.
+    blimpHum = audio.play("BLIMP2", { loop: true, gain: 1.4, rate: 1.5, position: blimp.state.pos });
+    cleanups.push(() => { blimpHum?.then((v) => v?.stop()); disposeObject(blimpObject); });
+  }
   // The rear-view mirror (cockpit only): a second view looking back, drawn small and turned by half a circle.
   const mirrorWindow = cockpit?.mirrorRect;
   const mirrorTarget = mirrorWindow ? new THREE.WebGLRenderTarget(mirrorWindow[2] * 2, mirrorWindow[3] * 2) : null;
-  const mirrorCamera = new THREE.PerspectiveCamera(40, mirrorWindow ? mirrorWindow[2] / mirrorWindow[3] : 1, 0.5, 20000);
+  const mirrorCamera = new THREE.PerspectiveCamera(40, mirrorWindow ? mirrorWindow[2] / mirrorWindow[3] : 1, 0.5, drawDistance);
   const mirrorPixels = mirrorTarget ? new Uint8Array(mirrorTarget.width * mirrorTarget.height * 4) : null;
   const flipBack = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
   let mirrorTick = 0;
   const renderMirror = () => {
     if (!mirrorTarget) return;
-    if (viewMode !== 0) { cockpit.setMirror(mirrorPixels, mirrorTarget.width, mirrorTarget.height, false); return; }
+    if (viewMode !== 0 || cockpitMode() !== 0) { cockpit.setMirror(mirrorPixels, mirrorTarget.width, mirrorTarget.height, false); return; }
     if (mirrorTick++ % 2) return;
     mirrorCamera.position.copy(cockpitEye.position);
     mirrorCamera.quaternion.copy(cockpitEye.quaternion).multiply(flipBack);
@@ -344,18 +408,24 @@ export default async function mount(container, context, { track, laps, difficult
   };
   cleanups.push(() => mirrorTarget?.dispose());
   let waterClock = 0, shownPoses = null;
+  const raceEnd = createRaceEnd({ summit });
+  let cameraTarget = 0;
   let lastView = -1;
   const cockpitEye = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion() }, scratchScale = new THREE.Vector3();
   // Switching views changes the camera at once, as the game does: only a chase camera's heading takes time to catch up (game/cameras.js).
   const placeCamera = (p, dt) => {
     if (viewMode !== lastView) {
       lastView = viewMode;
-      raceCam.reset();
       if (!CAMERA_MODES[viewMode].dist) chase.reset();
       camera.fov = fovFor(viewMode);
       camera.updateProjectionMatrix();
     }
-    placeCameraNow(p, dt);
+    // The BlimpCam and RaceCam set their own zoom each frame, from their distance to the truck.
+    const zoom = placeCameraNow(p, dt);
+    if (zoom !== null) {
+      const fov = zoomToFov(zoom);
+      if (Math.abs(camera.fov - fov) > 1e-3) { camera.fov = fov; camera.updateProjectionMatrix(); }
+    }
   };
   const placeCameraNow = (p, dt) => {
     const yaw = p.euler[2];
@@ -366,13 +436,16 @@ export default async function mount(container, context, { track, laps, difficult
       camera.position.set(COCKPIT_EYE[0], COCKPIT_EYE[1], -COCKPIT_EYE[2]).applyMatrix4(body);
       camera.quaternion.copy(cockpitEye.quaternion);
       cockpitEye.position.copy(camera.position);
-      return;
+      return null;
     }
     const mode = viewMode;
-    const view = mode === 3 ? blimpCamera(p.pos, yaw, ground) : mode === 4 ? raceCam.update(p.pos, ground) : chase.update(mode, p.pos, yaw, ground, dt);
+    const special = mode === 3 ? (centroid ? blimpCamera(p.pos, centroid) : blimpCameraNoCourse(p.pos, yaw, ground))
+      : mode === 4 ? (raceCamera(straights, p.pos, p.course ?? 0, ground) ?? blimpCameraNoCourse(p.pos, yaw, ground)) : null;
+    const view = special ?? chase.update(mode, p.pos, yaw, ground, dt);
     // Game feet to the scene: z is mirrored.
     camera.position.set(view.position[0], view.position[1], -view.position[2]);
     camera.lookAt(view.target[0], view.target[1], -view.target[2]);
+    return special ? special.zoom : null;
   };
 
   const flash = (text, now, seconds = 3) => caption.show(text, seconds);
@@ -413,8 +486,9 @@ export default async function mount(container, context, { track, laps, difficult
     showMessage(t("Determining times for remaining trucks..."));
     const race = await sim.call("finish");
     if (disposed) return;
+    context.lastReplay = recorder.build();
     const rows = race.trucks.map((t, i) => ({
-      ...t, name: entrants[i].name, truckName: truckName(entrants[i].file), player: entrants[i].player,
+      ...t, name: entrants[i].name, file: entrants[i].file, truckName: truckName(entrants[i].file), player: entrants[i].player,
     }));
     context.router.go("results", { track, laps, difficulty, rows, mode: track.raceType, truck: playerTruck }, { replace: true });
   };
@@ -433,11 +507,18 @@ export default async function mount(container, context, { track, laps, difficult
       sim.call("tick", { tMs: now, input: sampleInput() })
         .then((r) => {
           latest = r;
+          if (r.race && r.time !== undefined) recorder.update(r.time, r.poses.map((p) => p.current), r.boxes ?? [], (i) => crash.code(i));
           if (r.boxes?.length) {
             moveObjects(world, r.boxes.map((b) => ({ sitIndex: b.sitIndex, matrix: toSceneMatrix(b.matrix, b.pos) })));
             for (const b of r.boxes) { movedBoxes.add(b.sitIndex); movedPositions.set(b.sitIndex, b.pos); }
           }
-          if (r.race?.trucks[0].finished && !finishing) finish();
+          // The race goes on after the player finishes: the RaceCam follows, and the results wait for the others (game/race-end.js).
+          if (r.race) {
+            const end = raceEnd.update(r.race);
+            cameraTarget = end.target;
+            if (end.justFinished) viewMode = 4;
+            if (end.done && !finishing) finish();
+          }
         })
         .catch((err) => { if (!disposed) showMessage(err.message); })
         .finally(() => { busy = false; });
@@ -445,11 +526,27 @@ export default async function mount(container, context, { track, laps, difficult
     if (latest) {
       const shown = latest.poses.map((p) => interpolatePose(p.previous, p.current, latest.alpha));
       shownPoses = shown;
-      shown.forEach((p, i) => drawn[i].update(p));
+      tireFx.update({
+        dt: paused ? 0 : dt, listener: [camera.position.x, camera.position.y, -camera.position.z], flags: effectFlags(),
+        noDust: weatherScene.weather === 4 || weatherScene.weather === 5,
+        trucks: shown.map((p, i) => ({ object: drawn[i], pose: p, surface: latest.poses[i].sound ? { family: surfaceFamily(latest.poses[i].sound.surface), type: latest.poses[i].sound.surface } : null })),
+      });
+      helicopters?.update(shown.map((p) => p.heli ?? null), paused ? 0 : dt);
+      lampClockMs += paused ? 0 : dt * 1000;
+      const night = !!WEATHER_LOOK[weatherScene.weather]?.headlights;
+      shown.forEach((p, i) => drawn[i].update(p, camera, { lamps: lamps[i], clockMs: lampClockMs, night, cockpit: i === 0 && viewMode === 0 }));
+      if (!latest.damageHandled) {
+        latest.damageHandled = true;
+        latest.poses.forEach((p, i) => {
+          crash.contacts(i, p.damage, (zone, level) => drawn[i].dent(zone, level));
+          if (p.touch) tireFx.touch(i, p.touch.pos, p.touch.steps, p.touch.force, p.current.speed ?? 0, effectFlags());
+          for (const d of p.damage ?? []) tireFx.hit(i, drawn[i], d.zone, d.steps, d.force, p.current.speed ?? 0, effectFlags());
+        });
+      }
       const listener = [camera.position.x, camera.position.y, -camera.position.z];
       const raceNow = latest.race;
       const clock = raceNow ? (raceNow.started ? 3 + raceNow.clock : 3 - raceNow.countdown) : null;
-      truckAudio.update(dt, latest.poses.map((p, i) => ({ ...p, current: shown[i] === undefined ? p.current : { ...p.current, pos: shown[i].pos } })), listener, clock);
+      truckAudio.update(dt, latest.poses.map((p, i) => ({ ...p, current: shown[i] === undefined ? p.current : { ...p.current, pos: shown[i].pos } })), listener, clock, entrants.map((_, i) => crash.damaged(i)));
       worldAudio.update(dt, listener, movedPositions);
       {
         const now = performance.now() / 1000;
@@ -463,15 +560,16 @@ export default async function mount(container, context, { track, laps, difficult
       }
       camera.getWorldDirection(forwardVector);
       audio.setListener(camera.position, forwardVector, camera.up);
+      nameTags.update(camera, view.clientWidth, view.clientHeight, entrants.map((e, i) => nameLabel(namesMode, e, truckName)), shown.map((p) => p.pos), entrants.map((_, i) => i === 0 && viewMode === 0));
       weatherScene.update(dt, shown.map((p) => ({ x: p.pos[0], y: p.pos[1], z: p.pos[2], heading: p.euler[2] })));
-      placeCamera(shown[0], dt);
+      placeCamera(shown[cameraTarget] ?? shown[0], dt);
       // Your own truck is not drawn from inside it.
-      drawn[0].object.visible = viewMode !== 0;
+      drawn[0].setBodyHidden(viewMode === 0);
       const mine = latest.poses[0].current;
-      gauges.setVisible(context.settings.dashboard !== false && viewMode !== 0);
+      gauges.setVisible(viewMode === 0 ? cockpitMode() === 1 : context.settings.dashboard !== false);
       gauges.set(mine);
       if (cockpit) {
-        cockpit.setDashboard({ visible: viewMode === 0, speed: mine.speed, rpm: mine.rpm, gear: mine.gear, steer: mine.steer });
+        cockpit.setDashboard({ visible: viewMode === 0 && cockpitMode() === 0, speed: mine.speed, rpm: mine.rpm, gear: mine.gear, steer: mine.steer });
         const next = build.sim.checkpoints[latest.race?.trucks[0].checkpoint ?? 0];
         cockpit.setFinder({
           visible: context.settings.finder !== false && !!next && !summit,
@@ -480,18 +578,26 @@ export default async function mount(container, context, { track, laps, difficult
         });
       }
       if (minimap.visible) {
-        minimap.set(shown.map((p, i) => ({ pos: p.pos, heading: p.euler[2], place: latest.race?.trucks[i]?.place ?? i + 1, name: entrants[i]?.name })), dt);
+        minimap.set(shown.map((p, i) => ({ pos: p.pos, heading: p.euler[2], place: latest.race?.trucks[i]?.place ?? i + 1, label: nameLabel(namesMode, entrants[i], truckName) })), dt);
       }
       if (latest.race && !finishing) showRace(latest.race, now);
     }
     if (!paused) caption.update(dt);
     // The water bobs a quarter foot every eight seconds (frozen in Snow), and under it the world is fogged to 320 ft with no sky.
+    if (blimp && !paused) {
+      blimp.update(dt);
+      blimpObject.position.set(blimp.state.pos[0], blimp.state.pos[1], -blimp.state.pos[2]);
+      blimpObject.rotation.y = -blimp.state.heading;
+      blimpObject.visible = viewMode !== 3;
+      blimpHum?.then((v) => v?.setPosition(blimp.state.pos));
+    }
     waterClock += dt;
     const water = world.getObjectByName("water");
     if (water) water.position.y = waterOffsetFt(waterClock, weatherScene.weather);
     waterSurface?.update(dt, weatherScene.weather);
     const under = isUnderwater(camera.position.y, water ? water.userData.levelFt + water.position.y : null, weatherScene.weather);
     weatherScene.setUnderwater(under);
+    tireFx.setWater(water ? water.userData.levelFt + water.position.y : null);
     if (latest && shownPoses) {
       waterFx.update(dt, {
         trucks: shownPoses.map((p) => ({ pos: p.pos, yaw: p.euler[2] })),
@@ -535,18 +641,44 @@ function celestialFor(weather) {
  */
 function enableShadows({ renderer, scene, camera, world, sun, drawn }) {
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
+  // Soft-edged shadows (PCFSoft), as JSTrackViewer's scene draws them with its cascades.
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.shadowMap.autoUpdate = true;
   const tile = world.getObjectByName("tile");
   world.traverse((o) => {
     if (!o.isMesh || o.name === "sky") return;
     o.receiveShadow = true;
   });
+  // Solid things cast, ground boxes among them; terrain and water do not, nor do blended (see-through) surfaces. A caster
+  // is drawn into the shadow map on the same side it is drawn on, which keeps thin walls from leaking light.
+  const casts = (o) => {
+    const m = o.material;
+    if (!m || (m.transparent && !(m.alphaTest > 0))) return false;
+    m.shadowSide = m.side;
+    return true;
+  };
   tile?.traverse((o) => {
-    if (o.isMesh && o.name !== "terrain" && o.name !== "groundBoxes" && o.name !== "water") o.castShadow = true;
-    if (o.isInstancedMesh) o.castShadow = true;
+    if (o.isMesh && o.name !== "terrain" && o.name !== "water" && casts(o)) o.castShadow = true;
   });
-  for (const truck of drawn) truck.object.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  for (const truck of drawn) truck.object.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; if (o.material) o.material.shadowSide = o.material.side; } });
+  // A facing object (type 8 and 9 billboards) turns to the camera, which would swing its shadow around with the
+  // view. Its shadow comes from an invisible copy held square to the sun instead (updateTrackWorld keeps it there).
+  world.userData.shadowFacing = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(sun.position.x, sun.position.z));
+  tile?.traverse((group) => {
+    if (group.name !== "placedObject" || !group.userData.billboard) return;
+    for (const mesh of [...group.children]) {
+      if (!mesh.isMesh) continue;
+      mesh.castShadow = false;
+      const source = mesh.material;
+      const proxy = new THREE.Mesh(mesh.geometry, new THREE.MeshBasicMaterial({
+        map: source.map ?? null, alphaTest: source.alphaTest ?? 0, transparent: !!source.transparent,
+        side: THREE.DoubleSide, colorWrite: false, depthWrite: false,
+      }));
+      proxy.castShadow = true;
+      proxy.userData.shadowProxy = true;
+      group.add(proxy);
+    }
+  });
   const shadows = new SunShadows({ scene, camera, color: 0xffffff, intensity: sun.intensity, maxFar: 10240 });
   shadows.setDirection(sun.position.clone().negate());
   shadows.setEnabled(true);

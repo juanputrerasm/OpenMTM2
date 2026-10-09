@@ -11,6 +11,7 @@
 */
 import { el } from "./dom.js";
 import { goRace } from "../app/flow.js";
+import { classicUiAllowed } from "../install/exe-version.js";
 
 /** Baked button rectangles [x, y, w, h] on the 640 x 480 art. */
 const BUTTONS = {
@@ -24,7 +25,7 @@ const BUTTONS = {
 const BARS = {
   main: [["driver", "Driver Check-in", "drivers"], ["races", "Races", "races"], ["garage", "Garage", "garage"], ["multi", "Multiplayer", null], ["go", "GO", "go"]],
   hall: [["continue", "Continue", "back"]],
-  results: [["hall", "Hall of Fame", "hall"], ["replay", "Instant Replay", null], ["continue", "Continue", "start"]],
+  results: [["hall", "Hall of Fame", "hall"], ["replay", "Instant Replay", "replay"], ["continue", "Continue", "start"]],
   start: [["startWeb", "Web Page", "web"], ["startDemo", "Monster Demo", null], ["startManual", "Monster Manual", null], ["startDriver", "Driver Check-in", "drivers"]],
   none: [],
 };
@@ -42,46 +43,55 @@ export function uiImageUrl(assets, name) {
 /**
  * @param {HTMLElement} container
  * @param {object} context
- * @param {{ title: string, backdrop?: string, bar?: keyof typeof BARS, regions?: Record<string, number[]>, options?: boolean }} spec
- *   `regions`: classic panel rectangles by name; the modern skin stacks them in one panel.
- * @returns {Promise<{ classic: boolean, regions: Record<string, HTMLElement>, unmount?: () => void }>}
+ * @param {{ title: string, backdrop?: string, bar?: keyof typeof BARS, regions?: Record<string, number[]>, options?: boolean,
+ *   labels?: [string, number[]][], modernRegions?: Record<string, number[]>, current?: string }} spec
+ *   `regions`: panel rectangles on the 640 x 480 stage. Both skins lay a screen out the same way: the classic one on the game's
+ *   art, the modern one on a plain stage that draws what the art would (the title, `labels` such as "Player Name" baked into the
+ *   art, and the bottom bar's buttons with their names) and may move panels with `modernRegions`. `current` is the bar button of
+ *   this screen, shown pressed in the modern skin.
+ * @returns {Promise<{ classic: true, art: boolean, regions: Record<string, HTMLElement>, unmount?: () => void }>}
  */
-export async function frame(container, context, { title, backdrop, bar = "main", regions = { main: [24, 120, 592, 280] }, options = true }) {
-  const url = context.settings.skin === "classic" && backdrop ? await uiImageUrl(context.assets, backdrop) : null;
-  if (!url) {
-    const panel = el("div", { class: "screen-panel" });
-    const screen = el("section", { class: "screen" }, el("h1", { class: "screen-title" }, title), panel);
-    if (options) screen.append(optionsButton(context, "screen-utility"));
-    container.append(screen);
-    return { classic: false, regions: Object.fromEntries(Object.keys(regions).map((name) => [name, panel])) };
+export async function frame(container, context, { title, backdrop, bar = "main", regions = { main: [24, 120, 592, 280] }, options = true, labels = [], modernRegions = {}, current = null }) {
+  const url = context.settings.skin === "classic" && classicUiAllowed(context.exeVersion) && backdrop ? await uiImageUrl(context.assets, backdrop) : null;
+  const art = !!url;
+  const stage = el("div", { class: `stage${art ? "" : " stage-modern"}`, role: "group", "aria-label": title });
+  if (art) stage.append(el("img", { class: "stage-backdrop", src: url, alt: "", draggable: "false" }));
+  else {
+    stage.append(el("h1", { class: "stage-title" }, context.t?.(title) ?? title));
+    for (const [text, rect] of labels) {
+      const label = el("div", { class: "stage-label" }, context.t?.(text) ?? text);
+      place(label, rect);
+      stage.append(label);
+    }
   }
-
-  const stage = el("div", { class: "stage", role: "group", "aria-label": title }, el("img", { class: "stage-backdrop", src: url, alt: "", draggable: "false" }));
-  const rects = {};
   const panels = Object.fromEntries(Object.entries(regions).map(([name, rect]) => {
     const panel = el("div", { class: `stage-panel stage-panel-${name}` });
-    place(panel, rect);
+    place(panel, (!art && modernRegions[name]) || rect);
     stage.append(panel);
-    rects[name] = panel;
     return [name, panel];
   }));
   for (const [button, label, action] of BARS[bar] ?? []) {
     const hotspot = el("button", {
-      class: "stage-hotspot", "aria-label": label, title: label, disabled: action === null,
+      class: art ? "stage-hotspot" : `stage-button${action === current ? " current" : ""}${button === "go" ? " go" : ""}`,
+      "aria-label": label, title: label, disabled: action === null,
       "data-menu-sound": action === "go" ? "GOOFF" : action && action !== "web" ? "STARTOFF" : null,
       onclick: () => navigate(context, action),
-    });
+    }, art ? "" : context.t?.(label) ?? label);
     place(hotspot, BUTTONS[button]);
     stage.append(hotspot);
   }
   if (options) stage.append(optionsButton(context, "stage-utility"));
-  const view = el("section", { class: "stage-view" }, stage);
+  // The modern skin also has a way back from a screen with no bottom bar to leave by.
+  if (!art && bar === "none") {
+    stage.append(el("button", { class: "stage-back", "data-menu-sound": "STARTOFF", onclick: () => context.router.back() }, "Back"));
+  }
+  const view = el("section", { class: `stage-view${art ? "" : " stage-view-modern"}` }, stage);
   container.append(view);
   const fit = () => stage.style.setProperty("--stage-scale", String(Math.min(view.clientWidth / 640, view.clientHeight / 480)));
   const observer = new ResizeObserver(fit);
   observer.observe(view);
   fit();
-  return { classic: true, regions: panels, unmount: () => observer.disconnect() };
+  return { classic: true, art, regions: panels, unmount: () => observer.disconnect() };
 }
 
 function optionsButton(context, className) {
@@ -100,6 +110,7 @@ async function navigate(context, action) {
   if (action === "back") return router.back();
   if (action === "go") return goRace(context);
   if (action === "web") return window.open("https://mtm2.com/", "_blank", "noopener");
+  if (action === "replay") return context.lastReplay ? router.go("replay", { replay: context.lastReplay }) : undefined;
   const screens = { drivers: ["drivers"], garage: ["garage"], hall: ["hall"], start: ["start"], races: ["race-select", { mode: context.raceConfig?.mode ?? "circuit" }] };
   const [name, params = {}] = screens[action];
   return router.go(name, params, { replace: true });

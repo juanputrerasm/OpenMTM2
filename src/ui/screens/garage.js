@@ -1,7 +1,6 @@
 /* Garage tuning only. Truck selection lives on Driver Check-in. */
 import { el } from "../dom.js";
 import { currentDriver, getProfiles, saveProfiles } from "../../app/profile-store.js";
-import { goRace } from "../../app/flow.js";
 import { playMenuSound } from "../../audio/menu-sounds.js";
 import { garageSummary } from "../../game/menu-data.js";
 import { frame } from "../frame.js";
@@ -31,24 +30,17 @@ export default async function mount(container, context) {
   refreshSummary();
   save();
 
+  // Both skins lay the Garage out as the game does: the tire cut and suspension choices as rings on their pictures, the
+  // transfer gear as a slider. Without the art the stage names each ring and section instead.
+  const dotLabels = (centres, names) => centres.map(([x, y], i) => [names[i], [x + 16, y - 9, 80, 18]]);
   const ui = await frame(container, context, {
-    title: context.t("Garage"), backdrop: "GARAGE", regions: { summary: [328, 342, 104, 30] },
+    title: context.t("Garage"), backdrop: "GARAGE", current: "garage", regions: { summary: [328, 342, 104, 30] },
+    labels: [
+      ["Tire Cut", [330, 18, 120, 18]], ...dotLabels(TIRE_CUT_DOTS, ["Shallow", "Medium", "Deep"]),
+      ["Suspension", [400, 250, 120, 18]], ...dotLabels(SUSPENSION_DOTS, ["Soft", "Medium", "Hard"]),
+      ["Transfer Gear", [44, 326, 280, 16]],
+    ],
   });
-  if (!ui.classic) {
-    const choice = (label, key, names) => el("label", {}, `${label} `,
-      el("select", { "aria-label": label, onchange: (event) => {
-        setup[key] = Number(event.target.value); refreshSummary(); save();
-      } }, ...names.map((name, index) => el("option", { value: index, selected: index === setup[key] }, name))));
-    ui.regions.summary.append(
-      el("div", { class: "form-row" },
-        choice("Suspension", "suspension", ["Soft", "Medium", "Hard"]),
-        choice("Tire cut", "tireCut", ["Shallow", "Medium", "Deep"]),
-        el("label", {}, "Transfer gear ", transfer, " ", summary)),
-      el("div", { class: "screen-actions" },
-        el("button", { "data-menu-sound": "STARTOFF", onclick: () => context.router.back() }, "Back"),
-        el("button", { class: "primary", "data-menu-sound": "GOOFF", onclick: () => goRace(context) }, "Race")));
-    return { unmount: ui.unmount };
-  }
 
   const stage = ui.regions.summary.parentElement;
   ui.regions.summary.append(summary);

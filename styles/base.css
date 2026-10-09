@@ -57,3 +57,6 @@ button.danger:hover:not(:disabled) { background: #3a1713; border-color: #ff735e;
 
 .muted { color: var(--muted); }
 .error { color: var(--danger); }
+
+.watermark { position: fixed; right: 8px; bottom: 6px; z-index: 9999; opacity: 0.6; pointer-events: none; font: 11px Arial, sans-serif; color: #fff; text-shadow: 1px 1px 0 #000; }
+.watermark canvas { display: block; image-rendering: pixelated; }

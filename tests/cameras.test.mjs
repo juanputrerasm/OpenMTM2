@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CAMERA_MODES, blimpCamera, createChaseCamera, createRaceCamera, fovFor, nextMode } from "../src/game/cameras.js";
+import { CAMERA_MODES, blimpCamera, courseCentroid, createChaseCamera, distanceZoom, fovFor, nextMode, raceCamera, zoomToFov } from "../src/game/cameras.js";
 
 const flat = () => 0;
 const near = (a, b, e = 1e-6) => assert.ok(Math.abs(a - b) < e, `${a} vs ${b}`);
@@ -49,9 +49,58 @@ test("zoom narrows the Big views' field of view and keeps Far at the base", () =
   assert.ok(fovFor(8) < fovFor(1) && fovFor(1) < fovFor(2));
 });
 
-test("BlimpCam is above, RaceCam beside the course ahead", () => {
-  assert.ok(blimpCamera([0, 0, 0], 0, flat).position[1] >= 250);
-  const loop = [[0, 0], [1000, 0], [1000, 1000], [0, 1000]];
-  const race = createRaceCamera(loop).update([100, 0, 0], flat);
-  assert.ok(Math.abs(race.position[2]) > 50 || Math.abs(race.position[0]) > 50);
+test("the course's centre is the average of its straights' midpoints", () => {
+  const course = [{ startFt: [0, 10, 0], endFt: [100, 10, 0] }, { startFt: [100, 30, 100], endFt: [100, 30, 300] }];
+  assert.deepEqual(courseCentroid(course), [75, 20, 100]);
+  assert.equal(courseCentroid([]), null);
+});
+
+test("the zoom follows the horizontal distance and is held between 0x1000 and 0x8000", () => {
+  near(distanceZoom(100), 65536 / 6.25 / 65536);
+  assert.equal(distanceZoom(1000), 0x1000 / 65536);
+  assert.equal(distanceZoom(5), 0x8000 / 65536);
+  assert.ok(zoomToFov(0.16) < 12 && zoomToFov(0.5) < zoomToFov(1));
+});
+
+test("BlimpCam hangs 100 ft from the truck toward a point 1000 ft over the course's centre", () => {
+  const view = blimpCamera([2000, 100, 0], [0, 100, 0]);
+  const away = Math.hypot(view.position[0] - 2000, view.position[1] - 100, view.position[2]);
+  near(away, 100, 1e-6);
+  assert.ok(view.position[0] < 2000 && view.position[1] > 100, "toward the centre and up");
+  // Over the centre it hangs almost overhead and its pitch is held to 67.5 degrees.
+  const over = blimpCamera([0, 100, 0], [0, 100, 0]);
+  assert.ok(over.position[1] > 190);
+  const look = [over.target[0] - over.position[0], over.target[1] - over.position[1], over.target[2] - over.position[2]];
+  const pitch = Math.atan2(-look[1], Math.hypot(look[0], look[2]));
+  assert.ok(pitch <= (0x3000 / 65536) * Math.PI * 2 + 1e-6);
+});
+
+test("RaceCam stands a quarter of the way along the straight the truck is heading for, over the ground", () => {
+  const straights = [{ startFt: [0, 0, 0], endFt: [200, 0, 0] }, { startFt: [0, 0, 400], endFt: [200, 0, 400] }];
+  const flat = () => 0;
+  // Truck on straight 0 (segment 0) or on the arc after it (segment 1, heading for straight 1).
+  near(raceCamera(straights, [50, 0, 0], 0, flat).position[0], 50);
+  near(raceCamera(straights, [50, 0, 100], 1, flat).position[2], 400);
+  // At least 14 ft over the highest ground between it and the truck.
+  const hill = (x, z) => (z > 185 && z < 195 ? 80 : 0);
+  assert.ok(raceCamera(straights, [50, 0, 100], 1, hill).position[1] >= 94 - 1e-9);
+  // A long straight uses its middle when the truck is nearer it.
+  const long = [{ startFt: [0, 0, 0], endFt: [1000, 0, 0] }];
+  near(raceCamera(long, [600, 0, 50], 0, flat).position[0], 500);
+  near(raceCamera(long, [10, 0, 50], 0, flat).position[0], 250);
+  // Never farther than the view allows, and it looks at the truck.
+  const far = raceCamera(straights, [50, 0, -5000], 1, flat);
+  near(Math.hypot(far.position[0] - 50, far.position[2] + 5000), 30 * 32, 1);
+  assert.equal(raceCamera([], [0, 0, 0], 0, flat), null);
+});
+
+test("Ctrl or Alt with a digit picks a view: 1 the cockpit, 0 the tenth", async () => {
+  const { modeForShortcut } = await import("../src/game/cameras.js");
+  assert.equal(modeForShortcut({ ctrlKey: true, code: "Digit1" }), 0);
+  assert.equal(modeForShortcut({ ctrlKey: true, code: "Digit2" }), 1);
+  assert.equal(modeForShortcut({ altKey: true, code: "Numpad5" }), 4);
+  assert.equal(modeForShortcut({ ctrlKey: true, code: "Digit0" }), 9);
+  assert.equal(modeForShortcut({ code: "Digit1" }), null);
+  assert.equal(modeForShortcut({ ctrlKey: true, code: "KeyA" }), null);
+  assert.equal(modeForShortcut({ ctrlKey: true, metaKey: true, code: "Digit1" }), null);
 });

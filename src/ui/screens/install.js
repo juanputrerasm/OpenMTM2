@@ -77,7 +77,9 @@ export default function mount(container, context) {
       await context.assets.call("install", {
         files: result.files,
         podIni: result.podIni,
+        exeVersion: result.exeVersion ?? null,
       });
+      context.exeVersion = result.exeVersion ?? null;
     } finally {
       off();
     }
