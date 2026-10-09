@@ -9,7 +9,12 @@
 const KEY = "openmtm2.settings";
 
 export const DEFAULT_SETTINGS = Object.freeze({
-  look: "classic",            // "classic" or "enhanced"
+  look: "enhanced",           // "classic" or "enhanced"
+  view: 1,                    // the camera view the race starts in (the exe's modes 0 to 9)
+  units: "mph",               // the gauges' speed unit: "mph" or "kph"
+  dashboard: true,            // the chase view's speedometer and tachometer (the Dashboard key toggles them)
+  finder: true,               // the checkpoint finder ring in the cockpit, BlimpCam and RaceCam views (the Finder key)
+  minimap: false,             // the course map (the Map key toggles it)
   detailLevel: 2,             // MONSTER.INI detailLevel: boxes with a higher priority are not drawn
   difficulty: 1,              // 0 Rookie, 1 Intermediate, 2 Professional
   laps: 3,
@@ -26,13 +31,18 @@ export const DEFAULT_SETTINGS = Object.freeze({
   autoShift: true,            // automatic gears (the game's default)
   bindings: Object.freeze({}), // key code overrides by action, see game/input/bindings.js
   fullAutopilot: false,       // the game's "Full Autopilot": the player's truck drives itself
-  showHiddenTracks: false,
-  showHiddenTrucks: false,
+  showHiddenTracks: true,     // the two hidden tracks are listed unless this is turned off
 });
 
 export function loadSettings() {
   try {
     const stored = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    // Version 2 made the enhanced look the default and version 3 listed the hidden tracks; what was saved
+    // before them was never a choice.
+    if (!(stored.version >= 2)) stored.look = "enhanced";
+    if (!(stored.version >= 3)) stored.showHiddenTracks = true;
+    stored.version = 3;
+    delete stored.showHiddenTrucks;
     return { ...DEFAULT_SETTINGS, ...stored };
   } catch {
     return { ...DEFAULT_SETTINGS };

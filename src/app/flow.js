@@ -20,7 +20,7 @@ export async function goRace(context) {
   if (!config) return context.router.go("race-select", { mode: "circuit" }, { replace: true });
   const catalog = await context.assets.call("catalog");
   const track = catalog.tracks.find((t) => t.file === config.track);
-  const trucks = catalog.trucks.filter((t) => context.settings.showHiddenTrucks || !t.hidden);
+  const trucks = catalog.trucks.filter((t) => !t.hidden);
   const driver = currentDriver(await getProfiles(context));
   const truck = trucks.find((t) => t.file === driver.lastTruck) ?? trucks[0];
   if (!track || !truck) return context.router.go("race-select", { mode: config.mode }, { replace: true });

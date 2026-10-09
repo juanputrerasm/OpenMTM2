@@ -11,7 +11,7 @@ export default async function mount(container, context) {
   const { settings } = context;
   const profiles = await getProfiles(context);
   const catalog = await context.assets.call("catalog");
-  const trucks = catalog.trucks.filter((truck) => settings.showHiddenTrucks || !truck.hidden);
+  const trucks = catalog.trucks.filter((truck) => !truck.hidden);
   const names = el("datalist", { id: "driver-names" });
   const message = el("p", { class: "driver-message error", "aria-live": "polite" });
   const name = el("input", {

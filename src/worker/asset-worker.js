@@ -10,7 +10,10 @@ import { copyInstall, mountInstall, readManifest, removeInstall } from "./instal
 import { buildCatalog } from "./catalog.js";
 import { buildSky, buildTrackRender, transferablesOf } from "./track-build.js";
 import { loadingScreen } from "./screen-art.js";
+import { loadCockpit } from "./cockpit-art.js";
+import { loadEffectsArt } from "./effects-art.js";
 import { decodeActPalette, decodeRawTexture, parseKlp, parseLoc, parseMod, parseMtmAmbientSounds, parseMtmSun, renderMod } from "../vendor/openphotex/index.js";
+import { decodeModel } from "./models.js";
 import { FONT_SHEETS, parseBitmapFont } from "./bitmap-font.js";
 import { readUserData, removeUserData, writeUserData } from "./user-data.js";
 
@@ -85,6 +88,39 @@ const handlers = {
     if (!/^[A-Za-z0-9_-]+$/.test(String(name))) throw new Error(`Bad image name "${name}"`);
     const bytes = await (await mounted()).read(`UI\\${name.toUpperCase()}.BMP`);
     return bytes ? withTransfer(bytes.slice(), []) : null;
+  },
+
+  /** The cockpit art and the finder (worker/cockpit-art.js), or null. */
+  async cockpit() {
+    const art = await loadCockpit(await mounted());
+    if (!art) return null;
+    const buffers = [];
+    const collect = (value) => { if (value?.rgba) buffers.push(value.rgba.buffer); else if (value && typeof value === "object") Object.values(value).forEach(collect); };
+    collect(art);
+    return withTransfer(art, buffers);
+  },
+
+  /** The weather and water effect art (worker/effects-art.js). */
+  async effectsArt() {
+    const art = await loadEffectsArt(await mounted());
+    const buffers = [];
+    const collect = (value) => { if (value?.rgba) buffers.push(value.rgba.buffer); else if (value && typeof value === "object") Object.values(value).forEach(collect); };
+    collect(art);
+    return withTransfer(art, buffers);
+  },
+
+  /**
+   * The dashboard needle (`MODELS\\NEEDLE.BIN`, from UI.POD) as flat 2D shapes: `[{ color, points }]`
+   * with `points` the x, y of each triangle's corners, y up, the tip along +y; or null.
+   */
+  async needle() {
+    const bytes = await (await mounted()).read("MODELS\\NEEDLE.BIN");
+    const model = bytes && decodeModel(bytes, "NEEDLE.BIN");
+    if (!model?.meshes.length) return null;
+    return model.meshes.map((m) => ({
+      color: (m.color ?? 0xffffff) & 0xffffff,
+      points: Array.from({ length: m.positions.length / 3 }, (_, n) => [m.positions[n * 3], m.positions[n * 3 + 1]]),
+    }));
   },
 
   /**

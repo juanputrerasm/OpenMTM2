@@ -67,3 +67,23 @@ export function nextWeather(current, mask) {
 export function weatherSkyStem(weather, levelStem) {
   return { 4: "CCLOUDS", 6: "DUSKSKY", 7: "NITESKY", 8: "NITESKY" }[weather] ?? levelStem;
 }
+
+/** The water level's bob: the level moves by up to a quarter foot, sinusoidally, every 8 s (0x4f9... water update); frozen in Snow. */
+export const WATER_BOB_FT = 0.25, WATER_BOB_SECONDS = 8;
+export const waterOffsetFt = (time, weather) => (weather === 5 ? 0 : WATER_BOB_FT * Math.sin((2 * Math.PI * time) / WATER_BOB_SECONDS));
+
+/** The fog under water (0x4fb5a0): linear from the camera to 320 ft, in the weather's fog colour. Not in Snow, where the water is ice. */
+export const UNDERWATER_FOG_FT = 320;
+export const isUnderwater = (cameraYFt, waterLevelFt, weather) => weather !== 5 && waterLevelFt !== null && waterLevelFt !== undefined && cameraYFt < waterLevelFt;
+
+/**
+ * The water surface (0x5043e0): eight `RIPPL` frames played 1 2 3 4 5 6 7 8 7 6 5 4 3 2 (14 steps),
+ * one step every 16384 / 65536 = a quarter second, held still in Snow. It is drawn translucent by
+ * weather: 0xc000 / 65536 in the clear, 0x8000 in Rain, 0x4000 at Dusk and Night, 0x1000 in
+ * Pitch Black and 0xf000 in Snow.
+ */
+export const WATER_FRAME_SEQUENCE = Object.freeze([0, 1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1]);
+export const WATER_FRAME_SECONDS = 16384 / 65536;
+export const waterOpacity = (weather) => ({ 4: 0x8000, 5: 0xf000, 6: 0x4000, 7: 0x4000, 8: 0x1000 }[weather] ?? 0xc000) / 65536;
+/** The frame step after `seconds` of play (frozen in Snow by the caller not advancing the clock). */
+export const waterFrameStep = (seconds) => Math.floor(seconds / WATER_FRAME_SECONDS) % WATER_FRAME_SEQUENCE.length;

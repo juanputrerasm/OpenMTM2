@@ -71,12 +71,14 @@ export function textWidth(font, text, scale = 1) {
 
 /**
  * A canvas that shows rows of text in a bitmap font. Rows are strings, or `[label, value]`
- * pairs drawn at the left and right of `width`. Falls back to plain text when the font is
+ * pairs drawn at the left and right of `width` (`fit` makes it as wide as the text instead),
+ * on a `background` colour with `padX` and `padY` sheet pixels around (the caption bar), or `[label, value, middle]` with a second value
+ * set just after the label (the HUD's `Place: 1/4     Lap: 1/2`); `rowHeight` is the row pitch. Falls back to plain text when the font is
  * missing. `set(rows)` redraws only when the text changes.
  */
 export function createTextPanel(font, {
   width = 160, scale = 1, color = "#fff", labelColor = color, valueColor = color,
-  align = "left", shadow = "#000",
+  align = "left", shadow = "#000", rowHeight = null, background = null, padX = 0, padY = 0, fit = false,
 } = {}) {
   // Without the font (an install lacking it) the rows fall back to plain text.
   const canvas = document.createElement(font ? "canvas" : "div");
@@ -97,25 +99,31 @@ export function createTextPanel(font, {
         }));
         return;
       }
-      const lineH = (font.lineHeight + 1) * scale;
+      const lineH = (rowHeight ?? font.lineHeight + 1) * scale;
       // Wide enough for the widest row, with a gap between a label and its value.
       const content = Math.max(0, ...rows.map((r) => (Array.isArray(r)
         ? textWidth(font, r[0]) + textWidth(font, r[1]) + 10 : textWidth(font, r)) + 4));
-      canvas.width = Math.max(width, Math.ceil(content)) * scale;
-      canvas.height = rows.length * lineH + pad * 2;
+      canvas.width = (Math.max(fit ? 0 : width, Math.ceil(content)) + 2 * padX) * scale;
+      canvas.height = rows.length * lineH + pad * 2 + 2 * padY * scale;
       canvas.style.width = `${canvas.width}px`;
       canvas.style.height = `${canvas.height}px`;
       const ctx = canvas.getContext("2d");
+      if (background) { ctx.fillStyle = background; ctx.fillRect(0, 0, canvas.width, canvas.height); }
       rows.forEach((row, i) => {
-        const y = pad + i * lineH;
+        const y = pad + padY * scale + i * lineH;
         const left = Array.isArray(row) ? row[0] : row, right = Array.isArray(row) ? row[1] : null;
-        const draw = (text, x, c) => drawText(ctx, font, text, x, y, { color: c, scale });
-        const place = (text) => (align === "center" ? (canvas.width - textWidth(font, text, scale)) / 2 : pad);
-        if (shadow) draw(left, place(left) + scale, shadow);
+        const draw = (text, x, c, dy = 0) => drawText(ctx, font, text, x, y + dy, { color: c, scale });
+        const place = (text) => (align === "center" ? (canvas.width - textWidth(font, text, scale)) / 2 : pad + padX * scale);
+        if (shadow) draw(left, place(left) + scale, shadow, scale);
         draw(left, place(left), labelColor);
+        if (Array.isArray(row) && row[2]) {
+          const x = place(left) + textWidth(font, `${left} `, scale) + 6 * scale;
+          if (shadow) draw(row[2], x + scale, shadow, scale);
+          draw(row[2], x, valueColor);
+        }
         if (right !== null) {
-          const x = canvas.width - pad - textWidth(font, right, scale);
-          if (shadow) draw(right, x + scale, shadow);
+          const x = canvas.width - pad - padX * scale - textWidth(font, right, scale);
+          if (shadow) draw(right, x + scale, shadow, scale);
           draw(right, x, valueColor);
         }
       });

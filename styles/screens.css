@@ -78,9 +78,8 @@ table.results tr.player td { color: var(--accent); font-weight: 600; }
 .race-loading-text { position: absolute; bottom: 16px; margin: 0; color: #fff; font: 600 16px/1.4 system-ui, sans-serif; text-shadow: 0 1px 2px #000; }
 .race-hud { position: absolute; z-index: 3; top: 4px; left: 6px; color: #fff; font: 600 15px/1.35 ui-monospace, monospace; image-rendering: pixelated; }
 .race-gauges { position: absolute; z-index: 3; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; pointer-events: none; }
-.race-message { position: absolute; left: 50%; top: 34%; transform: translateX(-50%); margin: 0; color: #fff; font: 700 22px/1.3 system-ui, sans-serif; text-align: center; image-rendering: pixelated; }
 .race-pause { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(0, 0, 0, 0.55); }
-.race-pause[hidden], .race-message[hidden], .race-loading[hidden] { display: none; }
+.race-pause[hidden], .race-loading[hidden] { display: none; }
 .race-pause-title { margin: 0; color: #fff; font: 800 36px/1 system-ui, sans-serif; text-transform: uppercase; }
 
 /* The classic skin (src/ui/frame.js): the game's 640 x 480 menu art, scaled to fit. */
@@ -192,3 +191,10 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 .gold-overlay[hidden] { display: none; }
 .gold-fps { right: 6px; top: 4px; }
 .gold-z { right: 6px; top: 40px; }
+.race-minimap { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.race-cockpit, .race-finder { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; image-rendering: pixelated; }
+.race-cockpit { z-index: 2; }
+.race-finder { z-index: 3; }
+.race-mirror { position: absolute; z-index: 2; pointer-events: none; }
+.race-caption { position: absolute; z-index: 4; inset: 0; width: 100%; height: 100%; pointer-events: none; image-rendering: pixelated; }
+.race-caption[hidden] { display: none; }

@@ -4,7 +4,7 @@
   truck's `sound` state with its pose (worker/sim-worker.js soundOf); the choices are in
   game/sound-model.js. The player's truck is heard unpositioned, the others where they are.
 */
-import { YEEHAW_GAIN, crashSound, engineVoices, gearSound, hornSample, landingSound, skidAmount, skidSample } from "../game/sound-model.js";
+import { YEEHAW_GAIN, engineVoices, gearSound, hornSample, impactSound, skidAmount, skidSample } from "../game/sound-model.js";
 
 const ENGINE_LOOPS = [["idle", "STARTIDL"], ["mid", "M1-2-M2"], ["accel", "ACCEL3B"]];
 /** Trucks farther than this from the listener get no skid voice, and their one-shots are skipped, feet. */
@@ -13,7 +13,7 @@ const AUDIBLE_FT = 900;
 export function createTruckAudio(audio, { count, player = 0, random = Math.random, kookyHorn = false, onHit = () => {} }) {
   const pick = (n) => 1 + Math.floor(random() * n);
   const trucks = Array.from({ length: count }, () => ({
-    engine: null, heli: null, skid: null, skidName: null, gear: null, grounded: true, lastY: null, fall: 0, cooldown: 0, started: false,
+    engine: null, heli: null, skid: null, skidName: null, gear: null, impactBusy: false, cooldown: 0, started: false,
   }));
   let disposed = false, lastHorn = -1;
 
@@ -102,24 +102,15 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
         const gear = gearSound(t.gear, s.gear);
         if (gear && t.gear !== null) oneShot(gear, 0.8, i, pose);
         if (s.hit) onHit(s.hit.sitIndex, s.hit.force, pos, i);
-        if (s.impact > 0 && t.cooldown === 0 && !s.hit) {
-          const crash = crashSound(s.impact, pick);
-          if (crash) { oneShot(crash.name, crash.gain, i, pose); t.cooldown = 0.3; }
+        // The game starts a hull impact's sound only when the truck's last one has finished.
+        const impact = impactSound(s.impact, false, pick);
+        if (impact && !t.impactBusy) {
+          t.impactBusy = true;
+          audio.play(impact.name, { gain: impact.gain, position: i === player ? null : pos })
+            .then((voice) => (voice ? voice.done : null)).finally(() => { t.impactBusy = false; });
         }
         if (s.splash && t.cooldown === 0) { oneShot(random() < 0.5 ? "SPLASH" : "SPLASH1", 0.9, i, pose); t.cooldown = 0.6; }
-        const grounded = s.airborne <= 1;
-        if (t.lastY !== null) {
-          const fallNow = Math.max(0, (t.lastY - pos[1]) / Math.max(dt, 1e-3));
-          t.fall = grounded ? t.fall : Math.max(t.fall, fallNow);
-        }
-        if (grounded && !t.grounded) {
-          const landing = landingSound(t.fall, pick);
-          if (landing && t.cooldown === 0) { oneShot(landing.name, landing.gain, i, pose); t.cooldown = 0.3; }
-          t.fall = 0;
-        }
-        t.grounded = grounded;
       }
-      t.lastY = pos[1];
       t.gear = s.gear;
     });
   }

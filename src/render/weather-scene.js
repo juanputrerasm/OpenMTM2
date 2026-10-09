@@ -8,7 +8,9 @@
   headlights, four spot lights on the trucks nearest the camera, light it.
 */
 import * as THREE from "three";
-import { WEATHER_LOOK } from "../game/weather.js";
+import { UNDERWATER_FOG_FT, WEATHER_LOOK } from "../game/weather.js";
+import { joinSheets } from "../game/sheets.js";
+import { createBillboards } from "./billboards.js";
 
 const SUN_BASE = 2.2, AMBIENT_BASE = 0.9;
 const BOX_FT = 90, RAIN_COUNT = 1800, SNOW_COUNT = 1600, SPOTS = 4;
@@ -28,6 +30,7 @@ function sprite() {
 /**
  * @param {{ scene: THREE.Scene, camera: THREE.Camera, world: THREE.Group, sun: THREE.DirectionalLight,
  *   ambient: THREE.AmbientLight, skyAverage: THREE.Color, look: string, random?: () => number,
+ *   art?: object|null (the effect art: its snowflake sheet and raindrops draw the precipitation),
  *   onSun?: (intensity: number) => void, onLightning?: () => void }} env
  */
 export function createWeatherScene(env) {
@@ -46,9 +49,17 @@ export function createWeatherScene(env) {
     }
   });
 
-  // Precipitation: points or streaks in a box that follows the camera.
-  const flakeTexture = sprite();
-  const rain = (() => {
+  // Precipitation: the game's own sprites in a box that follows the camera (`SNOFLAKS`'s sixteen flakes,
+  // `NDROP1-3`'s six raindrops), or without that art plain points and streaks.
+  const art = env.art ?? null;
+  const flakeTexture = art ? null : sprite();
+  const rain = art?.drops?.every(Boolean) ? (() => {
+    const sheet = joinSheets(art.drops, { halves: true });
+    const layer = createBillboards({ sheet, grid: [sheet.cells, 1], capacity: RAIN_COUNT, tint: [0.78, 0.84, 0.95] });
+    const heads = Float32Array.from({ length: RAIN_COUNT * 3 }, () => random() * BOX_FT);
+    const cells = Uint8Array.from({ length: RAIN_COUNT }, () => Math.floor(random() * sheet.cells));
+    return { object: layer.object, layer, heads, cells, sprite: [0.32, 0.7] };
+  })() : (() => {
     const positions = new Float32Array(RAIN_COUNT * 6);
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
@@ -57,7 +68,12 @@ export function createWeatherScene(env) {
     const heads = Float32Array.from({ length: RAIN_COUNT * 3 }, () => random() * BOX_FT);
     return { object: lines, positions, heads };
   })();
-  const snow = (() => {
+  const snow = art?.flakes ? (() => {
+    const layer = createBillboards({ sheet: art.flakes, grid: [4, 4], capacity: SNOW_COUNT });
+    const heads = Float32Array.from({ length: SNOW_COUNT * 3 }, () => random() * BOX_FT);
+    const cells = Uint8Array.from({ length: SNOW_COUNT }, () => Math.floor(random() * 16));
+    return { object: layer.object, layer, heads, cells, sprite: [0.7, 0.7] };
+  })() : (() => {
     const positions = new Float32Array(SNOW_COUNT * 3);
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
@@ -87,17 +103,27 @@ export function createWeatherScene(env) {
     for (const { unlit } of surfaces) unlit.color.setScalar(Math.min(1, k));
   }
 
-  function set(weather) {
-    current = WEATHER_LOOK[weather] ? weather : 0;
+  let underwater = false;
+  /** The weather's fog and clear colour, or under water the 320 ft fog in the weather's fog colour (the game fills the screen with it instead of the sky). */
+  function applyFog() {
     const w = WEATHER_LOOK[current];
     const color = new THREE.Color().setRGB(w.fogColor[0] / 255, w.fogColor[1] / 255, w.fogColor[2] / 255, THREE.SRGBColorSpace);
-    if (w.fogEndFt) {
+    if (underwater) {
+      scene.fog = new THREE.Fog(color, 0, UNDERWATER_FOG_FT);
+      scene.background = color;
+    } else if (w.fogEndFt) {
       scene.fog = new THREE.Fog(color, w.fogStartFt ?? 0, w.fogEndFt);
       scene.background = color;
     } else {
       scene.fog = new THREE.Fog(skyAverage, 2500, 7000);
       scene.background = skyAverage;
     }
+  }
+
+  function set(weather) {
+    current = WEATHER_LOOK[weather] ? weather : 0;
+    const w = WEATHER_LOOK[current];
+    applyFog();
     const lit = w.headlights || look === "enhanced";
     for (const s of surfaces) s.mesh.material = lit ? s.lit : s.unlit;
     rain.object.visible = w.precipitation === "rain";
@@ -109,7 +135,7 @@ export function createWeatherScene(env) {
   }
 
   function fall(group, count, dt, speed, drift, streak) {
-    const { positions, heads } = group;
+    const { positions = null, heads } = group;
     const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
     for (let i = 0; i < count; i++) {
       let x = heads[i * 3], y = heads[i * 3 + 1] - speed * dt, z = heads[i * 3 + 2];
@@ -120,13 +146,16 @@ export function createWeatherScene(env) {
       const px = cx + ((((x - cx) % BOX_FT) + BOX_FT * 1.5) % BOX_FT) - BOX_FT / 2;
       const pz = cz + ((((z - cz) % BOX_FT) + BOX_FT * 1.5) % BOX_FT) - BOX_FT / 2;
       const py = cy - BOX_FT / 2 + y;
-      if (streak) {
+      if (group.layer) {
+        group.layer.set(i, px, py, pz, group.sprite[0], group.sprite[1], group.cells[i], streak ? 0.85 : 1);
+      } else if (streak) {
         positions.set([px, py, pz, px - drift * 0.05, py + 3.2, pz], i * 6);
       } else {
         positions.set([px, py, pz], i * 3);
       }
     }
-    group.object.geometry.attributes.position.needsUpdate = true;
+    if (group.layer) group.layer.commit(count);
+    else group.object.geometry.attributes.position.needsUpdate = true;
   }
 
   /**
@@ -164,11 +193,14 @@ export function createWeatherScene(env) {
 
   return {
     get weather() { return current; },
+    get underwater() { return underwater; },
+    /** The camera went under the water or came up: the fog changes (the sky is hidden by the caller). */
+    setUnderwater(on) { if (on !== underwater) { underwater = on; applyFog(); } },
     set, update, lightLevel,
     dispose() {
       scene.remove(root);
-      flakeTexture.dispose();
-      rain.object.geometry.dispose(); snow.object.geometry.dispose();
+      flakeTexture?.dispose();
+      for (const g of [rain, snow]) { if (g.layer) g.layer.dispose(); else g.object.geometry.dispose(); }
       for (const { lit } of surfaces) lit.dispose();
     },
   };

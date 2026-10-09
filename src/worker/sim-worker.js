@@ -10,6 +10,7 @@
   Everything here is portable: the same code runs in Node tests through `createSession`.
 */
 import { mtm2Sim as S } from "../vendor/openphotex/index.js";
+import { createCrossingLog, raceGap, recordCrossings } from "../game/timing.js";
 
 export const STEP = 1 / 60;
 
@@ -112,6 +113,8 @@ export function createSession(init) {
     ? S.createRace(trucks.map((t, i) => ({ s: t.state, p: t.params, player: i === 0 && !t.autopilot })),
       S.raceCheckpoints(init.race.checkpoints), course, init.race.laps ?? 3, difficulty, init.race.mode ?? "circuit")
     : null;
+
+  const crossings = createCrossingLog(trucks.length);
 
   const listed = [];
   /** Boxes whose pose changed since the last `advance` reply. */
@@ -246,6 +249,7 @@ export function createSession(init) {
     // The race tick comes first in the game's frame (0x487300): checkpoints, segments, the order.
     if (race) {
       S.raceTick(race, STEP, apCtx, { ground, rc: (rt) => recoveryOf(trucks[race.trucks.indexOf(rt)]) });
+      recordCrossings(crossings, race.trucks);
     }
     const go = !race || S.raceStarted(race);
     // The at-rest reset and lift-off run only in the race state, not through the countdown (10.3).
@@ -344,6 +348,8 @@ export function createSession(init) {
       clock: Math.max(0, since),
       laps: race.laps,
       over: race.over,
+      /** The HUD's Lead or Back gap for the player's truck (game/timing.js). */
+      gap: race.summit ? null : raceGap(race.trucks, crossings, 0),
       /** Summit Rumble: scores and the seconds left in the round (6.3), else null. */
       summit: race.summit ? { left: Math.max(0, race.roundSeconds - since), states: race.summit.trucks.map((t) => t.state) } : null,
       trucks: race.trucks.map((rt) => ({

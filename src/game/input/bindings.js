@@ -14,6 +14,10 @@ export const ACTIONS = Object.freeze([
   { id: "horn", label: "Horn" },
   { id: "yeehaw", label: "YeeHaw" },
   { id: "camera", label: "Camera" },
+  { id: "dashboard", label: "Dashboard" },
+  { id: "map", label: "Map" },
+  { id: "names", label: "Names" },
+  { id: "finder", label: "Finder" },
   { id: "pause", label: "Pause" },
 ]);
 
@@ -28,6 +32,10 @@ export const DEFAULT_BINDINGS = Object.freeze({
   horn: Object.freeze(["Space"]),
   yeehaw: Object.freeze(["KeyY"]),
   camera: Object.freeze(["KeyV"]),
+  dashboard: Object.freeze(["KeyG"]),
+  map: Object.freeze(["Tab", "KeyM"]),
+  names: Object.freeze(["KeyN"]),
+  finder: Object.freeze(["KeyF"]),
   pause: Object.freeze(["Escape", "KeyP"]),
 });
 

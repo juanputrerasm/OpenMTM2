@@ -14,7 +14,7 @@ export default async function mount(container, context) {
   const { settings } = context;
   const catalog = await context.assets.call("catalog");
   const tracks = catalog.tracks.filter((item) => settings.showHiddenTracks || !item.hidden);
-  const trucks = catalog.trucks.filter((item) => settings.showHiddenTrucks || !item.hidden);
+  const trucks = catalog.trucks.filter((item) => !item.hidden);
   const driver = currentDriver(await getProfiles(context));
   let track = tracks.find((item) => item.file === settings.lastTrack) ?? tracks[0];
   if (!track) {

@@ -312,9 +312,11 @@ export function createWater(levelFt) {
   const geometry = new THREE.PlaneGeometry(8192, 8192);
   geometry.rotateX(-Math.PI / 2);
   geometry.translate(4096, levelFt, -4096);
-  const material = new THREE.MeshLambertMaterial({ color: 0x2b5f7a, transparent: true, opacity: 0.6, depthWrite: false });
+  // Seen from below as well: under the surface the water is the ceiling (it is drawn from both sides).
+  const material = new THREE.MeshLambertMaterial({ color: 0x2b5f7a, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide });
   const water = new THREE.Mesh(geometry, material);
   water.name = "water";
+  water.userData.levelFt = levelFt;
   return water;
 }
 

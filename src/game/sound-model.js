@@ -71,22 +71,18 @@ export function skidAmount(tire) {
   return clamp((used - 0.85) / 0.35, 0, 1);
 }
 
-/** The crash sample and loudness for a hull impact (the force in lb), or null when it is too soft to hear. */
-export function crashSound(force, pick = () => 1) {
+/**
+ * The sound of a hull impact (0x429080, called from the contact response at 0x46ba80): one of
+ * two samples at random, `suspen5` or `suspen6` while the truck is undamaged, `suspen1` or
+ * `suspen3` once it is not, at x1.8. The game has no other crash sample for trucks. It is not
+ * started while the truck's previous impact sound is still playing. `null` when too soft to hear.
+ */
+export function impactSound(force, damaged = false, pick = () => 1) {
   if (force < 600) return null;
-  const gain = clamp(force / 20000, 0.25, 1);
-  if (force < 2500) return { name: "THUNKIT", gain };
-  if (force < 9000) return { name: "CRUNCHX", gain };
-  const crashes = ["CRASH_01", "CRASH_05", "CRASH_08", "CRASH_09", "CRASH_11", "CRASH_12", "CRASH_13", "CRASH_14", "CRASH_15", "CRASH_16"];
-  return { name: crashes[(pick(crashes.length) - 1) % crashes.length], gain };
+  const names = damaged ? ["SUSPEN1", "SUSPEN3"] : ["SUSPEN5", "SUSPEN6"];
+  return { name: names[(pick(2) - 1) % 2], gain: IMPACT_GAIN };
 }
-
-/** The sample for landing from the air with this downward speed (ft/s), or null for a soft touch. */
-export function landingSound(fallSpeed, pick = () => 1) {
-  if (fallSpeed < 12) return null;
-  const names = ["SUSPEN1", "SUSPEN3", "SUSPEN5", "SUSPEN6"];
-  return { name: names[(pick(names.length) - 1) % names.length], gain: clamp(fallSpeed / 45, 0.3, 1) };
-}
+export const IMPACT_GAIN = 1.8;
 
 /** The sample for a gear change (first to second, second to third), or null. */
 export function gearSound(from, to) {

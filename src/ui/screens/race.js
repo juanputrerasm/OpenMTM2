@@ -20,6 +20,7 @@ import { mergeBindings } from "../../game/input/bindings.js";
 import { SunFlare } from "../../render/sun-flare.js";
 import { SunShadows } from "../../render/sun-shadows.js";
 import { mtm2Sim } from "../../vendor/openphotex/index.js";
+import { COCKPIT_EYE, CAMERA_MODES, blimpCamera, createChaseCamera, createRaceCamera, fovFor, groundHeightFn, nextMode } from "../../game/cameras.js";
 import { createAudio } from "../../audio/audio-engine.js";
 import { VOICE_COMMENTARY_ENABLED, createCommentaryAudio } from "../../audio/commentary-audio.js";
 import { createAnnouncer } from "../../game/commentary.js";
@@ -27,18 +28,22 @@ import { createCommentaryWatcher } from "../../game/commentary-events.js";
 import { createTruckAudio } from "../../audio/truck-audio.js";
 import { createWorldAudio } from "../../audio/world-audio.js";
 import { createWeatherScene } from "../../render/weather-scene.js";
-import { resolveWeather } from "../../game/weather.js";
+import { isUnderwater, resolveWeather, waterOffsetFt } from "../../game/weather.js";
 import { createGoldMode } from "../gold-mode.js";
 import { createGamepadInput } from "../../game/input/gamepad.js";
 import { createTextPanel, loadFont } from "../../render/bitmap-text.js";
 import { createRaceGauges } from "../../render/race-gauges.js";
+import { createWaterEffects, createWaterSurface } from "../../render/water-effects.js";
+import { createCaption } from "../../render/caption.js";
+import { courseLoop, createCourseMap } from "../../render/minimap.js";
+import { createCockpit, finderAngle } from "../../render/cockpit.js";
 import { formatRaceTime, raceEntrants } from "../../game/race-setup.js";
 import { createTrackWorld, disposeObject, moveObjects, setStartLights, skyColor, updateSky, updateTrackWorld } from "../../render/track-scene.js";
 import { createTruckObject, interpolatePose } from "../../render/truck-object.js";
 import { toSceneMatrix } from "../../shared/scene-frame.js";
 
-// Chase cameras: distance behind and height above the truck, feet (modes 1 and 2, section 11).
-const CAMERAS = [{ name: "Chase Near", back: 30, up: 11 }, { name: "Chase Far", back: 55, up: 20 }];
+/** The race HUD text is a light grey with a one-pixel black shadow (the game's own look). */
+const HUD_GREY = "#cfcfcf";
 
 export default async function mount(container, context, { track, laps, difficulty, opponents, truck: playerTruck, trucks: catalogTrucks, setup, weather: chosenWeather }) {
   const t = context.t;
@@ -49,17 +54,22 @@ export default async function mount(container, context, { track, laps, difficult
   const loadingText = el("p", { class: "race-loading-text" }, `Loading ${track.name}…`);
   loading.append(loadingText);
   // The HUD is drawn with the game's own fonts (ART\FNT1_480 for rows, FNT2_480 for messages).
-  const [hudFont, messageFont] = await Promise.all([loadFont(context.assets, "FNT1_480"), loadFont(context.assets, "FNT2_480")]);
+  const [hudFont, messageFont, lcdFont, needle, cockpitArt, effectsArt] = await Promise.all([
+    loadFont(context.assets, "FNT1_480"), loadFont(context.assets, "FNT2_480"), loadFont(context.assets, "FNTO_480"), context.assets.call("needle").catch(() => null),
+    context.assets.call("cockpit").catch(() => null), context.assets.call("effectsArt").catch(() => null),
+  ]);
   const scale = Math.max(1, window.innerHeight / 480);
-  const hud = createTextPanel(hudFont, { width: 190, scale, labelColor: "#f7f7f7", valueColor: "#c7c9ed" });
-  const gauges = createRaceGauges(hudFont);
-  const message = createTextPanel(messageFont, { width: 360, scale: Math.max(1, scale / 1.5), align: "center" });
+  // The timing board is in the Small LCD font, whose digits all have the same width (the clock reads "0 1:04.91").
+  const hud = createTextPanel(lcdFont ?? hudFont, { width: 206, scale, rowHeight: 15, labelColor: HUD_GREY, valueColor: HUD_GREY });
   hud.element.classList.add("race-hud");
-  message.element.classList.add("race-message");
-  message.element.hidden = true;
-  const showMessage = (text) => { message.set([text]); message.element.hidden = false; };
+  const gauges = createRaceGauges(hudFont, { needle, units: context.settings.units });
+  gauges.setVisible(context.settings.dashboard !== false);
+  const cockpit = createCockpit(cockpitArt, { needle, font: hudFont, units: context.settings.units });
+  // The caption bar: the game's large font on a dark rectangle at the bottom, for every in-race message.
+  const caption = createCaption(messageFont);
+  const showMessage = (text) => caption.show(text, Infinity);
   const pauseMenu = el("div", { class: "race-pause", hidden: true });
-  const view = el("section", { class: "race-view" }, canvas, hud.element, gauges.element, message.element, pauseMenu, loading);
+  const view = el("section", { class: "race-view" }, canvas, ...(cockpit ? [cockpit.dashboard, cockpit.mirror, cockpit.finder] : []), hud.element, gauges.element, caption.element, pauseMenu, loading);
   container.append(view);
 
   let disposed = false;
@@ -84,6 +94,10 @@ export default async function mount(container, context, { track, laps, difficult
   });
   if (disposed) return { unmount };
   const driver = currentDriver(await getProfiles(context));
+  // The course map (Map key), from the SIT's primary course.
+  const minimap = createCourseMap(build.sim.course, { font: hudFont });
+  minimap.setVisible(!!context.settings.minimap);
+  view.append(minimap.element);
   const grid = build.sim.grid;
   const usable = catalogTrucks.filter((t) => build.truckModels[t.file]);
   const entrants = raceEntrants({ playerTruck, trucks: usable, slots: grid.length, opponents, playerName: driver.name });
@@ -156,9 +170,10 @@ export default async function mount(container, context, { track, laps, difficult
     context.menuMusic?.start();
   });
   const forwardVector = new THREE.Vector3();
+  const terrain = mtm2Sim.createTerrain(new Uint8Array(build.heights), build.waterLevelFt ?? null);
   let shadows = null, flare = null, flareBlocked = () => false;
   const weatherScene = createWeatherScene({
-    scene, camera, world, sun, ambient: ambientLight, skyAverage: background, look,
+    scene, camera, world, sun, ambient: ambientLight, skyAverage: background, look, art: effectsArt,
     onSun: (i) => shadows?.setIntensity(i), onLightning: () => worldAudio.thunder(),
   });
   weatherScene.set(weatherId);
@@ -188,7 +203,6 @@ export default async function mount(container, context, { track, laps, difficult
     if (data) {
       flare = new SunFlare(world, data);
       flare.setMode(celestialFor(weatherId));
-      const terrain = mtm2Sim.createTerrain(new Uint8Array(build.heights), build.waterLevelFt ?? null);
       flareBlocked = (origin, direction) => sunBlocked(terrain, origin, direction);
     }
     cleanups.push(() => { shadows?.dispose?.(); flare?.dispose(); });
@@ -236,7 +250,7 @@ export default async function mount(container, context, { track, laps, difficult
     return { ...held, joystick: driving ? null : pad.sample(), slew: gold?.slewing ? gold.slewInput() : null };
   };
 
-  let cameraIndex = 0, paused = false, finishing = false;
+  let viewMode = CAMERA_MODES[context.settings.view]?.id ?? 1, paused = false, finishing = false;
   const setPaused = async (on) => {
     if (finishing || paused === on) return;
     paused = on;
@@ -262,8 +276,30 @@ export default async function mount(container, context, { track, laps, difficult
   const onKey = (e) => {
     if (keyMap.horn.includes(e.code) && !e.repeat) truckAudio.horn(0, latest?.poses[0].current.pos);
     if (keyMap.yeehaw.includes(e.code) && !e.repeat) truckAudio.yeehaw(0, latest?.poses[0].current.pos);
-    if (keyMap.camera.includes(e.code)) cameraIndex = (cameraIndex + 1) % CAMERAS.length;
+    if (keyMap.camera.includes(e.code) && !e.repeat) {
+      viewMode = nextMode(viewMode, e.shiftKey);
+      context.settings.view = viewMode;
+      saveSettings(context.settings);
+      // "Chase Far of Bear Foot": the view's name and the truck being watched (0x52d180).
+      flash(`${t(CAMERA_MODES[viewMode].name)} of ${truckName(playerTruck)}`, performance.now(), 2);
+    }
     if (keyMap.pause.includes(e.code)) setPaused(!paused);
+    if (keyMap.dashboard.includes(e.code) && !e.repeat) {
+      context.settings.dashboard = gauges.toggle();
+      saveSettings(context.settings);
+    }
+    if (keyMap.names.includes(e.code) && !e.repeat) minimap.toggleNames();
+    if (keyMap.finder.includes(e.code) && !e.repeat) {
+      context.settings.finder = context.settings.finder === false;
+      saveSettings(context.settings);
+    }
+    if (keyMap.map.includes(e.code)) {
+      e.preventDefault();
+      if (!e.repeat) {
+        context.settings.minimap = minimap.toggle();
+        saveSettings(context.settings);
+      }
+    }
   };
   window.addEventListener("keydown", onKey);
   cleanups.push(() => window.removeEventListener("keydown", onKey));
@@ -279,30 +315,67 @@ export default async function mount(container, context, { track, laps, difficult
   cleanups.push(() => observer.disconnect());
   resize();
 
-  // Chase camera: behind the player's truck along its heading, eased.
-  const camTarget = new THREE.Vector3();
-  const camPos = new THREE.Vector3();
-  let camReady = false;
+  // The ten views (game/cameras.js): chase cameras as the exe places them, and the port's own BlimpCam and RaceCam.
+  const ground = groundHeightFn(terrain);
+  // Ice over the water in Snow, and the spray and ripples of wheels in water (render/water-effects.js).
+  const waterFx = createWaterEffects({ scene, art: effectsArt, levelFt: build.waterLevelFt ?? null, ground });
+  cleanups.push(() => waterFx.dispose());
+  const waterSurface = createWaterSurface(world.getObjectByName("water"), effectsArt, look);
+  cleanups.push(() => waterSurface?.dispose());
+  const chase = createChaseCamera(), raceCam = createRaceCamera(courseLoop(build.sim.course));
+  // The rear-view mirror (cockpit only): a second view looking back, drawn small and turned by half a circle.
+  const mirrorWindow = cockpit?.mirrorRect;
+  const mirrorTarget = mirrorWindow ? new THREE.WebGLRenderTarget(mirrorWindow[2] * 2, mirrorWindow[3] * 2) : null;
+  const mirrorCamera = new THREE.PerspectiveCamera(40, mirrorWindow ? mirrorWindow[2] / mirrorWindow[3] : 1, 0.5, 20000);
+  const mirrorPixels = mirrorTarget ? new Uint8Array(mirrorTarget.width * mirrorTarget.height * 4) : null;
+  const flipBack = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+  let mirrorTick = 0;
+  const renderMirror = () => {
+    if (!mirrorTarget) return;
+    if (viewMode !== 0) { cockpit.setMirror(mirrorPixels, mirrorTarget.width, mirrorTarget.height, false); return; }
+    if (mirrorTick++ % 2) return;
+    mirrorCamera.position.copy(cockpitEye.position);
+    mirrorCamera.quaternion.copy(cockpitEye.quaternion).multiply(flipBack);
+    renderer.setRenderTarget(mirrorTarget);
+    renderer.render(scene, mirrorCamera);
+    renderer.readRenderTargetPixels(mirrorTarget, 0, 0, mirrorTarget.width, mirrorTarget.height, mirrorPixels);
+    renderer.setRenderTarget(null);
+    cockpit.setMirror(mirrorPixels, mirrorTarget.width, mirrorTarget.height);
+  };
+  cleanups.push(() => mirrorTarget?.dispose());
+  let waterClock = 0, shownPoses = null;
+  let lastView = -1;
+  const cockpitEye = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion() }, scratchScale = new THREE.Vector3();
+  // Switching views changes the camera at once, as the game does: only a chase camera's heading takes time to catch up (game/cameras.js).
   const placeCamera = (p, dt) => {
-    const m = new THREE.Matrix4().fromArray(toSceneMatrix(p.matrix, p.pos));
-    const pos = new THREE.Vector3().setFromMatrixPosition(m);
-    const psi = p.euler[2];
-    const { back: dist, up } = CAMERAS[cameraIndex];
-    // Game heading psi faces (sin psi, cos psi) in x, z; the scene mirrors z.
-    const want = new THREE.Vector3(pos.x - Math.sin(psi) * dist, pos.y + up, pos.z + Math.cos(psi) * dist);
-    const k = camReady ? 1 - Math.exp(-dt * 6) : 1;
-    camPos.lerp(want, k);
-    camTarget.lerp(pos.clone().add(new THREE.Vector3(0, 4, 0)), camReady ? 1 - Math.exp(-dt * 12) : 1);
-    camReady = true;
-    camera.position.copy(camPos);
-    camera.lookAt(camTarget);
+    if (viewMode !== lastView) {
+      lastView = viewMode;
+      raceCam.reset();
+      if (!CAMERA_MODES[viewMode].dist) chase.reset();
+      camera.fov = fovFor(viewMode);
+      camera.updateProjectionMatrix();
+    }
+    placeCameraNow(p, dt);
+  };
+  const placeCameraNow = (p, dt) => {
+    const yaw = p.euler[2];
+    if (viewMode === 0) {
+      // The cockpit: the eye 4 ft up and 1 ft ahead of the truck's origin, turning with the whole body (0x553cf0).
+      const body = new THREE.Matrix4().fromArray(toSceneMatrix(p.matrix, p.pos));
+      body.decompose(cockpitEye.position, cockpitEye.quaternion, scratchScale);
+      camera.position.set(COCKPIT_EYE[0], COCKPIT_EYE[1], -COCKPIT_EYE[2]).applyMatrix4(body);
+      camera.quaternion.copy(cockpitEye.quaternion);
+      cockpitEye.position.copy(camera.position);
+      return;
+    }
+    const mode = viewMode;
+    const view = mode === 3 ? blimpCamera(p.pos, yaw, ground) : mode === 4 ? raceCam.update(p.pos, ground) : chase.update(mode, p.pos, yaw, ground, dt);
+    // Game feet to the scene: z is mirrored.
+    camera.position.set(view.position[0], view.position[1], -view.position[2]);
+    camera.lookAt(view.target[0], view.target[1], -view.target[2]);
   };
 
-  let shownMessage = "", messageUntil = 0;
-  const flash = (text, now, seconds = 3) => {
-    shownMessage = text;
-    messageUntil = now + seconds * 1000;
-  };
+  const flash = (text, now, seconds = 3) => caption.show(text, seconds);
   let lastLaps = 0, lastCheckpoint = 0;
   let wasMissed = false, finalLapShown = false, lightsOn = null;
   const showRace = (race, now) => {
@@ -320,14 +393,12 @@ export default async function mount(container, context, { track, laps, difficult
     if (summit) {
       // A Rumble: the score and the round's time left, then the place by score (6.3).
       hud.set([[t("Time Remaining:"), formatRaceTime(race.summit?.left ?? 0)], ["Score:", String(Math.round(me.score))], ["", ""], [t("Place:"), `${me.place}/${race.trucks.length}`]]);
-      message.element.hidden = now > messageUntil;
-      message.set([shownMessage]);
       return;
     }
     hud.set([
       [t("Lap:"), formatRaceTime(me.lapTime)], [t("Best:"), formatRaceTime(me.best)], [t("Clock:"), formatRaceTime(race.clock)],
-      ["", ""], [me.place === 1 ? t("Lead:") : t("Back:"), "--:--.--"],
-      [t("Place:"), `${me.place}/${race.trucks.length}    ${t("Lap:")} ${me.lap}/${race.laps}`],
+      ["", ""], [race.gap?.kind === "lead" ? t("Lead:") : t("Back:"), formatRaceTime(race.gap?.seconds ?? 0)],
+      [t("Place:"), `${t("Lap:")} ${me.lap}/${race.laps}`, `${me.place}/${race.trucks.length}`],
     ]);
     if (me.missed && !wasMissed) flash("Missed checkpoint! Turn around.", now);
     wasMissed = me.missed;
@@ -335,8 +406,6 @@ export default async function mount(container, context, { track, laps, difficult
       finalLapShown = true;
       flash("Final lap!", now);
     }
-    message.element.hidden = now > messageUntil;
-    message.set([shownMessage]);
   };
 
   const finish = async () => {
@@ -375,6 +444,7 @@ export default async function mount(container, context, { track, laps, difficult
     }
     if (latest) {
       const shown = latest.poses.map((p) => interpolatePose(p.previous, p.current, latest.alpha));
+      shownPoses = shown;
       shown.forEach((p, i) => drawn[i].update(p));
       const listener = [camera.position.x, camera.position.y, -camera.position.z];
       const raceNow = latest.race;
@@ -395,11 +465,42 @@ export default async function mount(container, context, { track, laps, difficult
       audio.setListener(camera.position, forwardVector, camera.up);
       weatherScene.update(dt, shown.map((p) => ({ x: p.pos[0], y: p.pos[1], z: p.pos[2], heading: p.euler[2] })));
       placeCamera(shown[0], dt);
-      gauges.set(latest.poses[0].current);
+      // Your own truck is not drawn from inside it.
+      drawn[0].object.visible = viewMode !== 0;
+      const mine = latest.poses[0].current;
+      gauges.setVisible(context.settings.dashboard !== false && viewMode !== 0);
+      gauges.set(mine);
+      if (cockpit) {
+        cockpit.setDashboard({ visible: viewMode === 0, speed: mine.speed, rpm: mine.rpm, gear: mine.gear, steer: mine.steer });
+        const next = build.sim.checkpoints[latest.race?.trucks[0].checkpoint ?? 0];
+        cockpit.setFinder({
+          visible: context.settings.finder !== false && !!next && !summit,
+          angle: next ? finderAngle(shown[0].pos, shown[0].euler[2], next.gate.position) : 90,
+          number: (latest.race?.trucks[0].checkpoint ?? 0) + 1,
+        });
+      }
+      if (minimap.visible) {
+        minimap.set(shown.map((p, i) => ({ pos: p.pos, heading: p.euler[2], place: latest.race?.trucks[i]?.place ?? i + 1, name: entrants[i]?.name })), dt);
+      }
       if (latest.race && !finishing) showRace(latest.race, now);
     }
+    if (!paused) caption.update(dt);
+    // The water bobs a quarter foot every eight seconds (frozen in Snow), and under it the world is fogged to 320 ft with no sky.
+    waterClock += dt;
+    const water = world.getObjectByName("water");
+    if (water) water.position.y = waterOffsetFt(waterClock, weatherScene.weather);
+    waterSurface?.update(dt, weatherScene.weather);
+    const under = isUnderwater(camera.position.y, water ? water.userData.levelFt + water.position.y : null, weatherScene.weather);
+    weatherScene.setUnderwater(under);
+    if (latest && shownPoses) {
+      waterFx.update(dt, {
+        trucks: shownPoses.map((p) => ({ pos: p.pos, yaw: p.euler[2] })),
+        camera: [camera.position.x, camera.position.y, -camera.position.z],
+        level: water ? water.userData.levelFt + water.position.y : null, weather: weatherScene.weather,
+      });
+    }
     const sky = world.getObjectByName("sky");
-    if (sky) sky.position.set(camera.position.x, 0, camera.position.z);
+    if (sky) { sky.position.set(camera.position.x, 0, camera.position.z); sky.visible = !under; }
     updateTrackWorld(world, camera, dt);
     if (shadows) {
       shadows.setupMaterials();
@@ -408,6 +509,7 @@ export default async function mount(container, context, { track, laps, difficult
     }
     if (flare) flare.update(camera, sunTravel, true, weatherScene.weather <= 1, flareBlocked);
     renderer.render(scene, camera);
+    renderMirror();
     flare?.render(renderer, camera);
     gold?.afterRender(dt, build.title ?? track.name);
   };

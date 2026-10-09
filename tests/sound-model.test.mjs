@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { hornSample, objectHitSound, crashSound, engineVoices, gearSound, landingSound, loopRegion, nextDelay, skidAmount, skidSample, surfaceFamily } from "../src/game/sound-model.js";
+import { hornSample, objectHitSound, impactSound, engineVoices, gearSound, loopRegion, nextDelay, skidAmount, skidSample, surfaceFamily } from "../src/game/sound-model.js";
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);
 
@@ -60,13 +60,10 @@ test("skids: the families follow the game's ground types and choose their sample
 });
 
 test("crashes, landings, gears, ambience timers and loop points", () => {
-  assert.equal(crashSound(300), null);
-  assert.equal(crashSound(1000).name, "THUNKIT");
-  assert.equal(crashSound(5000).name, "CRUNCHX");
-  assert.match(crashSound(30000, () => 2).name, /^CRASH_/);
-  assert.equal(crashSound(60000).gain, 1);
-  assert.equal(landingSound(5), null);
-  assert.match(landingSound(30).name, /^SUSPEN/);
+  assert.equal(impactSound(300), null);
+  assert.deepEqual([impactSound(5000, false, () => 1).name, impactSound(5000, false, () => 2).name], ["SUSPEN5", "SUSPEN6"]);
+  assert.deepEqual([impactSound(5000, true, () => 1).name, impactSound(5000, true, () => 2).name], ["SUSPEN1", "SUSPEN3"]);
+  assert.equal(impactSound(60000).gain, 1.8);
   assert.equal(gearSound(4, 5), "2NDGEAR");
   assert.equal(gearSound(5, 6), "3RDGEAR");
   assert.equal(gearSound(6, 5), null);

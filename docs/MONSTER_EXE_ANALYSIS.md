@@ -879,6 +879,50 @@ state. Modes (0x52d180):
 Demo mode cycles the camera between trucks every 10 seconds. `stickyView` keeps the chosen
 view across races. `boomZoom` sets the chase distance.
 
+**Chase camera geometry** (`0x52b780` sets a mode's values, `0x52b110` places the camera each frame,
+with `gViewPan` on, its default). The camera object at `[0x6504bc]`: `+0x00` distance, `+0x04`
+pitch, `+0x0c` heading offset, `+0x14` zoom, `+0x18` mode, in 16.16 fixed point with angles 65536
+to the turn and distances in 1/256 ft:
+
+| Mode | distance | pitch | heading offset | zoom |
+|---|---|---|---|---|
+| 1 Chase Near | 0x1555 (21.3 ft) | 0x800 (11.25 deg) | 0 | 0xc000 |
+| 2 Chase Far | 0x2aaa (42.7 ft) | 0x800 | 0 | 0x10000 |
+| 5 Chase Front | 0x1555 | 0x800 | 0x8000 (180 deg) | 0xc000 |
+| 6 Chase Left | 0x1555 | 0x800 | 0x4000 (90 deg) | 0xc000 |
+| 7 Chase Right | 0x1555 | 0x800 | 0xc000 (270 deg) | 0xc000 |
+| 8 Chase Big Rear | 0x1555 | 0xa00 (14.06 deg) | 0 | 0x6000 |
+| 9 Chase Big Front | 0x1555 | 0x800 | 0x8000 | 0x6000 |
+
+The camera heading follows the truck's yaw plus the offset by 4 per second of the remaining
+difference. The camera sits at the truck's position (x, y, z) minus `sin(h) cos(p) d`, plus
+`sin(p) d`, minus `cos(h) cos(p) d`, `d` the distance. To keep it over the ground the pitch is
+raised in 0x200 steps (at most 0x3fff) until the camera at full distance is above the terrain,
+then `d` is the largest of 32 equal steps that stays above it. The View keys turn the heading
+offset and pitch, and two more keys change the zoom in steps of 0x1000 (0x1000 to 0x20000);
+View Next steps the mode 0 to 9 (Shift reverses). BlimpCam (3) and RaceCam (4) have their own
+routines (`0x52c280`, `0x52ba90`, not traced; the port draws its own). **Cockpit** (0): the eye
+is the point (0, 4, 1) ft in the truck's own frame, looking along the whole body's orientation
+(`0x553cf0`). The cockpit's 3D window is 640 x 285 at y 88 and the panel art covers the rest.
+
+**Caption bar**: switching view (`0x52d180`) shows `<view name> of <truck name>` (`%s of %s`, the
+name looked up through the message table, the truck's display name) through the message routine
+`0x414660` for two seconds. Retail screenshots show it as the game's large font (FNT2) on a dark
+rectangle centred at the bottom of the view (about 30 px tall, 10 px above the edge at 480 lines);
+the port sends every in-race message through it (final lap, missed checkpoint, GOLD switches).
+The finder is also visible in the chase views in retail screenshots, so the port lets the Finder
+key show or hide it in any view.
+
+**Finder** (`0x4ed31d`): at the top right
+(x = width - 66, y = 7), a 60 x 60 ring with the next checkpoint's number (the truck's
+`+0xfa8` index plus one) in the middle, a 12 x 6 arrow at the ring's top, and a 6 x 6 dot that
+circles the ring at the checkpoint's bearing from the truck's heading. Both are green while the
+bearing is within 22.5 degrees of straight ahead (16-bit angle 0x3001 to 0x4fff) and red
+otherwise. **Gear strip** (`0x4ebe40`): the text `P R N 1 2 3` centred at the bottom
+(y = height - 17 at 480) in a small font on a black box, with a red vertical bar at the current
+gear's character. **Pitboard**: only its key name and a menu bitmap exist; no drawing code was
+found, so it is treated as an unused leftover.
+
 HUD text (0x52d8f0): `Place: n/8`, `Lap: n/n`, `Time Remaining`, `Best:`, `Clock:`, `Lead:` and
 `Back:` gaps, "All trucks on final lap!", `fps : %f` with the FRAME cheat. In a Circuit or Rally the
 race HUD is two boxes at the top left, labels left and values right-aligned, times as
@@ -889,6 +933,31 @@ race HUD is two boxes at the top left, labels left and values right-aligned, tim
 - rows 5 and 6: `Place:` `place/trucks` (`+0x8f8`), `Lap:` `laps + 1` (at most the race's laps)
   `/laps`.
 
+- row 4, `Lead:` when the player is first, else `Back:` (HUD routine `0x52d8f0`, near `0x52e5ce`): the
+  gap, printed unsigned as `%02d:%05.2f`. In first place it compares the player with the truck
+  in second, otherwise with the truck one place ahead. Let B be the rear one of the two and n its
+  count of checkpoints passed in its current lap (`+0xfa8`), L its lap index (`+0x8f4`): each
+  truck's time is the sum of its segment times (`+0x910`, 20 per lap) for the first n checkpoints
+  of lap L plus its closed laps' times (`+0xf50[0..L)`), and the gap is B's minus the other's.
+  Before either has passed a checkpoint it reads `00:00.00`. The port keeps each truck's
+  crossing times (`src/game/timing.js`), which gives the same number.
+
+- **Course map** (Map key; `0x64077c` is 0 off, 1 on, 2 on with names; drawn by `0x4e2410`, hidden
+  in views 0 and 1, the cockpit ones): an overlay on the 3D window. The loop is built once at
+  load (`0x4e1e90`) from the course's type 1 segments: each one's start x and z, then its end x
+  and z (x 64 as integers, at most 512 points), in order and closed, so a corner between two
+  straights is a chamfer. A second pass (`0x4e2160`) gives each point the unit bisector of its two
+  edges (the path's normal when they are within 0.98 of in line), turned to the same side of the path each time (reversed unless it lies clockwise of the edge back to the previous point), and `0x4e2720` draws two
+  lines per edge, the loop moved 3072 (48 ft) either way along those offsets. The view is
+  translated by minus the player's x and z, turned by minus its yaw (`+0x1024`, 65536 per turn)
+  and drawn at a fixed depth, so the truck points up. Two retail screenshots put the player's marker at about 75% of the width and 52% of the height, which is where the port draws it.
+  Each truck (`0x4e1b30`) is a five-pixel plus whose grey pulses through 16 palette steps, with
+  its place number 3 px below (`%s (%d)`, name and place, in mode 2), colour 1 for the player and
+  7 for the rest, drawn only when 6 to 7 px inside the window. The port's pixels per foot
+  (0.09 at 480 lines) is measured against a game screenshot, not read from the projection.
+- **Chase gauges**: the dial centres in the 640 x 480 screenshot are about (105, 390) for the
+  speedometer and (533, 390) for the tachometer, numbers 72 px out, the needle's tip about 50 px
+  out; the HUD text is a light grey with a one-pixel black shadow, rows 15 px apart.
 A standings list, `1st - ` to `8th - ` with each truck's name, is drawn instead when its
 toggle (`0x6505ec`) is on. The cockpit
 (`COCKPIT.POD`, `Cockpit.c`, `Ckptutil.c`) is a packed-bitmap dashboard per resolution with a
@@ -970,6 +1039,12 @@ stereo separation, `UseRedBook` and `UseModMusic`.
   Samples have loop points in a `.KLP` beside them (the game starts them at random offsets).
 - **Skids by surface** (0x41d2b0): concrete `skid-c2`, dirt `skid-d%d`, grass and gravel
   `skid-g%d`, ice and snow `spinice`/`snwskid%d`, rocks `spinroc%d`/`cornroc%d`.
+- **Hull impacts** (`0x429080`, called from the contact response at `0x46ba80`): `suspen5` or
+  `suspen6` (random) while the truck is undamaged (`damageCode` 0), `suspen1` or `suspen3` once
+  it is not, at x1.8 from the truck's emitter, and only when the truck's previous impact sound
+  has finished (`0x464450` asks whether a handle still plays). The exe has no other truck crash
+  sample: `crash_01`, `05`, `08` and `11` are announcer voice clips (referenced at `0x42452c`),
+  so they must never play as impact sounds.
 - **World**: crashes, suspension, rollover, horn, YeeHaw, splash, underwater, trains
   (`tr-horn`, `train22.wav`), helicopter (`huey`), blimp, crowd, and object-specific hits by
   model name (`strike`, `hickz`, `flush`, `barn1`, `cowpain`, `doctor`, `coffin`).
@@ -1064,6 +1139,42 @@ Rain also starts the rain and lightning code (0x575b50, 0x577c30, `light%d.wav`)
 snowflakes (0x575b50 with 35.0 against Rain's 130.0). The fog tables (`FOG\<track>.MAP`) the
 software renderer used for the darkness of Dusk, Night and Pitch Black are not traced; the port
 approximates them (src/game/weather.js).
+
+**Water** (`0x5043e0` surface, `0x4f9...` water update, `0x4fb5a0` fog, `0x42b630` background, `0x5609c0` wake):
+- **The surface is an animated texture**, not a colour: eight `RIPPL100-800.RAW` frames (grey
+  water with glints, 64 x 64, `STARTUP.POD`) played in the order 1 2 3 4 5 6 7 8 7 6 5 4 3 2
+  (14 steps), a step every 16384 / 65536 = a quarter second (held in Snow). One copy covers each
+  32 ft terrain cell, with the usual two-pixel crop (UV 8 to 248 of 256), at the water level, over
+  every cell with a corner below it. It is blended translucent by weather: 0xc000 / 65536 (0.75)
+  in the clear, Cloudy and the fogs, 0x8000 (0.5) in Rain, 0x4000 (0.25) at Dusk and Night, 0x1000
+  (0.0625) in Pitch Black and 0xf000 (0.94) in Snow.
+- The water level is `level * 256` plus a sinusoid: its phase gains one eighth of a second's
+  worth of a turn each second, so it bobs by 64 / 256 = a quarter foot every eight seconds. In
+  Snow it stays put (the water is ice).
+- A camera below the water level (never in Snow) gets distance fog from 0 to 320 ft (a factor
+  of `distance * 0xffff / 320`, full beyond), and the game fills the screen with the weather's fog
+  colour instead of drawing the sky. The same test sets the underwater sound filter.
+- In Snow, a terrain cell with a corner under the water is drawn a second time with `SNOW0` to
+  `SNOW3` (the cloud noise in `STARTUP.POD`, chosen by `(x & 1) + 2 (z & 1)`) at a translucency
+  that starts at nothing and gains 1/200 of 65536 a second up to 0x7fff, so ice spreads over the
+  water in about 100 seconds and ends half opaque.
+- **Spray and ripples.** Each frame a truck's tires (`0x54afd0`, three contact points of each
+  of four calls) that touch water (surface code 0x514) or, in Rain, any ground, start a particle
+  in a ring of 256 (`0x560600`): three seconds of life, position and velocity from the truck's
+  own velocity with a random 0.5 to 1.5 and 0.9 to 1.1 of it, gravity 8192 / 256 = 32 ft/s squared.
+  Particles are drawn as `WAKEBLOB.RAW` billboards sized by distance (`0x5609c0`); one that
+  falls back through the water level is added to a list of at most 31 ripples drawn as flat
+  2 ft squares of `SPLATRIP.RAW` (rings).
+- **Rain and Snow particles** (`0x575f70`, called from `0x574fd0`): world-space sprites in a field
+  around the camera, a cell of a sheet each: Rain uses `NDROP1-3.RAW` (each two drops, so six
+  cells) and Snow `SNOFLAKS.RAW` (a 4 x 4 sheet).
+- **Texture animations** (`DATA\<track>.ANI`, loaded at `0x42e120`, stepped at `0x42e720`): a
+  count, then per animation the base texture's name, `frames,interval` and the frame names. A
+  clock gains the frame time and the frame shown is `clock / interval % frames`, the interval
+  in 16.16 seconds (9830 is 0.15 s, 16384 a quarter second). The base name is looked up in the
+  level's loaded texture table and the slot's name is replaced by the frame's. No stock level
+  lists its water frames (`DWATA1-4`, `IS8WT000-300`) in its texture list or any model, so the
+  animation has nothing to act on in the stock tracks.
 
 **Lens flare** (`STARTUP.POD` `DATA\SUN.TXT`, read by `weather.cpp`): type (point or offset),
 initial position (256 = 1 ft), master radius (full-screen size), then 10 layers of
