@@ -100,7 +100,8 @@ export function createWorldAudio(audio, { ambient, weather, music, random = Math
   let trainHornAt = -1e9, clock = 0;
   const near = (a, b, range) => Math.hypot(a[0] - b[0], a[2] - b[2]) < range;
   function updateEmitters(listener, moved) {
-    const trains = emitters.filter((e) => e.moving);
+    // Crossing bells and horns answer trains only; a Community Patch 3 mover (type 13) has neither.
+    const trains = emitters.filter((e) => e.moving && e.train !== false);
     for (const e of emitters) {
       const p = moved.get(e.sitIndex);
       if (p) e.pos = p;

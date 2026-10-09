@@ -502,13 +502,31 @@ knock off", "-1 point off summit", "0 points outside zone".
 
 ### 6.4 Drag racing (dormant)
 
-Mode 1 is fully coded but no stock SIT uses it and the track list calls it unsupported. It is
-an MTM1 leftover, kept working:
+Mode 1 is an MTM1 leftover. No stock SIT uses it, the track list calls it unsupported, and only
+remnants of it run:
 
-- separate 4-checkpoint lane tables (`0x6e9d88`); finishing is checkpoint 4;
-- staging: "Prestage" and "Stage" lamps on the Christmas tree (`TRLFACE.RAW`, 0x548800-0x549000),
-  `autoStage` and `bothStaged` state, a staging hotkey;
-- the rear axle counter-steers 25% more in this mode (section 8.7).
+- the checkpoints are copied to the drag-lane table (`0x6e9d88`) as gates; in drag mode the
+  checkpoint test uses the gate directly (section 6.2);
+- the keyboard keeps a drag gate (`+0x8fc` segments passed below 4: no switching between Reverse
+  and first) and the gearbox a staging rule (below 3: Park and Neutral adjacent);
+- the rear axle counter-steers 25% more in this mode (section 8.7);
+- the Christmas tree is drawn by `0x548ff0` (seven lamps a side with the labels "Prestage",
+  "Stage", "\\", " Get Set", "/", "Go", "Disqualify" at `0x651700`, colours `0x69, 0x69, 0x6f,
+  0x6f, 0x6f, 0xd6, 0x9c`) and painted into `TRLFACE.RAW` by `0x548800`; the lamp bits come from
+  `0x548cb0`: a lane state 1 gives 1 (prestaged), 2 gives 3 (staged), 99 gives 0x40
+  (disqualified); while `bothStaged` (`0x6ee8f4`) is 2 the amber `1 << (int(timer x 8) + 1)` is
+  added (timer `0x64764c`), and at 3 Go (0x20).
+
+**None of it is driven.** `0x548800`, `0x548cb0` and `0x548ff0` have no callers (the one call to
+`0x548ff0`, at `0x5492c0`, is in a routine nothing calls); the left and right lamp words
+`0xa2f210` and `0xa2f230` are read there and written nowhere; `bothStaged`, `0x6ee758` and the
+tree timer are only cleared by the level loader (`0x5523d6`, `0x552482`, `0x55341e`).
+
+The port rebuilds drag racing as an addition from these remnants and the strips' data
+(`src/game/drag-race.js`). An MTM1 drag strip has eight checkpoints: the prestage, stage and
+start beams across both lanes (1 ft apart, then 3 ft), the finish line, then each lane's two
+boundaries (lane 1: checkpoints 5 and 6, lane 2: 7 and 8), facing outward. The grid has two slots,
+one per lane, and the course is lane 1's (lane 2 drives its mirror image across the strip).
 
 The `TOURNEY\*.TRN` files in `STARTUP.POD` ("Monster Truck Triathlon", "Doug's Tournament of
 Evil", "Whirlwind Circuit Madness") reference MTM1 tracks (`DRAG5.SIT`, `CIRC4.SIT`,
@@ -895,6 +913,11 @@ CPU trucks and the player's autopilot use the same code.
   (0x4198a0) makes the player driver 0 with the chosen truck and adds a CPU driver for each
   flagged truck other than the player's, in catalogue order (so drawing the player's truck
   leaves one opponent fewer), at most 8 drivers.
+- **Professional takes course 2.** At the race start (outside a drag race) every truck is put on
+  course 2 when the difficulty is Professional (`0x6407bc` = 2) and the SIT has a second course
+  with segments (`0x71a6f4`), otherwise on course 1. Each course is `0x6d68` bytes from
+  `0x70cc28` (1-based), the truck's course index is `+0xfb4`, and `0x486630` re-picks the nearest
+  segment, on any course, when a truck strays more than 160 ft from its own.
 - **The grid** (0x4195d0): the drivers take the SIT's start slots in order, then the positions
   and headings are shuffled among them by a random permutation, so the player starts in a
   random one of the first `drivers` slots.

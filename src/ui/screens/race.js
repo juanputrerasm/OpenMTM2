@@ -24,6 +24,7 @@ import { COCKPIT_EYE, CAMERA_MODES, modeForShortcut, blimpCamera, blimpCameraNoC
 import { createBlimp, hasBlimp } from "../../game/blimp.js";
 import { soundRange, surfaceFamily } from "../../game/sound-model.js";
 import { createTireEffects } from "../../render/tire-effects.js";
+import { createTrackLights } from "../../render/track-lights.js";
 import { createHelicopters } from "../../render/heli-object.js";
 import { createNameTags } from "../../render/name-tags.js";
 import { nameLabel, nextNamesMode } from "../../game/names.js";
@@ -43,6 +44,7 @@ import { createRaceGauges } from "../../render/race-gauges.js";
 import { createWaterEffects, createWaterSurface } from "../../render/water-effects.js";
 import { createReplayRecorder } from "../../game/replay.js";
 import { createRaceEnd } from "../../game/race-end.js";
+import { createDragTree } from "../drag-tree.js";
 import { createCrashDamage, crashDamageMessage } from "../../game/crash-damage.js";
 import { createCaption } from "../../render/caption.js";
 import { courseLoop, createCourseMap } from "../../render/minimap.js";
@@ -59,6 +61,8 @@ export default async function mount(container, context, { track, laps, difficult
   const t = context.t;
   const weatherId = resolveWeather(chosenWeather ?? context.settings.weather ?? 0, track.weatherMask);
   const summit = track.raceType === "summit";
+  const dragRace = track.raceType === "drag";
+  const dragTree = createDragTree();
   const canvas = el("canvas", { class: "race-canvas" });
   const loading = el("div", { class: "race-loading" });
   const loadingText = el("p", { class: "race-loading-text" }, `Loading ${track.name}…`);
@@ -81,7 +85,7 @@ export default async function mount(container, context, { track, laps, difficult
   const pauseMenu = el("div", { class: "race-pause", hidden: true });
   // The Names key (game/names.js): what the course map and the labels over the trucks say.
   let namesMode = 0;
-  const view = el("section", { class: "race-view" }, canvas, ...(cockpit ? [cockpit.dashboard, cockpit.mirror, cockpit.finder] : []), hud.element, gauges.element, caption.element, pauseMenu, loading);
+  const view = el("section", { class: "race-view" }, canvas, ...(cockpit ? [cockpit.dashboard, cockpit.mirror, cockpit.finder] : []), hud.element, dragTree.element, gauges.element, caption.element, pauseMenu, loading);
   container.append(view);
 
   let disposed = false;
@@ -107,6 +111,8 @@ export default async function mount(container, context, { track, laps, difficult
   if (disposed) return { unmount };
   const driver = currentDriver(await getProfiles(context));
   // The course map (Map key), from the SIT's primary course.
+  // Professional puts every truck on course 2 when the SIT has one (MONSTER_EXE_ANALYSIS.md 9); the map still draws course 1.
+  const raceCourse = Number(difficulty) === 2 && build.sim.proCourse ? build.sim.proCourse : build.sim.course;
   const minimap = createCourseMap(build.sim.course, { font: hudFont });
   minimap.setVisible(!!context.settings.minimap);
   view.append(minimap.element);
@@ -243,7 +249,7 @@ export default async function mount(container, context, { track, laps, difficult
     ra1: build.sim.ra1?.buffer ?? null,
     boxes: build.sim.boxes,
     ramps: build.sim.ramps,
-    course: build.sim.course,
+    course: raceCourse,
     // The SIT's fly-by flag makes a track Sonic; on Professional the player can also ask for Sonic computer trucks anywhere.
     sonicTrack: build.sim.sonicTrack || (Number(difficulty) === 2 && !!context.settings.sonicTrucks),
     waterLevelFt: build.waterLevelFt,
@@ -256,11 +262,13 @@ export default async function mount(container, context, { track, laps, difficult
         truck: { anchors: model.anchors, scrapePoints: model.scrapePoints },
         start: { pos: grid[e.slot].pos, heading: grid[e.slot].heading },
         autopilot: !e.player || !!context.settings.fullAutopilot,
+        // A drag strip's grid slot is the lane.
+        lane: e.slot,
         // The player's Garage setup; the CPU trucks keep the defaults.
         setup: e.player ? setup : undefined,
       };
     }),
-    race: { checkpoints: build.sim.checkpoints, laps, mode: summit ? "summit" : "circuit" },
+    race: { checkpoints: build.sim.checkpoints, laps: dragRace ? 1 : laps, mode: summit ? "summit" : dragRace ? "drag" : "circuit" },
   };
   await sim.call("init", init);
   if (disposed) return { unmount };
@@ -360,6 +368,9 @@ export default async function mount(container, context, { track, laps, difficult
 
   // The ten views (game/cameras.js): chase cameras as the exe places them, and the port's own BlimpCam and RaceCam.
   const ground = groundHeightFn(terrain);
+  // Community Patch 3 track lights (box type 12), lit at night (render/track-lights.js).
+  const trackLights = createTrackLights(scene, build.trackLights, ground);
+  if (trackLights) cleanups.push(() => trackLights.dispose());
   // Ice over the water in Snow, and the spray and ripples of wheels in water (render/water-effects.js).
   const waterFx = createWaterEffects({ scene, art: effectsArt, levelFt: build.waterLevelFt ?? null, ground });
   cleanups.push(() => waterFx.dispose());
@@ -370,7 +381,7 @@ export default async function mount(container, context, { track, laps, difficult
   const waterSurface = createWaterSurface(world.getObjectByName("water"), effectsArt, look);
   cleanups.push(() => waterSurface?.dispose());
   const chase = createChaseCamera();
-  const straights = build.sim.course, centroid = courseCentroid(straights);
+  const straights = raceCourse, centroid = courseCentroid(straights);
   // The blimp flies the course (game/blimp.js); the BlimpCam hangs over the course's centre (game/cameras.js).
   const blimp = build.blimp && hasBlimp({ detailLevel: context.settings.detailLevel ?? 2, raceType: track.raceType }) && straights.length
     ? createBlimp(straights, ground) : null;
@@ -450,7 +461,7 @@ export default async function mount(container, context, { track, laps, difficult
 
   const flash = (text, now, seconds = 3) => caption.show(text, seconds);
   let lastLaps = 0, lastCheckpoint = 0;
-  let wasMissed = false, finalLapShown = false, lightsOn = null;
+  let wasMissed = false, finalLapShown = false, lightsOn = null, dragNoted = false;
   const showRace = (race, now) => {
     // The gantry's lamps change only when the countdown state does (6.1).
     if (lightsOn !== !race.started) {
@@ -463,6 +474,21 @@ export default async function mount(container, context, { track, laps, difficult
     else if (me.checkpoint !== lastCheckpoint && !summit && race.started) worldAudio.checkpoint();
     lastLaps = me.laps;
     lastCheckpoint = me.checkpoint;
+    if (race.drag) {
+      // The tree, left lane first; the clock runs from the green; then the reaction time and the place.
+      const byLane = [0, 0];
+      race.drag.lamps.forEach((bits, i) => { byLane[race.drag.lane[i]] = bits; });
+      dragTree.set(byLane, race.drag.lane[0]);
+      hud.set([
+        [t("Clock:"), formatRaceTime(me.finished && !me.dq ? me.raceTime : race.clock)],
+        ["Reaction:", me.reaction === null ? "--.--" : me.reaction.toFixed(2)],
+        ["", ""], [t("Place:"), `${me.place}/${race.trucks.length}`],
+      ]);
+      if (me.dq && !dragNoted) flash(me.dq === "red light" ? "Red light! Disqualified." : "Out of your lane! Disqualified.", now);
+      else if (me.finished && !me.dq && !dragNoted) flash(`Elapsed time ${me.raceTime.toFixed(2)} s`, now);
+      if (me.finished || me.dq) dragNoted = true;
+      return;
+    }
     if (summit) {
       // A Rumble: the score and the round's time left, then the place by score (6.3).
       hud.set([[t("Time Remaining:"), formatRaceTime(race.summit?.left ?? 0)], ["Score:", String(Math.round(me.score))], ["", ""], [t("Place:"), `${me.place}/${race.trucks.length}`]]);
@@ -534,6 +560,7 @@ export default async function mount(container, context, { track, laps, difficult
       helicopters?.update(shown.map((p) => p.heli ?? null), paused ? 0 : dt);
       lampClockMs += paused ? 0 : dt * 1000;
       const night = !!WEATHER_LOOK[weatherScene.weather]?.headlights;
+      trackLights?.update(camera, night);
       shown.forEach((p, i) => drawn[i].update(p, camera, { lamps: lamps[i], clockMs: lampClockMs, night, cockpit: i === 0 && viewMode === 0 }));
       if (!latest.damageHandled) {
         latest.damageHandled = true;

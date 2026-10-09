@@ -22,10 +22,19 @@ browser's private storage.
 ## Features
 
 OpenMTM2 contains **no game data**. It needs your own retail Monster Truck Madness 2 install
-(version 2.0.41 or 2.00.42). Only `POD.INI` and the archives it lists are read, not `MONSTER.EXE`.
+(version 2.0.41 or 2.00.42), or one with Community Patch 3. `POD.INI` and the archives it lists
+are read, and `MONSTER.EXE` only for its version number (a community patch starts with the modern
+menus).
 
 - **Races:** Circuit, Rally and Summit Rumble against CPU trucks, with laps, checkpoints,
-  results, driver profiles and a Hall of Fame.
+  results, driver profiles and a Hall of Fame. Professional puts every truck on the track's second
+  course when it has one.
+- **Additions:** drag races on the MTM1 strips (auto-staging, the Christmas tree, red lights and
+  lane disqualification), CPU trucks that play a Rumble for the zone, tire tracks, dust, sparks and
+  splashes, and the helicopter and pterodactyl models.
+- **Community Patch 3:** its MTM1 tracks, `.SI2` tracks, HD art for models, trucks, sky and ground
+  (PNG or TGA, with `_N` normal and `_AO` occlusion maps), materials, glass, track lights and
+  moving objects.
 - **Simulation:** the original truck physics, collisions and AI, reimplemented from the game's
   documented behaviour and run at a fixed 60 Hz in a worker.
 - **Ten camera views:** the chase cameras, a cockpit with dashboard, wheel, shifter and mirror,

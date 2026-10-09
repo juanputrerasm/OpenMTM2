@@ -6,9 +6,9 @@
   are the lower levels of detail), and the axle model. The four wheel anchors are the TRK's
   `static_bpos` values in body feet (FR, FL, RR, RL); a tire model is drawn with its origin there.
 */
-import { decodeRawTexture, MTM_WHEEL_KEYS, parseTruckManifest, podPathTitle, rawTextureSide } from "../vendor/openphotex/index.js";
+import { MTM_WHEEL_KEYS, parseTruckManifest, podPathTitle } from "../vendor/openphotex/index.js";
 import { decodeModel } from "./models.js";
-import { loadTextureSource } from "./level-load.js";
+import { artStem, loadAoMap, loadArtTexture, loadNormalMap } from "./art-texture.js";
 
 async function model(vfs, name) {
   if (!name) return null;
@@ -33,6 +33,9 @@ export async function buildTruckRender(vfs, trkName, paletteResolver) {
     body: await model(vfs, manifest.truckModelBaseName),
     tireLeft: await model(vfs, `${tireBase}16L`),
     tireRight: await model(vfs, `${tireBase}16R`),
+    // Community Patch 3 trucks may carry a tire per corner (16FR, 16FL, 16RR, 16RL), used where present (JSTruckViewer).
+    tireFR: await model(vfs, `${tireBase}16FR`), tireFL: await model(vfs, `${tireBase}16FL`),
+    tireRR: await model(vfs, `${tireBase}16RR`), tireRL: await model(vfs, `${tireBase}16RL`),
     axle: await model(vfs, manifest.axleModelName),
     driveshaft: await model(vfs, "DRVSHAFT"),
   };
@@ -51,17 +54,15 @@ export async function buildTruckRender(vfs, trkName, paletteResolver) {
     for (const mesh of part?.meshes ?? []) {
       const name = mesh.textureName;
       if (!name || name in textures) continue;
-      const source = await loadTextureSource(vfs, name, paletteResolver, "model");
-      if (!source?.palette || !rawTextureSide(source.raw.length)) { textures[name] = null; continue; }
-      const image = decodeRawTexture(source.raw, source.palette, { cutout: mesh.cutout });
-      textures[name] = { width: image.width, height: image.height, rgba: image.rgba };
+      textures[name] = await loadArtTexture(vfs, name, paletteResolver, { cutout: mesh.cutout });
+      const normal = await loadNormalMap(vfs, name);
+      if (normal) textures[`${artStem(name)}_N`] = normal;
+      const ao = await loadAoMap(vfs, name);
+      if (ao) textures[`${artStem(name)}_AO`] = ao;
     }
   }
   for (const name of suspension ? [suspension.shockTexture, suspension.barTexture] : []) {
-    const source = await loadTextureSource(vfs, name, paletteResolver, "model");
-    if (!source?.palette || !rawTextureSide(source.raw.length)) { textures[name] = null; continue; }
-    const image = decodeRawTexture(source.raw, source.palette);
-    textures[name] = { width: image.width, height: image.height, rgba: image.rgba };
+    textures[name] = await loadArtTexture(vfs, name, paletteResolver);
   }
   // The lamps (game/truck-lights.js): each with its lens bitmap and, when it throws a beam, the cone's texture.
   const lights = (manifest.lights ?? []).map((l) => ({
@@ -73,10 +74,7 @@ export async function buildTruckRender(vfs, trkName, paletteResolver) {
   }));
   const lightTextures = {};
   for (const name of new Set(lights.flatMap((l) => [l.source, l.coneLength > 0 ? l.coneTexture : ""]).filter(Boolean))) {
-    const source = await loadTextureSource(vfs, name, paletteResolver, "model");
-    if (!source?.palette || !rawTextureSide(source.raw.length)) { lightTextures[name] = null; continue; }
-    const image = decodeRawTexture(source.raw, source.palette);
-    lightTextures[name] = { width: image.width, height: image.height, rgba: image.rgba };
+    lightTextures[name] = await loadArtTexture(vfs, name, paletteResolver);
   }
   const scrapePoints = (manifest.scrapePoints ?? []).map((v) => [v.x, v.y, v.z]);
   return { file: title, name: manifest.truckName, parts, anchors, scrapePoints, textures, suspension, lights, lightTextures };

@@ -22,7 +22,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   opponents: 3,               // MONSTER.INI defaultOpponents (built-in default 3)
   opponentTrucks: Object.freeze([]), // explicitly selected CPU truck files from the Races dialog
   wording: "",                // a .LOC from the install that rewords the game's text ("" is the standard wording)
-  skin: "classic",            // "classic" (the game's own menu art from UI.POD) or "modern"
+  skin: "auto",               // "auto" (classic on retail and beta builds, modern on a community patch), "classic" or "modern"
   developer: false,           // list tracks and trucks with the developer views on the Start screen
   sound: Object.freeze({ master: 1, effects: 1, music: 0.8, muted: false }),
   commentary: false,          // reserved for commentaryFlag; voice playback is temporarily disabled
@@ -49,7 +49,9 @@ export function loadSettings() {
     // before them was never a choice.
     if (!(stored.version >= 2)) stored.look = "enhanced";
     if (!(stored.version >= 3)) stored.showHiddenTracks = true;
-    stored.version = 3;
+    // Version 4 made the menus follow the build unless the player picks one.
+    if (!(stored.version >= 4)) stored.skin = "auto";
+    stored.version = 4;
     delete stored.showHiddenTrucks;
     return { ...DEFAULT_SETTINGS, ...stored };
   } catch {

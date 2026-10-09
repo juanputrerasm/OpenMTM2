@@ -17,6 +17,28 @@
 */
 import { normalizePodPath } from "../pod/paths.js";
 import { LEGACY_ALTITUDE_DIVISOR } from "../terrain/height.js";
+/** The box types Community Patch 3 added: a static light, and a mover with no train sound, horn or light. */
+export const BOX_LIGHT = 12;
+export const BOX_MOVING = 13;
+const LIGHT_DEFAULTS = [64, 8, 1, 1, 1, 0, 6, 125, 10, 3.5, 1, 0];
+/**
+ * The `L` block's data line, read as the engine reads it: tolerantly, missing trailing fields keeping their defaults and
+ * surplus ones ignored; `bright` snapped to 0.25 steps within 0.25..3.75 and `rad` clamped to 4095.
+ */
+export function parseSitLight(line) {
+    const values = [...LIGHT_DEFAULTS];
+    if (line)
+        line.split(",").slice(0, values.length).forEach((part, i) => {
+            const v = Number.parseFloat(part);
+            if (Number.isFinite(v))
+                values[i] = v;
+        });
+    const [rad, hgt, r, g, b, glow, glowRad, coneLen, coneRim, coneBase, bright, aimOff] = values;
+    return {
+        rad: Math.min(4095, Math.max(0, rad)), hgt, color: [r, g, b], glow: Math.trunc(glow), glowRad, coneLen, coneRim, coneBase,
+        bright: Math.min(3.75, Math.max(0.25, Math.round(bright * 4) / 4)), aimOff,
+    };
+}
 /*
   Which game a SIT came from.
 
@@ -251,7 +273,12 @@ function parseBoxBlock(lines, blockStart, isRamp) {
         box.hitSound = name(lines[soundIdx + 1]);
         box.loopSound = name(lines[soundIdx + 2]);
     }
-    // Type 10 objects ("moving - use bvel" in Traxx's notes) travel along it: TPARK's train.
+    if (box.type === BOX_LIGHT) {
+        // The header line starts with the block's letter, "Llight rad,hgt,..."; the values are the line after it.
+        const lightIdx = indexOfLinePrefix(lines, "Llight", blockStart, endIndex);
+        box.light = parseSitLight(lightIdx >= 0 ? lines[lightIdx + 1] : null);
+    }
+    // Type 10 objects ("moving - use bvel" in Traxx's notes) travel along it: TPARK's train. Type 13 (Community Patch 3) too.
     const bvelIdx = indexOfLinePrefix(lines, "bvel", blockStart, endIndex);
     if (bvelIdx >= 0 && bvelIdx + 1 < lines.length)
         box.bvel = parseFloatTriplet(lines[bvelIdx + 1]);

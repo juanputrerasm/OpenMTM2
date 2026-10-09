@@ -76,6 +76,13 @@ table.results tr.player td { color: var(--accent); font-weight: 600; }
 .race-loading { position: absolute; inset: 0; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
 .race-loading-art { max-width: 100%; max-height: 100%; width: auto; height: 100%; object-fit: contain; image-rendering: pixelated; }
 .race-loading-text { position: absolute; bottom: 16px; margin: 0; color: #fff; font: 600 16px/1.4 system-ui, sans-serif; text-shadow: 0 1px 2px #000; }
+/* The drag race's Christmas tree (ui/drag-tree.js): two lanes of seven lamps, labels between. */
+.drag-tree { position: absolute; z-index: 3; top: 8px; right: 10px; padding: 6px 8px; background: rgba(0, 0, 0, 0.55); border: 1px solid #555; color: #cfcfcf; font: 600 12px/1 ui-monospace, monospace; }
+.drag-row, .drag-marks { display: grid; grid-template-columns: 18px 84px 18px; align-items: center; justify-items: center; height: 18px; }
+.drag-marks { height: 14px; font-size: 10px; color: #fff; }
+.drag-label { font-size: 11px; }
+.drag-lamp { width: 13px; height: 13px; border-radius: 50%; background: #262626; border: 1px solid #000; box-shadow: inset 0 0 2px #000; }
+.drag-lamp.lit { background: var(--lit); box-shadow: 0 0 8px var(--lit); }
 .race-hud { position: absolute; z-index: 3; top: 4px; left: 6px; color: #fff; font: 600 15px/1.35 ui-monospace, monospace; image-rendering: pixelated; }
 .race-gauges { position: absolute; z-index: 3; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; pointer-events: none; }
 .race-pause { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(0, 0, 0, 0.55); }

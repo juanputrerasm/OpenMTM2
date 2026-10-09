@@ -38,7 +38,7 @@ export function raceLengthLabel(type) {
 }
 
 export function trackPreviewName(file) {
-  return STOCK_TRACK_PREVIEWS[String(file).toUpperCase()] ?? String(file).replace(/\.SIT$/i, "").toUpperCase();
+  return STOCK_TRACK_PREVIEWS[String(file).toUpperCase()] ?? String(file).replace(/\.SI[T2]$/i, "").toUpperCase();
 }
 
 export function garageSummary(setup) {

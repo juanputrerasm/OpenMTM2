@@ -11,7 +11,7 @@
 */
 import { el } from "./dom.js";
 import { goRace } from "../app/flow.js";
-import { classicUiAllowed } from "../install/exe-version.js";
+import { resolveSkin } from "../install/exe-version.js";
 
 /** Baked button rectangles [x, y, w, h] on the 640 x 480 art. */
 const BUTTONS = {
@@ -52,7 +52,7 @@ export function uiImageUrl(assets, name) {
  * @returns {Promise<{ classic: true, art: boolean, regions: Record<string, HTMLElement>, unmount?: () => void }>}
  */
 export async function frame(container, context, { title, backdrop, bar = "main", regions = { main: [24, 120, 592, 280] }, options = true, labels = [], modernRegions = {}, current = null }) {
-  const url = context.settings.skin === "classic" && classicUiAllowed(context.exeVersion) && backdrop ? await uiImageUrl(context.assets, backdrop) : null;
+  const url = resolveSkin(context.settings.skin, context.exeVersion) === "classic" && backdrop ? await uiImageUrl(context.assets, backdrop) : null;
   const art = !!url;
   const stage = el("div", { class: `stage${art ? "" : " stage-modern"}`, role: "group", "aria-label": title });
   if (art) stage.append(el("img", { class: "stage-backdrop", src: url, alt: "", draggable: "false" }));

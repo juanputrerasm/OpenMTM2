@@ -2,9 +2,8 @@
   Whole models with their textures, for the things drawn apart from a track's own list: the blimp,
   the helicopter and the pterodactyl, the garage the truck preview stands in.
 */
-import { decodeRawTexture, rawTextureSide } from "../vendor/openphotex/index.js";
 import { decodeModel } from "./models.js";
-import { loadTextureSource } from "./level-load.js";
+import { loadArtTexture } from "./art-texture.js";
 
 /**
  * `names` are `MODELS\` files, e.g. "HELI.BIN". Returns `{ models, textures }`: the models that decoded
@@ -21,10 +20,7 @@ export async function loadVehicleModels(vfs, palettes, names) {
   for (const model of models) {
     for (const mesh of model.meshes) {
       if (!mesh.textureName || mesh.textureName in textures) continue;
-      const source = await loadTextureSource(vfs, mesh.textureName, palettes, "model");
-      if (!source?.palette || !rawTextureSide(source.raw.length)) { textures[mesh.textureName] = null; continue; }
-      const image = decodeRawTexture(source.raw, source.palette);
-      textures[mesh.textureName] = { width: image.width, height: image.height, rgba: image.rgba };
+      textures[mesh.textureName] = await loadArtTexture(vfs, mesh.textureName, palettes, { cutout: mesh.cutout });
     }
   }
   return { models, textures };

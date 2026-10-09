@@ -72,12 +72,73 @@ export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.at
   return mesh;
 }
 
+/** A texture name's stem: `ROCK.RAW`, `ROCK.PNG` and `ROCK` are one texture (Community Patch 3 resolves by stem). */
+export const textureStem = (name) => String(name ?? "").toUpperCase().replace(/^.*[\\/]/, "").replace(/\.[^.]*$/, "");
+
+/*
+  A model part's material. A legacy face takes Lambert shading, a cutout for face types 0x11 and 0x33, a blend where the
+  record says so. A Community Patch 3 material (MRGL_MATERIAL) states its own: as JSTrackViewer maps it, LIT off draws
+  unshaded, ALPHATEST wins over BLEND (a cutout writes depth), TWOSIDED draws both sides, TINT colours the texture, ADDITIVE
+  adds, NOZWRITE leaves depth alone, and a lit material is Phong for its specular power and emissive.
+*/
+function modelMaterial(mesh, map, normalMap, aoMap = null) {
+  const record = mesh.material;
+  const flags = record?.flags ?? 0;
+  const F = { LIT: 0x0001, BLEND: 0x0004, ALPHATEST: 0x0008, ADDITIVE: 0x0010, TWOSIDED: 0x0080, NOZWRITE: 0x0100, EMISSIVE: 0x0200, TINT: 0x0400, ALPHAREF: 0x0800, TEXSOLID: 0x2000 };
+  if (!record) {
+    const material = new THREE.MeshLambertMaterial({
+      // Occlusion darkens the ambient light only, never the sun (AUTHORING_HD_ART.md 5b), which is how three.js applies it.
+      map, normalMap, aoMap, color: map ? 0xffffff : new THREE.Color((mesh.color ?? 0x808080) & 0xffffff),
+      transparent: mesh.blended, alphaTest: mesh.cutout ? 0.5 : 0, side: THREE.FrontSide,
+    });
+    if (normalMap) material.normalScale.set(1, -1);
+    // Self-lit faces (lamps, signs) ignore the scene's lighting.
+    if (mesh.emissive) { material.emissive = new THREE.Color(0xffffff); material.emissiveMap = map; }
+    return material;
+  }
+  const alphaTested = !!(flags & (F.ALPHATEST | F.TEXSOLID));
+  const blended = !!(flags & F.BLEND) && !alphaTested;
+  const tint = flags & F.TINT && record.tint ? record.tint : [1, 1, 1];
+  const clamp01 = (v) => Math.min(1, Math.max(0, v ?? 1));
+  const props = {
+    map, color: map ? new THREE.Color(clamp01(tint[0]), clamp01(tint[1]), clamp01(tint[2])) : new THREE.Color((mesh.color ?? 0x808080) & 0xffffff),
+    side: flags & F.TWOSIDED ? THREE.DoubleSide : THREE.FrontSide,
+    transparent: blended, opacity: blended ? clamp01(record.baseAlpha) : 1,
+    alphaTest: alphaTested ? (flags & F.ALPHAREF ? clamp01((record.alphaRef ?? 128) / 255) : 0.5) : 0,
+    depthWrite: alphaTested || !(flags & F.NOZWRITE),
+    blending: flags & F.ADDITIVE ? THREE.AdditiveBlending : THREE.NormalBlending,
+  };
+  if (!(flags & F.LIT)) return new THREE.MeshBasicMaterial(props);
+  const material = new THREE.MeshPhongMaterial({
+    ...props, normalMap, aoMap,
+    shininess: Math.max(0, record.specPower ?? 0),
+    emissive: flags & F.EMISSIVE ? new THREE.Color(0xffffff) : new THREE.Color(0x000000),
+    emissiveIntensity: flags & F.EMISSIVE ? clamp01(record.emissive ?? 0) : 0,
+  });
+  // DirectX (green-down) normal maps, at the material's strength.
+  if (normalMap) material.normalScale.set(mesh.normalStrength ?? 1, -(mesh.normalStrength ?? 1));
+  return material;
+}
+
 /** One geometry and material set per model, shared by every object that uses it. */
 export function createModelLibrary(models, modelTextures, look) {
   const textures = new Map();
   const textureFor = (name) => {
     if (!textures.has(name)) textures.set(name, modelTextures[name] ? dataTexture(modelTextures[name], look, true) : null);
     return textures.get(name);
+  };
+  // A texture's normal map and occlusion (Community Patch 3: `<stem>_N`, `<stem>_AO`), linear data rather than colour.
+  const normalFor = (mesh, suffix = "_N") => {
+    const stem = mesh.textureName ? textureStem(mesh.textureName) : null;
+    const data = stem && modelTextures[`${stem}${suffix}`];
+    if (!data) return null;
+    const key = `${stem}${suffix}`;
+    if (!textures.has(key)) {
+      const t = dataTexture(data, look, true);
+      t.colorSpace = THREE.NoColorSpace;
+      textures.set(key, t);
+    }
+    return textures.get(key);
   };
   const library = new Map();
   for (const [name, model] of Object.entries(models)) {
@@ -94,21 +155,23 @@ export function createModelLibrary(models, modelTextures, look) {
           new THREE.BufferAttribute(frame.meshes[meshIndex].normals, 3));
       }
       const map = mesh.textureName ? textureFor(mesh.textureName) : null;
-      const params = {
-        map,
-        color: map ? 0xffffff : new THREE.Color((mesh.color ?? 0x808080) & 0xffffff),
-        transparent: mesh.blended,
-        alphaTest: mesh.cutout ? 0.5 : 0,
-        side: THREE.FrontSide,
-      };
-      const material = new THREE.MeshLambertMaterial(params);
+      const material = modelMaterial(mesh, map, normalFor(mesh), normalFor(mesh, "_AO"));
       material.userData.textureName = mesh.textureName?.toUpperCase() ?? null;
-      // Self-lit faces (lamps, signs) ignore the scene's lighting.
-      if (mesh.emissive) {
-        material.emissive = new THREE.Color(0xffffff);
-        material.emissiveMap = map;
-      }
       return { geometry, material, frameCount: model.keyframes?.length ?? 0 };
+    });
+    // A Mesh material (TEXSOLID) is drawn twice, as the engine does: the solid texels above (alpha tested), and glass across
+    // the whole face, tinted and see-through, without writing depth.
+    model.meshes.forEach((mesh, meshIndex) => {
+      if (!(mesh.material && mesh.material.flags & 0x2000)) return;
+      const tint = mesh.material.flags & 0x0400 && mesh.material.tint ? mesh.material.tint : [0.85, 0.9, 1];
+      parts.push({
+        geometry: parts[meshIndex].geometry,
+        material: new THREE.MeshPhongMaterial({
+          color: new THREE.Color(tint[0], tint[1], tint[2]), transparent: true, opacity: Math.min(0.6, Math.max(0.15, mesh.material.baseAlpha ?? 0.3)),
+          depthWrite: false, shininess: Math.max(30, mesh.material.specPower ?? 60), side: mesh.material.flags & 0x0080 ? THREE.DoubleSide : THREE.FrontSide,
+        }),
+        frameCount: parts[meshIndex].frameCount,
+      });
     });
     library.set(name, parts);
   }

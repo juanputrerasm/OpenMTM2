@@ -23,7 +23,7 @@ const STILL_ANGLE = Math.PI / 2 + 0.4;
 
 /** The tire's radius in feet from its model, for standing the truck on the floor. */
 function tireRadius(truck) {
-  const b = (truck.parts.tireLeft ?? truck.parts.tireRight)?.bounds;
+  const b = (truck.parts.tireLeft ?? truck.parts.tireRight ?? truck.parts.tireFL ?? truck.parts.tireFR)?.bounds;
   return b ? (b.max[1] - b.min[1]) / 2 : 2.5;
 }
 

@@ -62,12 +62,13 @@ export function decodeModel(bytes, name) {
     const blended = flags !== null && !!(flags & MRGLMAT.BLEND);
     const cutout = flags !== null ? !!(flags & (MRGLMAT.ALPHATEST | MRGLMAT.TEXSOLID)) : CUTOUT_FACE_TYPES.has(face.opcode);
     const flat = face.opcode === FLAT_FACE_TYPE || !textureName;
-    const key = `${flat ? `#${face.solidColor ?? 0}` : textureName}|${blended ? "b" : cutout ? "c" : "o"}|${face.material ?? "-"}`;
+    const key = `${flat ? `#${face.solidColor ?? 0}` : textureName}|${blended ? "b" : cutout ? "c" : "o"}|${face.material ?? "-"}|${face.material2 ?? "-"}`;
     let g = groups.get(key);
     if (!g) {
       g = {
         textureName: flat ? "" : textureName, color: flat ? (face.solidColor ?? 0) >>> 0 : null,
         cutout, blended, material: face.material === null || face.material === undefined ? null : bin.materials[face.material],
+        material2: face.material2 === null || face.material2 === undefined ? null : bin.materials2?.[face.material2] ?? null,
         positions: [], normals: [], uvs: [],
       };
       groups.set(key, g);
@@ -93,6 +94,9 @@ export function decodeModel(bytes, name) {
   const meshes = [...groups.values()].filter((g) => g.positions.length).map((g) => ({
     textureName: g.textureName, color: g.color, cutout: g.cutout, blended: g.blended,
     emissive: !!(g.material && g.material.flags & MRGLMAT.EMISSIVE),
+    // Community Patch 3 materials (MRGL_MATERIAL / MATERIAL2): the record itself, for the renderer to map (track-scene.js).
+    material: g.material ? { ...g.material, tint: g.material.tint ? [...g.material.tint] : null } : null,
+    normalStrength: g.material2 && g.material2.flags2 & 1 ? g.material2.normalStrength : 1,
     positions: new Float32Array(g.positions), normals: new Float32Array(g.normals), uvs: new Float32Array(g.uvs),
   }));
   return {

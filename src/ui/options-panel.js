@@ -1,5 +1,5 @@
 /* Shared contents of the Options screen and the Options modal opened from every menu screen. */
-import { classicUiAllowed } from "../install/exe-version.js";
+import { buildKind, defaultSkin } from "../install/exe-version.js";
 import { el } from "./dom.js";
 import { clearSettings, saveSettings } from "../app/settings.js";
 import { loadStrings } from "../app/strings-store.js";
@@ -70,9 +70,11 @@ export async function mountOptionsPanel(container, context, { close = () => {} }
   const wording = row("Wording", el("select", { "aria-label": "Wording" },
     el("option", { value: "", selected: !settings.wording }, "Standard"),
     ...locFiles.map(({ path }) => el("option", { value: path, selected: path === settings.wording }, locName(path)))));
-  const menus = classicUiAllowed(context.exeVersion)
-    ? choose("Menus", "skin", ["Classic (game art)", "Modern"], ["classic", "modern"])
-    : row("Menus", el("span", { class: "opt-fixed" }, "Modern"), `MONSTER.EXE ${context.exeVersion ?? "(not found)"}: the classic menus fit only 2.00.41 and 2.00.42.`);
+  const kind = { retail: "retail", beta: "beta", patch: "community patch", unknown: "build not read" }[buildKind(context.exeVersion)];
+  const menus = row("Menus", el("select", { "aria-label": "Menus", onchange: (event) => { settings.skin = event.target.value; save(); } },
+    ...[["auto", `Automatic (${defaultSkin(context.exeVersion) === "classic" ? "classic" : "modern"})`], ["classic", "Classic (game art)"], ["modern", "Modern"]]
+      .map(([value, text]) => el("option", { value, selected: (settings.skin ?? "auto") === value }, text))),
+    `MONSTER.EXE ${context.exeVersion ?? "(not found)"}, ${kind}.`);
   const button = (label, onclick, cls = null) => el("button", { class: cls, "data-menu-sound": "STARTOFF", onclick }, label);
 
   const sections = [

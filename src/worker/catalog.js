@@ -34,10 +34,20 @@ export function defaultLaps(raceType, trackLength) {
 export async function buildCatalog(vfs) {
   const problems = [];
   const tracks = [];
-  for (const { path, mount } of vfs.list(".SIT")) {
+  // Community Patch 3 writes a track that needs its engine as `.SI2`, which a 1998 install never lists; when a track is
+  // there in both spellings the `.SI2` is the one its author meant for this engine.
+  const situations = [...vfs.list(".SI2"), ...vfs.list(".SIT")];
+  const seenStems = new Set();
+  for (const { path, mount } of situations) {
+    const stem = podPathTitle(path).replace(/\.SI[T2]$/i, "");
+    if (seenStems.has(stem)) continue;
+    seenStems.add(stem);
     try {
       const sit = parseMtmSit(await vfs.read(path), podPathTitle(path));
-      if (sit.origin !== "MTM2") continue;
+      // MTM2 tracks, and the MTM1 ones a Community Patch 3 install carries (its GAME.POD): the game loads both (level type 4).
+      if (sit.origin !== "MTM2" && sit.origin !== "MTM1") continue;
+      // A situation without its level cannot be driven (MTM1's HILLCLIM.SIT ships with no HILLCLIM.LVL).
+      if (sit.lvlName && !vfs.find(`LEVELS\\${podPathTitle(sit.lvlName)}`)) { problems.push(`${path}: its level ${sit.lvlName} is missing`); continue; }
       const file = podPathTitle(path);
       tracks.push({
         path,

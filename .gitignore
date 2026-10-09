@@ -159,3 +159,6 @@ __pycache__/
 
 # The reverse engineering workspace as an archive, never published
 /re.zip
+
+# Local knowledge graph
+/graphify-out/

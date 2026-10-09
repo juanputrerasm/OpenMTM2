@@ -7,7 +7,7 @@
   plain data with typed arrays, listed by `transferablesOf` for postMessage.
 */
 import { weatherSkyStem } from "../game/weather.js";
-import { decodeActPalette, decodeRawTexture, mtm2Sim, podPathTitle, rawTextureSide } from "../vendor/openphotex/index.js";
+import { BOX_LIGHT, BOX_MOVING, decodeActPalette, decodeRawTexture, mtm2Sim, podPathTitle, rawTextureSide } from "../vendor/openphotex/index.js";
 import { toSceneMatrix } from "../shared/scene-frame.js";
 import { loadLevel, loadTextureSource } from "./level-load.js";
 import { buildTerrainAtlas, buildTerrainMesh, decodeTerrainTextures } from "./terrain-mesh.js";
@@ -16,6 +16,10 @@ import { resolveKeyframeModel } from "./keyframes.js";
 import { buildGroundBoxMesh } from "./ground-box-mesh.js";
 import { buildTruckRender } from "./truck-build.js";
 import { loadVehicleModels } from "./vehicle-models.js";
+import { artStem, loadAoMap, loadArtTexture, loadNormalMap, shrinkImage } from "./art-texture.js";
+
+/** The largest side an HD terrain tile keeps in the atlas. */
+const TERRAIN_HD_SIDE = 256;
 import { createPaletteResolver } from "./palette-resolver.js";
 
 const RAMP_TYPE = 99;
@@ -45,7 +49,13 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   const palettes = createPaletteResolver(vfs, "MTM2", level.palette);
 
   const sources = await Promise.all(level.textureNames.map((n) => loadTextureSource(vfs, n, palettes, "terrain")));
-  const atlas = buildTerrainAtlas(decodeTerrainTextures(sources));
+  const legacy = decodeTerrainTextures(sources);
+  // CP3's HD ground art (ART\<stem>.PNG or .TGA) replaces a tile, scaled to TERRAIN_HD_SIDE so the atlas stays in reach.
+  const decodedTerrain = await Promise.all(level.textureNames.map(async (n, i) => {
+    const hd = await loadArtTexture(vfs, n, null, { hdOnly: true, kind: "terrain" });
+    return hd ? shrinkImage(hd, TERRAIN_HD_SIDE) : legacy[i];
+  }));
+  const atlas = buildTerrainAtlas(decodedTerrain);
   // In a stadium the game draws only the cells inside its footprint (MONSTER.EXE 0x4f9ff0):
   // [x - sx/2, x + sx/2) by [z - sz/2, z + sz/2).
   const arena = sit.arena?.modelName ? sit.arena : null;
@@ -103,7 +113,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     collisionBoxes.push({
       positionFt: box.positionFt, theta: box.theta, phi: box.phi, psi: box.psi, sizeFt: box.sizeFt,
       mass: box.mass, type: box.type, priority: box.priority ?? 0, bounds: name ? boundsOf[name] : null, sitIndex,
-      bvel: box.type === 10 && box.bvel ? [...box.bvel] : null,
+      // Type 10 trains and Community Patch 3's type 13 movers travel along their bvel.
+      bvel: (box.type === 10 || box.type === BOX_MOVING) && box.bvel ? [...box.bvel] : null,
       hitSound: box.hitSound ?? null, modelName: name,
     });
   }
@@ -113,7 +124,21 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   const soundObjects = [];
   for (const [sitIndex, box] of sit.boxes.entries()) {
     if (!box.loopSound || !box.positionFt) continue;
-    soundObjects.push({ sitIndex, positionFt: box.positionFt, sound: box.loopSound, moving: box.type === 10, model: box.modelName ? podPathTitle(box.modelName) : "" });
+    soundObjects.push({ sitIndex, positionFt: box.positionFt, sound: box.loopSound, moving: box.type === 10 || box.type === BOX_MOVING, train: box.type === 10, model: box.modelName ? podPathTitle(box.modelName) : "" });
+  }
+
+  // Community Patch 3 lights (box type 12, ENGINE_LIMITS.md): the lamp head `hgt` above the box's origin, and the lit pool
+  // `aimOff` along the box's horizontal facing, unnormalised (m3, m9 of its matrix), as the engine places it.
+  const trackLights = [];
+  for (const [sitIndex, box] of sit.boxes.entries()) {
+    if (box.type !== BOX_LIGHT || !box.light || !box.positionFt) continue;
+    const m = mtm2Sim.eulerToMatrix(box.theta, box.phi, box.psi, new Array(9));
+    const [x, y, z] = box.positionFt;
+    const l = box.light;
+    trackLights.push({
+      sitIndex, head: [x, y + l.hgt, z], pool: [x + l.aimOff * m[2], z + l.aimOff * m[8]], facing: [m[2], m[5], m[8]],
+      rad: l.rad, color: l.color, glow: l.glow, glowRad: l.glowRad, coneLen: l.coneLen, coneRim: l.coneRim, coneBase: l.coneBase, bright: l.bright,
+    });
   }
 
   // Checkpoint models, for their extents (they are not collision boxes).
@@ -159,12 +184,15 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     }
   }
   const modelTextures = {};
+  // By stem, HD art first (worker/art-texture.js); a normal map rides along as `<stem>_N`.
   for (const [name, cutout] of textureUse) {
-    const source = await loadTextureSource(vfs, name, palettes, "model");
-    if (!source || !rawTextureSide(source.raw.length)) continue;
     try {
-      const image = decodeRawTexture(source.raw, source.palette, { cutout });
-      modelTextures[name] = { width: image.width, height: image.height, rgba: image.rgba };
+      const image = await loadArtTexture(vfs, name, palettes, { cutout });
+      if (image) modelTextures[name] = image;
+      const normal = await loadNormalMap(vfs, name);
+      if (normal) modelTextures[`${artStem(name)}_N`] = normal;
+      const ao = await loadAoMap(vfs, name);
+      if (ao) modelTextures[`${artStem(name)}_AO`] = ao;
     } catch { /* an undecodable texture draws as the mesh colour */ }
   }
 
@@ -216,7 +244,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     /** The LVL's sun direction (16.16, game frame), or null. */
     sunVector: level.lvl.sunVector,
     models,
-    soundObjects,
+    soundObjects, trackLights,
     modelTextures,
     objects,
     blimp, heli,
@@ -240,10 +268,12 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       boxes: collisionBoxes,
       ramps,
       /** The primary course's straights (MTM2_PHYSICS.md 12); the session builds the arcs. */
-      course: (sit.primaryCourse?.segments ?? []).map((g) => ({
-        startFt: g.startFt, endFt: g.endFt, ctype: g.ctype, cspeedType: g.cspeedType, cdecPoint: g.cdecPoint,
-        cspeed: g.cspeed, speedLimit: g.speedLimit, trackWidthFt: g.trackWidthFt,
-      })),
+      course: courseOf(sit.primaryCourse),
+      /**
+       * Course 2, the SIT's first extended course, or null: on Professional the game puts every truck on it when it has
+       * segments (0x552c.., and again when a truck strays, 0x486630), else on course 1 (MONSTER_EXE_ANALYSIS.md 9).
+       */
+      proCourse: sit.extendedCourses?.[0]?.segments?.length ? courseOf(sit.extendedCourses[0]) : null,
       sonicTrack: !!sit.sonicTrack,
       /** The start grid in file order (game feet), each with its truck file. */
       grid: sit.trucks.filter((t) => !t.playerSlot && t.positionFt).map((t) => ({
@@ -283,6 +313,15 @@ export async function loadSky(vfs, level, weather = 0) {
   if (level.lvl.levelType === OLD_MTM_LEVEL) stem = OLD_MTM_SKY;
   stem = weatherSkyStem(weather, stem);
   if (!stem || !level.palette) return null;
+  // Community Patch 3 HD sky art (AUTHORING_HD_ART.md §4): ART\<stem>.PNG or .TGA wins; Cloudy greys it, as the engine does.
+  const hd = await loadArtTexture(vfs, `${stem}.PNG`, null, { hdOnly: true });
+  if (hd) {
+    if (weather === 1) for (let i = 0; i < hd.rgba.length; i += 4) {
+      const grey = Math.trunc((hd.rgba[i] + hd.rgba[i + 1] + hd.rgba[i + 2]) / 3);
+      hd.rgba[i] = hd.rgba[i + 1] = hd.rgba[i + 2] = grey;
+    }
+    return { name: stem, ...hd };
+  }
   let raw = await vfs.read(`ART\\${stem}.RAW`);
   let act = await vfs.read(`ART\\${stem}.ACT`);
   if (!raw || !act) {
@@ -302,6 +341,14 @@ export async function loadSky(vfs, level, weather = 0) {
   }
   const image = decodeRawTexture(raw, palette);
   return { name: stem, width: image.width, height: image.height, rgba: image.rgba };
+}
+
+/** A SIT course's straights as the session takes them (MTM2_PHYSICS.md 12; the session builds the arcs). */
+function courseOf(course) {
+  return (course?.segments ?? []).map((g) => ({
+    startFt: g.startFt, endFt: g.endFt, ctype: g.ctype, cspeedType: g.cspeedType, cdecPoint: g.cdecPoint,
+    cspeed: g.cspeed, speedLimit: g.speedLimit, trackWidthFt: g.trackWidthFt,
+  }));
 }
 
 /** Every ArrayBuffer in a build result, for postMessage's transfer list. */

@@ -11,6 +11,7 @@ import { mtm2Sim } from "../vendor/openphotex/index.js";
 import { BAR_HALF_WIDTH_FT, SHOCK_HALF_WIDTH_FT, ribbonCorners, suspensionParts } from "../game/suspension.js";
 import { BRAKE_ON, beamShows, blinkOn, lampHeading, lightIntensity } from "../game/truck-lights.js";
 import { createModelLibrary, dataTexture } from "./track-scene.js";
+import { BEAM_AXIS, BEAM_INTENSITY, beamGeometry, beamMaterial } from "./light-beam.js";
 
 function meshesOf(library, model) {
   const group = new THREE.Group();
@@ -37,10 +38,11 @@ export function createTruckObject(truck, hubs, look) {
     return { mesh, original };
   });
 
-  const tires = hubs.map((hub) => {
+  const corners = ["tireFR", "tireFL", "tireRR", "tireRL"];
+  const tires = hubs.map((hub, index) => {
     const pivot = new THREE.Group();   // at the hub: travel, articulation, steering
     const spin = new THREE.Group();    // the wheel's roll
-    spin.add(meshesOf(library, hub[0] < 0 ? truck.parts.tireLeft : truck.parts.tireRight));
+    spin.add(meshesOf(library, truck.parts[corners[index]] ?? (hub[0] < 0 ? truck.parts.tireLeft : truck.parts.tireRight)));
     pivot.add(spin);
     root.add(pivot);
     return { pivot, spin, hub };
@@ -221,46 +223,9 @@ export function interpolatePose(a, b, alpha) {
   - a beam is an open cone of 24 sides, its fuzz texture repeated around and along it, brightest at the lamp and fading to
     nothing at the rim and toward its edges as seen, so it reads as light in the air rather than a solid cone.
 */
-const BEAM_INTENSITY = 0.14, BEAM_SIDES = 24, BEAM_TEXTURE_FEET = 12, BEAM_TEXTURE_AROUND = 2;
-const BEAM_AXIS = new THREE.Vector3(0, 0, 1);
-
-const BEAM_VERTEX_SHADER = /* glsl */ `
-  varying vec2 vUv;
-  varying float vFacing;
-  void main() {
-    vUv = uv;
-    vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
-    vec3 viewNormal = normalize(normalMatrix * normal);
-    vFacing = abs(dot(viewNormal, normalize(-viewPosition.xyz)));
-    gl_Position = projectionMatrix * viewPosition;
-  }
-`;
-const BEAM_FRAGMENT_SHADER = /* glsl */ `
-  uniform sampler2D map;
-  uniform vec2 repeat;
-  uniform float intensity;
-  varying vec2 vUv;
-  varying float vFacing;
-  void main() {
-    vec3 fuzz = texture2D(map, vUv * repeat).rgb;
-    float along = pow(1.0 - vUv.y, 2.2);
-    float edge = pow(vFacing, 1.5);
-    gl_FragColor = vec4(fuzz * intensity * along * edge, 1.0);
-    #include <colorspace_fragment>
-  }
-`;
-
 /** A lamp's direction in the body's game axes: heading about the vertical, pitch up from the horizon. */
 function lampDirection(heading, pitch, out) {
   return out.set(Math.sin(heading) * Math.cos(pitch), Math.sin(pitch), Math.cos(heading) * Math.cos(pitch));
-}
-
-/** An open cone from the lamp (`base` radius) to the rim (`rim` radius at `length`), laid along +z from the origin. */
-function beamGeometry(length, base, rim) {
-  const geometry = new THREE.CylinderGeometry(Math.max(rim, 0.01), Math.max(base, 0.01), length, BEAM_SIDES, 1, true);
-  geometry.translate(0, length / 2, 0);
-  geometry.rotateX(Math.PI / 2);
-  return geometry;
 }
 
 const smoothstep = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -292,15 +257,7 @@ function createLamps(truck, look) {
     }
     const fuzz = light.coneLength > 0 ? texture(light.coneTexture, true) : null;
     if (fuzz) {
-      beam = new THREE.Mesh(beamGeometry(light.coneLength, light.coneBase, light.coneRim), new THREE.ShaderMaterial({
-        uniforms: {
-          map: { value: fuzz },
-          repeat: { value: new THREE.Vector2(BEAM_TEXTURE_AROUND, Math.max(1, light.coneLength / BEAM_TEXTURE_FEET)) },
-          intensity: { value: BEAM_INTENSITY },
-        },
-        vertexShader: BEAM_VERTEX_SHADER, fragmentShader: BEAM_FRAGMENT_SHADER,
-        blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, side: THREE.DoubleSide,
-      }));
+      beam = new THREE.Mesh(beamGeometry(light.coneLength, light.coneBase, light.coneRim), beamMaterial(fuzz, light.coneLength));
       beam.position.set(light.pos[0], light.pos[1], -light.pos[2]);
       beam.renderOrder = 1;
       beam.visible = false;

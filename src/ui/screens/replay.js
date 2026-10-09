@@ -20,6 +20,7 @@ import { formatRaceTime } from "../../game/race-setup.js";
 import { createTrackWorld, disposeObject, moveObjects, skyColor, updateTrackWorld } from "../../render/track-scene.js";
 import { createTruckObject } from "../../render/truck-object.js";
 import { toSceneMatrix } from "../../shared/scene-frame.js";
+import { createTrackLights } from "../../render/track-lights.js";
 
 export default async function mount(container, context, { replay }) {
   const t = context.t;
@@ -78,6 +79,8 @@ export default async function mount(container, context, { replay }) {
   });
   const terrain = mtm2Sim.createTerrain(new Uint8Array(build.heights), build.waterLevelFt ?? null);
   const ground = groundHeightFn(terrain);
+  const trackLights = createTrackLights(scene, build.trackLights, ground);
+  if (trackLights) cleanups.push(() => trackLights.dispose());
   const weatherScene = createWeatherScene({ scene, camera, world, sun, ambient: ambientLight, skyAverage: background, look, drawDistance, backdrops: !!context.settings.backdrops, art: effectsArt, onSun: () => {}, onLightning: () => {} });
   weatherScene.set(replay.weather ?? 0);
   cleanups.push(() => weatherScene.dispose());
@@ -263,6 +266,7 @@ export default async function mount(container, context, { replay }) {
     waterSurface?.update(dt, weatherScene.weather);
     const under = isUnderwater(camera.position.y, water ? water.userData.levelFt + water.position.y : null, weatherScene.weather);
     weatherScene.setUnderwater(under);
+    trackLights?.update(camera, !!WEATHER_LOOK[weatherScene.weather]?.headlights);
     weatherScene.update(dt, state.trucks.filter(Boolean).map((p) => ({ x: p.pos[0], y: p.pos[1], z: p.pos[2], heading: p.euler[2] })));
     const sky = world.getObjectByName("sky");
     if (sky) { sky.position.set(camera.position.x, 0, camera.position.z); sky.visible = !under; }

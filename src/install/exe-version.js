@@ -1,10 +1,32 @@
 /*
-  Which MONSTER.EXE the install has. The game's own menu art (the classic skin) is laid out for the retail
-  builds 2.00.41 and 2.00.42; any other build (the community patches among them) gets the modern skin.
+  Which MONSTER.EXE the install has, and what kind of build it is:
+  - retail: 2.00.41 and 2.00.42;
+  - beta: anything before 2.00.41;
+  - community patch: anything after 2.00.42 (Community Patch 3 is 2.0.52.0).
+  The menus start in the classic skin (the game's own art) on a retail or beta build and in the modern one on a community
+  patch; the player can change it either way in Options.
 */
 
-/** The builds the classic skin is made for. */
-export const CLASSIC_VERSIONS = Object.freeze(["2.00.41", "2.00.42"]);
+/** The retail builds. */
+export const RETAIL_VERSIONS = Object.freeze(["2.00.41", "2.00.42"]);
+
+/** Order two "2.00.42" style versions: negative, zero or positive. */
+export function compareVersions(a, b) {
+  const pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+/** "retail", "beta", "patch" (a community patch), or "unknown" when the version could not be read. */
+export function buildKind(version) {
+  if (!version) return "unknown";
+  if (compareVersions(version, "2.00.42") > 0) return "patch";
+  if (compareVersions(version, "2.00.41") < 0) return "beta";
+  return "retail";
+}
 
 /** The version string of a PE file, e.g. "2.00.42", from its version resource; null when it has none. */
 export function readExeVersion(bytes) {
@@ -48,5 +70,8 @@ function indexOf(bytes, pattern, from = 0) {
   return -1;
 }
 
-/** Whether the classic menu art fits this install; false when the build is unknown or not a retail one. */
-export const classicUiAllowed = (version) => CLASSIC_VERSIONS.includes(version);
+/** The skin the menus use by default: classic for retail, beta and unread builds, modern for a community patch. */
+export const defaultSkin = (version) => (buildKind(version) === "patch" ? "modern" : "classic");
+
+/** The skin in force: the player's choice, or the build's default when the choice is "auto". */
+export const resolveSkin = (choice, version) => (choice === "classic" || choice === "modern" ? choice : defaultSkin(version));

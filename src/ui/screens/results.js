@@ -17,7 +17,7 @@ export function winnerCells(row, { summit = false, laps = 1, difficulty = 1, poi
   return [
     ordinal(row.place), row.name, row.truckName, DIFFICULTIES[difficulty] ?? DIFFICULTIES[1],
     summit ? String(Math.round(row.score)) : points === null ? "" : String(points),
-    summit ? formatRaceTime(laps * 60) : (row.finished ? formatRaceTime(row.raceTime) : `${row.laps}/${laps}`),
+    summit ? formatRaceTime(laps * 60) : row.dq ? "DQ" : (row.finished ? formatRaceTime(row.raceTime) : `${row.laps}/${laps}`),
     row.best ? formatRaceTime(row.best) : "",
   ];
 }
@@ -41,7 +41,7 @@ export default async function mount(container, context, { track, laps, difficult
   const pointsOf = new Map(ordered.map((r, i) => [r, summit ? Math.round(r.score) : pointList[i]]));
   // A finished race, or any Rumble, may earn a Hall of Fame place.
   let hallNote = null;
-  if (me && !counted && (summit || (me.finished && me.raceTime > 0))) {
+  if (me && !counted && (summit || (me.finished && !me.dq && me.raceTime > 0))) {
     const hall = await getHall(context);
     const rank = addEntry(hall, {
       name: driver.name, truck: truck ?? "", track: track.file, trackName: track.name, mode, difficulty, laps,

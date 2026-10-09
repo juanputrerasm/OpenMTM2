@@ -8,7 +8,7 @@ import { WEATHER_NAMES, allowedWeathers, resolveWeather } from "../../game/weath
 import { playMenuSound } from "../../audio/menu-sounds.js";
 import { frame, uiImageUrl } from "../frame.js";
 
-const SUPPORTED = new Set(["circuit", "rally", "summit"]);
+const SUPPORTED = new Set(["circuit", "rally", "summit", "drag"]);
 
 export default async function mount(container, context) {
   const { settings } = context;

@@ -34,7 +34,7 @@ export { TUNNEL_LOGIC_NAMES, parseTunnelDefs } from "./tv/tdf.js";
 export { ANIMATION_BASE_FPS, parseAnimations } from "./tv/ani.js";
 export { parseHbBriefing } from "./tv/hb-briefing.js";
 export { CPR_HEIGHT_DIVISOR, CPR_ALTITUDE_DIVISOR, CPR_HEIGHT_UNIT_SCALE, LEGACY_ALTITUDE_DIVISOR, decodeHeightSample, legacyWholeHeight16, heightAtCell, } from "./terrain/height.js";
-export { parseMtmSit, parseMtmLvl, parseTexList, parseTty, detectSitOrigin, sitTrackTypeName, sitWorldTriplet, sitFeetTriplet, } from "./mtm/sit.js";
+export { parseMtmSit, parseMtmLvl, parseTexList, parseTty, detectSitOrigin, sitTrackTypeName, sitWorldTriplet, sitFeetTriplet, BOX_LIGHT, BOX_MOVING, parseSitLight, } from "./mtm/sit.js";
 export { parseTvLvl, detectTvLvlOrigin, isNullAssetName, tvLvlFallbackName } from "./tv/lvl.js";
 export { parseDef, defPlacementToEditor, TR_ANGLE_TO_RAD } from "./tv/def.js";
 export { SKY_PALETTE_FIRST_SLOT, SKY_ACT_FIRST_COLOUR, SKY_GRADIENT_COLOURS, skyGradient, skyHorizon } from "./texture/sky.js";
