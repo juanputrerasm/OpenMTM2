@@ -41,6 +41,7 @@ export { SKY_PALETTE_FIRST_SLOT, SKY_ACT_FIRST_COLOUR, SKY_GRADIENT_COLOURS, sky
 export { decodeClrWord, decodeGroundBoxes } from "./terrain/ground-boxes.js";
 export { HB_UNDERGROUND_BIAS, decodeHbUnderground } from "./terrain/hb-underground.js";
 export { CPR_POINT_NAMES, CPR_SLOT_OFF_TRACK, CPR_SLOT_CURB, CPR_SLOT_ROAD, CPR_SLOT_NAMES, CPR_CROSS_SECTION_MIDPOINT, CPR_SURFACE_TYPES, CPR_WALL_TYPE_NAMES, CPR_TEXTURE_INDEX_MASK, CPR_TEXTURE_SLICE_COUNT, cprTextureIndex, cprTextureSlice, cprTextureU, CPR_WALL_LAYERS, CPR_CATCH_FENCE_NAMES, parseCprTrk, parseCprTtx, isDegenerateSlot, cprTrackIsClosed, cprSegmentPairs, cprVisibleSlots, CPR_COURSE_PURPOSES, CPR_CHECKPOINT_ROLES, cprCheckpointRole, isCprPitCheckpoint, } from "./cpr/track.js";
+export { CPR_WALL_PART_HEIGHT_FT, buildCprRoad } from "./cpr/road.js";
 export { BUNDLED_PALETTE_IDS, bundledPalette } from "./texture/bundled-palettes.js";
 export { BUNDLED_PALETTE_BY_ORIGIN, TEXTURE_SIBLING_DIRS, findTextureSibling, paletteCandidates, textureStem, } from "./texture/palette-rank.js";
 export { EVO_CELL_SIZE, EVO_HEIGHT_DIVISOR, EVO_WATER_HEIGHT_DIVISOR, EVO_GRID_SIZE, EVO_WORLD_SIZE, evoHeightAtCell, evoHeightAt, } from "./evo/coords.js";
@@ -71,4 +72,4 @@ export { parseCockpitLayout, parseCockpitSections } from "./mtm/cockpit.js";
 export * as mtm2Sim from "./sim/mtm2/index.js";
 export { PodFormatError } from "./errors.js";
 /** The library version, as published in package.json. */
-export const VERSION = "1.0.1";
+export const VERSION = "1.0.2";

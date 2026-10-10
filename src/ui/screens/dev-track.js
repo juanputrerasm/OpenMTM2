@@ -14,7 +14,7 @@ export default async function mount(container, context, { track }) {
   container.append(el("section", { class: "dev-view" }, canvas, status, back));
 
   const build = await context.assets.call("trackRender", {
-    path: track.path, detailLevel: context.settings.detailLevel, raceType: track.raceType,
+    path: track.path, scope: track.scope, detailLevel: context.settings.detailLevel, raceType: track.raceType,
   });
   let look = context.settings.look === "enhanced" ? "enhanced" : "classic";
 

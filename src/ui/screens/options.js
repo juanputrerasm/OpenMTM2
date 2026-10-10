@@ -12,12 +12,14 @@ export async function openOptionsModal(context) {
   document.body.append(dialog);
   const close = () => dialog.close();
   const cleanup = await mountOptionsPanel(panel, context, { close });
+  // Escape and a click outside ask about unsaved changes, as the Close button does.
+  dialog.addEventListener("cancel", (event) => { event.preventDefault(); cleanup.requestClose(); });
   dialog.addEventListener("close", () => {
     cleanup();
     dialog.remove();
     if (context.optionsDialog === dialog) context.optionsDialog = null;
   }, { once: true });
-  dialog.addEventListener("click", (event) => { if (event.target === dialog) close(); });
+  dialog.addEventListener("click", (event) => { if (event.target === dialog) cleanup.requestClose(); });
   dialog.showModal();
 }
 

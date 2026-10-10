@@ -26,6 +26,19 @@ async function hdImage(vfs, stem) {
   return null;
 }
 
+/** A PNG or TGA by stem at whatever size it has (a terrain mask is a picture of the level, not a texture), or null. */
+export async function loadPlainImage(vfs, stem) {
+  for (const extension of ["PNG", "TGA"]) {
+    const bytes = await vfs.read(`ART\\${stem}.${extension}`);
+    if (!bytes) continue;
+    try {
+      const image = await decodeTrueColorTexture(bytes, `${stem}.${extension}`, extension);
+      return { width: image.width, height: image.height, rgba: new Uint8ClampedArray(image.rgba), source: extension };
+    } catch { /* not usable: the next source */ }
+  }
+  return null;
+}
+
 /**
  * `{ width, height, rgba, source }` for a texture name, or null. `cutout` keys the legacy art's black out; HD art keeps
  * its own alpha, which the material uses or ignores by the face's rules.

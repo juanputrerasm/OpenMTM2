@@ -37,7 +37,8 @@ function sprite() {
  *   onSun?: (intensity: number) => void, onLightning?: () => void }} env
  */
 export function createWeatherScene(env) {
-  const { scene, camera, world, sun, ambient, skyAverage, look, random = Math.random, drawDistance = 20000 } = env;
+  const { scene, camera, world, sun, ambient, skyAverage, look, random = Math.random } = env;
+  let drawDistance = env.drawDistance ?? 20000;
   const root = new THREE.Group();
   root.name = "weather";
   scene.add(root);
@@ -111,11 +112,12 @@ export function createWeatherScene(env) {
   /** The weather's fog and clear colour, or under water the 320 ft fog in the weather's fog colour (the game fills the screen with it instead of the sky). */
   function applyFog() {
     const w = WEATHER_LOOK[current];
-    const color = new THREE.Color().setRGB(w.fogColor[0] / 255, w.fogColor[1] / 255, w.fogColor[2] / 255, THREE.SRGBColorSpace);
+    const shade = (w.fogShade ?? 1) / 255;
+    const color = new THREE.Color().setRGB(w.fogColor[0] * shade, w.fogColor[1] * shade, w.fogColor[2] * shade, THREE.SRGBColorSpace);
     if (underwater) {
       scene.fog = new THREE.Fog(color, 0, UNDERWATER_FOG_FT);
       scene.background = color;
-    } else if (env.backdrops && current !== 2 && current !== 3) {
+    } else if (env.backdrops && !w.noSky) {
       // With the backdrop drawn the horizon is scenery, not haze: no distance fog (Foggy and Dense Fog keep theirs).
       scene.fog = null;
       scene.background = w.fogEndFt ? color : skyAverage;
@@ -203,9 +205,13 @@ export function createWeatherScene(env) {
   return {
     get weather() { return current; },
     get underwater() { return underwater; },
+    /** Whether the sky is drawn: not under water, nor in the weathers that show fog alone. */
+    get skyShown() { return !underwater && !WEATHER_LOOK[current].noSky; },
     /** The camera went under the water or came up: the fog changes (the sky is hidden by the caller). */
     setUnderwater(on) { if (on !== underwater) { underwater = on; applyFog(); } },
     set, update, lightLevel,
+    /** A new draw distance (feet): the fog follows it. */
+    setDrawDistance(feet) { drawDistance = feet; applyFog(); },
     dispose() {
       scene.remove(root);
       flakeTexture?.dispose();

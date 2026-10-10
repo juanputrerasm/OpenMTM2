@@ -24,8 +24,27 @@ export const CAMERA_MODES = Object.freeze([
   { id: 9, name: "Chase Big Front", dist: 0x1555, pitch: 0x800, offset: 0x8000, zoom: 0x6000 },
 ]);
 
-/** The mode after `mode` going forward (View) or back (Shift + View), wrapping 0 to 9. */
-export const nextMode = (mode, back = false) => (mode + (back ? 9 : 1)) % CAMERA_MODES.length;
+/**
+ * The Inertia view (not the game's; the Z-mode cameras option adds it after the ten): a chase camera from behind whose
+ * distance follows the speed, Chase Near's when slow, Chase Far's at speed and half as far again flat out.
+ */
+export const INERTIA_MODE = Object.freeze({ id: 10, name: "Inertia", dist: 0x1555, pitch: 0x800, offset: 0, zoom: 0xc000, inertia: true });
+/** Feet per second at which the Inertia view sits at Chase Near, at Chase Far, and at its farthest (1.5 x Chase Far). */
+export const INERTIA_SPEEDS_FT = Object.freeze([15, 75, 140]);
+const smooth = (t) => { const c = Math.max(0, Math.min(1, t)); return c * c * (3 - 2 * c); };
+/** The Inertia view's distance in feet and its zoom factor at a speed (feet per second), before easing. */
+export function inertiaView(speedFt) {
+  const [slow, fast, top] = INERTIA_SPEEDS_FT;
+  const near = 0x1555 / 256, far = 0x2aaa / 256;
+  const a = smooth((speedFt - slow) / (fast - slow)), b = smooth((speedFt - fast) / (top - fast));
+  return { dist: near + (far - near) * a + far * 0.5 * b, zoom: (0xc000 + (0x10000 - 0xc000) * a) / 0x10000 };
+}
+
+/** A view by its number: the game's ten, or the Inertia view. */
+export const cameraMode = (id) => CAMERA_MODES[id] ?? (id === INERTIA_MODE.id ? INERTIA_MODE : undefined);
+
+/** The mode after `mode` going forward (View) or back (Shift + View), wrapping 0 to 9 (`count` 11 takes the Inertia view in). */
+export const nextMode = (mode, back = false, count = CAMERA_MODES.length) => (Math.min(mode, count - 1) + (back ? count - 1 : 1)) % count;
 
 /**
  * The view a shortcut key picks: Ctrl (or Alt) with 1 to 9 and 0 picks the ten views in order, 1 the
@@ -44,7 +63,7 @@ export function modeForShortcut(e) {
 export const fovFor = (mode, baseDegrees = 60) => {
   // The cockpit's 3D window is 90 degrees across 640 pixels: 73.7 degrees over the 480 of the screen.
   if (mode === 0) return 73.74;
-  const zoom = (CAMERA_MODES[mode]?.zoom ?? 0x10000) / 0x10000;
+  const zoom = (cameraMode(mode)?.zoom ?? 0x10000) / 0x10000;
   return (2 * Math.atan(Math.tan((baseDegrees * Math.PI) / 360) * zoom) * 180) / Math.PI;
 };
 
@@ -58,12 +77,16 @@ const turnBetween = (from, to) => ((to - from + Math.PI * 3) % (Math.PI * 2)) - 
  * by moving in, as the game does.
  */
 export function createChaseCamera() {
-  let heading = null, lastMode = -1, settle = 0;
+  let heading = null, lastMode = -1, settle = 0, inertia = null;
   return {
-    reset() { heading = null; lastMode = -1; },
-    /** `turn` (radians) swings the camera round the truck and `scale` stretches its distance: the replay's rotate and zoom. */
-    update(mode, pos, yaw, height, dt, { turn = 0, scale = 1 } = {}) {
-      const m = CAMERA_MODES[mode];
+    reset() { heading = null; lastMode = -1; inertia = null; },
+    /**
+     * `turn` (radians) swings the camera round the truck and `scale` stretches its distance: the replay's rotate and zoom,
+     * and Z mode's orbit. `speedFt` is the truck's speed, which the Inertia view's distance follows; that view's result
+     * carries its `zoom` factor too.
+     */
+    update(mode, pos, yaw, height, dt, { turn = 0, scale = 1, speedFt = 0 } = {}) {
+      const m = cameraMode(mode);
       if (!m?.dist) throw new RangeError(`camera mode ${mode} is not a chase view`);
       // Choosing a view arms a two second timer (0x52b780); nothing else is blended: the distance, pitch
       // and zoom change at once and only the heading, which follows the truck's, takes time.
@@ -81,7 +104,18 @@ export function createChaseCamera() {
         // The others follow the truck's heading by 4 per second of the remaining difference, always.
         heading += turnBetween(heading, wanted) * Math.min(1, 4 * dt);
       }
-      const dist = (m.dist / 256) * scale, pitch = ANGLE(m.pitch);
+      let dist = (m.dist / 256) * scale, zoom = null;
+      if (m.inertia) {
+        // Eased, about a second to settle: the camera drifts out as the truck gathers speed and back in as it slows.
+        const want = inertiaView(speedFt);
+        if (!inertia) inertia = { ...want };
+        const k = Math.min(1, 1.5 * dt);
+        inertia.dist += (want.dist - inertia.dist) * k;
+        inertia.zoom += (want.zoom - inertia.zoom) * k;
+        dist = inertia.dist * scale;
+        zoom = inertia.zoom;
+      }
+      const pitch = ANGLE(m.pitch);
       const at = (t, p) => [pos[0] - Math.sin(heading) * Math.cos(p) * t, pos[1] + Math.sin(p) * t, pos[2] - Math.cos(heading) * Math.cos(p) * t];
       // Tilt up in 0x200 steps (at most 0x3fff) until the camera at full distance is over the ground.
       let tilt = pitch;
@@ -96,7 +130,7 @@ export function createChaseCamera() {
         const c = at((dist * i) / 32, tilt);
         if (c[1] < height(c[0], c[2])) { t = (dist * (i - 1)) / 32; break; }
       }
-      return { position: at(t, tilt), target: [...pos] };
+      return zoom === null ? { position: at(t, tilt), target: [...pos] } : { position: at(t, tilt), target: [...pos], zoom };
     },
   };
 }

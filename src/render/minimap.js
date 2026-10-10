@@ -31,10 +31,13 @@ export function courseLoop(course) {
 const unit = (x, z) => { const l = Math.hypot(x, z); return l ? [x / l, z / l] : [0, 0]; };
 
 /** Each point's offset vector (length `MAP_HALF_WIDTH_FT`): the bisector of the two edges, or the path's normal when they are almost in line, always on the same side of the path. */
-export function edgeOffsets(points, half = MAP_HALF_WIDTH_FT) {
+export function edgeOffsets(points, half = MAP_HALF_WIDTH_FT, open = false) {
   const n = points.length;
   return points.map((p, i) => {
-    const prev = points[(i + n - 1) % n], next = points[(i + 1) % n];
+    let prev = points[(i + n - 1) % n], next = points[(i + 1) % n];
+    // A one-way course has two ends, which carry on straight: the missing neighbour is the other one mirrored.
+    if (open && i === 0) prev = [2 * p[0] - next[0], 2 * p[1] - next[1]];
+    if (open && i === n - 1) next = [2 * p[0] - prev[0], 2 * p[1] - prev[1]];
     const a = unit(prev[0] - p[0], prev[1] - p[1]), b = unit(next[0] - p[0], next[1] - p[1]);
     const dot = a[0] * b[0] + a[1] * b[1];
     let v = unit(a[0] + b[0], a[1] + b[1]);
@@ -61,13 +64,14 @@ export function toMapFrame(x, z, px, pz, psi) {
   return [dx * c - dz * s, dx * s + dz * c];
 }
 
-export function createCourseMap(course, { font = null } = {}) {
+/** `open`: a one-way course (a rally from A to B) is drawn with its start and its end closed off, not joined. */
+export function createCourseMap(course, { font = null, open = false } = {}) {
   const canvas = document.createElement("canvas");
   canvas.className = "race-minimap";
   canvas.hidden = true;
   const ctx = canvas.getContext("2d");
   const loop = courseLoop(course);
-  const offsets = loop.length > 2 ? edgeOffsets(loop) : [];
+  const offsets = loop.length > 2 ? edgeOffsets(loop, MAP_HALF_WIDTH_FT, open) : [];
   let shown = false, blink = 0;
 
   function fit() {
@@ -102,8 +106,18 @@ export function createCourseMap(course, { font = null } = {}) {
             const [x, y] = px(p[0] + sign * offsets[i][0], p[1] + sign * offsets[i][1]);
             if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
           });
-          ctx.closePath();
+          if (!open) ctx.closePath();
           ctx.stroke();
+        }
+        if (open) {
+          // The start and the finish: a line across the road at each end.
+          for (const i of [0, loop.length - 1]) {
+            const a = px(loop[i][0] + offsets[i][0], loop[i][1] + offsets[i][1]), b = px(loop[i][0] - offsets[i][0], loop[i][1] - offsets[i][1]);
+            ctx.beginPath();
+            ctx.moveTo(a[0], a[1]);
+            ctx.lineTo(b[0], b[1]);
+            ctx.stroke();
+          }
         }
       }
       // The plus pulses between two greys, as the game cycles a palette ramp (0x4e1b30).

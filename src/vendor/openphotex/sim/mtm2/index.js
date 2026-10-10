@@ -10,6 +10,7 @@ export * from "./world/surface.js";
 export * from "./world/water.js";
 export * from "./world/course.js";
 export * from "./world/ground.js";
+export * from "./world/road.js";
 export { CHECKPOINT_TYPE, DETECTOR_WIDTH_SCALE, DETECTOR_HEIGHT_SCALE, SPHERE_PRETEST_FACTOR, buildCheckpoints, withinCheckpointReach, speedThroughCheckpoint, checkpointCrossingTime, pointInCheckpointBox, } from "./world/checkpoints.js";
 export * from "./truck/params.js";
 export * from "./truck/state.js";

@@ -70,3 +70,28 @@ export async function inspectSource(source) {
     warnings,
   };
 }
+
+/**
+ * Another game's folder (CART Precision Racing, 4x4 Evolution 1 or 2, or more of MTM), added beside
+ * the install: the archives its POD.INI lists that are present. Without a POD.INI there is nothing
+ * to go by; single archives go through the POD manager.
+ * @param {{ name?: string, getFile(path: string): Promise<File|null> }} source
+ * @returns {Promise<{ ok: boolean, message: string, label?: string, files?: { name: string, file: File }[], missing?: string[] }>}
+ */
+export async function inspectGameFolder(source) {
+  const iniFile = (await source.getFile("POD.INI")) ?? (await source.getFile("SYSTEM/POD.INI"));
+  if (!iniFile) {
+    return { ok: false, message: "This folder has no POD.INI, which lists the game's archives. "
+      + "To add single POD files, use the POD manager." };
+  }
+  const ini = parsePodIni(await iniFile.text());
+  const files = [];
+  const missing = [];
+  for (const path of ini.paths) {
+    const found = await findArchive(source, path);
+    if (found) files.push({ name: installPathKey(found.path), file: found.file });
+    else missing.push(path);
+  }
+  if (files.length === 0) return { ok: false, message: "None of the archives POD.INI lists are in this folder." };
+  return { ok: true, message: "", label: source.name || "Game", files, missing };
+}

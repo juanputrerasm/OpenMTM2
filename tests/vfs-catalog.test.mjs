@@ -41,6 +41,16 @@ test("the stock catalog has 15 MTM2 tracks, 2 of them hidden", { skip: skipWitho
   assert.deepEqual(counts, { circuit: 8, rally: 4, summit: 3 });
 });
 
+test("the track list keeps POD.INI's order, not the names'", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const vfs = stockVfs();
+  const { tracks } = await buildCatalog(vfs);
+  const mountOf = (t) => vfs.mounts.findIndex((m) => m.name.toUpperCase() === t.pod.toUpperCase());
+  const order = tracks.map(mountOf);
+  assert.deepEqual(order, [...order].sort((a, b) => a - b));
+  // TPARK.POD is mounted before ALASKA.POD, though "Farm Road 29" sorts after "Breakneck Ridge".
+  assert.equal(tracks[0].file, "TPARK.SIT");
+});
+
 test("the stock catalog lists the 20 trucks; retail ships no CHUCK.TRK", { skip: skipWithoutStock("POD.INI") }, async () => {
   const { trucks, problems } = await buildCatalog(stockVfs());
   assert.deepEqual(problems, []);

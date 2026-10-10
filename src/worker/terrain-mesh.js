@@ -39,9 +39,10 @@ export function decodeTerrainTextures(sources) {
  * Pack one tile per texture slot, so a slot index maps straight to a tile. Tiles get a
  * clamped 2-pixel skirt so linear filtering never reads a neighbour.
  */
-export function buildTerrainAtlas(decoded) {
-  let side = 64;
-  for (const image of decoded) if (image && image.width > side) side = image.width;
+export function buildTerrainAtlas(decoded, forcedSide = 0) {
+  // `forcedSide` lays a second atlas (the tiles' normal maps) out exactly as the first.
+  let side = forcedSide || 64;
+  if (!forcedSide) for (const image of decoded) if (image && image.width > side) side = image.width;
   const slots = Math.max(1, decoded.length);
   let tile = side + ATLAS_PADDING * 2;
   let cols = Math.max(1, Math.min(slots, Math.floor(MAX_ATLAS_SIDE / tile)));
@@ -84,7 +85,7 @@ export function buildTerrainAtlas(decoded) {
  * The terrain mesh. `heights` is the level .RAW, `clr` its 16-bit colour grid, `lte` the
  * lighting map or null, `atlas` from buildTerrainAtlas.
  */
-export function buildTerrainMesh({ heights, clr, lte, atlas, footprint = null }) {
+export function buildTerrainMesh({ heights, heightsFt = null, clr, lte, atlas, footprint = null, tileInset = 2 }) {
   const cells = GRID * GRID;
   const positions = new Float32Array(cells * 4 * 3);
   const normals = new Float32Array(cells * 4 * 3);
@@ -93,7 +94,10 @@ export function buildTerrainMesh({ heights, clr, lte, atlas, footprint = null })
   const indices = new Uint32Array(cells * 6);
   const hasLte = lte && lte.length >= cells * LTE_BYTES_PER_POINT;
 
-  const h = (row, col) => heights[(row & 255) * GRID + (col & 255)] * STEP_FT;
+  // `heightsFt` (corner heights in feet) stands in for the byte heightfield on levels that are finer than 2 ft steps.
+  const h = heightsFt
+    ? (row, col) => heightsFt[(row & 255) * GRID + (col & 255)]
+    : (row, col) => heights[(row & 255) * GRID + (col & 255)] * STEP_FT;
   // Smooth normal at a grid corner, by central differences, in scene axes (z mirrored).
   const cornerNormal = (row, col, out, o) => {
     const dx = (h(row, col + 1) - h(row, col - 1)) / (2 * CELL_FT);
@@ -125,7 +129,8 @@ export function buildTerrainMesh({ heights, clr, lte, atlas, footprint = null })
       const [rx, ry, rw, rh] = atlas.rects[slot];
       // MTM2 overlaps neighbouring terrain tiles by cropping two legacy pixels at each edge.
       // The atlas skirt outside this rectangle remains available to linear filtering.
-      const inset = Math.min(2, Math.max(0, (Math.min(rw, rh) - 1) / 2));
+      // (`tileInset`: 4x4 Evolution cuts its tiles from one painted map with no border ring, and crops nothing.)
+      const inset = Math.min(tileInset, Math.max(0, (Math.min(rw, rh) - 1) / 2));
       const u0 = (rx + inset) / atlas.width, u1 = (rx + rw - inset) / atlas.width;
       const t0 = (ry + inset) / atlas.height, t1 = (ry + rh - inset) / atlas.height;
       const cu = [u0, u1, u1, u0], cv = [t1, t1, t0, t0];

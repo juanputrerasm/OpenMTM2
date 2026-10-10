@@ -8,6 +8,7 @@
 import * as THREE from "three";
 import { toSceneMatrix } from "../shared/scene-frame.js";
 import { mtm2Sim } from "../vendor/openphotex/index.js";
+import { smoothNormals } from "../shared/smooth-normals.js";
 import { BAR_HALF_WIDTH_FT, SHOCK_HALF_WIDTH_FT, ribbonCorners, suspensionParts } from "../game/suspension.js";
 import { BRAKE_ON, beamShows, blinkOn, lampHeading, lightIntensity } from "../game/truck-lights.js";
 import { createModelLibrary, dataTexture } from "./track-scene.js";
@@ -34,9 +35,18 @@ export function createTruckObject(truck, hubs, look) {
   // The body's vertices are copied so that damage can move them (and repair put them back).
   const bodyMeshes = bodyGroup.children.map((mesh) => {
     const original = Float32Array.from(mesh.geometry.getAttribute("position").array);
+    const originalNormals = Float32Array.from(mesh.geometry.getAttribute("normal").array);
     mesh.geometry.setAttribute("position", new THREE.BufferAttribute(Float32Array.from(original), 3));
-    return { mesh, original };
+    mesh.geometry.setAttribute("normal", new THREE.BufferAttribute(Float32Array.from(originalNormals), 3));
+    return { mesh, original, originalNormals };
   });
+  // After a dent the body's normals are smoothed again as a whole, as the worker did (shared/smooth-normals.js).
+  const smoothBody = () => {
+    smoothNormals(bodyMeshes.map(({ mesh }) => ({
+      positions: mesh.geometry.getAttribute("position").array, normals: mesh.geometry.getAttribute("normal").array,
+    })));
+    for (const { mesh } of bodyMeshes) mesh.geometry.getAttribute("normal").needsUpdate = true;
+  };
 
   const corners = ["tireFR", "tireFL", "tireRR", "tireRL"];
   const tires = hubs.map((hub, index) => {
@@ -99,18 +109,20 @@ export function createTruckObject(truck, hubs, look) {
         if (!count) continue;
         moved += count;
         attribute.needsUpdate = true;
-        mesh.geometry.computeVertexNormals();
         mesh.geometry.computeBoundingSphere();
       }
+      if (moved) smoothBody();
       return moved;
     },
     /** Put every vertex back: the damage is repaired. */
     repair() {
-      for (const { mesh, original } of bodyMeshes) {
+      for (const { mesh, original, originalNormals } of bodyMeshes) {
         const attribute = mesh.geometry.getAttribute("position");
         attribute.array.set(original);
         attribute.needsUpdate = true;
-        mesh.geometry.computeVertexNormals();
+        const normal = mesh.geometry.getAttribute("normal");
+        normal.array.set(originalNormals);
+        normal.needsUpdate = true;
         mesh.geometry.computeBoundingSphere();
       }
     },

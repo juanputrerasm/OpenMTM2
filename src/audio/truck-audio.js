@@ -10,12 +10,16 @@ const ENGINE_LOOPS = [["idle", "STARTIDL"], ["mid", "M1-2-M2"], ["accel", "ACCEL
 /** Trucks farther than this from the listener get no skid voice, and their one-shots are skipped, feet. */
 const AUDIBLE_FT = 900;
 
+/** How long a hull impact's level lingers as the bar the next knock must clear (it falls to a third in this time). */
+const IMPACT_FADE_S = 2;
+
 export function createTruckAudio(audio, { count, player = 0, random = Math.random, kookyHorn = false, onHit = () => {} }) {
   const pick = (n) => 1 + Math.floor(random() * n);
   const trucks = Array.from({ length: count }, () => ({
     engine: null, heli: null, skid: null, skidName: null, gear: null, impactBusy: false, cooldown: 0, started: false,
   }));
   let disposed = false, lastHorn = -1;
+  audio.preload?.(["SUSPEN1", "SUSPEN3", "SUSPEN5", "SUSPEN6", "2NDGEAR", "3RDGEAR", "SPLASH", "SPLASH1", "YEEHAW", "HUEY", "TERADCY1", "TERADCY2"]);
 
   function startEngine(t, i, pose) {
     t.started = true;
@@ -94,7 +98,8 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
 
       // Well up in the air with all four wheels off the ground, a truck may honk or whoop.
       t.airTime = s.airborne === 4 && !s.heli && s.clearance > 16 ? (t.airTime ?? 0) + dt : 0;
-      if (near && t.airTime > 0.4 && t.cooldown === 0 && random() < dt * 0.5) {
+      // Only the computer trucks: the player's horn and YeeHaw are the player's own keys.
+      if (i !== player && near && t.airTime > 0.4 && t.cooldown === 0 && random() < dt * 0.5) {
         if (random() < 0.5) horn(i, pos); else yeehaw(i, pos);
         t.cooldown = 6;
       }
@@ -127,10 +132,12 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
         // The game starts a hull impact's sound only when the truck's last one has finished.
         // A new knock, not a truck lying on its hull: the game starts the sound whenever the last one has ended, so a rolled truck
         // resting on its roof crunched on to the end of the race. Here an impact must stand well above the level the truck has been
-        // in contact at lately (`impactRef`, which a lasting contact catches up with), and be 1.2 s after the truck's last.
+        // in contact at lately (`impactRef`), and be 1.2 s after the truck's last.
         t.impactGap = Math.max(0, (t.impactGap ?? 0) - dt);
         const knock = s.impact >= 900 && s.impact > (t.impactRef ?? 0) * 1.6 + 500;
-        t.impactRef = (t.impactRef ?? 0) + (s.impact - (t.impactRef ?? 0)) * Math.min(1, dt * 1.5);
+        // The level is the recent peak, fading over a couple of seconds: after a crash the hull's scraping and
+        // bouncing, far weaker than the hit but uneven, does not knock again and again.
+        t.impactRef = Math.max(s.impact, (t.impactRef ?? 0) * Math.exp(-dt / IMPACT_FADE_S));
         const impact = knock ? impactSound(s.impact, !!damaged[i], pick) : null;
         if (impact && !t.impactBusy && t.impactGap === 0) {
           t.impactBusy = true;

@@ -10,7 +10,7 @@
   be read the screen falls back to the modern skin.
 */
 import { el } from "./dom.js";
-import { goRace } from "../app/flow.js";
+import { goRace, goDemo } from "../app/flow.js";
 import { resolveSkin } from "../install/exe-version.js";
 
 /** Baked button rectangles [x, y, w, h] on the 640 x 480 art. */
@@ -25,8 +25,8 @@ const BUTTONS = {
 const BARS = {
   main: [["driver", "Driver Check-in", "drivers"], ["races", "Races", "races"], ["garage", "Garage", "garage"], ["multi", "Multiplayer", null], ["go", "GO", "go"]],
   hall: [["continue", "Continue", "back"]],
-  results: [["hall", "Hall of Fame", "hall"], ["replay", "Instant Replay", "replay"], ["continue", "Continue", "start"]],
-  start: [["startWeb", "Web Page", "web"], ["startDemo", "Monster Demo", null], ["startManual", "Monster Manual", null], ["startDriver", "Driver Check-in", "drivers"]],
+  results: [["hall", "Hall of Fame", "hall"], ["replay", "Instant Replay", "replay"], ["continue", "Continue", "races"]],
+  start: [["startWeb", "Web Page", "web"], ["startDemo", "Monster Demo", "demo"], ["startManual", "Monster Manual", null], ["startDriver", "Driver Check-in", "drivers"]],
   none: [],
 };
 
@@ -51,13 +51,13 @@ export function uiImageUrl(assets, name) {
  *   this screen, shown pressed in the modern skin.
  * @returns {Promise<{ classic: true, art: boolean, regions: Record<string, HTMLElement>, unmount?: () => void }>}
  */
-export async function frame(container, context, { title, backdrop, bar = "main", regions = { main: [24, 120, 592, 280] }, options = true, labels = [], modernRegions = {}, current = null }) {
+export async function frame(container, context, { title, backdrop, bar = "main", regions = { main: [24, 120, 592, 280] }, options = true, labels = [], modernRegions = {}, current = null, plainTitle = false }) {
   const url = resolveSkin(context.settings.skin, context.exeVersion) === "classic" && backdrop ? await uiImageUrl(context.assets, backdrop) : null;
   const art = !!url;
   const stage = el("div", { class: `stage${art ? "" : " stage-modern"}`, role: "group", "aria-label": title });
   if (art) stage.append(el("img", { class: "stage-backdrop", src: url, alt: "", draggable: "false" }));
   else {
-    stage.append(el("h1", { class: "stage-title" }, context.t?.(title) ?? title));
+    stage.append(el("h1", { class: plainTitle ? "stage-title stage-title-plain" : "stage-title" }, context.t?.(title) ?? title));
     for (const [text, rect] of labels) {
       const label = el("div", { class: "stage-label" }, context.t?.(text) ?? text);
       place(label, rect);
@@ -109,6 +109,7 @@ async function navigate(context, action) {
   const { router } = context;
   if (action === "back") return router.back();
   if (action === "go") return goRace(context);
+  if (action === "demo") return goDemo(context);
   if (action === "web") return window.open("https://mtm2.com/", "_blank", "noopener");
   if (action === "replay") return context.lastReplay ? router.go("replay", { replay: context.lastReplay }) : undefined;
   const screens = { drivers: ["drivers"], garage: ["garage"], hall: ["hall"], start: ["start"], races: ["race-select", { mode: context.raceConfig?.mode ?? "circuit" }] };

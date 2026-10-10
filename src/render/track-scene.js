@@ -28,6 +28,36 @@ export function dataTexture({ rgba, width, height }, look, repeat = false) {
   return texture;
 }
 
+/** MRGL_TEXTURECYCLE frames a second (the record's own timing words are not decoded; the helicopter's rotor reads right at this). */
+const TEXTURE_CYCLE_FPS = 15;
+const cycles = new Set();
+let cycleTimer = 0;
+function tickCycles() {
+  cycleTimer = cycles.size ? requestAnimationFrame(tickCycles) : 0;
+  const step = Math.floor((performance.now() / 1000) * TEXTURE_CYCLE_FPS);
+  for (const cycle of cycles) {
+    const frame = cycle.frames[step % cycle.frames.length];
+    if (frame === cycle.shown) continue;
+    cycle.shown = frame;
+    cycle.texture.image = { data: frame.rgba, width: frame.width, height: frame.height };
+    cycle.texture.needsUpdate = true;
+  }
+}
+
+/**
+ * A texture that runs through `frames` (`{ rgba, width, height }`, all one size), on its own clock, until it is disposed.
+ */
+export function cycleTexture(frames, look, repeat = false) {
+  const texture = dataTexture(frames[0], look, repeat);
+  const same = frames.filter((f) => f.width === frames[0].width && f.height === frames[0].height);
+  if (same.length < 2 || typeof requestAnimationFrame !== "function") return texture;
+  const cycle = { texture, frames: same, shown: same[0] };
+  cycles.add(cycle);
+  texture.addEventListener("dispose", () => cycles.delete(cycle));
+  if (!cycleTimer) cycleTimer = requestAnimationFrame(tickCycles);
+  return texture;
+}
+
 /** Geometry from a worker mesh: positions, normals, uvs, indices, optional baked shade. */
 function meshGeometry(mesh) {
   const geometry = new THREE.BufferGeometry();
@@ -66,10 +96,156 @@ export function createGroundBoxes(boxes, map, look) {
   return mesh;
 }
 
-export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.atlas, look)) {
-  const mesh = new THREE.Mesh(meshGeometry(terrain), surfaceMaterial(map, look, terrain.hasLte));
+/** Detail strength where the mask is black (TERRAIN_DETAIL_MASK.md: `terrDetail` 10), the feet a detail pattern spans, and the mask's reach. */
+const TERRAIN_DETAIL = 0.1, TERRAIN_DETAIL_REP_FT = 64, TERRAIN_MASK_FT = 8192;
+
+/**
+ * The engine's generated detail map: a tiling normal map of fine noise with its cavities in blue (255 open), 256 px.
+ */
+function generatedDetail() {
+  const n = 256, height = new Float32Array(n * n);
+  // Three octaves of value noise that wrap at the edges.
+  let seed = 12345;
+  const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  for (const [cells, weight] of [[16, 0.5], [32, 0.3], [64, 0.2]]) {
+    const grid = Float32Array.from({ length: cells * cells }, random);
+    const smooth = (t) => t * t * (3 - 2 * t);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const fx = (x / n) * cells, fy = (y / n) * cells, x0 = Math.floor(fx), y0 = Math.floor(fy);
+      const tx = smooth(fx - x0), ty = smooth(fy - y0);
+      const at = (cx, cy) => grid[(cy % cells) * cells + (cx % cells)];
+      height[y * n + x] += weight * ((at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx) * (1 - ty) + (at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx) * ty);
+    }
+  }
+  const rgba = new Uint8ClampedArray(n * n * 4);
+  const h = (x, y) => height[((y + n) % n) * n + ((x + n) % n)];
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const dx = (h(x + 1, y) - h(x - 1, y)) * 6, dy = (h(x, y + 1) - h(x, y - 1)) * 6;
+    const o = (y * n + x) * 4;
+    rgba[o] = 128 - dx * 127;
+    rgba[o + 1] = 128 - dy * 127;
+    // The cavity: lower than its surroundings reads as occluded.
+    const around = (h(x + 3, y) + h(x - 3, y) + h(x, y + 3) + h(x, y - 3)) / 4;
+    rgba[o + 2] = 255 * Math.min(1, Math.max(0.35, 1 - (around - h(x, y)) * 5));
+    rgba[o + 3] = 255;
+  }
+  return { rgba, width: n, height: n };
+}
+
+/**
+ * Community Patch 3's terrain detail (TERRAIN_DETAIL_MASK.md) on a lit terrain material: a detail normal tiling in world
+ * space every TERRAIN_DETAIL_REP_FT, its blue channel occlusion at 0.6 of the strength, both scaled 1x to 5x by the
+ * track's painted mask (a top-down picture of the level, in the level's own orientation).
+ */
+function addTerrainDetail(material, detail, look) {
+  const linear = (image, repeat) => {
+    const t = dataTexture(image, look, repeat);
+    t.colorSpace = THREE.NoColorSpace;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    return t;
+  };
+  const uniforms = {
+    detailMap: { value: linear(detail.detail ?? generatedDetail(), true) },
+    detailMask: { value: linear(detail.mask, true) },
+    detailParams: { value: new THREE.Vector3(TERRAIN_DETAIL, 1 / TERRAIN_DETAIL_REP_FT, 1 / TERRAIN_MASK_FT) },
+  };
+  material.userData.detail = uniforms;
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec2 vDetailXZ;")
+      .replace("#include <project_vertex>", "#include <project_vertex>\nvDetailXZ = (modelMatrix * vec4(transformed, 1.0)).xz;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", `#include <common>
+        varying vec2 vDetailXZ;
+        uniform sampler2D detailMap;
+        uniform sampler2D detailMask;
+        uniform vec3 detailParams;`)
+      // The scene's z is the game's mirrored: the mask and the pattern are addressed in game feet.
+      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+        vec2 detailFt = vec2(vDetailXZ.x, -vDetailXZ.y);
+        vec3 detailTexel = texture2D(detailMap, detailFt * detailParams.y).xyz;
+        float detailStrength = detailParams.x * (1.0 + 4.0 * texture2D(detailMask, detailFt * detailParams.z).r);
+        vec2 detailTilt = (detailTexel.xy * 2.0 - 1.0) * detailStrength * 4.0;
+        vec3 detailWorld = normalize(inverseTransformDirection(normal, viewMatrix) + vec3(detailTilt.x, 0.0, -detailTilt.y));
+        normal = normalize((viewMatrix * vec4(detailWorld, 0.0)).xyz);
+        diffuseColor.rgb *= mix(1.0, detailTexel.z, min(1.0, 0.6 * detailStrength * 2.0));`);
+  };
+  material.customProgramCacheKey = () => "terrain-detail";
+}
+
+/**
+ * CART Precision Racing's road has precedence over the ground (worker/cpr-road.js `roadMask`, after JSTrackViewer): a
+ * terrain fragment inside the road's footprint is pushed to the back of the depth range, so the road over it always
+ * shows, whichever is drawn first. Pushed, not discarded: at the mask's edge a pushed fragment still fills the pixel
+ * when nothing else does. Objects, trucks and walls depth test as ever, so a hill in front of the road still hides it.
+ */
+function addRoadMask(material, mask) {
+  const texture = new THREE.DataTexture(mask.data, mask.width, mask.height, THREE.RedFormat, THREE.UnsignedByteType);
+  texture.magFilter = texture.minFilter = THREE.LinearFilter;
+  texture.unpackAlignment = 1;
+  texture.needsUpdate = true;
+  const uniforms = { roadMask: { value: texture }, roadMaskBounds: { value: new THREE.Vector4(...mask.bounds) } };
+  material.userData.roadMask = uniforms;
+  const before = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    before?.call(material, shader, renderer);
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec2 vRoadMaskXZ;")
+      // The scene's z is the game's mirrored: the mask is addressed in game feet.
+      .replace("#include <project_vertex>", "#include <project_vertex>\nvRoadMaskXZ = (modelMatrix * vec4(transformed, 1.0)).xz * vec2(1.0, -1.0);");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", `#include <common>
+        varying vec2 vRoadMaskXZ;
+        uniform sampler2D roadMask;
+        uniform vec4 roadMaskBounds;`)
+      .replace("#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>
+        gl_FragDepth = gl_FragCoord.z;
+        vec2 roadUv = (vRoadMaskXZ - roadMaskBounds.xy) / roadMaskBounds.zw;
+        if (all(greaterThanEqual(roadUv, vec2(0.0))) && all(lessThanEqual(roadUv, vec2(1.0)))
+            && texture2D(roadMask, roadUv).r > 0.5) gl_FragDepth = 0.999999;`);
+  };
+  const key = material.customProgramCacheKey?.() ?? "";
+  material.customProgramCacheKey = () => `${key}|road-mask`;
+}
+
+/**
+ * `detail`: whether Community Patch 3's terrain extras are drawn (the enhanced look only): the HD tiles' normal maps
+ * and, on a track with a painted mask, the detail normals.
+ */
+export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.atlas, look), { detail = true } = {}) {
+  const material = surfaceMaterial(map, look, terrain.hasLte);
+  if (look !== "classic" && detail) {
+    if (terrain.normalAtlas) {
+      const normalMap = createTerrainAtlas(terrain.normalAtlas, look);
+      normalMap.colorSpace = THREE.NoColorSpace;
+      material.normalMap = normalMap;
+      // DirectX (green-down) normal maps.
+      material.normalScale.set(1, -1);
+    }
+    if (terrain.detail?.mask) addTerrainDetail(material, terrain.detail, look);
+  }
+  if (terrain.roadMask) addRoadMask(material, terrain.roadMask);
+  const mesh = new THREE.Mesh(meshGeometry(terrain), material);
   mesh.name = "terrain";
   return mesh;
+}
+
+/**
+ * The sky reflected by Community Patch 3 materials that ask for it (`reflectivity`), or null for none. Set before the
+ * models and trucks of a scene are built (createTrackWorld does, from its `reflections` option).
+ */
+let reflectionMap = null;
+export function setReflectionSky(sky, look) {
+  reflectionMap?.dispose();
+  reflectionMap = null;
+  if (!sky) return;
+  reflectionMap = dataTexture(sky, look, true);
+  reflectionMap.mapping = THREE.EquirectangularReflectionMapping;
+  reflectionMap.generateMipmaps = false;
+  reflectionMap.minFilter = THREE.LinearFilter;
 }
 
 /** A texture name's stem: `ROCK.RAW`, `ROCK.PNG` and `ROCK` are one texture (Community Patch 3 resolves by stem). */
@@ -81,7 +257,7 @@ export const textureStem = (name) => String(name ?? "").toUpperCase().replace(/^
   unshaded, ALPHATEST wins over BLEND (a cutout writes depth), TWOSIDED draws both sides, TINT colours the texture, ADDITIVE
   adds, NOZWRITE leaves depth alone, and a lit material is Phong for its specular power and emissive.
 */
-function modelMaterial(mesh, map, normalMap, aoMap = null) {
+function modelMaterial(mesh, map, normalMap, aoMap = null, look = "enhanced") {
   const record = mesh.material;
   const flags = record?.flags ?? 0;
   const F = { LIT: 0x0001, BLEND: 0x0004, ALPHATEST: 0x0008, ADDITIVE: 0x0010, TWOSIDED: 0x0080, NOZWRITE: 0x0100, EMISSIVE: 0x0200, TINT: 0x0400, ALPHAREF: 0x0800, TEXSOLID: 0x2000 };
@@ -89,7 +265,10 @@ function modelMaterial(mesh, map, normalMap, aoMap = null) {
     const material = new THREE.MeshLambertMaterial({
       // Occlusion darkens the ambient light only, never the sun (AUTHORING_HD_ART.md 5b), which is how three.js applies it.
       map, normalMap, aoMap, color: map ? 0xffffff : new THREE.Color((mesh.color ?? 0x808080) & 0xffffff),
-      transparent: mesh.blended, alphaTest: mesh.cutout ? 0.5 : 0, side: THREE.FrontSide,
+      // A 4x4 Evolution model's sheets are seen from both faces (worker/evo-models.js).
+      transparent: mesh.blended, alphaTest: mesh.cutout ? 0.5 : 0, side: mesh.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
+      // The classic look keeps the faceted shading; the enhanced one uses the model's smooth normals.
+      flatShading: look === "classic",
     });
     if (normalMap) material.normalScale.set(1, -1);
     // Self-lit faces (lamps, signs) ignore the scene's lighting.
@@ -110,13 +289,21 @@ function modelMaterial(mesh, map, normalMap, aoMap = null) {
   };
   if (!(flags & F.LIT)) return new THREE.MeshBasicMaterial(props);
   const material = new THREE.MeshPhongMaterial({
-    ...props, normalMap, aoMap,
+    ...props, normalMap, aoMap, flatShading: look === "classic",
     shininess: Math.max(0, record.specPower ?? 0),
     emissive: flags & F.EMISSIVE ? new THREE.Color(0xffffff) : new THREE.Color(0x000000),
     emissiveIntensity: flags & F.EMISSIVE ? clamp01(record.emissive ?? 0) : 0,
   });
   // DirectX (green-down) normal maps, at the material's strength.
   if (normalMap) material.normalScale.set(mesh.normalStrength ?? 1, -(mesh.normalStrength ?? 1));
+  // Reflection (optional): the sky, by the record's reflectivity. Its Fresnel bias and strength are folded into one
+  // amount, since this shading has no view-angle term.
+  const reflect = clamp01(record.reflectivity ?? 0) * clamp01((record.fresnelBias ?? 0) + 0.5 * (record.fresnelStrength ?? 1));
+  if (reflectionMap && reflect > 0.01) {
+    material.envMap = reflectionMap;
+    material.combine = THREE.MixOperation;
+    material.reflectivity = Math.min(0.8, reflect);
+  }
   return material;
 }
 
@@ -154,8 +341,11 @@ export function createModelLibrary(models, modelTextures, look) {
         geometry.morphAttributes.normal = model.keyframes.slice(1).map((frame) =>
           new THREE.BufferAttribute(frame.meshes[meshIndex].normals, 3));
       }
-      const map = mesh.textureName ? textureFor(mesh.textureName) : null;
-      const material = modelMaterial(mesh, map, normalFor(mesh), normalFor(mesh, "_AO"));
+      const frames = (mesh.textureFrames ?? []).map((n) => modelTextures[n]).filter(Boolean);
+      const cycleKey = frames.length > 1 ? `cycle:${mesh.textureFrames.join(",")}` : null;
+      if (cycleKey && !textures.has(cycleKey)) textures.set(cycleKey, cycleTexture(frames, look, true));
+      const map = cycleKey ? textures.get(cycleKey) : mesh.textureName ? textureFor(mesh.textureName) : null;
+      const material = modelMaterial(mesh, map, normalFor(mesh), normalFor(mesh, "_AO"), look);
       material.userData.textureName = mesh.textureName?.toUpperCase() ?? null;
       return { geometry, material, frameCount: model.keyframes?.length ?? 0 };
     });
@@ -169,6 +359,8 @@ export function createModelLibrary(models, modelTextures, look) {
         material: new THREE.MeshPhongMaterial({
           color: new THREE.Color(tint[0], tint[1], tint[2]), transparent: true, opacity: Math.min(0.6, Math.max(0.15, mesh.material.baseAlpha ?? 0.3)),
           depthWrite: false, shininess: Math.max(30, mesh.material.specPower ?? 60), side: mesh.material.flags & 0x0080 ? THREE.DoubleSide : THREE.FrontSide,
+          // Glass shows the sky when reflections are on.
+          ...(reflectionMap ? { envMap: reflectionMap, combine: THREE.MixOperation, reflectivity: 0.35 } : {}),
         }),
         frameCount: parts[meshIndex].frameCount,
       });
@@ -425,11 +617,60 @@ export function skyCapColor(sky) {
  * A sky dome around the camera, textured with the level's sky. The game fills what the rings leave open
  * above them with a flat square of one colour from the sky texture (0x42bca0, drawn first); the cap is that.
  */
+/** MTM1's flat sky: how high over the camera it hangs, the feet one tile of its art spans, and its half width (JSTrackViewer's figures, in feet). */
+const FLAT_SKY_HEIGHT_FT = 512, FLAT_SKY_TILE_FT = 2048, FLAT_SKY_HALF_FT = 16384;
+
+/**
+ * MTM1's own sky (worker/track-build.js `loadFlatSky`): a flat ceiling a fixed height over the camera, its art fixed to
+ * the world so it slides past overhead, fading into the level's horizon colour with distance as the game's fog table
+ * fades everything. `reach` is the view's range in feet.
+ */
+function createFlatSky(sky, look, reach) {
+  const map = dataTexture(sky, look, true);
+  const horizon = new THREE.Color().setRGB(sky.flat.horizon[0] / 255, sky.flat.horizon[1] / 255, sky.flat.horizon[2] / 255, THREE.SRGBColorSpace);
+  const material = new THREE.ShaderMaterial({
+    uniforms: { map: { value: map }, horizon: { value: horizon }, fade: { value: new THREE.Vector2(reach * 0.4, reach) }, tile: { value: FLAT_SKY_TILE_FT } },
+    vertexShader: `
+      uniform float tile;
+      varying vec2 vSkyUv;
+      varying float vSkyDistance;
+      void main() {
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        world.y += cameraPosition.y;
+        vSkyUv = world.xz / tile;
+        vSkyDistance = length(world.xz - cameraPosition.xz);
+        gl_Position = projectionMatrix * viewMatrix * world;
+      }`,
+    fragmentShader: `
+      uniform sampler2D map;
+      uniform vec3 horizon;
+      uniform vec2 fade;
+      varying vec2 vSkyUv;
+      varying float vSkyDistance;
+      void main() {
+        vec3 colour = texture2D(map, vSkyUv).rgb;
+        gl_FragColor = vec4(mix(colour, horizon, smoothstep(fade.x, fade.y, vSkyDistance)), 1.0);
+        #include <colorspace_fragment>
+      }`,
+    side: THREE.DoubleSide, fog: false, depthTest: false, depthWrite: false,
+  });
+  const geometry = new THREE.PlaneGeometry(FLAT_SKY_HALF_FT * 2, FLAT_SKY_HALF_FT * 2, 32, 32).rotateX(Math.PI / 2).translate(0, FLAT_SKY_HEIGHT_FT, 0);
+  const plane = new THREE.Mesh(geometry, material);
+  plane.name = "sky";
+  plane.userData.flat = true;
+  plane.userData.reach = reach;
+  plane.frustumCulled = false;
+  plane.renderOrder = -1;
+  return plane;
+}
+
 export function createSky(sky, look, radius = 6000) {
   if (!sky) return null;
+  if (sky.flat) return createFlatSky(sky, look, radius);
   const map = dataTexture(sky, look, true);
   const material = new THREE.MeshBasicMaterial({ map, side: THREE.DoubleSide, fog: false, depthWrite: false });
   const dome = new THREE.Mesh(skyGeometry(radius), material);
+  dome.userData.radius = radius;
   dome.name = "sky";
   dome.renderOrder = -1;
   const half = radius * 0.5556;
@@ -445,6 +686,14 @@ export function createSky(sky, look, radius = 6000) {
 /** Put a new sky (another weather) on an existing dome. */
 export function updateSky(dome, sky, look) {
   if (!dome || !sky) return;
+  // A flat sky and a dome are different objects: one takes the other's place (the weather changed).
+  if (dome.userData.flat || sky.flat) {
+    const fresh = createSky(sky, look, dome.userData.flat ? dome.userData.reach : dome.userData.radius);
+    dome.parent?.add(fresh);
+    dome.parent?.remove(dome);
+    dome.traverse((o) => { o.geometry?.dispose?.(); o.material?.map?.dispose?.(); o.material?.uniforms?.map?.value?.dispose?.(); o.material?.dispose?.(); });
+    return;
+  }
   const old = dome.material.map;
   dome.material.map = dataTexture(sky, look, true);
   dome.material.needsUpdate = true;
@@ -455,15 +704,19 @@ export function updateSky(dome, sky, look) {
 /** The average colour of the sky art, for the clear colour and fog. */
 export function skyColor(sky) {
   if (!sky) return new THREE.Color(0x8fb6d8);
+  // A flat sky fades into its horizon colour, which is then the clear colour and the fog's.
+  if (sky.flat) return new THREE.Color().setRGB(sky.flat.horizon[0] / 255, sky.flat.horizon[1] / 255, sky.flat.horizon[2] / 255, THREE.SRGBColorSpace);
   let r = 0, g = 0, b = 0;
   const n = sky.rgba.length / 4;
   for (let i = 0; i < sky.rgba.length; i += 4) { r += sky.rgba[i]; g += sky.rgba[i + 1]; b += sky.rgba[i + 2]; }
   return new THREE.Color().setRGB(r / n / 255, g / n / 255, b / n / 255, THREE.SRGBColorSpace);
 }
 
-export function createWater(levelFt) {
+export function createWater(levelFt, reach = 1) {
   if (levelFt === null || levelFt === undefined) return null;
-  const geometry = new THREE.PlaneGeometry(8192, 8192);
+  // `reach`: how many worlds wide, for a level that is drawn once (its sea goes on past its edges); the texture keeps its size.
+  const geometry = new THREE.PlaneGeometry(8192 * reach, 8192 * reach);
+  if (reach !== 1) { const uv = geometry.getAttribute("uv"); for (let i = 0; i < uv.array.length; i++) uv.array[i] *= reach; }
   geometry.rotateX(-Math.PI / 2);
   geometry.translate(4096, levelFt, -4096);
   // Seen from below as well: under the surface the water is the ceiling (it is drawn from both sides).
@@ -505,27 +758,68 @@ export function createTruck(truck, look) {
   return group;
 }
 
+/**
+ * CART Precision Racing's road layer (worker/cpr-road.js): a mesh per texture, the road and curbs facing up, the walls
+ * seen from both sides, the catch fence a cutout. Drawn a little towards the viewer in depth, since the road lies on
+ * the ground it covers. The classic look draws it unlit, as it does the ground.
+ */
+export function createRoad(road, look) {
+  const group = new THREE.Group();
+  group.name = "road";
+  const maps = new Map();
+  const mapOf = (key) => {
+    if (!maps.has(key)) {
+      const image = key === "fence" ? road.fence : road.textures[key];
+      maps.set(key, image ? dataTexture(image, look, true) : null);
+    }
+    return maps.get(key);
+  };
+  const Material = look === "classic" ? THREE.MeshBasicMaterial : THREE.MeshLambertMaterial;
+  for (const mesh of road.meshes) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(mesh.positions, 3));
+    geometry.setAttribute("normal", new THREE.BufferAttribute(mesh.normals, 3));
+    geometry.setAttribute("uv", new THREE.BufferAttribute(mesh.uvs, 2));
+    geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
+    const map = mapOf(mesh.texture);
+    const fence = mesh.texture === "fence";
+    const material = new Material({
+      map, color: map ? 0xffffff : fence ? 0x9a9a9a : 0x717178, side: THREE.DoubleSide,
+      alphaTest: fence && map ? 0.5 : 0, transparent: fence && !map, opacity: fence && !map ? 0.3 : 1,
+      polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -2,
+    });
+    const object = new THREE.Mesh(geometry, material);
+    // The surface casts no shadow (it would shade itself and the ground it lies on); the walls do.
+    object.name = mesh.wall ? "roadWall" : "road";
+    object.receiveShadow = true;
+    group.add(object);
+  }
+  return group;
+}
+
 /** Everything static in a track: terrain, ground boxes, objects, water and sky. */
 /** `options.backdrops` draws the SIT's backdrop models (off unless asked), `options.drawDistance` the world's reach in feet (the sky dome stays inside it). */
-export function createTrackWorld(build, look, { backdrops: showBackdrops = false, drawDistance = 20000 } = {}) {
+export function createTrackWorld(build, look, { backdrops: showBackdrops = false, drawDistance = 20000, terrainDetail = true, reflections = true } = {}) {
   const world = new THREE.Group();
   const tile = new THREE.Group();
   tile.name = "tile";
+  setReflectionSky(reflections && look !== "classic" && !build.stadium ? build.sky : null, look);
   const atlas = createTerrainAtlas(build.terrain.atlas, look);
-  tile.add(createTerrain(build.terrain, look, atlas));
-  const boxes = createGroundBoxes(build.groundBoxes, atlas, look);
+  tile.add(createTerrain({ ...build.terrain, roadMask: build.road?.mask ?? null }, look, atlas, { detail: terrainDetail }));
+  const boxes = build.groundBoxes ? createGroundBoxes(build.groundBoxes, atlas, look) : null;
   if (boxes) tile.add(boxes);
+  if (build.road) tile.add(createRoad(build.road, look));
   tile.add(placeObjects(createModelLibrary(build.models, build.modelTextures, look), build.objects));
-  const water = createWater(build.waterLevelFt);
+  const water = createWater(build.waterLevelFt, build.noWrap ? 5 : 1);
   if (water) tile.add(water);
   world.add(tile);
   const backdrops = createBackdrops(build, look);
   if (backdrops && showBackdrops && !build.stadium) world.add(backdrops);
   if (!build.stadium) {
     // The world wraps at 8192 ft: draw the eight neighbouring copies, which share every geometry,
-    // material and texture with the original.
+    // material and texture with the original. (Not a level whose edges do not meet, `noWrap`.)
     for (const dx of [-1, 0, 1]) for (const dz of [-1, 0, 1]) {
-      if (!dx && !dz) continue;
+      if ((!dx && !dz) || build.noWrap) continue;
       const copy = tile.clone();
       copy.position.set(dx * WORLD_FT, 0, dz * WORLD_FT);
       world.add(copy);

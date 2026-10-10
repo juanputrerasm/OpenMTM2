@@ -10,6 +10,9 @@
 
   Keys: arrows or WASD drive, Q / Z shift, H helicopter, Space horn, V camera, Esc or P pause.
 */
+import { WATERMARK } from "../../app/version.js";
+import { createConsole } from "../console.js";
+import { simGroundOfBuild, terrainOfBuild } from "../../shared/build-terrain.js";
 import * as THREE from "three";
 import { el } from "../dom.js";
 import { saveSettings } from "../../app/settings.js";
@@ -20,7 +23,7 @@ import { mergeBindings } from "../../game/input/bindings.js";
 import { SunFlare } from "../../render/sun-flare.js";
 import { SunShadows } from "../../render/sun-shadows.js";
 import { mtm2Sim } from "../../vendor/openphotex/index.js";
-import { COCKPIT_EYE, CAMERA_MODES, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, createChaseCamera, fovFor, groundHeightFn, nextMode, raceCamera, zoomToFov } from "../../game/cameras.js";
+import { COCKPIT_EYE, CAMERA_MODES, INERTIA_MODE, cameraMode, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, createChaseCamera, fovFor, groundHeightFn, nextMode, raceCamera, zoomToFov } from "../../game/cameras.js";
 import { createBlimp, hasBlimp } from "../../game/blimp.js";
 import { soundRange, surfaceFamily } from "../../game/sound-model.js";
 import { createTireEffects } from "../../render/tire-effects.js";
@@ -35,7 +38,7 @@ import { createCommentaryWatcher } from "../../game/commentary-events.js";
 import { createTruckAudio } from "../../audio/truck-audio.js";
 import { createWorldAudio } from "../../audio/world-audio.js";
 import { createWeatherScene } from "../../render/weather-scene.js";
-import { WEATHER_LOOK, isUnderwater, resolveWeather, waterOffsetFt } from "../../game/weather.js";
+import { WEATHER_LOOK, WEATHER_NAMES, isUnderwater, resolveWeather, waterOffsetFt } from "../../game/weather.js";
 import { lampsAtStart, toggleLamps } from "../../game/truck-lights.js";
 import { createGoldMode } from "../gold-mode.js";
 import { createGamepadInput } from "../../game/input/gamepad.js";
@@ -57,7 +60,57 @@ import { toSceneMatrix } from "../../shared/scene-frame.js";
 /** The race HUD text is a light grey with a one-pixel black shadow (the game's own look). */
 const HUD_GREY = "#cfcfcf";
 
-export default async function mount(container, context, { track, laps, difficulty, opponents, truck: playerTruck, trucks: catalogTrucks, setup, weather: chosenWeather }) {
+const DEMO_CAPTION = "Demo mode. Press any key to begin", DEMO_CAMERA_S = 8;
+/** How much of the race the pause menu's instant replay shows. */
+const INSTANT_REPLAY_S = 60;
+
+/** A terrain cell's side: the draw distance is set in cells. */
+const TERRAIN_CELL_FT = 32;
+
+/**
+ * The loading screen's report: what went wrong (a track that cannot be loaded) or what is missing (files the track
+ * names that no archive has). Close goes back to the Races screen; when the race can still run, Race anyway goes on.
+ * Resolves true to go on.
+ */
+function loadReport(container, context, track, { heading, lines, fatal }) {
+  return new Promise((resolve) => {
+    const shown = lines.slice(0, 14);
+    const dialog = el("dialog", { class: "load-report", "aria-label": heading },
+      el("h1", {}, heading),
+      el("p", { class: "muted" }, track?.name ?? ""),
+      el("ul", {}, ...shown.map((line) => el("li", {}, line)), ...(lines.length > shown.length ? [el("li", {}, `and ${lines.length - shown.length} more`)] : [])),
+      el("div", { class: "screen-actions" },
+        ...(fatal ? [] : [el("button", { onclick: () => { dialog.close("go"); } }, "Race anyway")]),
+        el("button", { class: "primary", onclick: () => dialog.close("close") }, "Close")));
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      if (dialog.returnValue === "go") { resolve(true); return; }
+      resolve(false);
+      context.router.go("race-select", { mode: track?.raceType }, { replace: true });
+    }, { once: true });
+    container.append(dialog);
+    dialog.showModal();
+  });
+}
+
+export default async function mount(container, context, params) {
+  try {
+    return await mountRace(container, context, params);
+  } catch (error) {
+    console.error(error);
+    container.replaceChildren();
+    await loadReport(container, context, params.track, { heading: "This track could not be loaded", lines: [String(error?.message ?? error)], fatal: true });
+    return {};
+  }
+}
+
+async function mountRace(container, context, params) {
+  const { track, laps, difficulty, truck: playerTruck, trucks: catalogTrucks, setup, weather: chosenWeather } = params;
+  /** Free roam: the track with no race on it (no checkpoints, laps, places or results) and the player alone. */
+  const freeRoam = !!params.freeRoam && !params.demo;
+  const opponents = freeRoam ? [] : params.opponents;
+  /** Monster Demo: every truck drives itself, the RaceCam moves from truck to truck, and any key goes back to the start screen. */
+  const demo = !!params.demo;
   const t = context.t;
   const weatherId = resolveWeather(chosenWeather ?? context.settings.weather ?? 0, track.weatherMask);
   const summit = track.raceType === "summit";
@@ -76,6 +129,7 @@ export default async function mount(container, context, { track, laps, difficult
   // The timing board is in the Small LCD font, whose digits all have the same width (the clock reads "0 1:04.91").
   const hud = createTextPanel(lcdFont ?? hudFont, { width: 206, scale, rowHeight: 15, labelColor: HUD_GREY, valueColor: HUD_GREY });
   hud.element.classList.add("race-hud");
+  hud.element.hidden = context.settings.timingHud === false;
   const gauges = createRaceGauges(hudFont, { needle, units: context.settings.units });
   gauges.setVisible(context.settings.dashboard !== false);
   const cockpit = createCockpit(cockpitArt, { needle, font: hudFont, units: context.settings.units });
@@ -90,9 +144,17 @@ export default async function mount(container, context, { track, laps, difficult
 
   let disposed = false;
   const cleanups = [];
+  // Every cleanup runs, whatever another one throws (a skipped one leaves the track's music and the simulation running
+  // under the menus); and what is set up after the screen was left is released at once.
+  const release = (f) => { try { f(); } catch (error) { console.error(error); } };
+  cleanups.push = (...fns) => {
+    if (disposed) { fns.forEach(release); return cleanups.length; }
+    return Array.prototype.push.apply(cleanups, fns);
+  };
   const unmount = () => {
+    if (disposed) return;
     disposed = true;
-    for (const f of cleanups.reverse()) f();
+    for (const f of cleanups.splice(0).reverse()) release(f);
   };
 
   // The loading screen art, scaled to the window.
@@ -104,16 +166,21 @@ export default async function mount(container, context, { track, laps, difficult
   }).catch(() => {});
 
   const truckName = (file) => catalogTrucks.find((t) => t.file === file)?.name ?? file;
+  const mtm1Options = { sky: context.settings.mtm1EarthSky !== false, overlap: !!context.settings.mtm1TerrainOverlap };
   const build = await context.assets.call("trackRender", {
-    path: track.path, detailLevel: context.settings.detailLevel, raceType: track.raceType,
-    truckFiles: catalogTrucks.map((t) => t.file), weather: weatherId,
+    path: track.path, scope: track.scope, detailLevel: context.settings.detailLevel, raceType: track.raceType,
+    truckFiles: catalogTrucks.map((t) => t.file), weather: weatherId, mtm1: mtm1Options, tileOverlap: params.tileOverlap,
   });
   if (disposed) return { unmount };
+  if (build.problems?.length && !demo) {
+    const go = await loadReport(view, context, track, { heading: "Files this track names are missing", lines: build.problems, fatal: false });
+    if (!go || disposed) return { unmount };
+  }
   const driver = currentDriver(await getProfiles(context));
   // The course map (Map key), from the SIT's primary course.
   // Professional puts every truck on course 2 when the SIT has one (MONSTER_EXE_ANALYSIS.md 9); the map still draws course 1.
   const raceCourse = Number(difficulty) === 2 && build.sim.proCourse ? build.sim.proCourse : build.sim.course;
-  const minimap = createCourseMap(build.sim.course, { font: hudFont });
+  const minimap = createCourseMap(build.sim.course, { font: hudFont, open: !!build.sim.courseOpen });
   minimap.setVisible(!!context.settings.minimap);
   view.append(minimap.element);
   const grid = build.sim.grid;
@@ -131,7 +198,7 @@ export default async function mount(container, context, { track, laps, difficult
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
   const scene = new THREE.Scene();
-  const drawDistance = context.settings.drawDistance ?? 20000;
+  const drawDistance = Math.max(16, Math.min(256, context.settings.drawCells ?? 128)) * TERRAIN_CELL_FT;
   const camera = new THREE.PerspectiveCamera(60, 1, 0.5, drawDistance);
   const background = skyColor(build.sky);
   scene.background = background;
@@ -143,7 +210,10 @@ export default async function mount(container, context, { track, laps, difficult
   const sunTravel = sun.position.clone().negate();
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
   scene.add(sun, ambientLight);
-  const world = createTrackWorld(build, look, { backdrops: !!context.settings.backdrops, drawDistance });
+  const world = createTrackWorld(build, look, {
+    backdrops: !!context.settings.backdrops, drawDistance,
+    terrainDetail: context.settings.terrainDetail !== false, reflections: context.settings.reflections !== false,
+  });
   scene.add(world);
   // Sound: the engines, skids and impacts of every truck, and the world's ambience and music.
   context.menuMusic?.stop();
@@ -152,7 +222,8 @@ export default async function mount(container, context, { track, laps, difficult
   const audio = context.menuAudio ?? createAudio(context.assets, context.settings.sound);
   const ownsAudio = !context.menuAudio;
   const ambience = await context.assets.call("ambience", { number: track.ambientSound ?? 0 }).catch(() => null);
-  const musicName = context.settings.sound?.music > 0 ? (build.musicName ?? null) : null;
+  // Started whatever the music's level, which alone makes it heard: the console's `music 1` then needs no restart.
+  const musicName = build.musicName ?? null;
   const worldAudio = createWorldAudio(audio, {
     ambient: ambience, weather: weatherId, music: musicName, objects: build.soundObjects,
     hitInfo: new Map(build.sim.boxes.map((b) => [b.sitIndex, { hitSound: b.hitSound, type: b.type }])),
@@ -181,7 +252,10 @@ export default async function mount(container, context, { track, laps, difficult
   const resumeAudio = () => audio.resume();
   window.addEventListener("keydown", resumeAudio);
   window.addEventListener("pointerdown", resumeAudio);
+  // The mixer is the menus' too: a race left while paused (End race, Restart race) must not leave it silenced.
+  audio.setEffectsPaused?.(false);
   cleanups.push(() => {
+    audio.setEffectsPaused?.(false);
     commentary.dispose();
     window.removeEventListener("keydown", resumeAudio);
     window.removeEventListener("pointerdown", resumeAudio);
@@ -191,7 +265,7 @@ export default async function mount(container, context, { track, laps, difficult
     context.menuMusic?.start();
   });
   const forwardVector = new THREE.Vector3();
-  const terrain = mtm2Sim.createTerrain(new Uint8Array(build.heights), build.waterLevelFt ?? null);
+  const terrain = terrainOfBuild(build);
   let shadows = null, flare = null, flareBlocked = () => false;
   audio.setRange?.(soundRange(weatherId));
   const weatherScene = createWeatherScene({
@@ -203,7 +277,7 @@ export default async function mount(container, context, { track, laps, difficult
   /** GOLD mode's weather change: the grip, the sky, the fog and the light, at once. */
   const setWeather = async (next) => {
     await sim.call("command", { name: "weather", value: next });
-    updateSky(world.getObjectByName("sky"), await context.assets.call("sky", { path: track.path, weather: next }), look);
+    updateSky(world.getObjectByName("sky"), await context.assets.call("sky", { path: track.path, scope: track.scope, weather: next, mtm1: mtm1Options }), look);
     weatherScene.set(next);
     audio.setRange?.(soundRange(next));
     worldAudio.setWeather(next);
@@ -234,7 +308,7 @@ export default async function mount(container, context, { track, laps, difficult
     if (data) {
       flare = new SunFlare(world, data);
       flare.setMode(celestialFor(weatherId));
-      flareBlocked = (origin, direction) => sunBlocked(terrain, origin, direction);
+      flareBlocked = (origin, direction) => sunBlocked(terrain, origin, direction, !build.noWrap);
     }
     cleanups.push(() => { shadows?.dispose?.(); flare?.dispose(); });
   }
@@ -242,7 +316,9 @@ export default async function mount(container, context, { track, laps, difficult
   const sim = new WorkerClient(new URL("../../worker/sim-worker.js", import.meta.url));
   cleanups.push(() => sim.terminate());
   const init = {
-    heights: build.heights.slice().buffer,
+    ...simGroundOfBuild(build),
+    startOnNearestSegment: !!build.sim.startOnNearestSegment,
+    opponentFps: context.settings.opponentFps ?? 30,
     clr: build.sim.clr.buffer,
     textureValues: build.sim.textureValues.buffer,
     ra0: build.sim.ra0?.buffer ?? null,
@@ -261,14 +337,14 @@ export default async function mount(container, context, { track, laps, difficult
       return {
         truck: { anchors: model.anchors, scrapePoints: model.scrapePoints },
         start: { pos: grid[e.slot].pos, heading: grid[e.slot].heading },
-        autopilot: !e.player || !!context.settings.fullAutopilot,
+        autopilot: !e.player || !!context.settings.fullAutopilot || demo,
         // A drag strip's grid slot is the lane.
         lane: e.slot,
         // The player's Garage setup; the CPU trucks keep the defaults.
         setup: e.player ? setup : undefined,
       };
     }),
-    race: { checkpoints: build.sim.checkpoints, laps: dragRace ? 1 : laps, mode: summit ? "summit" : dragRace ? "drag" : "circuit" },
+    race: freeRoam ? null : { checkpoints: build.sim.checkpoints, laps: dragRace ? 1 : laps, mode: summit ? "summit" : dragRace ? "drag" : "circuit" },
   };
   await sim.call("init", init);
   if (disposed) return { unmount };
@@ -277,14 +353,16 @@ export default async function mount(container, context, { track, laps, difficult
   const keys = createKeyboardInput(window, context.settings.bindings);
   const pad = createGamepadInput();
   cleanups.push(() => keys.dispose());
-  let gold = null;
+  let gold = null, gameConsole = null;
   const sampleInput = () => {
     const held = keys.sample();
     const driving = held.accelerate || held.brake || held.left || held.right;
     return { ...held, joystick: driving ? null : pad.sample(), slew: gold?.slewing ? gold.slewInput() : null };
   };
 
-  let viewMode = CAMERA_MODES[context.settings.view]?.id ?? 1, paused = false, finishing = false;
+  // The Inertia view (the Z-mode cameras option) comes after the game's ten.
+  const zCameras = () => !!context.settings.zModeCameras;
+  let viewMode = demo ? 4 : (zCameras() ? cameraMode(context.settings.view) : CAMERA_MODES[context.settings.view])?.id ?? 1, paused = false, finishing = false;
   // Each truck's lamp switch (game/truck-lights.js) and the clock the blinking lamps and beacons run on.
   const lamps = entrants.map(() => lampsAtStart(WEATHER_LOOK[weatherId]?.headlights));
   let lampClockMs = 0;
@@ -292,37 +370,70 @@ export default async function mount(container, context, { track, laps, difficult
     if (finishing || paused === on) return;
     paused = on;
     pauseMenu.hidden = !on;
-    if (on) audio.suspend(); else audio.resume();
+    // Every sound stops but the music.
+    audio.setEffectsPaused?.(on);
     if (!on) await sim.call("resume");
   };
   pauseMenu.append(
     el("p", { class: "race-pause-title" }, t("Pause")),
     el("button", { class: "primary", onclick: () => setPaused(false) }, "Resume"),
-    el("button", { onclick: (e) => {
-      const sound = context.settings.sound = { ...context.settings.sound, muted: !context.settings.sound.muted };
-      audio.setVolumes(sound);
-      saveSettings(context.settings);
-      e.target.textContent = sound.muted ? "Sound off" : "Sound on";
-    } }, context.settings.sound.muted ? "Sound off" : "Sound on"),
+    el("button", { "data-menu-sound": "STARTOFF", onclick: () => context.router.go("race", params, { replace: true }) }, "Restart race"),
+    el("button", { onclick: () => showInstantReplay() }, "Instant replay"),
+    // The console, for a keyboard whose key for it is hard to find; the race stays paused under it.
+    el("button", { hidden: demo, onclick: () => gameConsole?.setOpen(true) }, "Console"),
+    el("button", { onclick: async () => {
+      const { openOptionsModal } = await import("./options.js");
+      await openOptionsModal(context);
+      // The sound sliders take effect at once; the rest applies to the next race.
+      context.optionsDialog?.addEventListener("close", () => audio.setVolumes(context.settings.sound), { once: true });
+    } }, "Options"),
     el("button", {
       "data-menu-sound": "STARTOFF",
       onclick: () => context.router.go("race-select", { mode: track.raceType }, { replace: true }),
     }, "End race"),
   );
+  /**
+   * The pause menu's instant replay: the last minute of the race, played over the paused race in the replay screen's own
+   * scene. Its Back returns to the pause menu, the race as it was.
+   */
+  let replaying = null;
+  async function showInstantReplay() {
+    if (replaying) return;
+    const replay = recorder.build({ lastSeconds: INSTANT_REPLAY_S });
+    const overlay = el("div", { class: "race-replay-overlay" });
+    view.append(overlay);
+    const close = () => {
+      replaying?.screen?.unmount?.();
+      replaying = null;
+      overlay.remove();
+    };
+    replaying = { screen: null };
+    const { default: mountReplay } = await import("./replay.js");
+    const inner = Object.create(context);
+    inner.router = { back: close, go: (...args) => { close(); return context.router.go(...args); }, stack: context.router.stack };
+    const screen = await mountReplay(overlay, inner, { replay });
+    if (replaying) replaying.screen = screen; else screen?.unmount?.();
+  }
+  cleanups.push(() => replaying?.screen?.unmount?.());
   /** The cockpit view's G state (0 the cockpit, 1 no cockpit with the gauges, 2 neither). */
   const cockpitMode = () => context.settings.cockpitMode ?? 0;
   const keyMap = mergeBindings(context.settings.bindings);
   const onKey = (e) => {
+    // The Options dialog and the instant replay take the keys while they are up.
+    if (replaying || context.optionsDialog?.isConnected) return;
+    if (demo) { leaveDemo(); return; }
     if (keyMap.horn.includes(e.code) && !e.repeat) truckAudio.horn(0, latest?.poses[0].current.pos);
     if (keyMap.yeehaw.includes(e.code) && !e.repeat) truckAudio.yeehaw(0, latest?.poses[0].current.pos);
     const shortcut = modeForShortcut(e);
     if (shortcut !== null) e.preventDefault();
     if ((keyMap.camera.includes(e.code) || shortcut !== null) && !e.repeat) {
-      viewMode = shortcut ?? nextMode(viewMode, e.shiftKey);
+      // The short cycle (Options, Game): the cockpit, Chase Near and Chase Far, which are the first three views.
+      const views = context.settings.shortViewCycle ? 3 : zCameras() ? INERTIA_MODE.id + 1 : CAMERA_MODES.length;
+      viewMode = shortcut ?? nextMode(viewMode, e.shiftKey, views);
       context.settings.view = viewMode;
       saveSettings(context.settings);
       // "Chase Far of Bear Foot": the view's name and the truck being watched (0x52d180).
-      flash(`${t(CAMERA_MODES[viewMode].name)} of ${truckName(playerTruck)}`, performance.now(), 2);
+      flash(`${t(cameraMode(viewMode).name)} of ${truckName(playerTruck)}`, performance.now(), 2);
     }
     if (keyMap.pause.includes(e.code)) setPaused(!paused);
     if (keyMap.dashboard.includes(e.code) && !e.repeat) {
@@ -332,6 +443,12 @@ export default async function mount(container, context, { track, laps, difficult
       saveSettings(context.settings);
     }
     if (keyMap.names.includes(e.code) && !e.repeat) namesMode = nextNamesMode(namesMode);
+    // The Timing display key (O) hides the times, laps and place, in every view.
+    if (keyMap.hud.includes(e.code) && !e.repeat) {
+      context.settings.timingHud = context.settings.timingHud === false;
+      hud.element.hidden = context.settings.timingHud === false;
+      saveSettings(context.settings);
+    }
     // The Headlights key (L) switches the player's lamps; every other truck keeps what the weather gave it.
     if (keyMap.headlights.includes(e.code) && !e.repeat && !e.ctrlKey) lamps[0] = toggleLamps(lamps[0]);
     if (keyMap.crashDamage.includes(e.code) && !e.repeat) {
@@ -427,7 +544,7 @@ export default async function mount(container, context, { track, laps, difficult
   const placeCamera = (p, dt) => {
     if (viewMode !== lastView) {
       lastView = viewMode;
-      if (!CAMERA_MODES[viewMode].dist) chase.reset();
+      if (!cameraMode(viewMode).dist) chase.reset();
       camera.fov = fovFor(viewMode);
       camera.updateProjectionMatrix();
     }
@@ -452,14 +569,25 @@ export default async function mount(container, context, { track, laps, difficult
     const mode = viewMode;
     const special = mode === 3 ? (centroid ? blimpCamera(p.pos, centroid) : blimpCameraNoCourse(p.pos, yaw, ground))
       : mode === 4 ? (raceCamera(straights, p.pos, p.course ?? 0, ground) ?? blimpCameraNoCourse(p.pos, yaw, ground)) : null;
-    const view = special ?? chase.update(mode, p.pos, yaw, ground, dt);
+    // Z mode's orbit swings the chase views; the Inertia view follows the watched truck's speed.
+    const view = special ?? chase.update(mode, p.pos, yaw, ground, dt, {
+      turn: gold?.cameraTurn ?? 0, speedFt: latest?.poses[cameraTarget]?.current.speed ?? latest?.poses[0]?.current.speed ?? 0,
+    });
     // Game feet to the scene: z is mirrored.
     camera.position.set(view.position[0], view.position[1], -view.position[2]);
     camera.lookAt(view.target[0], view.target[1], -view.target[2]);
-    return special ? special.zoom : null;
+    return special ? special.zoom : view.zoom ?? null;
   };
 
-  const flash = (text, now, seconds = 3) => caption.show(text, seconds);
+  // The demo keeps its own caption up.
+  const flash = (text, now, seconds = 3) => { if (!demo) caption.show(text, seconds); };
+  // A function declaration: the key handler above may call it before this line runs.
+  function leaveDemo() { if (!leaveDemo.done) { leaveDemo.done = true; context.router.go("start", {}, { replace: true }); } }
+  if (demo) {
+    showMessage(DEMO_CAPTION);
+    window.addEventListener("pointerdown", leaveDemo);
+    cleanups.push(() => window.removeEventListener("pointerdown", leaveDemo));
+  }
   let lastLaps = 0, lastCheckpoint = 0;
   let wasMissed = false, finalLapShown = false, lightsOn = null, dragNoted = false;
   const showRace = (race, now) => {
@@ -516,24 +644,47 @@ export default async function mount(container, context, { track, laps, difficult
     const rows = race.trucks.map((t, i) => ({
       ...t, name: entrants[i].name, file: entrants[i].file, truckName: truckName(entrants[i].file), player: entrants[i].player,
     }));
-    context.router.go("results", { track, laps, difficulty, rows, mode: track.raceType, truck: playerTruck }, { replace: true });
+    context.router.go("results", { track, laps: race.laps ?? laps, difficulty, rows, mode: track.raceType, truck: playerTruck }, { replace: true });
   };
 
   let frame = 0, last = performance.now(), busy = false, latest = null;
+  let drawnCells = drawDistance / TERRAIN_CELL_FT;
   const movedBoxes = new Set();
   const movedPositions = new Map();
   window.__openmtm2Race = { audio, scene, camera, renderer, sim, entrants, musicName, get latest() { return latest; } };
-  cleanups.push(() => { cancelAnimationFrame(frame); delete window.__openmtm2Race; });
+  let frameTimer = 0;
+  cleanups.push(() => { cancelAnimationFrame(frame); clearTimeout(frameTimer); delete window.__openmtm2Race; });
+  // V-sync (Options, Display): with the display's refresh, or as fast as the browser's timer runs (about 250 a second).
+  // A browser shows no more frames than the display has, so without it the extra frames are only simulated and drawn.
+  const nextFrame = () => {
+    if (context.settings.vsync === false) frameTimer = setTimeout(() => loop(performance.now()), 0);
+    else frame = requestAnimationFrame(loop);
+  };
   const loop = (now) => {
-    frame = requestAnimationFrame(loop);
+    nextFrame();
+    // The frame rate limit: a frame that comes too soon is left out (a millisecond of slack for the timer's jitter).
+    if (context.settings.fpsLimit && now - last < 1000 / Math.max(10, context.settings.fpsLimitValue ?? 60) - 1) return;
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
+    if (replaying) return;
+    // The draw distance follows the Options at once (Apply in the pause menu's dialog).
+    const cells = Math.max(16, Math.min(256, context.settings.drawCells ?? 128));
+    if (cells !== drawnCells) {
+      drawnCells = cells;
+      const feet = cells * TERRAIN_CELL_FT;
+      camera.far = mirrorCamera.far = feet;
+      camera.updateProjectionMatrix();
+      mirrorCamera.updateProjectionMatrix();
+      weatherScene.setDrawDistance(feet);
+      const dome = world.getObjectByName("sky");
+      if (dome?.userData.radius) dome.scale.setScalar(Math.min(6000, feet * 0.95) / dome.userData.radius);
+    }
     if (!busy && !paused && !finishing) {
       busy = true;
       sim.call("tick", { tMs: now, input: sampleInput() })
         .then((r) => {
           latest = r;
-          if (r.race && r.time !== undefined) recorder.update(r.time, r.poses.map((p) => p.current), r.boxes ?? [], (i) => crash.code(i));
+          if ((r.race || freeRoam) && r.time !== undefined) recorder.update(r.time, r.poses.map((p) => p.current), r.boxes ?? [], (i) => crash.code(i));
           if (r.boxes?.length) {
             moveObjects(world, r.boxes.map((b) => ({ sitIndex: b.sitIndex, matrix: toSceneMatrix(b.matrix, b.pos) })));
             for (const b of r.boxes) { movedBoxes.add(b.sitIndex); movedPositions.set(b.sitIndex, b.pos); }
@@ -541,9 +692,15 @@ export default async function mount(container, context, { track, laps, difficult
           // The race goes on after the player finishes: the RaceCam follows, and the results wait for the others (game/race-end.js).
           if (r.race) {
             const end = raceEnd.update(r.race);
-            cameraTarget = end.target;
-            if (end.justFinished) viewMode = 4;
-            if (end.done && !finishing) finish();
+            if (demo) {
+              // The RaceCam moves on to the next truck every few seconds; when the race is over the demo starts again.
+              cameraTarget = Math.floor(r.time / DEMO_CAMERA_S) % r.race.trucks.length;
+              if (end.done && !leaveDemo.done) { leaveDemo.done = true; context.router.go("race", params, { replace: true }); }
+            } else {
+              cameraTarget = end.target;
+              if (end.justFinished) viewMode = 4;
+              if (end.done && !finishing) finish();
+            }
           }
         })
         .catch((err) => { if (!disposed) showMessage(err.message); })
@@ -599,7 +756,7 @@ export default async function mount(container, context, { track, laps, difficult
         cockpit.setDashboard({ visible: viewMode === 0 && cockpitMode() === 0, speed: mine.speed, rpm: mine.rpm, gear: mine.gear, steer: mine.steer });
         const next = build.sim.checkpoints[latest.race?.trucks[0].checkpoint ?? 0];
         cockpit.setFinder({
-          visible: context.settings.finder !== false && !!next && !summit,
+          visible: context.settings.finder !== false && !!next && !summit && !freeRoam,
           angle: next ? finderAngle(shown[0].pos, shown[0].euler[2], next.gate.position) : 90,
           number: (latest.race?.trucks[0].checkpoint ?? 0) + 1,
         });
@@ -608,6 +765,8 @@ export default async function mount(container, context, { track, laps, difficult
         minimap.set(shown.map((p, i) => ({ pos: p.pos, heading: p.euler[2], place: latest.race?.trucks[i]?.place ?? i + 1, label: nameLabel(namesMode, entrants[i], truckName) })), dt);
       }
       if (latest.race && !finishing) showRace(latest.race, now);
+      // Free roam has only the clock.
+      else if (freeRoam && !latest.race) hud.set([[t("Clock:"), formatRaceTime(latest.time ?? 0)]]);
     }
     if (!paused) caption.update(dt);
     // The water bobs a quarter foot every eight seconds (frozen in Snow), and under it the world is fogged to 320 ft with no sky.
@@ -633,7 +792,7 @@ export default async function mount(container, context, { track, laps, difficult
       });
     }
     const sky = world.getObjectByName("sky");
-    if (sky) { sky.position.set(camera.position.x, 0, camera.position.z); sky.visible = !under; }
+    if (sky) { sky.position.set(camera.position.x, 0, camera.position.z); sky.visible = weatherScene.skyShown; }
     updateTrackWorld(world, camera, dt);
     if (shadows) {
       shadows.setupMaterials();
@@ -646,13 +805,217 @@ export default async function mount(container, context, { track, laps, difficult
     flare?.render(renderer, camera);
     gold?.afterRender(dt, build.title ?? track.name);
   };
-  frame = requestAnimationFrame(loop);
+  nextFrame();
   gold = createGoldMode({
     window, sim, scene, camera, renderer, canvas, view, build, font: hudFont, scale, t, track, setWeather,
     getWeather: () => weatherScene.weather,
     flash: (text) => flash(text, performance.now()),
+    zCameras,
+    // Ctrl+L (Z mode): another track by its SIT's name, with the same trucks and settings.
+    loadSit: async () => {
+      const name = window.prompt("Load a track by its .SIT name:", track.file);
+      if (!name) return;
+      const said = await loadTrackByName(name);
+      if (said) flash(said, performance.now());
+    },
   });
   cleanups.push(() => gold.dispose());
+
+  /** Another track by its SIT's name (or its title), with the same trucks and settings. Returns what went wrong, or null. */
+  async function loadTrackByName(name) {
+    const wanted = name.trim().toUpperCase().replace(/\.SI[T2]$/, "");
+    const catalog = await context.assets.call("catalog").catch(() => ({ tracks: [] }));
+    const stem = (item) => item.file.toUpperCase().replace(/\.SI[T2]$/, "");
+    const next = catalog.tracks.find((item) => stem(item) === wanted) ?? catalog.tracks.find((item) => item.name.toUpperCase() === wanted)
+      ?? catalog.tracks.find((item) => item.name.toUpperCase().includes(wanted));
+    if (!next) return `No track named ${wanted}.`;
+    context.router.go("race", { ...params, track: next, mode: next.raceType, laps: next.defaultLaps, freeRoam: !!params.freeRoam || !!next.freeRoamOnly }, { replace: true });
+    return null;
+  }
+
+  // The console (ui/console.js, the backquote key). What changes who races or where starts the race again with it.
+  if (!demo) {
+    const restart = (changes) => { context.router.go("race", { ...params, ...changes }, { replace: true }); };
+    const bare = (file) => file.toUpperCase().replace(/\.TRK$/, "");
+    const findTruck = (text) => {
+      const w = bare(text.trim());
+      return catalogTrucks.find((item) => bare(item.file) === w) ?? catalogTrucks.find((item) => item.name.toUpperCase() === w)
+        ?? catalogTrucks.find((item) => item.name.toUpperCase().includes(w));
+    };
+    const truckNames = () => catalogTrucks.map((item) => bare(item.file).toLowerCase());
+    const bots = () => entrants.filter((e) => !e.player);
+    const onOff = (word) => (/^(1|on)$/i.test(word ?? "") ? true : /^(0|off)$/i.test(word ?? "") ? false : null);
+    const said = (on) => (on ? "on" : "off");
+    const weatherNow = () => weatherScene.weather ?? weatherId;
+    /** The lines the console opens with, and `info`'s first ones. */
+    const summary = () => {
+      const pos = latest?.poses[0]?.current.pos ?? [0, 0, 0];
+      const me = latest?.race?.trucks[0];
+      const lap = freeRoam || !latest?.race ? "free roam" : summit ? "Rumble" : `Lap ${me?.lap ?? 1}/${latest.race.laps}`;
+      return [
+        `Track: ${track.name} (${track.file}), Truck: ${truckName(playerTruck)} (${playerTruck})`,
+        `Position X:${Math.round(pos[0])} Y:${Math.round(pos[1])} Z:${Math.round(pos[2])}, ${lap}, Weather: ${t(WEATHER_NAMES[weatherNow()])}, Backdrop: ${said(!!context.settings.backdrops)}, Bots: ${bots().length}`,
+      ].join("\n");
+    };
+    const SKILLS = ["rookie", "intermediate", "professional", "sonic"];
+    const weatherNames = WEATHER_NAMES.map((n) => n.toLowerCase().replace(/\s+/g, ""));
+    const commands = {
+      info: {
+        help: "the track, the truck and the simulation, as they are now",
+        run: () => {
+          const now = latest?.poses[0]?.current, me = latest?.race?.trucks[0];
+          const sound = context.settings.sound ?? {};
+          return [
+            WATERMARK, summary(),
+            `Game: ${build.game ?? track.game ?? "MTM2"}, Type: ${track.typeLabel ?? track.raceType}, Skill: ${SKILLS[Math.min(2, Number(difficulty))]}${Number(difficulty) === 2 && context.settings.sonicTrucks ? " (sonic)" : ""}, Look: ${look}`,
+            `Speed: ${Math.round((now?.speed ?? 0) * 0.6818)} mph, Gear: ${now?.gear ?? "-"}, RPM: ${Math.round(now?.rpm ?? 0)}, Heading: ${Math.round((((shownPoses?.[0]?.euler[2] ?? 0) * 180) / Math.PI + 360) % 360)} deg`,
+            `Clock: ${formatRaceTime(latest?.race?.clock ?? latest?.time ?? 0)}, Place: ${me ? `${me.place}/${latest.race.trucks.length}` : "-"}, Checkpoint: ${me ? `${me.checkpoint + 1}/${build.sim.checkpoints.length}` : "-"}`,
+            `Overlap: ${said(build.tileOverlap !== false)}, Music: ${said((sound.music ?? 0.8) > 0)}, Sound: ${said(!sound.muted)}, Trucks: ${entrants.length}, Objects: ${build.objects?.length ?? 0}`,
+          ].join("\n");
+        },
+      },
+      bots: {
+        help: "lists the computer opponents: number, driver, truck",
+        run: () => (bots().length ? bots().map((e, i) => `${i + 1}  ${e.name.padEnd(10)} ${truckName(e.file)} (${e.file})`).join("\n") : "There are no computer opponents."),
+      },
+      backdrop: {
+        usage: "backdrop <0|1>", help: "the track's backdrop models on or off (restarts the race)",
+        run: ([word]) => {
+          const on = onOff(word);
+          if (on === null) return `Usage: backdrop <0|1>. Now ${said(!!context.settings.backdrops)}.`;
+          context.settings.backdrops = on;
+          saveSettings(context.settings);
+          restart({});
+          return `Backdrop ${said(on)}.`;
+        },
+      },
+      overlap: {
+        usage: "overlap <0|1>", help: "the ground tiles' two-pixel overlap on or off, for this race (restarts it)",
+        run: ([word]) => {
+          const on = onOff(word);
+          if (on === null) return `Usage: overlap <0|1>. Now ${said(build.tileOverlap !== false)}.`;
+          restart({ tileOverlap: on });
+          return `Overlap ${said(on)}.`;
+        },
+      },
+      music: {
+        usage: "music <0|1>", help: "the music on or off",
+        run: ([word]) => {
+          const on = onOff(word);
+          const sound = context.settings.sound ?? {};
+          if (on === null) return `Usage: music <0|1>. Now ${said((sound.music ?? 0.8) > 0)}.`;
+          if (!on && (sound.music ?? 0.8) > 0) context.musicLevelBefore = sound.music ?? 0.8;
+          context.settings.sound = { ...sound, music: on ? ((sound.music ?? 0) > 0 ? sound.music : context.musicLevelBefore ?? 0.8) : 0 };
+          saveSettings(context.settings);
+          audio.setVolumes(context.settings.sound);
+          return `Music ${said(on)}.`;
+        },
+      },
+      sound: {
+        usage: "sound <0|1>", help: "all sound on or off",
+        run: ([word]) => {
+          const on = onOff(word);
+          if (on === null) return `Usage: sound <0|1>. Now ${said(!context.settings.sound?.muted)}.`;
+          context.settings.sound = { ...context.settings.sound, muted: !on };
+          saveSettings(context.settings);
+          audio.setVolumes(context.settings.sound);
+          return `Sound ${said(on)}.`;
+        },
+      },
+      addbot: {
+        usage: "addbot [truck]", help: "adds a computer opponent (restarts the race)", complete: truckNames,
+        run: (args, rest) => {
+          if (freeRoam) return "Free roam has no opponents (freeroam 0 first).";
+          if (entrants.length >= Math.min(8, grid.length)) return "The grid is full.";
+          const racing = new Set(entrants.map((e) => e.file));
+          const pick = rest ? findTruck(rest) : usable.find((item) => !racing.has(item.file)) ?? usable[0];
+          if (!pick) return `No truck named ${rest}.`;
+          if (racing.has(pick.file)) return `${pick.name} is already racing.`;
+          restart({ opponents: [...bots().map((e) => e.file), pick.file] });
+          return `Adding ${pick.name}.`;
+        },
+      },
+      kickbot: {
+        usage: "kickbot [n|name]", help: "removes a computer opponent by its number in `bots` or its name, the last one by default (restarts the race)",
+        complete: () => bots().map((e) => e.name.toLowerCase()),
+        run: (args, rest) => {
+          const list = bots();
+          if (!list.length) return "There are no computer opponents.";
+          const w = rest.trim().toUpperCase();
+          const out = /^\d+$/.test(w) ? list[Number(w) - 1]
+            : w ? list.find((e) => e.name.toUpperCase() === w || bare(e.file) === bare(w) || truckName(e.file).toUpperCase().includes(w)) : list[list.length - 1];
+          if (!out) return `No opponent named ${rest}.`;
+          restart({ opponents: list.filter((e) => e !== out).map((e) => e.file) });
+          return `Removing ${out.name}.`;
+        },
+      },
+      laps: {
+        usage: "laps <n>", help: "sets the race's laps, from now on",
+        run: async ([n]) => {
+          const value = Math.trunc(Number(n));
+          if (!(value >= 1)) return "Usage: laps <n>";
+          const set = await sim.call("command", { name: "laps", value });
+          return set ? `${set} laps.` : "This race has no laps.";
+        },
+      },
+      finish: {
+        help: "ends the race now: the times of the trucks still racing are worked out",
+        run: () => { if (freeRoam) return "Free roam has no race to finish."; if (finishing) return "The race is finishing."; finish(); return "Finishing."; },
+      },
+      map: {
+        usage: "map <sit>", help: "changes the track, by its SIT's name or its title",
+        complete: async () => ((await context.assets.call("catalog").catch(() => ({ tracks: [] }))).tracks.map((item) => item.file.replace(/\.SI[T2]$/i, "").toLowerCase())),
+        run: async (args, rest) => (rest ? (await loadTrackByName(rest)) ?? `Loading ${rest}.` : `Usage: map <sit>. Now on ${track.file}.`),
+      },
+      weather: {
+        usage: "weather <n|name>", help: `changes the weather: ${weatherNames.map((n, i) => `${i} ${n}`).join(", ")}`, complete: () => weatherNames,
+        run: async ([name]) => {
+          const index = /^\d+$/.test(name ?? "") ? Number(name) : weatherNames.findIndex((n) => n.startsWith((name ?? "").toLowerCase()));
+          if (!name || index < 0 || index >= WEATHER_NAMES.length) return `Usage: weather <0-${WEATHER_NAMES.length - 1}|${weatherNames.join("|")}>. Now ${weatherNow()} ${weatherNames[weatherNow()]}.`;
+          await setWeather(index);
+          return `Weather: ${t(WEATHER_NAMES[index])}.`;
+        },
+      },
+      skill: {
+        usage: "skill <n|level>", help: `the opponents' difficulty: ${SKILLS.map((n, i) => `${i} ${n}`).join(", ")} (restarts the race)`, complete: () => SKILLS,
+        run: ([name]) => {
+          const index = /^[0-3]$/.test(name ?? "") ? Number(name) : SKILLS.findIndex((n) => n.startsWith((name ?? "").toLowerCase()));
+          if (!name || index < 0) return `Usage: skill <0-3|${SKILLS.join("|")}>`;
+          // Sonic is Professional with the computer trucks driving as on a Sonic track (Options, Game).
+          if (index >= 2) { context.settings.sonicTrucks = index === 3; saveSettings(context.settings); }
+          restart({ difficulty: Math.min(2, index) });
+          return `Skill: ${SKILLS[index]}.`;
+        },
+      },
+      truck: {
+        usage: "truck <name>", help: "changes your truck (restarts the race)", complete: truckNames,
+        run: (args, rest) => {
+          const pick = rest ? findTruck(rest) : null;
+          if (!pick) return rest ? `No truck named ${rest}.` : `Usage: truck <name>. Now in ${truckName(playerTruck)}.`;
+          restart({ truck: pick.file, opponents: bots().map((e) => e.file).filter((file) => file !== pick.file) });
+          return `Truck: ${pick.name}.`;
+        },
+      },
+      freeroam: {
+        usage: "freeroam <0|1>", help: "free roam on or off (restarts the race)",
+        run: ([on]) => {
+          if (on !== "0" && on !== "1") return `Usage: freeroam <0|1>. Now ${freeRoam ? 1 : 0}.`;
+          if (on === "0" && track.freeRoamOnly) return "This track has no checkpoints: free roam only.";
+          restart({ freeRoam: on === "1" });
+          return `Free roam ${on === "1" ? "on" : "off"}.`;
+        },
+      },
+      exit: { help: "closes the console", run: () => { gameConsole?.setOpen(false); } },
+      restart: { help: "starts the race again", run: () => { restart({}); } },
+      quit: { help: "leaves the race for the Races screen", run: () => { context.router.go("race-select", { mode: track.raceType }, { replace: true }); } },
+    };
+    context.consoleHistory ??= [];
+    gameConsole = createConsole({
+      parent: view, window, commands, history: context.consoleHistory,
+      banner: () => `${WATERMARK}\n${summary()}\nType help for commands`,
+    });
+    cleanups.push(() => gameConsole.dispose());
+  }
 
   return { unmount };
 }
@@ -685,7 +1048,7 @@ function enableShadows({ renderer, scene, camera, world, sun, drawn }) {
     return true;
   };
   tile?.traverse((o) => {
-    if (o.isMesh && o.name !== "terrain" && o.name !== "water" && casts(o)) o.castShadow = true;
+    if (o.isMesh && o.name !== "terrain" && o.name !== "water" && o.name !== "road" && casts(o)) o.castShadow = true;
   });
   for (const truck of drawn) truck.object.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; if (o.material) o.material.shadowSide = o.material.side; } });
   // A facing object (type 8 and 9 billboards) turns to the camera, which would swing its shadow around with the
@@ -714,9 +1077,12 @@ function enableShadows({ renderer, scene, camera, world, sun, drawn }) {
 }
 
 /** Whether the ground between a point and the horizon toward the sun hides the sun (scene frame in, game frame out). */
-function sunBlocked(terrain, origin, direction) {
-  for (let t = 16; t < 4000; t += 16 + t * 0.02) {
+function sunBlocked(terrain, origin, direction, wraps = true) {
+  // As far as the far corner of the world: a mountain across the map hides the sun too.
+  for (let t = 16; t < 12000; t += 16 + t * 0.02) {
     const x = origin.x + direction.x * t, y = origin.y + direction.y * t, z = -(origin.z + direction.z * t);
+    // A level drawn once has nothing past its edges.
+    if (!wraps && (x < 0 || x >= 8192 || z < 0 || z >= 8192)) return false;
     const wrap = (v) => ((v % 8192) + 8192) % 8192;
     if (y < mtm2Sim.groundHeightAt(terrain, wrap(x), wrap(z))) return true;
   }

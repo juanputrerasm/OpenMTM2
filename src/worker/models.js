@@ -7,9 +7,11 @@
   places a model by it.
 
   Faces are fans; each becomes triangles grouped by what one three.js material can draw:
-  texture, cutout or blended, flat colour, and the material record in force.
+  texture, cutout or blended, flat colour, and the material record in force. The normals are
+  smoothed across the whole model (shared/smooth-normals.js); the classic look shades flat anyway.
 */
 import { MRGL, MRGLMAT, parseBin } from "../vendor/openphotex/index.js";
+import { smoothNormals } from "../shared/smooth-normals.js";
 
 const UV_SCALE = 0xff0000;
 const CUTOUT_FACE_TYPES = new Set([0x11, 0x33]);
@@ -62,17 +64,19 @@ export function decodeModel(bytes, name) {
     const blended = flags !== null && !!(flags & MRGLMAT.BLEND);
     const cutout = flags !== null ? !!(flags & (MRGLMAT.ALPHATEST | MRGLMAT.TEXSOLID)) : CUTOUT_FACE_TYPES.has(face.opcode);
     const flat = face.opcode === FLAT_FACE_TYPE || !textureName;
-    const key = `${flat ? `#${face.solidColor ?? 0}` : textureName}|${blended ? "b" : cutout ? "c" : "o"}|${face.material ?? "-"}|${face.material2 ?? "-"}`;
+    // MRGL_TEXTURECYCLE: the faces' texture runs through these frames (render/track-scene.js animates it).
+    const frames = !flat && face.textureFrames?.length > 1 ? face.textureFrames.map((n) => n.toUpperCase()) : null;
+    const key = `${flat ? `#${face.solidColor ?? 0}` : frames ? frames.join(",") : textureName}|${blended ? "b" : cutout ? "c" : "o"}|${face.material ?? "-"}|${face.material2 ?? "-"}`;
     let g = groups.get(key);
     if (!g) {
       g = {
-        textureName: flat ? "" : textureName, color: flat ? (face.solidColor ?? 0) >>> 0 : null,
+        textureName: flat ? "" : textureName, textureFrames: frames, color: flat ? (face.solidColor ?? 0) >>> 0 : null,
         cutout, blended, material: face.material === null || face.material === undefined ? null : bin.materials[face.material],
         material2: face.material2 === null || face.material2 === undefined ? null : bin.materials2?.[face.material2] ?? null,
         positions: [], normals: [], uvs: [],
       };
       groups.set(key, g);
-      if (!flat) textureNames.add(textureName);
+      if (!flat) for (const n of frames ?? [textureName]) textureNames.add(n);
     }
     for (const k of fanTriangles(idx.length)) {
       const tri = k.map((j) => idx[j]);
@@ -91,8 +95,9 @@ export function decodeModel(bytes, name) {
       }
     }
   }
+  smoothNormals([...groups.values()]);
   const meshes = [...groups.values()].filter((g) => g.positions.length).map((g) => ({
-    textureName: g.textureName, color: g.color, cutout: g.cutout, blended: g.blended,
+    textureName: g.textureName, textureFrames: g.textureFrames, color: g.color, cutout: g.cutout, blended: g.blended,
     emissive: !!(g.material && g.material.flags & MRGLMAT.EMISSIVE),
     // Community Patch 3 materials (MRGL_MATERIAL / MATERIAL2): the record itself, for the renderer to map (track-scene.js).
     material: g.material ? { ...g.material, tint: g.material.tint ? [...g.material.tint] : null } : null,

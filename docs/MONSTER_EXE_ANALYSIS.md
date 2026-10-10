@@ -495,6 +495,12 @@ Exactly (`0x41b330`, from the code):
   follow the course, and in the three stock Rumbles they stay outside the zone and only lose
   points. The human player is the only one who scores.
 - Places are by score, highest first.
+- **Where the big losses come from** (the same code, checked again): the boxes have a height, and
+  the test is on the truck's centre, so a truck thrown into the air above its box is "off the
+  summit" as much as one pushed off the edge. SUMMIT1's summit box spans 119 to 161 ft over a deck
+  at 138, SUMMIT2's 240 to 272 over ground at 242, SUMMIT3's 151 to 189. Each exit costs 50 with only
+  the 2 s cooldown between them, so bouncing in and out costs 50 every time, on top of the
+  1 a second while outside. The helicopter is not offered in this mode.
 
 The score is a float at truck `+0xf50`, sent in every network state packet in this mode. The
 loading screen (Title.c 0x4d5b5c) prints the same four rules: "+10 in scoring zone", "-50 per
@@ -903,7 +909,8 @@ CPU trucks and the player's autopilot use the same code.
 - **Course control** (0x481ea0, 0x483600): steering toward the segment, clamped to ±0.45 with
   the same 0.33 rear counter-steer, integrated at 1/30.
 - **Difficulty** scales the gains (section 6.5). On a missed checkpoint a CPU truck is placed
-  onto it (Professional) or helicoptered back (Rookie, Intermediate), section 6.2.
+  onto it (Professional) or helicoptered back (Rookie, Intermediate), section 6.2. (The port
+  always sends the helicopter, and also when a truck makes no headway for 6 s.)
 - Default CPU driver names (0x551f90): Mark, Greg, Rich, Brett, Gaither, Chuck, Terry, Joe
   (presumably the developers).
 - **Who races** (single player). `CRace::init` (0x417ad0) flags `defaultOpponents` catalogue
@@ -1364,6 +1371,24 @@ snowflakes (0x575b50 with 35.0 against Rain's 130.0). The fog tables (`FOG\<trac
 software renderer used for the darkness of Dusk, Night and Pitch Black are not traced; the port
 approximates them (src/game/weather.js).
 
+**Darkness by weather, as far as it is read.** The weather routine itself (`0x5745e0`, `0x5753b0`) sets
+only the fog colour (black for Dusk, Night and Pitch Black alike), builds and installs a fog table for it
+(`0x55d230(r, g, b, 10, 0xf5)`, `0x55e5d0`), sets the renderer's fog colour (`0x4f5d70`) and the view cut;
+nothing in it tells Night from Pitch Black. Three bitmap routines (`0x4ea010`, `0x4ea1fe`, `0x4eac32`)
+recolour every non-zero pixel of a bitmap through a shade table of sixteen levels, `0x6a71f8[level * 256 +
+pixel]`, with the level taken from the weather: Cloudy 13, Foggy 14, Dense Fog 12, Rain 13, Snow 14, Dusk
+11, Night 8, Pitch Black 5 (Clear is left as drawn). So the game darkens that art to 5/16 in Pitch Black and
+8/16 at Night; which bitmaps these are, and whether the 3D ground takes the same level, is not traced. Two
+more tests single Pitch Black out: the routine at about `0x4e...` (decompiled near `DAT_0063f54c`, a truck's
+heading sine and cosine) runs only when the weather is not Pitch Black (or `0x468450` returns more than
+0x3fff), read as the truck's shadow, **hypothesis**; and `0x5225d0` (the lens flare) is skipped in Pitch
+Black, Foggy and Dense Fog. Nothing read so far has a headlight lighting the ground: the lamp code draws
+lens decals and cones (section 11b).
+
+**In OpenMTM2** Pitch Black has no sun and almost no ambient light, so the trucks' headlights (an addition)
+are what lights the ground, and nothing casts a sun shadow. A race that started in Pitch Black used to keep
+the sun on (the shadow helper took an intensity of 0 as none given): fixed in `render/sun-shadows.js`.
+
 **Water** (`0x5043e0` surface, `0x4f9...` water update, `0x4fb5a0` fog, `0x42b630` background, `0x5609c0` wake):
 - **The surface is an animated texture**, not a colour: eight `RIPPL100-800.RAW` frames (grey
   water with glints, 64 x 64, `STARTUP.POD`) played in the order 1 2 3 4 5 6 7 8 7 6 5 4 3 2
@@ -1484,9 +1509,11 @@ autopilot cycle and the slew freeze flag are confirmed in code; the rest is not 
 (the last 8 letters are compared). With GOLD on, R reverses the course, Ctrl+T cycles the
 player's autopilot (off, speed control only, full), Ctrl+B cycles the collision boxes (off,
 wireframe, solid), Ctrl+Y is slew mode, Z the technical overlay in slew mode, and 0 (4 in slew
-mode) saves a screenshot as a PNG download. Alt works in place of Ctrl, since browsers keep
-Ctrl+T and Ctrl+W. Not done: Ctrl+W (the weather cycle waits for M10), Ctrl+L (load a SIT by
-name), Ctrl+4 and Ctrl+5 (BlimpCam and RaceCam), the X key's CPU flag (`0xa9a4d0`, meaning
+mode) saves a screenshot as a PNG download. Z mode stays on when slew mode is left, so its zoom
+(- and +), its orbit (Insert and Delete) and Ctrl+L (load a SIT by name) work while driving; this
+follows a player's account of the game (RuDeE), not a trace. Ctrl+4 and Ctrl+5 pick BlimpCam and
+RaceCam at any time. Alt works in place of Ctrl, since browsers keep
+Ctrl+T and Ctrl+W. Not done: the X key's CPU flag (`0xa9a4d0`, meaning
 untraced), the DEMO, NOLOCK, CHUCK and 3DFX codes.
 
 **Torture Pit unlock** (0x585da0): on Sidewinder Canyon (`Snake.sit`), park the player truck

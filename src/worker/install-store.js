@@ -49,7 +49,7 @@ export async function copyInstall({ files, podIni, exeVersion = null }, onProgre
   await writeBytesToFile(`${INSTALL_DIR}/POD.INI`, new TextEncoder().encode(podIni));
   const manifest = {
     format: MANIFEST_FORMAT,
-    archives: files.map(({ name, file }) => ({ name, size: file.size })),
+    archives: files.map(({ name, file }) => ({ name, size: file.size, modified: file.lastModified ?? null })),
     exeVersion,
     installedAt: new Date().toISOString(),
   };
@@ -57,7 +57,45 @@ export async function copyInstall({ files, podIni, exeVersion = null }, onProgre
   return manifest;
 }
 
-async function copyFile(file, path, onChunk) {
+/**
+ * Reload POD.INI from the player's folder, picked again: archives it no longer lists are removed,
+ * new or changed ones (by size or modification time) are copied, the rest stay as they are, and
+ * the mount order becomes the new file's. Returns the manifest with `added`, `removed` and `kept`
+ * archive names.
+ */
+export async function syncInstall({ files, podIni, exeVersion = null }, onProgress) {
+  const old = await readManifest();
+  const before = new Map((old?.archives ?? []).map((a) => [a.name, a]));
+  const wanted = new Set(files.map((f) => f.name));
+  const same = ({ name, file }) => {
+    const had = before.get(name);
+    return !!had && had.size === file.size && had.modified != null && had.modified === (file.lastModified ?? null);
+  };
+  const changed = files.filter((f) => !same(f));
+  const removed = [...before.keys()].filter((name) => !wanted.has(name));
+  // No manifest while the copy runs: an interrupted reload reads as no install, not as a broken one.
+  await removePath(MANIFEST);
+  for (const name of removed) await removePath(`${INSTALL_DIR}/${name}`);
+  const total = changed.reduce((sum, f) => sum + f.file.size, 0);
+  let copied = 0;
+  for (const { name, file } of changed) {
+    await copyFile(file, `${INSTALL_DIR}/${name}`, (bytes) => {
+      copied += bytes;
+      onProgress({ copied, total, name });
+    });
+  }
+  await writeBytesToFile(`${INSTALL_DIR}/POD.INI`, new TextEncoder().encode(podIni));
+  const manifest = {
+    format: MANIFEST_FORMAT,
+    archives: files.map(({ name, file }) => ({ name, size: file.size, modified: file.lastModified ?? null })),
+    exeVersion,
+    installedAt: new Date().toISOString(),
+  };
+  await writeBytesToFile(MANIFEST, new TextEncoder().encode(JSON.stringify(manifest, null, 2)));
+  return { ...manifest, added: changed.map((f) => f.name), removed, kept: files.filter(same).map((f) => f.name) };
+}
+
+export async function copyFile(file, path, onChunk) {
   const handle = await getFileHandle(path, true);
   const access = await handle.createSyncAccessHandle();
   try {
@@ -74,19 +112,26 @@ async function copyFile(file, path, onChunk) {
 }
 
 /**
- * Mount the copied archives in POD.INI order. Archives the manifest does not record (missing
+ * The copied archives as mounts, in POD.INI order. Archives the manifest does not record (missing
  * from the player's folder) are skipped, as the game would fail to mount them.
  */
-export async function mountInstall(manifest) {
+export async function installMounts(manifest) {
   const ini = parsePodIni(await readTextFile(`${INSTALL_DIR}/POD.INI`));
-  const present = new Set(manifest.archives.map((a) => a.name));
+  const sizes = new Map(manifest.archives.map((a) => [a.name, a.size]));
   const mounts = [];
   for (const name of ini.keys) {
-    if (!present.has(name)) continue;
+    if (!sizes.has(name)) continue;
     const path = `${INSTALL_DIR}/${name}`;
     const file = await readFile(path);
     const archive = await indexPodFile(file);
-    mounts.push({ name, archive, readEntry: (entry) => readPodEntryBytes(file, entry) });
+    mounts.push({
+      key: `install:${name}`, name, archive, readEntry: (entry) => readPodEntryBytes(file, entry),
+      family: "MTM", game: "MTM2", source: "MTM2 install", size: sizes.get(name), removable: false,
+    });
   }
-  return createVfs(mounts);
+  return mounts;
+}
+
+export async function mountInstall(manifest) {
+  return createVfs(await installMounts(manifest));
 }

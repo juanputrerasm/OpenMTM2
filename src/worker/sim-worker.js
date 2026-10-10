@@ -105,13 +105,77 @@ function soundOf(t, ground) {
  * `ra0` / `ra1` are the level's ground-box layers and `boxes` its collision boxes (track-build.js);
  * `race`, when given, is `{ checkpoints, laps }` and runs the race rules (MTM2_PHYSICS.md 14.24).
  */
+/** A computer truck that stays within this many feet for this long is stuck. */
+const NO_HEADWAY_FT = 12, NO_HEADWAY_S = 6;
+
+/**
+ * Ground boxes are smoothed (not the game's): a side shared with a box no more than this much lower is ignored, so
+ * a floor of boxes drives like ground and a step this high can be climbed. `init.groundBoxSmoothFt: null` turns it off.
+ */
+const GROUND_BOX_SMOOTH_FT = 4;
+
+/**
+ * The index of the course straight a truck at `pos` heading `heading` is on: the nearest one that runs its way.
+ * For a grid that stands part way round the course (CART Precision Racing); 0 without one.
+ */
+function nearestStraight(course, pos, heading) {
+  let best = 0, bestDistance = Infinity;
+  course.forEach((seg, i) => {
+    if (S.isArc(seg)) return;
+    const dx = seg.end[0] - seg.start[0], dz = seg.end[2] - seg.start[2];
+    if (Math.sin(heading) * dx + Math.cos(heading) * dz <= 0) return;
+    const t = Math.max(0, Math.min(1, ((pos[0] - seg.start[0]) * dx + (pos[2] - seg.start[2]) * dz) / (dx * dx + dz * dz || 1)));
+    const distance = Math.hypot(pos[0] - (seg.start[0] + dx * t), pos[2] - (seg.start[2] + dz * t));
+    if (distance < bestDistance) { bestDistance = distance; best = i; }
+  });
+  return best;
+}
+
 export function createSession(init) {
-  const terrain = S.createTerrain(new Uint8Array(init.heights), init.waterLevelFt ?? null);
+  const groundBoxSmoothFt = init.groundBoxSmoothFt === null ? undefined : init.groundBoxSmoothFt ?? GROUND_BOX_SMOOTH_FT;
+  // `heightsFt`: corner heights in feet, for a level finer than MTM2's 2 ft steps (CART Precision Racing).
+  const terrain = init.heightsFt
+    ? S.createTerrainFt(new Float32Array(init.heightsFt), init.waterLevelFt ?? null)
+    : S.createTerrain(new Uint8Array(init.heights), init.waterLevelFt ?? null);
   const surfaces = init.clr && init.textureValues
     ? S.createSurfaceMap(new Uint16Array(init.clr), new Int32Array(init.textureValues))
     : null;
   let weather = init.weather ?? 0;
-  const ground = S.createTerrainGround(terrain, surfaces, weather, init.waterLevelFt ?? null);
+  const terrainGround = S.createTerrainGround(terrain, surfaces, weather, init.waterLevelFt ?? null);
+  // CPR's road layer lies over the terrain and is the ground where it does (OpenPhotex world/road.ts).
+  const ground = init.road ? S.createRoadGround(terrainGround, init.road) : terrainGround;
+  // Surfaces over the terrain that count only when they are under a truck (4x4 Evolution's rocks and decks): each
+  // truck asks with its own height, so what stands over it is not its ground (OpenPhotex world/road.ts `below`).
+  const meshGround = init.meshGround ? S.createRoadGround(terrainGround, init.meshGround) : null;
+  // Static scenery (CPR's walls, 4x4 Evolution's objects and trees): immovable upright boxes, found by a grid of 64 ft
+  // cells (a box is in every cell it reaches).
+  const WALL_CELL_FT = 64;
+  const wallCells = new Map();
+  for (const w of init.walls ?? []) {
+    const box = S.createBox(w.pos, w.size, 0, [0, 0, w.psi]);
+    const reach = Math.hypot(w.size[0], w.size[2]) * 0.5;
+    for (let cx = Math.floor((w.pos[0] - reach) / WALL_CELL_FT); cx <= Math.floor((w.pos[0] + reach) / WALL_CELL_FT); cx++) {
+      for (let cz = Math.floor((w.pos[2] - reach) / WALL_CELL_FT); cz <= Math.floor((w.pos[2] + reach) / WALL_CELL_FT); cz++) {
+        const key = cx * 65536 + cz;
+        if (!wallCells.has(key)) wallCells.set(key, []);
+        wallCells.get(key).push(box);
+      }
+    }
+  }
+  /** The walls a truck of radius `r` at (x, z) may touch, each once, onto `out`. */
+  function wallsAround(x, z, r, out) {
+    if (!wallCells.size) return;
+    const seen = new Set();
+    for (let cx = Math.floor((x - r) / WALL_CELL_FT); cx <= Math.floor((x + r) / WALL_CELL_FT); cx++) {
+      for (let cz = Math.floor((z - r) / WALL_CELL_FT); cz <= Math.floor((z + r) / WALL_CELL_FT); cz++) {
+        for (const box of wallCells.get(cx * 65536 + cz) ?? []) {
+          if (seen.has(box)) continue;
+          seen.add(box);
+          out.push(box);
+        }
+      }
+    }
+  }
   const difficulty = init.difficulty ?? S.DIFFICULTY.INTERMEDIATE;
   const sonicTrack = !!init.sonicTrack;
   const ra0 = init.ra0 ? new Uint8Array(init.ra0) : null;
@@ -130,7 +194,11 @@ export function createSession(init) {
   const course = S.buildCourse(init.course ?? [], (x, z) => ground.height(x, z), {
     sonicTrack, gripK: sonicTrack && difficulty === S.DIFFICULTY.PROFESSIONAL ? 2 : 1.75,
   });
+  // The computer trucks steer by the game's frame time, not the simulation's step (OpenPhotex AUTOPILOT_FRAME_DT, 1/30 s):
+  // `opponentFps` (Options, Game) is the frame rate they drive as if the game ran at.
+  const opponentFps = Number(init.opponentFps);
   const apCtx = { course, height: (x, z) => ground.height(x, z), dt: STEP, difficulty, sonicTrack };
+  if (opponentFps >= 10 && opponentFps <= 240) apCtx.frameDt = 1 / opponentFps;
 
   const specs = init.trucks ?? [{ truck: init.truck, start: init.start, autopilot: init.autopilot }];
   const trucks = specs.map((spec, i) => {
@@ -139,13 +207,18 @@ export function createSession(init) {
       { difficulty, autoShift: init.autoShift ?? true, ...spec.setup },
     );
     const state = S.createTruckState(spec.start.pos, spec.start.heading ?? 0, S.GEAR.FIRST, params);
+    if (init.startOnNearestSegment) state.ap.segment = nearestStraight(course, spec.start.pos, spec.start.heading ?? 0);
     // A Rumble needs no course: its computer trucks drive to the zone (rumble-ai.js).
     const autopilot = !!spec.autopilot && (course.length > 0 || init.race?.mode === "summit");
     // Without a course the reset keeps the heading and the helicopter sets the truck down in place.
+    // `proLift`: a computer truck that misses a checkpoint or comes to rest is always fetched by the helicopter, never
+    // set back on the course at once as the game does on Professional (the port's choice).
     const recovery = {
-      racing: true, player: i === 0 && !autopilot, autopilot, difficulty, summit: false, segment: null, previous: null,
+      racing: true, player: i === 0 && !autopilot, autopilot, difficulty, summit: false, segment: null, previous: null, proLift: true,
     };
-    const ctx = { ground, human: i === 0 && !autopilot, difficulty, sonicTrack, recovery };
+    // A foot under the body's origin: a step up to about a wheel's height is climbed, a taller face is not ground.
+    const ownGround = meshGround ? meshGround.below(() => state.pos[1] - 1) : ground;
+    const ctx = { ground: ownGround, human: i === 0 && !autopilot, difficulty, sonicTrack, recovery };
     return { state, params, autopilot, recovery, ctx, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, hit: null, splash: false, surface: 1 } };
   });
   const player = trucks[0];
@@ -252,7 +325,8 @@ export function createSession(init) {
     for (const t of trucks) {
       t.nearBoxes.length = 0;
       if (t.state.heliTimer > 0) continue;
-      if (ra0 && ra1) S.groundBoxesAround(ra0, ra1, t.state.pos[0], t.state.pos[2], t.nearBoxes);
+      if (ra0 && ra1) S.groundBoxesAround(ra0, ra1, t.state.pos[0], t.state.pos[2], t.nearBoxes, groundBoxSmoothFt);
+      wallsAround(t.state.pos[0], t.state.pos[2], t.radius, t.nearBoxes);
       for (const box of t.nearBoxes) S.collideTruckImmovableBox(t.state, t.params, box, STEP);
       for (const box of listed) S.collideTruckBox(t.state, t.params, box, STEP);
       // Ramp sides and front ends are walls (14.19), for ramps within reach of the truck.
@@ -323,6 +397,13 @@ export function createSession(init) {
       weather = value;
       return value;
     }
+    if (name === "laps") {
+      // The console's `laps`: the race's length from now on, for every truck still racing.
+      if (!race || race.summit) return null;
+      race.laps = Math.max(1, Math.trunc(Number(value)) || 1);
+      for (const t of race.trucks) if (!t.finished) t.finishLap = race.laps;
+      return race.laps;
+    }
     if (name === "reverse") return (apCtx.reversed = !apCtx.reversed);
     if (name === "autopilot") return setAutopilotLevel((player.apLevel + 1) % 3);
     if (name === "slew") return (gold.slew = !gold.slew);
@@ -373,6 +454,26 @@ export function createSession(init) {
     });
   }
 
+  /**
+   * A computer truck that makes no headway calls the helicopter (an addition: the game's own check is
+   * the speed, which a truck rocking against a tree passes). It must leave a NO_HEADWAY_FT circle
+   * around where it was within NO_HEADWAY_S.
+   */
+  function watchHeadway(t) {
+    const s = t.state;
+    const w = t.headway ?? (t.headway = { pos: [s.pos[0], s.pos[2]], time: 0 });
+    if (s.heliTimer > 0 || Math.hypot(s.pos[0] - w.pos[0], s.pos[2] - w.pos[1]) > NO_HEADWAY_FT) {
+      w.pos = [s.pos[0], s.pos[2]];
+      w.time = 0;
+      return;
+    }
+    w.time += STEP;
+    if (w.time < NO_HEADWAY_S) return;
+    w.time = 0;
+    s.heliTimer = S.STUCK_LIMIT_S - 1;
+    S.liftOff(s, t.params, ground, recoveryOf(t), s.contactCount ?? 0);
+  }
+
   /** Step one fixed step with the held keys (the player's truck). */
   function step(input) {
     const { joystick = null, helicopter = false, slew = null, ...held } = input ?? {};
@@ -410,8 +511,10 @@ export function createSession(init) {
           // A computer driver's reaction to the green.
           t.state.controls.throttle = 0;
           t.state.controls.brakeFront = t.state.controls.brakeRear = 1;
-        } else if (go) S.applyAutopilot(t.state, t.params, apOf(t));
-        else t.state.controls.throttle = 0;
+        } else if (go) {
+          S.applyAutopilot(t.state, t.params, apOf(t));
+          watchHeadway(t);
+        } else t.state.controls.throttle = 0;
       } else if (i === 0) {
         const controlCtx = {
           dt: STEP, autoShift: t.params.autoShift, forwardSpeed: t.state.bvel[2], dragMode: !!drag, segments: drag ? 4 : 0, difficulty,
@@ -493,7 +596,8 @@ export function createSession(init) {
   function callHelicopter(t) {
     if (t.recovery.summit || !(!race || S.raceStarted(race)) || gold.slew) return;
     if (t.flight) { releaseTruck(t); return; }
-    if (t.state.heliTimer !== 0) return;
+    // A truck on its roof is counting down to the game's own reset (a negative timer): the call still goes through.
+    if (t.state.heliTimer > 0) return;
     heliCalls = (heliCalls + 1) % 3;
     const driven = course.length ? S.orientedCourse(course, apCtx.reversed) : [];
     const here = t.state.pos;

@@ -7,7 +7,8 @@
   plain data with typed arrays, listed by `transferablesOf` for postMessage.
 */
 import { weatherSkyStem } from "../game/weather.js";
-import { BOX_LIGHT, BOX_MOVING, decodeActPalette, decodeRawTexture, mtm2Sim, podPathTitle, rawTextureSide } from "../vendor/openphotex/index.js";
+import { BOX_LIGHT, BOX_MOVING, decodeActPalette, decodeRawTexture, isEvoSit, mtm2Sim, podPathTitle, rawTextureSide } from "../vendor/openphotex/index.js";
+import { buildEvoSky, buildEvoTrackRender } from "./evo-track-build.js";
 import { toSceneMatrix } from "../shared/scene-frame.js";
 import { loadLevel, loadTextureSource } from "./level-load.js";
 import { buildTerrainAtlas, buildTerrainMesh, decodeTerrainTextures } from "./terrain-mesh.js";
@@ -16,13 +17,91 @@ import { resolveKeyframeModel } from "./keyframes.js";
 import { buildGroundBoxMesh } from "./ground-box-mesh.js";
 import { buildTruckRender } from "./truck-build.js";
 import { loadVehicleModels } from "./vehicle-models.js";
-import { artStem, loadAoMap, loadArtTexture, loadNormalMap, shrinkImage } from "./art-texture.js";
+import { artStem, loadAoMap, loadArtTexture, loadNormalMap, loadPlainImage, shrinkImage } from "./art-texture.js";
+
+/** A mask's red channel alone, as RGBA (the mask is greyscale; one channel is read). */
+function greyMask(image) {
+  const rgba = new Uint8ClampedArray(image.rgba.length);
+  for (let i = 0; i < rgba.length; i += 4) { rgba[i] = rgba[i + 1] = rgba[i + 2] = image.rgba[i]; rgba[i + 3] = 255; }
+  return { width: image.width, height: image.height, rgba };
+}
 
 /** The largest side an HD terrain tile keeps in the atlas. */
 const TERRAIN_HD_SIDE = 256;
 import { createPaletteResolver } from "./palette-resolver.js";
+import { buildCprRoadLayer, cprLapCheckpointBoxes } from "./cpr-road.js";
+
+/**
+ * How a Monster Truck Madness 1 track is drawn (Options, Display): `sky` its own flat sky in place of MTM2's dome,
+ * `overlap` MTM2's two-pixel overlap of the ground tiles, which MTM1 does not have.
+ */
+const MTM1_DEFAULTS = Object.freeze({ sky: true, overlap: false });
+/** The sky art's palette slots (240 to 255) and where a level's sky .ACT keeps their sixteen colours (192 to 207). */
+const SKY_FIRST_SLOT = 240, SKY_GRADIENT_AT = 192, SKY_GRADIENT_COLOURS = 16;
+
+/**
+ * MTM1's own sky, as JSTrackViewer reads it: the level's sky art (ALIENSKY, NEWSKY) is drawn only in palette slots 240
+ * to 255, which every palette leaves black; the level's sky .ACT (EARTHSKY, SUNSET) carries their sixteen colours at
+ * 192 to 207, and the last of them is the horizon's. The game draws it as a flat ceiling over the camera that fades
+ * into that colour (render/track-scene.js `createFlatSky`). Null when the level's sky is not of this kind.
+ */
+async function loadFlatSky(vfs, level) {
+  if (!level.sky?.name || !level.sky.actName || !level.palette) return null;
+  const raw = await vfs.read(`ART\\${level.sky.name}`), act = await vfs.read(`ART\\${level.sky.actName}`);
+  if (!raw || !act || !rawTextureSide(raw.length) || act.length < (SKY_GRADIENT_AT + SKY_GRADIENT_COLOURS) * 3) return null;
+  if (!raw.every((index) => index >= SKY_FIRST_SLOT)) return null;
+  const gradient = act.subarray(SKY_GRADIENT_AT * 3, (SKY_GRADIENT_AT + SKY_GRADIENT_COLOURS) * 3);
+  const palette = level.palette.slice();
+  palette.set(gradient, SKY_FIRST_SLOT * 3);
+  const image = decodeRawTexture(raw, palette);
+  return {
+    name: level.sky.name.replace(/\.RAW$/, ""), width: image.width, height: image.height, rgba: image.rgba,
+    flat: { horizon: Array.from(gradient.subarray((SKY_GRADIENT_COLOURS - 1) * 3, SKY_GRADIENT_COLOURS * 3)) },
+  };
+}
+
+/**
+ * An MTM1 stadium: its SIT block is `stadiumFlag,stadiumModelName` alone, where MTM2's adds the place and the size
+ * (`x,z,sx,sz`). What MTM1 does with it is in its executable, which is not read; these are measured on the four stock
+ * stadium drags (DRAG2 to DRAG5), and agree on all four:
+ *  - `centreFt`: cell (64, 64). The ring of ground boxes that walls the strip in is centred there exactly (cells 60 to
+ *    67 by 58 to 69 on DRAG2 and DRAG3, 60 to 67 by 59 to 68 on DRAG4 and DRAG5).
+ *  - `scale`: 10. Each model has a floor opening of 9.6 by 16.0 or 9.6 by 12.8 (half sizes, in its own units), and the
+ *    walls' inner faces stand 96 by 160 or 96 by 128 ft from the centre.
+ *  - `reachCells`: the walls are the ground boxes within this many cells of the centre (the levels keep a few stray
+ *    boxes in a corner of the map). As in an MTM2 stadium, nothing of the ground is drawn outside them, and the
+ *    walls are not drawn either.
+ */
+const MTM1_STADIUM = Object.freeze({ scale: 10, centreFt: Object.freeze([2048, 2048]), reachCells: 16 });
+
+/**
+ * The cells an MTM1 stadium's walls enclose (`{ col0, col1, row0, row1 }`, the ends exclusive), or null without walls.
+ * The walls themselves are left out: they are what stops the trucks, but what is seen there is the stadium model's
+ * own fence, whose floor opening is exactly the area inside them. So the ground boxes are not drawn, only collided with.
+ */
+function mtm1StadiumCells(ra0, ra1) {
+  if (!ra0 || !ra1) return null;
+  const [cx, cz] = MTM1_STADIUM.centreFt.map((v) => v / 32);
+  let col0 = Infinity, col1 = -Infinity, row0 = Infinity, row1 = -Infinity;
+  for (let row = Math.max(0, cz - MTM1_STADIUM.reachCells); row < Math.min(256, cz + MTM1_STADIUM.reachCells); row++) {
+    for (let col = Math.max(0, cx - MTM1_STADIUM.reachCells); col < Math.min(256, cx + MTM1_STADIUM.reachCells); col++) {
+      if (ra0[row * 256 + col] === ra1[row * 256 + col]) continue;
+      col0 = Math.min(col0, col); col1 = Math.max(col1, col + 1); row0 = Math.min(row0, row); row1 = Math.max(row1, row + 1);
+    }
+  }
+  // One cell in from the ring on every side.
+  return col1 - col0 > 2 && row1 - row0 > 2 ? { col0: col0 + 1, col1: col1 - 1, row0: row0 + 1, row1: row1 - 1 } : null;
+}
+
+/** How many trucks a race takes: a track of another game may list more slots (CART Precision Racing has 37). */
+const MAX_GRID = 8;
+/** How high over the ground MTM2's own grids hold a truck (Farm Road 29's slots), in feet. */
+const GRID_RIDE_FT = 6;
+/** A course straight's width when the SIT writes none, in feet. */
+const DEFAULT_TRACK_WIDTH_FT = 32;
 
 const RAMP_TYPE = 99;
+const CPR_TREE_TYPE = 3;
 const CHECKPOINT_TYPE = 6;
 const OLD_MTM_LEVEL = 4;
 
@@ -39,14 +118,42 @@ export function boxIsDrawn(box, { levelType, raceType, detailLevel }) {
 }
 
 /**
+ * The blimp (game/blimp.js) and the recovery helicopter (game/heli-flight.js), which are MTM2's on every track:
+ * GOODY.BIN, HELI.BIN and the pterodactyl's four wing frames (TERYL.BIN lists TERYL1 to TERYL4), each with its textures.
+ */
+export async function loadRaceVehicles(mtm, truckPalettes) {
+  const loadVehicle = (names) => loadVehicleModels(mtm, truckPalettes, names);
+  const goody = await loadVehicle(["GOODY.BIN"]);
+  const blimp = goody.models.length ? { model: goody.models[0], textures: goody.textures } : null;
+  // The pterodactyl is an animated BIN: TERYL.BIN lists four wing frames that become morph targets of the first.
+  const heliBytes = await mtm.read("MODELS\\TERYL.BIN");
+  const terylList = heliBytes ? decodeModel(heliBytes, "TERYL.BIN") : null;
+  const terylNames = (terylList?.frameNames ?? []).map((n) => n.toUpperCase());
+  const helicopter = await loadVehicle(["HELI.BIN", ...terylNames]);
+  const frameOf = async (name) => helicopter.models.find((m) => m.name === name.toUpperCase()) ?? null;
+  const teryl = terylList ? await resolveKeyframeModel(terylList, frameOf) : null;
+  const heliModel = helicopter.models.find((m) => m.name === "HELI.BIN") ?? null;
+  const heli = heliModel || teryl?.meshes?.length ? { heli: heliModel, teryl: teryl?.meshes?.length ? teryl : null, textures: helicopter.textures } : null;
+  return { blimp, heli };
+}
+
+/**
  * @param {ReturnType<import("./vfs.js").createVfs>} vfs
  * @param {string} sitPath
  * @param {{ detailLevel?: number, raceType?: string, truckFiles?: string[] }} [options] `truckFiles`: more trucks to build models for
  */
-export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType = "circuit", truckFiles = [], weather = 0 } = {}) {
+export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType = "circuit", truckFiles = [], weather = 0, mtm1 = MTM1_DEFAULTS, tileOverlap } = {}) {
+  // A 4x4 Evolution track is another kind of level altogether (worker/evo-track-build.js).
+  const sitBytes = await vfs.read(sitPath);
+  if (sitBytes && isEvoSit(sitBytes)) return buildEvoTrackRender(vfs, sitPath, sitBytes, { detailLevel, raceType, truckFiles, weather, tileOverlap });
   const level = await loadLevel(vfs, sitPath);
   const { sit } = level;
-  const palettes = createPaletteResolver(vfs, "MTM2", level.palette);
+  // A CART Precision Racing track (docs/PLAN.md F3): its own art and palettes, a finer heightfield and a road layer.
+  // The trucks, the blimp and the helicopter are MTM2's whatever the track, looked up as an MTM2 track would.
+  const cpr = sit.origin === "CPR";
+  const palettes = createPaletteResolver(vfs, cpr ? "CPR" : "MTM2", level.palette);
+  const mtm = cpr ? vfs.scoped?.("MTM") ?? vfs : vfs;
+  const truckPalettes = cpr ? createPaletteResolver(mtm, "MTM2", level.palette) : palettes;
 
   const sources = await Promise.all(level.textureNames.map((n) => loadTextureSource(vfs, n, palettes, "terrain")));
   const legacy = decodeTerrainTextures(sources);
@@ -56,22 +163,72 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     return hd ? shrinkImage(hd, TERRAIN_HD_SIDE) : legacy[i];
   }));
   const atlas = buildTerrainAtlas(decodedTerrain);
+  // HD ground tiles may carry a normal map (`<stem>_N`, AUTHORING_HD_ART.md): a second atlas laid out as the first, flat
+  // where a tile has none. Legacy 64 px tiles cannot carry one.
+  const tileNormals = await Promise.all(level.textureNames.map(async (n, i) => {
+    if (decodedTerrain[i]?.source === "RAW" || !decodedTerrain[i]?.source) return null;
+    const normal = await loadNormalMap(vfs, n);
+    return normal ? shrinkImage(normal, TERRAIN_HD_SIDE) : null;
+  }));
+  const FLAT_NORMAL = { width: 1, height: 1, rgba: new Uint8ClampedArray([128, 128, 255, 255]) };
+  const normalAtlas = tileNormals.some(Boolean) ? buildTerrainAtlas(tileNormals.map((t) => t ?? FLAT_NORMAL), atlas.tileSide) : null;
+  // The painted detail mask and the track's own detail normal (TERRAIN_DETAIL_MASK.md): `<level>_MASK`, `<level>_DTL`.
+  // A track has detail only when it has a mask.
+  const levelStem = artStem(sit.lvlName ?? sitPath);
+  const maskImage = await loadPlainImage(vfs, `${levelStem}_MASK`);
+  const terrainDetail = maskImage ? {
+    mask: greyMask(shrinkImage(maskImage, 1024)),
+    detail: await loadArtTexture(vfs, `${levelStem}_DTL.PNG`, null, { hdOnly: true }),
+  } : null;
   // In a stadium the game draws only the cells inside its footprint (MONSTER.EXE 0x4f9ff0):
   // [x - sx/2, x + sx/2) by [z - sz/2, z + sz/2).
+  // MTM1's stadium block names the model only (`stadiumFlag,stadiumModelName`): no place and no size (MTM1_STADIUM).
   const arena = sit.arena?.modelName ? sit.arena : null;
-  const cells = arena ? {
+  const mtm1Stadium = !!arena && !(arena.sx > 0 && arena.sy > 0);
+  const cells = !arena ? null : mtm1Stadium ? mtm1StadiumCells(level.groundBoxes.ra0, level.groundBoxes.ra1) : {
     col0: arena.x - Math.trunc(arena.sx / 2), col1: arena.x + Math.trunc(arena.sx / 2),
     row0: arena.y - Math.trunc(arena.sy / 2), row1: arena.y + Math.trunc(arena.sy / 2),
-  } : null;
-  const mesh = buildTerrainMesh({ heights: level.heights, clr: level.clr, lte: level.lte, atlas, footprint: cells });
-  const groundBoxes = buildGroundBoxMesh(level.groundBoxes, atlas, level.lte, level.heights, cells);
+  };
+  // CPR's lighting file is not MTM2's and its levels have no ground boxes.
+  // MTM1 does not overlap its ground tiles (unless the option asks for MTM2's two pixels).
+  // `tileOverlap` (the console's `overlap`) says so outright for this race, whatever the track.
+  const tileInset = (tileOverlap ?? !(sit.origin === "MTM1" && !mtm1?.overlap)) ? 2 : 0;
+  const mesh = buildTerrainMesh({ heights: level.heights, heightsFt: level.heightsFt, clr: level.clr, lte: cpr ? null : level.lte, atlas, footprint: cells, tileInset });
+  const groundBoxes = cpr ? null : buildGroundBoxMesh(level.groundBoxes, atlas, level.lte, level.heights, cells);
+  const road = cpr ? await buildCprRoadLayer(vfs, level) : null;
+  // The ground of a CPR track as the simulation has it: the terrain, and the road layer over it.
+  const cprTerrain = cpr ? mtm2Sim.createTerrainGround(mtm2Sim.createTerrainFt(level.heightsFt), null, 0, null) : null;
+  const cprGround = cpr && road ? mtm2Sim.createRoadGround(cprTerrain, road.sim.road) : cprTerrain;
+  /**
+   * Whether a CPR object stands on or over the road layer: its centre, a corner or the middle of a side of its
+   * footprint is over it. Such an object is not solid here (the port's rule): the game's box around a model would turn
+   * the walkways and gantries that span the track into walls across it.
+   */
+  const overRoad = (box, bounds) => {
+    if (!road) return false;
+    const hx = bounds ? (bounds.max[0] - bounds.min[0]) / 2 : (box.sizeFt?.[1] ?? 0) / 2;
+    const hz = bounds ? (bounds.max[2] - bounds.min[2]) / 2 : (box.sizeFt?.[0] ?? 0) / 2;
+    const sin = Math.sin(box.psi ?? 0), cos = Math.cos(box.psi ?? 0);
+    for (const a of [-1, 0, 1]) for (const c of [-1, 0, 1]) {
+      const x = box.positionFt[0] + a * hx * cos + c * hz * sin, z = box.positionFt[2] - a * hx * sin + c * hz * cos;
+      if (cprGround.roadHeight(x, z) !== null) return true;
+    }
+    return false;
+  };
 
+  // Files the track names that no mounted archive has: reported to the player, who may race without them.
+  const missing = new Set();
+  level.textureNames.forEach((n, i) => { if (n && !decodedTerrain[i]) missing.add(`ART\\${n}`); });
+  for (const name of road?.missing ?? []) missing.add(name);
   // Models, once each.
   const models = {};
   const decoded = new Map();
   const decodeNamed = async (name) => {
     const title = podPathTitle(name);
-    if (!decoded.has(title)) decoded.set(title, vfs.read(`MODELS\\${title}`).then((bytes) => bytes ? decodeModel(bytes, title) : null));
+    if (!decoded.has(title)) decoded.set(title, vfs.read(`MODELS\\${title}`).then((bytes) => {
+      if (!bytes) missing.add(`MODELS\\${title}`);
+      return bytes ? decodeModel(bytes, title) : null;
+    }));
     return decoded.get(title);
   };
   const loadModel = async (name) => {
@@ -91,7 +248,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     const m = mtm2Sim.eulerToMatrix(box.theta, box.phi, box.psi, new Array(9));
     objects.push({
       model: name, type: box.type, sitIndex, matrix: toSceneMatrix(m, box.positionFt),
-      billboard: box.type === 8 || box.type === 9,
+      // CPR's trees (type 3) are flat cards that face the camera, as JSTrackViewer draws them.
+      billboard: box.type === 8 || box.type === 9 || (cpr && box.type === CPR_TREE_TYPE),
     });
   }
 
@@ -110,6 +268,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       const model = name in models ? models[name] : await loadModel(name);
       boundsOf[name] = model?.bounds ?? null;
     }
+    // A CPR tree turns to the camera, so nothing fixed could match it: it is passed through (JSTrackViewer's rule).
+    if (cpr && (box.type === CPR_TREE_TYPE || overRoad(box, name ? boundsOf[name] : null))) continue;
     collisionBoxes.push({
       positionFt: box.positionFt, theta: box.theta, phi: box.phi, psi: box.psi, sizeFt: box.sizeFt,
       mass: box.mass, type: box.type, priority: box.priority ?? 0, bounds: name ? boundsOf[name] : null, sitIndex,
@@ -170,8 +330,16 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     if (models[name]) {
       const terrain = mtm2Sim.createTerrain(level.heights, level.waterLevelFt);
       const xFt = sit.arena.x * 32, zFt = sit.arena.y * 32;
-      const y = mtm2Sim.groundHeightAt(terrain, xFt - sit.arena.sx * 16, zFt - sit.arena.sy * 16);
-      objects.push({ model: name, type: "stadium", matrix: toSceneMatrix([1, 0, 0, 0, 1, 0, 0, 0, 1], [xFt, y, zFt]) });
+      if (!mtm1Stadium) {
+        const y = mtm2Sim.groundHeightAt(terrain, xFt - sit.arena.sx * 16, zFt - sit.arena.sy * 16);
+        objects.push({ model: name, type: "stadium", matrix: toSceneMatrix([1, 0, 0, 0, 1, 0, 0, 0, 1], [xFt, y, zFt]) });
+      } else {
+        // An MTM1 stadium (the block has the flag and the model, no place and no size; MTM1_STADIUM above).
+        const [cx, cz] = MTM1_STADIUM.centreFt;
+        const matrix = toSceneMatrix([1, 0, 0, 0, 1, 0, 0, 0, 1], [cx, mtm2Sim.groundHeightAt(terrain, cx, cz), cz]);
+        for (const i of [0, 1, 2, 4, 5, 6, 8, 9, 10]) matrix[i] *= MTM1_STADIUM.scale;
+        objects.push({ model: name, type: "stadium", matrix });
+      }
     }
   }
 
@@ -179,8 +347,9 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   const textureUse = new Map();
   for (const model of Object.values(models)) {
     for (const mesh of model?.meshes ?? []) {
-      if (!mesh.textureName) continue;
-      textureUse.set(mesh.textureName, (textureUse.get(mesh.textureName) ?? false) || mesh.cutout);
+      for (const name of mesh.textureFrames ?? [mesh.textureName]) {
+        if (name) textureUse.set(name, (textureUse.get(name) ?? false) || mesh.cutout);
+      }
     }
   }
   const modelTextures = {};
@@ -189,6 +358,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     try {
       const image = await loadArtTexture(vfs, name, palettes, { cutout });
       if (image) modelTextures[name] = image;
+      else missing.add(`ART\\${name}`);
       const normal = await loadNormalMap(vfs, name);
       if (normal) modelTextures[`${artStem(name)}_N`] = normal;
       const ao = await loadAoMap(vfs, name);
@@ -196,27 +366,16 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     } catch { /* an undecodable texture draws as the mesh colour */ }
   }
 
-  // The blimp (game/blimp.js) and the recovery helicopter (game/heli-flight.js): GOODY.BIN, HELI.BIN and the
-  // pterodactyl's four wing frames (TERYL.BIN lists TERYL1 to TERYL4), each with its textures.
-  const loadVehicle = (names) => loadVehicleModels(vfs, palettes, names);
-  const goody = await loadVehicle(["GOODY.BIN"]);
-  const blimp = goody.models.length ? { model: goody.models[0], textures: goody.textures } : null;
-  // The pterodactyl is an animated BIN: TERYL.BIN lists four wing frames that become morph targets of the first.
-  const heliBytes = await vfs.read("MODELS\\TERYL.BIN");
-  const terylList = heliBytes ? decodeModel(heliBytes, "TERYL.BIN") : null;
-  const terylNames = (terylList?.frameNames ?? []).map((n) => n.toUpperCase());
-  const helicopter = await loadVehicle(["HELI.BIN", ...terylNames]);
-  const frameOf = async (name) => helicopter.models.find((m) => m.name === name.toUpperCase()) ?? null;
-  const teryl = terylList ? await resolveKeyframeModel(terylList, frameOf) : null;
-  const heliModel = helicopter.models.find((m) => m.name === "HELI.BIN") ?? null;
-  const heli = heliModel || teryl?.meshes?.length ? { heli: heliModel, teryl: teryl?.meshes?.length ? teryl : null, textures: helicopter.textures } : null;
+  const { blimp, heli } = await loadRaceVehicles(mtm, truckPalettes);
 
-  const sky = await loadSky(vfs, level, weather);
+  // A CPR track takes MTM2's sky and weathers.
+  const sky = await loadSky(mtm, level, weather, mtm1);
 
   // The SIT's start grid, as a preview of where the trucks stand.
   const truckModels = {};
   const trucks = [];
-  for (const truck of sit.trucks.filter((t) => !t.playerSlot && t.positionFt)) {
+  // A CPR grid names cars, which are not drawn: the race puts MTM2 trucks on it.
+  for (const truck of cpr ? [] : sit.trucks.filter((t) => !t.playerSlot && t.positionFt)) {
     const file = podPathTitle(truck.name).toUpperCase();
     if (!(file in truckModels)) truckModels[file] = await buildTruckRender(vfs, file, palettes);
     if (!truckModels[file]) continue;
@@ -225,19 +384,36 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   }
   // The trucks a race puts on the grid instead (the player's pick and the CPU trucks).
   for (const file of truckFiles.map((f) => podPathTitle(f).toUpperCase())) {
-    if (!(file in truckModels)) truckModels[file] = await buildTruckRender(vfs, file, palettes);
+    if (!(file in truckModels)) truckModels[file] = await buildTruckRender(mtm, file, truckPalettes);
   }
 
+  let gridSlots = sit.trucks.filter((t) => !t.playerSlot && t.positionFt).slice(0, cpr ? MAX_GRID : undefined);
+  if (cpr) {
+    // A CPR slot is a car's, a few inches over the road; an MTM2 slot holds a truck's body GRID_RIDE_FT over the ground.
+    gridSlots = gridSlots.map((t) => ({ ...t, positionFt: [t.positionFt[0], cprGround.height(t.positionFt[0], t.positionFt[2]) + GRID_RIDE_FT, t.positionFt[2]] }));
+  }
   const course = sit.primaryCourse?.segments ?? [];
   return {
+    problems: [...missing].sort(),
     title: level.title,
     /** The level's music file in MUSIC.POD (the LVL names it), e.g. "farm.wav"; null when it names none. */
     musicName: level.lvl.musicName ?? null,
     trackName: sit.trackName,
-    terrain: { ...mesh, atlas: { rgba: atlas.rgba, width: atlas.width, height: atlas.height } },
+    terrain: {
+      ...mesh, atlas: { rgba: atlas.rgba, width: atlas.width, height: atlas.height },
+      normalAtlas: normalAtlas ? { rgba: normalAtlas.rgba, width: normalAtlas.width, height: normalAtlas.height } : null,
+      detail: terrainDetail,
+    },
     groundBoxes,
+    /** CPR's road layer for drawing (worker/cpr-road.js), or null. */
+    road: road?.render ?? null,
+    game: sit.origin,
+    /** Whether the ground tiles are drawn with the two-pixel overlap. */
+    tileOverlap: tileInset > 0,
     // A copy: a VFS read may be a view into a whole archive, which must not be transferred.
-    heights: level.heights.slice(),
+    heights: level.heights ? level.heights.slice() : null,
+    /** Corner heights in feet, on a level whose heightfield is finer than MTM2's (then `heights` is null). */
+    heightsFt: level.heightsFt,
     waterLevelFt: level.waterLevelFt,
     /** A stadium level: no sky, no wrap, only the stadium's cells drawn. */
     stadium: cells,
@@ -275,12 +451,17 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
        */
       proCourse: sit.extendedCourses?.[0]?.segments?.length ? courseOf(sit.extendedCourses[0]) : null,
       sonicTrack: !!sit.sonicTrack,
+      /** CPR's grid stands part way round the course, not at its first straight: each truck starts on the straight it is on. */
+      startOnNearestSegment: cpr,
       /** The start grid in file order (game feet), each with its truck file. */
-      grid: sit.trucks.filter((t) => !t.playerSlot && t.positionFt).map((t) => ({
+      /** CPR: the road's triangles with their surface values, and its walls as boxes (worker/cpr-road.js). */
+      road: road?.sim.road ?? null,
+      walls: road?.sim.walls ?? null,
+      grid: gridSlots.map((t) => ({
         file: podPathTitle(t.name).toUpperCase(), pos: t.positionFt, heading: t.psi,
       })),
       /** The checkpoints, gate and detector (MONSTER_EXE_ANALYSIS.md 6.2), sized by their models. */
-      checkpoints: mtm2Sim.buildCheckpoints(sit.boxes, (name) => {
+      checkpoints: mtm2Sim.buildCheckpoints(cpr ? cprLapCheckpointBoxes(sit.boxes, sit.primaryCourse?.segments ?? []) : sit.boxes, (name) => {
         const b = boundsOf[podPathTitle(name)];
         return b ? [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]] : null;
       }),
@@ -288,7 +469,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
         file: trucks[0].file,
         pos: sit.trucks.find((t) => !t.playerSlot && t.positionFt)?.positionFt ?? null,
         heading: sit.trucks.find((t) => !t.playerSlot && t.positionFt)?.psi ?? 0,
-      } : null,
+      } : gridSlots.length ? { file: null, pos: gridSlots[0].positionFt, heading: gridSlots[0].psi ?? 0 } : null,
     },
     /** A sensible first view: the start of the first course straight, in game feet. */
     viewpoint: course.length ? { start: course[0].startFt, end: course[0].endFt } : null,
@@ -298,8 +479,11 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
 const OLD_MTM_SKY = "CLOUDY2";
 
 /** Just a track's sky for a weather, when the weather changes in a race (GOLD mode). */
-export async function buildSky(vfs, sitPath, weather) {
-  return loadSky(vfs, await loadLevel(vfs, sitPath), weather);
+export async function buildSky(vfs, sitPath, weather, mtm1 = MTM1_DEFAULTS) {
+  const sitBytes = await vfs.read(sitPath);
+  if (sitBytes && isEvoSit(sitBytes)) return buildEvoSky(vfs, sitPath, sitBytes, weather);
+  const level = await loadLevel(vfs, sitPath);
+  return loadSky(level.sit.origin === "CPR" ? vfs.scoped?.("MTM") ?? vfs : vfs, level, weather, mtm1);
 }
 
 /**
@@ -308,9 +492,15 @@ export async function buildSky(vfs, sitPath, weather) {
  * palette, which is where the sky art's indices point. Cloudy weather greys them (the game's
  * weights are not traced; a plain average here).
  */
-export async function loadSky(vfs, level, weather = 0) {
+export async function loadSky(vfs, level, weather = 0, mtm1 = MTM1_DEFAULTS) {
+  // An MTM1 track's own sky, in the weathers that bring no sky of their own (Rain, Dusk and Night do).
+  if (level.sit.origin === "MTM1" && mtm1?.sky !== false && !weatherSkyStem(weather, null)) {
+    const flat = await loadFlatSky(vfs, level);
+    if (flat) return flat;
+  }
   let stem = level.sky ? level.sky.name.replace(/\.RAW$/, "") : null;
-  if (level.lvl.levelType === OLD_MTM_LEVEL) stem = OLD_MTM_SKY;
+  // CPR's levels are type 4 too: they take the same MTM2 sky.
+  if (level.lvl.levelType === OLD_MTM_LEVEL || level.sit.origin === "CPR") stem = OLD_MTM_SKY;
   stem = weatherSkyStem(weather, stem);
   if (!stem || !level.palette) return null;
   // Community Patch 3 HD sky art (AUTHORING_HD_ART.md §4): ART\<stem>.PNG or .TGA wins; Cloudy greys it, as the engine does.
@@ -347,7 +537,7 @@ export async function loadSky(vfs, level, weather = 0) {
 function courseOf(course) {
   return (course?.segments ?? []).map((g) => ({
     startFt: g.startFt, endFt: g.endFt, ctype: g.ctype, cspeedType: g.cspeedType, cdecPoint: g.cdecPoint,
-    cspeed: g.cspeed, speedLimit: g.speedLimit, trackWidthFt: g.trackWidthFt,
+    cspeed: g.cspeed, speedLimit: g.speedLimit, trackWidthFt: g.trackWidthFt || DEFAULT_TRACK_WIDTH_FT,
   }));
 }
 

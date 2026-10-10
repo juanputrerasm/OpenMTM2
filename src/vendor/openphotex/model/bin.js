@@ -189,6 +189,7 @@ function walk(r, model) {
         model.vertices[i] = r.int();
     let texture = "";
     let textureOpcode = null;
+    let textureFrames = null;
     let solidColor = 0;
     let material = null;
     let material2 = null;
@@ -239,6 +240,7 @@ function walk(r, model) {
                 r.skip(4); // slot
                 texture = r.string(16);
                 textureOpcode = token;
+                textureFrames = null;
                 break;
             /*
               MRGL_TEXTURE64: MRGL_TEXTURE with a 64-byte name, added because a texture name can now be
@@ -250,6 +252,7 @@ function walk(r, model) {
                 r.skip(4); // slot
                 texture = r.string(64);
                 textureOpcode = token;
+                textureFrames = null;
                 break;
             // A state change selecting the current material; its flags decide how every MATFACET after
             // it is shaded, so it is read, not strided.
@@ -275,8 +278,10 @@ function walk(r, model) {
                     return stop("implausible MRGL_TEXTURECYCLE count");
                 // The frames' names, 32 bytes each; the first is the texture in effect.
                 if (r.remaining() >= num * 32) {
+                    textureFrames = [];
                     for (let i = 0; i < num; i++) {
                         const name = r.string(32);
+                        textureFrames.push(name);
                         if (i === 0) {
                             texture = name;
                             textureOpcode = token;
@@ -335,8 +340,11 @@ function walk(r, model) {
                 if (MAPPED_FACETS.has(token) || UNMAPPED_FACETS.has(token)) {
                     const isMat = token === MRGL.MATFACET;
                     const face = readFace(r, token, offset, MAPPED_FACETS.has(token), texture, textureOpcode, solidColor, isMat ? material : null, isMat ? material2 : null, vertexCount);
-                    if (face)
+                    if (face) {
+                        if (textureFrames && textureFrames.length > 1)
+                            face.textureFrames = textureFrames;
                         model.faces.push(face);
+                    }
                     break;
                 }
                 /*

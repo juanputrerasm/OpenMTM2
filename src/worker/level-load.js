@@ -37,12 +37,19 @@ export async function loadLevel(vfs, sitPath) {
   const sit = parseMtmSit(sitBytes, title);
   const stem = stemOf(title);
 
-  const lvlBytes = await vfs.read(`LEVELS\\${stem}.LVL`);
-  if (!lvlBytes) throw new Error(`LEVELS\\${stem}.LVL is missing.`);
+  // The SIT names its level, which need not share its stem (MTM1's HILLCLIM.SIT runs on ARTIC.LVL).
+  const lvlTitle = sit.lvlName ? podPathTitle(sit.lvlName) : `${stem}.LVL`;
+  const lvlBytes = (await vfs.read(`LEVELS\\${lvlTitle}`)) ?? (await vfs.read(`LEVELS\\${stem}.LVL`));
+  if (!lvlBytes) throw new Error(`LEVELS\\${lvlTitle} is missing.`);
   const lvl = parseMtmLvl(lvlBytes);
 
-  const heights = await readIn(vfs, "DATA", lvl.rawName);
-  if (!heights || heights.length !== GRID * GRID) throw new Error(`${lvl.rawName}: not a 256 x 256 heightfield.`);
+  // MTM: a byte a corner, 2 ft steps. CART Precision Racing: 16 bits a corner, sixteenths of a foot (the road's
+  // own altitudes, in feet, then lie a median 2 ft over the ground at Laguna).
+  const rawHeights = await readIn(vfs, "DATA", lvl.rawName);
+  const wide = rawHeights?.length === GRID * GRID * 2;
+  if (!rawHeights || (rawHeights.length !== GRID * GRID && !wide)) throw new Error(`${lvl.rawName}: not a 256 x 256 heightfield.`);
+  const heights = wide ? null : rawHeights;
+  const heightsFt = wide ? Float32Array.from({ length: GRID * GRID }, (_, i) => (rawHeights[i * 2] | (rawHeights[i * 2 + 1] << 8)) / 16) : null;
   const clrBytes = await readIn(vfs, "DATA", lvl.clrName);
   const clr = new Uint16Array(GRID * GRID);
   if (clrBytes && clrBytes.length >= GRID * GRID * 2) {
@@ -58,9 +65,9 @@ export async function loadLevel(vfs, sitPath) {
   const palette = decodeActPalette(await readIn(vfs, "ART", lvl.actName));
   const lte = await readIn(vfs, "DATA", lvl.lteName);
   const groundBoxes = {
-    ra0: await vfs.read(`DATA\\${stem}.RA0`),
-    ra1: await vfs.read(`DATA\\${stem}.RA1`),
-    cl0: await vfs.read(`DATA\\${stem}.CL0`),
+    ra0: (await vfs.read(`DATA\\${stemOf(lvlTitle)}.RA0`)) ?? (await vfs.read(`DATA\\${stem}.RA0`)),
+    ra1: (await vfs.read(`DATA\\${stemOf(lvlTitle)}.RA1`)) ?? (await vfs.read(`DATA\\${stem}.RA1`)),
+    cl0: (await vfs.read(`DATA\\${stemOf(lvlTitle)}.CL0`)) ?? (await vfs.read(`DATA\\${stem}.CL0`)),
   };
 
   const sky = lvl.skyRawName
@@ -69,7 +76,8 @@ export async function loadLevel(vfs, sitPath) {
 
   return {
     title, stem, sit, lvl,
-    heights, clr, lte,
+    /** `heights`: the MTM byte heightfield; `heightsFt`: corner heights in feet where the level's is finer (then `heights` is null). */
+    heights, heightsFt, clr, lte,
     textureNames, tty, textureValues,
     palette,
     groundBoxes,

@@ -24,6 +24,7 @@ export function createWorldAudio(audio, { ambient, weather, music, random = Math
   let lastAmbientWav = null;
   let musicVoice = null, rainVoice = null;
   const pending = [];
+  audio.preload?.([...new Set([...hitInfo.values()].map((info) => info.hitSound))]);
 
   function later(seconds, fn) {
     pending.push({ left: seconds, fn });

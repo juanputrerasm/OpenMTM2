@@ -52,6 +52,9 @@ export async function buildTruckRender(vfs, trkName, paletteResolver) {
   const textures = {};
   for (const part of Object.values(parts)) {
     for (const mesh of part?.meshes ?? []) {
+      for (const frame of (mesh.textureFrames ?? []).slice(1)) {
+        if (!(frame in textures)) textures[frame] = await loadArtTexture(vfs, frame, paletteResolver, { cutout: mesh.cutout });
+      }
       const name = mesh.textureName;
       if (!name || name in textures) continue;
       textures[name] = await loadArtTexture(vfs, name, paletteResolver, { cutout: mesh.cutout });

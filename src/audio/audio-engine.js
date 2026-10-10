@@ -12,6 +12,8 @@ import { attenuation, cullVoices, loopRegion } from "../game/sound-model.js";
 /** The effects sit under the music by this much, so the many voices of a race do not bury it. */
 const EFFECTS_TRIM = 0.5;
 const MUSIC_TRIM = 1.4;
+/** A one-shot later than this after it was asked for is stale (its sample was not loaded yet). */
+const STALE_ONE_SHOT_S = 0.25;
 const MAX_SAME_ONE_SHOT = 3, MIN_REPEAT_S = 0.08;
 
 export function createAudio(assets, volumes = {}) {
@@ -69,14 +71,21 @@ export function createAudio(assets, volumes = {}) {
     return buffers.get(key);
   }
 
+  let effectsPaused = false;
   function setVolumes(v) {
     currentVolumes = v;
     const level = (x, fallback) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : fallback);
     master.gain.value = v.muted ? 0 : level(v.master, 1);
     const effectsLevel = level(v.effects, 1), musicLevel = level(v.music, 0.6);
-    effects.gain.value = effectsLevel * EFFECTS_TRIM * (ducked ? 0.35 : 1);
+    // Paused: every sound stops but the music (`setEffectsPaused`).
+    effects.gain.value = effectsPaused ? 0 : effectsLevel * EFFECTS_TRIM * (ducked ? 0.35 : 1);
     music.gain.value = Math.min(1.5, musicLevel * MUSIC_TRIM) * (ducked ? 0.25 : 1);
-    commentary.gain.value = effectsLevel;
+    commentary.gain.value = effectsPaused ? 0 : effectsLevel;
+  }
+  /** The race is paused or goes on: while paused the effects and the voices are silent and the music plays on. */
+  function setEffectsPaused(on) {
+    effectsPaused = !!on;
+    setVolumes(currentVolumes);
   }
   function setDucking(on) {
     ducked = !!on;
@@ -100,8 +109,12 @@ export function createAudio(assets, volumes = {}) {
       shots.set(key, mine);
       if (mine.length >= MAX_SAME_ONE_SHOT || (mine.length && now - mine[mine.length - 1].start < MIN_REPEAT_S)) return null;
     }
+    const asked = ctx.currentTime;
     const data = await sample(name);
     if (!data) return null;
+    // A one-shot whose sample was still loading is dropped, not played late: the moment it belonged to has passed
+    // (the sample is in memory for the next time).
+    if (!loop && bus === "effects" && ctx.currentTime - asked > STALE_ONE_SHOT_S) return null;
     playLog.push({ t: +ctx.currentTime.toFixed(2), name: key, loop, positioned: !!position, bus });
     if (playLog.length > 80) playLog.shift();
     counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -195,6 +208,8 @@ export function createAudio(assets, volumes = {}) {
   }
 
   return {
+    /** Load samples ahead of their first use, so a one-shot plays the moment it is asked for. */
+    preload(names) { for (const name of names) if (name) sample(name); },
     context: ctx, sample, play, playMod, setVolumes, setDucking, setListener,
     /** The audible range in feet, which the weather sets (`soundRange`). */
     setRange(feet) { range = feet; },
@@ -210,6 +225,7 @@ export function createAudio(assets, volumes = {}) {
     },
     resume: () => (ctx.state === "suspended" ? ctx.resume().catch(() => {}) : Promise.resolve()),
     suspend: () => ctx.suspend().catch(() => {}),
+    setEffectsPaused,
     dispose: () => ctx.close().catch(() => {}),
   };
 }
@@ -218,7 +234,7 @@ export function createAudio(assets, volumes = {}) {
 export function createSilentAudio() {
   const voice = { done: Promise.resolve(), stopped: true, setGain() {}, setRate() {}, setPosition() {}, stop() {} };
   return {
-    context: null, stats: () => ({ state: "none", samples: 0, sampleNames: [], voices: 0 }), sample: async () => null, play: async () => voice, playMod: async () => voice, setVolumes() {}, setListener() {}, setRange() {},
-    setDucking() {}, resume: async () => {}, suspend: async () => {}, dispose: async () => {},
+    context: null, stats: () => ({ state: "none", samples: 0, sampleNames: [], voices: 0 }), sample: async () => null, preload() {}, play: async () => voice, playMod: async () => voice, setVolumes() {}, setListener() {}, setRange() {},
+    setDucking() {}, setEffectsPaused() {}, resume: async () => {}, suspend: async () => {}, dispose: async () => {},
   };
 }

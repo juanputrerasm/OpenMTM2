@@ -8,11 +8,17 @@
     Ctrl+Y   slew mode: the race stands still and the truck is moved by hand
              (arrows move, Q and A up and down, End and Page Down yaw, Home and Page Up roll,
              F5 and F8 pitch, Shift faster)
-    Z        in slew mode, the technical overlay: zoom (- and + change it), level, polygons
+    Z        in slew mode, Z mode: the technical overlay (zoom, level, polygons), - and + zoom the view
+             (0.5x to 16x), Insert and Delete swing the camera round the truck, Ctrl+L loads a SIT by
+             name. Z mode stays on when slew mode is left (Ctrl+Y again), so the race is driven with
+             its zoom and its camera; Z in slew mode turns it off.
     0        a screenshot (4 in slew mode), saved as a PNG download
     Ctrl+W   the weather cycle, through the weathers the track allows
 
-  Browsers keep Ctrl+T and Ctrl+W, so Alt works in place of Ctrl for every key.
+  Browsers keep Ctrl+T, Ctrl+W and Ctrl+L, so Alt works in place of Ctrl for every key.
+
+  The Z-mode cameras option (Options, Game; not the game's) gives the zoom, the orbit and Ctrl+L in
+  any race, with no GOLD and no slew mode, without the overlay.
 */
 import * as THREE from "three";
 import { createCollisionOverlay } from "../render/collision-overlay.js";
@@ -21,6 +27,8 @@ import { cheatTyped, typeKey } from "../game/cheats.js";
 import { nextWeather, weatherName } from "../game/weather.js";
 
 const AUTOPILOT_NAMES = ["off", "auto throttle", "full autopilot"];
+/** How fast Insert and Delete swing the camera. */
+const ORBIT_RAD_PER_S = 1.2;
 
 /**
  * @param {{ window: Window, sim: { call: Function }, scene: THREE.Scene, camera: THREE.PerspectiveCamera,
@@ -40,7 +48,9 @@ export function createGoldMode(env) {
     panel.element.hidden = true;
     view.append(panel.element);
   }
-  const state = { gold: false, fps: false, slew: false, zMode: false, zoom: 1, screenshot: false };
+  const state = { gold: false, fps: false, slew: false, zMode: false, zoom: 1, turn: 0, screenshot: false };
+  /** Whether the Z-mode keys act: in Z mode, or always with the option. */
+  const zKeys = () => state.zMode || !!env.zCameras?.();
   let typed = "", shots = 0, fps = 60;
   const down = new Set();
 
@@ -60,8 +70,13 @@ export function createGoldMode(env) {
       if (code === "GOLD") { state.gold = !state.gold; typed = ""; flash(`GOLD ${state.gold ? "on" : "off"}`); }
       if (code === "FRAME") { state.fps = !state.fps; typed = ""; fpsPanel.element.hidden = !state.fps; }
     }
-    if (!state.gold) return false;
     const chord = e.ctrlKey || e.altKey;
+    if (zKeys()) {
+      if (!chord && (e.code === "Minus" || e.code === "NumpadSubtract")) { setZoom(state.zoom / 2); flash(`Zoom ${state.zoom}x`); return true; }
+      if (!chord && (e.code === "Equal" || e.code === "NumpadAdd")) { setZoom(state.zoom * 2); flash(`Zoom ${state.zoom}x`); return true; }
+      if (chord && e.code === "KeyL" && env.loadSit) { e.preventDefault(); env.loadSit(); return true; }
+    }
+    if (!state.gold) return false;
     const done = (promise) => { e.preventDefault(); return promise; };
     if (e.code === "KeyR" && !chord) {
       done(command("reverse").then((on) => flash(`Reverse course: ${on ? "on" : "off"}`)));
@@ -77,15 +92,20 @@ export function createGoldMode(env) {
     if (chord && e.code === "KeyY") {
       done(command("slew").then((on) => {
         state.slew = on;
-        if (!on) { state.zMode = false; zPanel.element.hidden = true; setZoom(1); }
+        // Z mode outlives slew mode, as in the game: its zoom and camera go on while driving.
         flash(`Slew mode: ${on ? "on" : "off"}`);
       }));
       return true;
     }
     if (e.code === "Digit0" || (state.slew && e.code === "Digit4")) { state.screenshot = true; return true; }
-    if (state.slew && e.code === "KeyZ") { state.zMode = !state.zMode; zPanel.element.hidden = !state.zMode; return true; }
-    if (state.slew && state.zMode && (e.code === "Minus" || e.code === "NumpadSubtract")) { setZoom(state.zoom / 2); return true; }
-    if (state.slew && state.zMode && (e.code === "Equal" || e.code === "NumpadAdd")) { setZoom(state.zoom * 2); return true; }
+    if (state.slew && e.code === "KeyZ") {
+      state.zMode = !state.zMode;
+      zPanel.element.hidden = !state.zMode;
+      // Leaving Z mode puts the view back, unless the option keeps its keys.
+      if (!state.zMode && !env.zCameras?.()) { setZoom(1); state.turn = 0; }
+      flash(`Z mode: ${state.zMode ? "on" : "off"}`);
+      return true;
+    }
     return false;
   }
   const onKeyUp = (e) => down.delete(e.code);
@@ -105,6 +125,8 @@ export function createGoldMode(env) {
   /** Per frame, after the world is drawn. */
   function afterRender(dt, levelName) {
     if (dt > 0) fps += (1 / dt - fps) * 0.1;
+    // Insert and Delete swing the camera round the truck while held (the chase views).
+    if (zKeys() && dt > 0) state.turn += ((down.has("Insert") ? 1 : 0) - (down.has("Delete") ? 1 : 0)) * ORBIT_RAD_PER_S * Math.min(dt, 0.1);
     if (state.fps) fpsPanel.set([`fps : ${fps.toFixed(1)}`]);
     if (state.zMode) {
       zPanel.set([`Zoom ${state.zoom}x`, `Level ${levelName}`, `Polygons ${renderer.info.render.triangles}/${totalTriangles}`, `Models ${build.objects?.length ?? 0}`]);
@@ -125,6 +147,8 @@ export function createGoldMode(env) {
 
   return {
     state, slewInput, afterRender,
+    /** How far Z mode has swung the chase camera round the truck, radians. */
+    get cameraTurn() { return zKeys() ? state.turn : 0; },
     /** The sim polling needs the slew keys only while slewing. */
     get slewing() { return state.slew; },
     dispose() {

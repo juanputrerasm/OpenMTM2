@@ -19,8 +19,10 @@ export async function loadVehicleModels(vfs, palettes, names) {
   const textures = {};
   for (const model of models) {
     for (const mesh of model.meshes) {
-      if (!mesh.textureName || mesh.textureName in textures) continue;
-      textures[mesh.textureName] = await loadArtTexture(vfs, mesh.textureName, palettes, { cutout: mesh.cutout });
+      for (const name of mesh.textureFrames ?? [mesh.textureName]) {
+        if (!name || name in textures) continue;
+        textures[name] = await loadArtTexture(vfs, name, palettes, { cutout: mesh.cutout });
+      }
     }
   }
   return { models, textures };

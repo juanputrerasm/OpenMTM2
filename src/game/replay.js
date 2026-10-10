@@ -50,8 +50,10 @@ export function createReplayRecorder({ level, weather = 0, detailLevel = 2, vehi
       // The ring holds 2240 records: the oldest frames go first.
       while (records > REPLAY_RING_RECORDS && frames.length > 1) records -= frames.shift().records.length;
     },
-    build() {
-      return { level, weather, detailLevel, vehicles, objects: originals, records: frames.flatMap((f) => f.records) };
+    /** The replay; `lastSeconds` keeps only that much of its end (the pause menu's instant replay). */
+    build({ lastSeconds = Infinity } = {}) {
+      const from = frames.length ? frames[frames.length - 1].time - lastSeconds * REPLAY_TICKS_PER_SECOND : 0;
+      return { level, weather, detailLevel, vehicles, objects: originals, records: frames.filter((f) => f.time >= from).flatMap((f) => f.records) };
     },
   };
 }

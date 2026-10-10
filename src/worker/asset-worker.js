@@ -6,7 +6,8 @@
   `{ id, ok, payload | error }`, unsolicited events `{ event, payload }`, and `{ ready: true }`
   once this module graph has loaded.
 */
-import { copyInstall, mountInstall, readManifest, removeInstall } from "./install-store.js";
+import { copyInstall, readManifest, removeInstall, syncInstall } from "./install-store.js";
+import { addGameFolder, addPods, describeMounts, mountAll, removeAddons, removePod, setMountOrder } from "./addon-store.js";
 import { buildCatalog } from "./catalog.js";
 import { buildSky, buildTrackRender, transferablesOf } from "./track-build.js";
 import { lenientKlp } from "../game/sound-model.js";
@@ -32,10 +33,13 @@ async function mounted() {
   if (!vfs) {
     const manifest = await readManifest();
     if (!manifest) throw new Error("No game install yet.");
-    vfs = await mountInstall(manifest);
+    vfs = await mountAll(manifest);
   }
   return vfs;
 }
+
+/** The file system as a track of `scope` sees it (worker/vfs.js). */
+const scoped = (vfs, scope) => (scope ? vfs.scoped(scope) : vfs);
 
 const handlers = {
   async installStatus() {
@@ -49,6 +53,13 @@ const handlers = {
     return copyInstall(request, (progress) => self.postMessage({ event: "install-progress", payload: progress }));
   },
 
+  /** Reload POD.INI: mount what the folder's file lists now, copying only what changed. */
+  async reloadInstall(request) {
+    vfs = null;
+    catalog = null;
+    return syncInstall(request, (progress) => self.postMessage({ event: "install-progress", payload: progress }));
+  },
+
   async uninstall() {
     vfs = null;
     catalog = null;
@@ -60,8 +71,40 @@ const handlers = {
   async clearGameData() {
     vfs = null;
     catalog = null;
-    await Promise.all([removeInstall(), removeUserData()]);
+    await Promise.all([removeInstall(), removeAddons(), removeUserData()]);
     return true;
+  },
+
+  /** Add a game folder's archives (`{ label, files }`, as its POD.INI lists them) beside the install. */
+  async addGameFolder(request) {
+    vfs = null;
+    catalog = null;
+    return addGameFolder(request, (progress) => self.postMessage({ event: "install-progress", payload: progress }));
+  },
+
+  /** Add archives picked by hand: `{ files }`. */
+  async addPods(request) {
+    vfs = null;
+    catalog = null;
+    return addPods(request, (progress) => self.postMessage({ event: "install-progress", payload: progress }));
+  },
+
+  async removePod({ key }) {
+    vfs = null;
+    catalog = null;
+    return removePod(key);
+  },
+
+  /** The mount order, as every mount key, first mounted first. */
+  async setMountOrder({ keys }) {
+    vfs = null;
+    catalog = null;
+    return setMountOrder(keys);
+  },
+
+  /** Every mounted archive, in mount order (the POD manager). */
+  async podList() {
+    return describeMounts(await mounted());
   },
 
   async catalog() {
@@ -70,8 +113,9 @@ const handlers = {
   },
 
   /** Everything needed to draw a track; `{ path }` is its SIT, e.g. "WORLD\\TPARK.SIT". */
-  async trackRender({ path, detailLevel, raceType, truckFiles, weather }) {
-    const build = await buildTrackRender(await mounted(), path, { detailLevel, raceType, truckFiles, weather });
+  /** `scope` is the track's lookup family (the catalogue's `scope`), for a track of another game than MTM. */
+  async trackRender({ path, scope, detailLevel, raceType, truckFiles, weather, mtm1, tileOverlap }) {
+    const build = await buildTrackRender(scoped(await mounted(), scope), path, { detailLevel, raceType, truckFiles, weather, mtm1, tileOverlap });
     return withTransfer(build, transferablesOf(build));
   },
 
@@ -213,8 +257,8 @@ const handlers = {
   },
 
   /** A track's sky for another weather, `{ name, width, height, rgba }` or null. */
-  async sky({ path, weather }) {
-    const sky = await buildSky(await mounted(), path, weather);
+  async sky({ path, scope, weather, mtm1 }) {
+    const sky = await buildSky(scoped(await mounted(), scope), path, weather, mtm1);
     return sky ? withTransfer(sky, [sky.rgba.buffer]) : null;
   },
 

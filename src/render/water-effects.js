@@ -18,12 +18,12 @@ import { WATER_FRAME_SEQUENCE, waterFrameStep, waterOpacity } from "../game/weat
 import { createBillboards } from "./billboards.js";
 
 const GRAVITY = 32, BLOB_LIFE = 3, RIPPLE_LIFE = 0.9, BLOBS = 256, RIPPLES = 64;
-const SPAWN_EVERY = 0.045, MIN_SPEED = 4, NEAR_FT = 700, ICE_FULL_SECONDS = 200, ICE_MAX = 0.5;
+const SPAWN_EVERY = 0.045, MIN_SPEED = 4, NEAR_FT = 700, ICE_FULL_SECONDS = 100, ICE_START = 0.25, ICE_MAX = 0.5;
 /** A wheel's place on the truck, feet: right, forward. */
 const WHEELS = [[3.5, 6], [-3.5, 6], [3.5, -6], [-3.5, -6]];
 
 /** The ice's opacity after `seconds` of Snow. */
-export const iceOpacity = (seconds) => Math.max(0, Math.min(1, seconds / ICE_FULL_SECONDS)) * ICE_MAX;
+export const iceOpacity = (seconds) => Math.min(ICE_MAX, ICE_START + Math.max(0, seconds / ICE_FULL_SECONDS) * ICE_MAX);
 
 export function createWaterEffects({ scene, art, levelFt, ground, random = Math.random }) {
   const root = new THREE.Group();
@@ -155,7 +155,8 @@ export function createWaterSurface(water, art, look = "enhanced") {
   });
   const material = new THREE.MeshLambertMaterial({ map: frames[0], transparent: true, opacity: 0.75, depthWrite: false, side: THREE.DoubleSide });
   water.material.dispose();
-  water.material = material;
+  // Every copy of the water: the world is drawn nine times over (render/track-scene.js), each with its own water mesh.
+  (water.parent?.parent ?? water).traverse((o) => { if (o.name === "water") o.material = material; });
   let clock = 0;
   return {
     update(dt, weather) {

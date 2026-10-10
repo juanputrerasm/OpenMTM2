@@ -31,14 +31,26 @@ export const DEFAULT_SETTINGS = Object.freeze({
   crashDamage: true,          // MONSTER.INI allowCrashDamage (the game's own default is off): collisions dent the bodies
   autoShift: true,            // automatic gears (the game's default)
   bindings: Object.freeze({}), // key code overrides by action, see game/input/bindings.js
+  mtm1EarthSky: true,         // MTM1 tracks: their own flat sky (EARTHSKY and the like) in place of MTM2's dome
+  mtm1TerrainOverlap: false,  // MTM1 tracks: MTM2's two-pixel overlap of the ground tiles
+  vsync: true,                // draw with the display's refresh; off draws as fast as the browser allows
+  fpsLimit: false,            // hold the frame rate to `fpsLimitValue`
+  fpsLimitValue: 60,
+  opponentFps: 30,            // the frame rate the computer trucks drive as if the game ran at (the 1998 game's is about 30)
+  timingHud: true,            // the times, laps and place in the corner (the Timing display key, O, switches them in every view)
+  shortViewCycle: false,      // the Camera key steps through the cockpit, Chase Near and Chase Far only
+  zModeCameras: false,        // Z mode's zoom and cameras in any race, without GOLD or slew mode, and the Inertia view
   fullAutopilot: false,       // the game's "Full Autopilot": the player's truck drives itself
   dustEffects: true,          // MONSTER.INI smokeEffectFlag: dust puffs behind the wheels on soft ground
   tireTracks: true,           // MONSTER.INI tireTrackFlag: treads left on soft ground (the game reads it but never draws them)
   waterSplash: true,          // drops thrown up where wheels run through water, more with speed (not in the game)
   sparks: true,               // sparks from hull contacts (not in the game)
   sonicTrucks: false,         // Professional only: the computer trucks drive as on a Sonic track, whatever the SIT's fly-by line says
-  drawDistance: 20000,        // feet: how far the world is drawn (the camera's far plane and the fog)
+  defaultOpponents: 3,        // computer trucks in a race until the player picks their own (MONSTER.INI defaultOpponents)
+  drawCells: 128,             // terrain cells (32 ft each): how far the world is drawn (the camera's far plane and the fog)
   backdrops: false,           // the SIT's backdrop models behind the world (off by default)
+  terrainDetail: true,        // Community Patch 3: the terrain's detail normals where a track paints a mask, and HD tiles' normal maps
+  reflections: true,          // Community Patch 3: the sky reflected in materials that ask for it (glass, paint)
   showHiddenTracks: true,     // the two hidden tracks are listed unless this is turned off
 });
 
@@ -51,7 +63,9 @@ export function loadSettings() {
     if (!(stored.version >= 3)) stored.showHiddenTracks = true;
     // Version 4 made the menus follow the build unless the player picks one.
     if (!(stored.version >= 4)) stored.skin = "auto";
-    stored.version = 4;
+    // Version 5 counts the draw distance in terrain cells, 128 the standard; the feet saved before are dropped.
+    if (!(stored.version >= 5)) delete stored.drawDistance;
+    stored.version = 5;
     delete stored.showHiddenTrucks;
     return { ...DEFAULT_SETTINGS, ...stored };
   } catch {

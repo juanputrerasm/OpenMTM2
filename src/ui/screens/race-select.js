@@ -3,7 +3,7 @@ import { el } from "../dom.js";
 import { currentDriver, getProfiles } from "../../app/profile-store.js";
 import { saveSettings } from "../../app/settings.js";
 import { setRaceConfig } from "../../app/flow.js";
-import { raceLengthLabel, raceTypeName, trackPreviewName } from "../../game/menu-data.js";
+import { raceLengthLabel, raceTypeName, trackPreviewNames } from "../../game/menu-data.js";
 import { WEATHER_NAMES, allowedWeathers, resolveWeather } from "../../game/weather.js";
 import { playMenuSound } from "../../audio/menu-sounds.js";
 import { frame, uiImageUrl } from "../frame.js";
@@ -23,10 +23,11 @@ export default async function mount(container, context) {
   }
 
   const validOpponentFiles = new Set(trucks.filter((item) => item.file !== driver.lastTruck).map((item) => item.file));
+  // The player's own list (which may be empty: no opponents), or without one the default number (Options, Game).
   let selectedOpponents = (Array.isArray(settings.opponentTrucks) ? settings.opponentTrucks : [])
     .filter((file, index, all) => validOpponentFiles.has(file) && all.indexOf(file) === index).slice(0, 7);
-  if (!selectedOpponents.length) {
-    const count = Number.isInteger(settings.opponents) ? settings.opponents : 3;
+  if (!Array.isArray(settings.opponentTrucks)) {
+    const count = Number.isInteger(settings.defaultOpponents) ? settings.defaultOpponents : 3;
     selectedOpponents = trucks.filter((item) => item.file !== driver.lastTruck).slice(0, count).map((item) => item.file);
   }
 
@@ -37,6 +38,16 @@ export default async function mount(container, context) {
   const table = el("table", { class: "race-track-table", role: "listbox", "aria-label": "Tracks" }, tableBody);
   const preview = el("img", { class: "track-preview", alt: "" });
   const opponentsButton = el("button", { class: "opponents-button" }, "Computer Opponents");
+  // Free roam: the track with no race on it, the player alone. A track without checkpoints offers nothing else.
+  const freeRoam = el("input", { type: "checkbox", "aria-label": "Free roam" });
+  const freeRoamLabel = el("label", { class: "race-length-label race-free-roam" }, freeRoam, " ", context.t("Free roam"));
+  const isFreeRoam = () => !!track.freeRoamOnly || freeRoam.checked;
+  const showFreeRoam = () => {
+    freeRoam.checked = !!track.freeRoamOnly || !!settings.freeRoam;
+    freeRoam.disabled = !!track.freeRoamOnly;
+    opponentsButton.disabled = isFreeRoam();
+    laps.disabled = isFreeRoam();
+  };
   const goButton = el("button", { class: "primary", "data-menu-sound": "STARTOFF" }, "Race");
   let previewRequest = 0;
 
@@ -52,7 +63,11 @@ export default async function mount(container, context) {
   };
   const showPreview = async () => {
     const request = ++previewRequest;
-    const url = await uiImageUrl(context.assets, trackPreviewName(track.file));
+    let url = null;
+    for (const name of trackPreviewNames(track.file)) {
+      url = await uiImageUrl(context.assets, name);
+      if (url || request !== previewRequest) break;
+    }
     if (request !== previewRequest) return;
     preview.hidden = !url;
     if (url) { preview.src = url; preview.alt = `${track.name} preview`; }
@@ -63,6 +78,7 @@ export default async function mount(container, context) {
     const chosen = {
       mode: track.raceType, track: track.file, laps: value, difficulty: settings.difficulty,
       opponents: [...selectedOpponents], weather: weather.value === "random" ? "random" : Number(weather.value),
+      freeRoam: isFreeRoam(),
     };
     Object.assign(settings, {
       lastTrack: track.file, weather: chosen.weather, opponentTrucks: [...selectedOpponents], opponents: selectedOpponents.length,
@@ -78,19 +94,33 @@ export default async function mount(container, context) {
     laps.value = String(item.defaultLaps);
     lengthLabel.textContent = raceLengthLabel(item.raceType);
     fillWeather();
+    showFreeRoam();
     show();
     showPreview();
     remember();
   };
-  const show = () => tableBody.replaceChildren(...tracks.map((item) => el("tr", {
+  // The filter above the list: tracks whose name, type or file holds what is typed.
+  const filter = el("input", { type: "search", class: "race-track-filter", placeholder: context.t("Filter tracks"), "aria-label": "Filter tracks", value: context.trackFilter ?? "" });
+  const typeLabel = (item) => item.typeLabel ?? `${context.t(raceTypeName(item.raceType))}${item.game === "MTM1" ? " (MTM1)" : ""}`;
+  const listed = () => {
+    const words = filter.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return tracks;
+    return tracks.filter((item) => { const text = `${item.name} ${typeLabel(item)} ${item.file}`.toLowerCase(); return words.every((w) => text.includes(w)); });
+  };
+  filter.addEventListener("input", () => { context.trackFilter = filter.value; show(); });
+  // Typing in the box is not driving the menus.
+  filter.addEventListener("keydown", (event) => event.stopPropagation());
+  const show = () => tableBody.replaceChildren(...listed().map((item) => el("tr", {
     class: item === track ? "selected" : null, role: "option", "aria-selected": item === track,
     onclick: () => chooseTrack(item), ondblclick: () => { chooseTrack(item); if (SUPPORTED.has(item.raceType)) context.router.go("garage"); },
-  }, el("td", {}, item.name), el("td", {}, context.t(raceTypeName(item.raceType))))));
+  }, el("td", {}, item.name), el("td", {}, typeLabel(item)))));
 
   opponentsButton.addEventListener("click", async () => {
     selectedOpponents = await chooseOpponents(trucks, driver.lastTruck, selectedOpponents);
     remember();
   });
+  freeRoam.addEventListener("change", () => { settings.freeRoam = freeRoam.checked; showFreeRoam(); remember(); });
+  showFreeRoam();
   laps.addEventListener("change", remember);
   weather.addEventListener("change", remember);
   goButton.addEventListener("click", () => { remember(); context.router.go("garage"); });
@@ -105,26 +135,28 @@ export default async function mount(container, context) {
     regions: {
       list: [42, 141, 274, 189], lengthLabel: [48, 350, 58, 24], length: [106, 350, 38, 24],
       opponents: [343, 81, 132, 38], preview: [342, 124, 258, 210], weather: [488, 349, 109, 27], weatherLabel: [0, 0, 0, 0],
+      freeRoam: [488, 378, 110, 22],
     },
     // Without the art: the list takes its own column headings, and Weather sits beside Laps under the list, in the same type.
-    modernRegions: { list: [42, 122, 274, 208], weatherLabel: [150, 350, 70, 24], weather: [222, 350, 94, 24] },
+    modernRegions: { opponents: [343, 84, 200, 32], list: [42, 122, 274, 208], weatherLabel: [150, 350, 70, 24], weather: [222, 350, 94, 24], freeRoam: [322, 350, 110, 24] },
   });
   if (ui.classic) {
     if (ui.art) { opponentsButton.textContent = ""; opponentsButton.title = "Computer Opponents"; }
-    ui.regions.list.append(table);
+    ui.regions.list.append(filter, table);
     ui.regions.lengthLabel.append(lengthLabel);
     ui.regions.length.append(laps);
     ui.regions.opponents.append(opponentsButton);
     ui.regions.preview.append(preview);
     ui.regions.weather.append(weather);
+    ui.regions.freeRoam.append(freeRoamLabel);
     if (!ui.art) {
       ui.regions.weatherLabel.append(el("span", { class: "race-length-label" }, context.t("Weather")));
       table.prepend(el("thead", {}, el("tr", {}, el("th", {}, context.t("Track Name")), el("th", {}, context.t("Track Type")))));
     }
   } else {
-    ui.regions.list.append(table,
+    ui.regions.list.append(filter, table,
       el("div", { class: "form-row" },
-        el("label", {}, lengthLabel, " ", laps), el("label", {}, "Weather ", weather), opponentsButton),
+        el("label", {}, lengthLabel, " ", laps), el("label", {}, "Weather ", weather), freeRoamLabel, opponentsButton),
       el("div", { class: "track-preview-modern" }, preview),
       el("div", { class: "screen-actions" }, goButton));
   }
@@ -160,7 +192,8 @@ async function chooseOpponents(trucks, playerTruck, initial) {
       el("h1", {}, "Computer Opponents"),
       el("div", { class: "opponent-lists" },
         el("label", {}, "Available trucks", availableList),
-        el("div", { class: "opponent-moves" }, el("button", { onclick: add }, "Add >"), el("button", { onclick: remove }, "< Remove")),
+        el("div", { class: "opponent-moves" }, el("button", { onclick: add }, "Add >"), el("button", { onclick: remove }, "< Remove"),
+          el("button", { onclick: () => { selected = []; draw(); } }, "Remove all")),
         el("label", {}, "Selected opponents", selectedList)),
       el("div", { class: "screen-actions" },
         el("button", { onclick: () => { selected = [...initial]; dialog.close(); } }, "Cancel"),

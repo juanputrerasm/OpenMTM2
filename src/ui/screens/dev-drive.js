@@ -24,7 +24,7 @@ export default async function mount(container, context, { track, truckFile }) {
   container.append(el("section", { class: "dev-view" }, canvas, hud, status, back));
 
   const build = await context.assets.call("trackRender", {
-    path: track.path, detailLevel: context.settings.detailLevel, raceType: track.raceType,
+    path: track.path, scope: track.scope, detailLevel: context.settings.detailLevel, raceType: track.raceType,
   });
   const start = build.sim.start;
   const file = truckFile ?? start?.file;
@@ -51,7 +51,8 @@ export default async function mount(container, context, { track, truckFile }) {
 
   const sim = new WorkerClient(new URL("../../worker/sim-worker.js", import.meta.url));
   const init = {
-    heights: build.heights.slice().buffer,
+    heights: build.heights ? build.heights.slice().buffer : null, heightsFt: build.heightsFt ? build.heightsFt.slice().buffer : null,
+    road: build.sim.road ?? null, walls: build.sim.walls ?? null,
     clr: build.sim.clr.buffer,
     textureValues: build.sim.textureValues.buffer,
     ra0: build.sim.ra0?.buffer ?? null,

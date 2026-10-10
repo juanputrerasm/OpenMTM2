@@ -92,6 +92,9 @@ export class SunShadows {
       lightMargin: LIGHT_MARGIN,
     });
     for (const light of this._csm.lights) {
+      // Set outright: the helper reads an intensity of 0 as "none given" and falls back to its own bright default, which
+      // lit the ground and cast shadows in Pitch Black, the one weather whose sun is 0.
+      light.intensity = intensity;
       light.color.set(color);
       light.shadow.bias = DEPTH_BIAS;
       // Redrawn per cascade, only when _fit or invalidate says so.

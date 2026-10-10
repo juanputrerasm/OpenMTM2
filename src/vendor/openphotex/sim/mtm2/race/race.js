@@ -139,7 +139,8 @@ function finishLap(race, t) {
 /** A CPU truck that missed its checkpoint (§14.24): put back on it (Professional) or lifted. */
 function missedCheckpoint(race, t, cp, recover) {
     const s = t.s;
-    if (race.difficulty === 2) {
+    // `proLift` (a port's choice, not the game's) sends the helicopter on Professional too.
+    if (race.difficulty === 2 && !recover.rc.proLift) {
         s.pos[0] = cp.gate.pos[0];
         s.pos[1] += 10;
         s.pos[2] = cp.gate.pos[2];

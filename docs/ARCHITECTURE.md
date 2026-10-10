@@ -33,6 +33,11 @@ so nothing relies on it.
 Everything lives in the Origin Private File System:
 
 - the install: `POD.INI` and the PODs it lists, copied once from the folder the player picks;
+- added archives (`addons`, `src/worker/addon-store.js`): another game's folder, read through its
+  own `POD.INI`, or single PODs added in the POD manager. Each is tagged with the game it comes
+  from (the first track script it holds says so), and a file is looked up among the archives of
+  the track's own game first, in mount order, then among the rest (`src/worker/vfs.js`), so two
+  games' same-named files stay apart;
 - POD directory indexes, so later visits do not re-read whole archives;
 - driver profiles and the Hall of Fame (later milestones).
 
@@ -57,3 +62,24 @@ units.
 Infrastructure and render preparation come from JSTrackViewer, copied and adapted for MTM2 only:
 `src/shared/worker-client.js`, `src/shared/opfs.js`, `src/shared/path-utils.js` and
 `src/worker/pod-index.js` so far. Stable pieces move into OpenPhotex later.
+
+## Tracks of other games
+
+`src/worker/track-build.js` builds every track into one result, which the race screen and the
+simulation worker take without knowing the game:
+
+- **MTM2 and MTM1** (`track-build.js`): MTM1 is told apart by OpenPhotex's `detectSitOrigin`; it
+  draws its own flat sky and its ground tiles without MTM2's overlap, and its stadium block names
+  only a model (the place, scale and walled area are measured from the stock drags, see
+  `MTM1_STADIUM`).
+- **CART Precision Racing** (`cpr-road.js`): the road layer from the `.TRK` and `.TTX`, laid out
+  by OpenPhotex's `buildCprRoad`, drawn over the terrain (a mask keeps the ground from showing
+  through it) and driven on as a ground layer; walls are immovable boxes.
+- **4x4 Evolution 1 and 2** (`evo-track-build.js`, `evo-models.js`): the 16-bit terrain, SMF
+  models, RAW/ACT/OPA and TIFF art, Evo 2's trees. Objects collide as the SIT says: rocks by
+  their own surface, authored boxes as decks or obstacles, the rest as boxes around their models.
+
+The simulation's ground is an interface (OpenPhotex `Mtm2Ground`): terrain from heights in feet
+(`createTerrainFt`), with a road or mesh layer over it (`createRoadGround`). A mesh layer is
+asked per truck with its height (`below`), so what stands over a truck is not its ground. MTM2's
+own physics are unchanged. `docs/PLAN.md` (Next features) has what is decided and what is open.

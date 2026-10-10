@@ -32,6 +32,13 @@ menus).
 - **Additions:** drag races on the MTM1 strips (auto-staging, the Christmas tree, red lights and
   lane disqualification), CPU trucks that play a Rumble for the zone, tire tracks, dust, sparks and
   splashes, and the helicopter and pterodactyl models.
+- **Tracks of other Terminal Reality games:** CART Precision Racing (the road layer, its walls and
+  catch fences), 4x4 Evolution 1 and 2 (their terrain, models, trees and every checkpoint) and
+  Monster Truck Madness 1 (its own sky and its stadium drags), raced with MTM2's trucks and
+  physics, eight trucks at most. Add a game's folder, or single POD files, in Options, Data: the
+  POD manager lists every mounted archive and the game it was read as.
+- **Free roam:** any track with no race on it, the player alone; 4x4 Evolution's mission tracks,
+  which have no checkpoints, are driven this way.
 - **Community Patch 3:** its MTM1 tracks, `.SI2` tracks, HD art for models, trucks, sky and ground
   (PNG or TGA, with `_N` normal and `_AO` occlusion maps), materials, glass, track lights and
   moving objects.
@@ -47,7 +54,10 @@ menus).
   controls, and save or open `.rpl` replay files.
 - **Sound and music:** engines, skids, impacts, ambience, objects' own sounds, MOD music.
 - **Garage and options:** tuning, rebindable keys, GOLD mode cheats, an enhanced look with sun
-  shadows and lens flare or the classic 1998 look.
+  shadows, smooth shading and lens flare or the classic 1998 look, V-sync and a frame rate limit.
+- **Z-mode cameras and the console:** Z mode's zoom and orbit while driving, an Inertia view that
+  backs off with speed, and a drop-down console (the key left of 1) with commands for opponents,
+  laps, the track, the weather, the skill and the truck.
 
 The milestones and what is still to do are in [docs/PLAN.md](docs/PLAN.md).
 
@@ -74,6 +84,8 @@ The defaults; every key can be rebound in Options.
 | Course map, names on the map | Tab or M, N |
 | Dashboard gauges, finder ring | G, F |
 | Horn, YeeHaw, helicopter | Space, Y, H |
+| Timing display | O |
+| Console | the key left of 1 |
 | Pause | Esc or P |
 
 ## Development

@@ -37,6 +37,17 @@ export function raceLengthLabel(type) {
   return type === "summit" ? "Minutes" : "Laps";
 }
 
+/**
+ * The `UI\\*.BMP` names to try for a track's preview, in order: a stock track's own name, else the add-on
+ * convention `<stem>S` (the small picture; `<stem>L` is the thumbnail) and then the bare stem.
+ */
+export function trackPreviewNames(file) {
+  const key = String(file).toUpperCase();
+  if (STOCK_TRACK_PREVIEWS[key]) return [STOCK_TRACK_PREVIEWS[key]];
+  const stem = key.replace(/\.SI[T2]$/, "");
+  return [`${stem}S`, stem];
+}
+
 export function trackPreviewName(file) {
   return STOCK_TRACK_PREVIEWS[String(file).toUpperCase()] ?? String(file).replace(/\.SI[T2]$/i, "").toUpperCase();
 }

@@ -21,8 +21,16 @@ export function createTerrain(heights, waterLevelFt = null) {
     }
     return { heights, waterLevelFt };
 }
+/** A terrain from corner heights in feet (see `Mtm2Terrain.heightsFt`): the same grid, cells and split. */
+export function createTerrainFt(heightsFt, waterLevelFt = null) {
+    if (heightsFt.length !== TERRAIN_CELLS * TERRAIN_CELLS) {
+        throw new RangeError(`terrain needs ${TERRAIN_CELLS * TERRAIN_CELLS} heights, got ${heightsFt.length}`);
+    }
+    return { heights: new Uint8Array(0), heightsFt, waterLevelFt };
+}
 function corner(t, row, col) {
-    return t.heights[(row & MASK) * TERRAIN_CELLS + (col & MASK)] * HEIGHT_STEP_FT;
+    const i = (row & MASK) * TERRAIN_CELLS + (col & MASK);
+    return t.heightsFt ? t.heightsFt[i] : t.heights[i] * HEIGHT_STEP_FT;
 }
 /** The cell and in-cell fractions of a position, as the game computes them. */
 function locate(x, z) {

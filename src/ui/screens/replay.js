@@ -4,6 +4,7 @@
   VCR controls: play, pause, rewind, fast forward, slow, frame step, zoom, rotate, save and open.
   The camera is any of the ten views on any truck. Damage is replayed from the damage codes.
 */
+import { terrainOfBuild } from "../../shared/build-terrain.js";
 import * as THREE from "three";
 import { el } from "../dom.js";
 import { mergeBindings } from "../../game/input/bindings.js";
@@ -21,6 +22,9 @@ import { createTrackWorld, disposeObject, moveObjects, skyColor, updateTrackWorl
 import { createTruckObject } from "../../render/truck-object.js";
 import { toSceneMatrix } from "../../shared/scene-frame.js";
 import { createTrackLights } from "../../render/track-lights.js";
+
+/** A terrain cell's side: the draw distance is set in cells. */
+const TERRAIN_CELL_FT = 32;
 
 export default async function mount(container, context, { replay }) {
   const t = context.t;
@@ -42,7 +46,8 @@ export default async function mount(container, context, { replay }) {
   const trackInfo = catalog.tracks.find((x) => x.path?.toUpperCase() === path) ?? { name: replay.level, path, raceType: "circuit" };
   const truckFiles = replay.vehicles.map((v) => v.truck.toUpperCase());
   const build = await context.assets.call("trackRender", {
-    path, detailLevel: replay.detailLevel ?? context.settings.detailLevel, raceType: trackInfo.raceType ?? "circuit", truckFiles, weather: replay.weather,
+    mtm1: { sky: context.settings.mtm1EarthSky !== false, overlap: !!context.settings.mtm1TerrainOverlap },
+    path, scope: trackInfo.scope, detailLevel: replay.detailLevel ?? context.settings.detailLevel, raceType: trackInfo.raceType ?? "circuit", truckFiles, weather: replay.weather,
   }).catch((err) => { loading.textContent = `The replay's track could not be built: ${err.message}`; return null; });
   if (disposed || !build) return { unmount };
   loading.hidden = true;
@@ -54,7 +59,7 @@ export default async function mount(container, context, { replay }) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
   const scene = new THREE.Scene();
-  const drawDistance = context.settings.drawDistance ?? 20000;
+  const drawDistance = Math.max(16, Math.min(256, context.settings.drawCells ?? 128)) * TERRAIN_CELL_FT;
   const camera = new THREE.PerspectiveCamera(60, 1, 0.5, drawDistance);
   const background = skyColor(build.sky);
   scene.background = background;
@@ -65,7 +70,10 @@ export default async function mount(container, context, { replay }) {
   const sunTravel = sun.position.clone().negate();
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
   scene.add(sun, ambientLight);
-  const world = createTrackWorld(build, look, { backdrops: !!context.settings.backdrops, drawDistance });
+  const world = createTrackWorld(build, look, {
+    backdrops: !!context.settings.backdrops, drawDistance,
+    terrainDetail: context.settings.terrainDetail !== false, reflections: context.settings.reflections !== false,
+  });
   scene.add(world);
   cleanups.push(() => { disposeObject(scene); renderer.dispose(); });
 
@@ -77,7 +85,7 @@ export default async function mount(container, context, { replay }) {
     scene.add(object.object);
     return { ...object, model };
   });
-  const terrain = mtm2Sim.createTerrain(new Uint8Array(build.heights), build.waterLevelFt ?? null);
+  const terrain = terrainOfBuild(build);
   const ground = groundHeightFn(terrain);
   const trackLights = createTrackLights(scene, build.trackLights, ground);
   if (trackLights) cleanups.push(() => trackLights.dispose());
@@ -92,6 +100,8 @@ export default async function mount(container, context, { replay }) {
   view.append(caption.element);
 
   const names = replay.vehicles.map((x) => x.driver);
+  // The list names each driver with its truck ("Mark, Bigfoot").
+  const truckTitle = (file) => catalog.trucks.find((item) => item.file.toUpperCase() === String(file ?? "").toUpperCase())?.name ?? String(file ?? "").replace(/\.TRK$/i, "");
   let focus = Math.max(0, Math.min(drawn.length - 1, 0));
   let viewMode = CAMERA_MODES[context.settings.view]?.id ?? 1;
   if (viewMode === 0) viewMode = 1;
@@ -142,7 +152,7 @@ export default async function mount(container, context, { replay }) {
     speed.textContent = playing ? `${rate < 0 ? "◀" : "▶"} ${Math.abs(rate)}x` : "paused";
   }
   const truckSelect = el("select", { "aria-label": "Truck", onchange: (e) => { focus = Number(e.target.value); chase.reset(); announceView(); } },
-    ...names.map((n, i) => el("option", { value: i }, `${i + 1}. ${n}`)));
+    ...names.map((n, i) => el("option", { value: i }, `${i + 1}. ${n}, ${truckTitle(replay.vehicles[i].truck)}`)));
   const viewSelect = el("select", { "aria-label": "Camera", onchange: (e) => { viewMode = Number(e.target.value); announceView(); } },
     ...CAMERA_MODES.map((m) => el("option", { value: m.id, selected: m.id === viewMode }, t(m.name))));
   const save = () => {
@@ -269,7 +279,7 @@ export default async function mount(container, context, { replay }) {
     trackLights?.update(camera, !!WEATHER_LOOK[weatherScene.weather]?.headlights);
     weatherScene.update(dt, state.trucks.filter(Boolean).map((p) => ({ x: p.pos[0], y: p.pos[1], z: p.pos[2], heading: p.euler[2] })));
     const sky = world.getObjectByName("sky");
-    if (sky) { sky.position.set(camera.position.x, 0, camera.position.z); sky.visible = !under; }
+    if (sky) { sky.position.set(camera.position.x, 0, camera.position.z); sky.visible = weatherScene.skyShown; }
     updateTrackWorld(world, camera, dt);
     caption.update(dt);
     renderer.render(scene, camera);

@@ -20,18 +20,21 @@ export const WEATHER_COUNT = WEATHER_NAMES.length;
  *  - `light`: the world's brightness, 1 is the daylight picture (it scales the ambient light);
  *    `sun`: the share of the sun's light that gets through.
  *  - `precipitation`: "rain", "snow" or null. `lightning`: rain only.
+ *  - `noSky`: the sky is not drawn, only the fog colour (Foggy, Dense Fog, Snow, Pitch Black).
+ *    `fogShade`: the fog drawn darker than the code's colour by this factor (Rain: the game's
+ *    darkness tables dim it on screen).
  *  - `headlights`: the trucks' lamps are lit (Dusk, Night and Pitch Black).
  */
 export const WEATHER_LOOK = Object.freeze([
   { fogColor: [140, 140, 140], fogEndFt: null, light: 1, sun: 1, precipitation: null, lightning: false, headlights: false },
   { fogColor: [140, 140, 140], fogEndFt: null, light: 0.85, sun: 0.55, precipitation: null, lightning: false, headlights: false },
-  { fogColor: [140, 140, 140], fogStartFt: 0, fogEndFt: 320, light: 0.9, sun: 0.6, precipitation: null, lightning: false, headlights: false },
-  { fogColor: [139, 139, 139], fogStartFt: 0, fogEndFt: 128, light: 0.85, sun: 0.5, precipitation: null, lightning: false, headlights: false },
-  { fogColor: [72, 74, 72], fogStartFt: 300, fogEndFt: 1024, light: 0.6, sun: 0.35, precipitation: "rain", lightning: true, headlights: false },
-  { fogColor: [192, 192, 192], fogStartFt: 0, fogEndFt: 512, light: 0.95, sun: 0.6, precipitation: "snow", lightning: false, headlights: false },
+  { fogColor: [140, 140, 140], fogStartFt: 0, fogEndFt: 320, light: 0.9, sun: 0.6, precipitation: null, lightning: false, headlights: false, noSky: true },
+  { fogColor: [139, 139, 139], fogStartFt: 0, fogEndFt: 128, light: 0.85, sun: 0.5, precipitation: null, lightning: false, headlights: false, noSky: true },
+  { fogColor: [72, 74, 72], fogShade: 0.6, fogStartFt: 300, fogEndFt: 1024, light: 0.5, sun: 0.3, precipitation: "rain", lightning: true, headlights: false },
+  { fogColor: [192, 192, 192], fogStartFt: 0, fogEndFt: 512, light: 0.95, sun: 0.6, precipitation: "snow", lightning: false, headlights: false, noSky: true },
   { fogColor: [0, 0, 0], fogStartFt: 400, fogEndFt: 1024, light: 0.5, sun: 0.5, precipitation: null, lightning: false, headlights: true },
   { fogColor: [0, 0, 0], fogStartFt: 250, fogEndFt: 1024, light: 0.25, sun: 0.15, precipitation: null, lightning: false, headlights: true },
-  { fogColor: [0, 0, 0], fogStartFt: 120, fogEndFt: 800, light: 0.1, sun: 0, precipitation: null, lightning: false, headlights: true },
+  { fogColor: [0, 0, 0], fogStartFt: 120, fogEndFt: 800, light: 0.015, sun: 0, precipitation: null, lightning: false, headlights: true, noSky: true },
 ]);
 
 /** The weather's name. */

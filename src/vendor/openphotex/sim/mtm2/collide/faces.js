@@ -7,14 +7,19 @@ export const FACES = [
 /** The order the game tries them in: hull points start with y, wheels with x. */
 export const HULL_ORDER = [2, 3, 4, 5, 0, 1];
 export const WHEEL_ORDER = [0, 1, 2, 3, 4, 5];
+/** For boxes with open faces (smoothed ground boxes): the top first, so the two-crossing limit cannot hide it. */
+export const TOP_FIRST_ORDER = [3, 0, 1, 2, 4, 5];
 /**
  * The nearest face a ray crosses inside the face (at most two crossings are counted, as in the
  * game), trying the faces in `order`; later faces win ties. `directional`: only faces ahead of
  * the origin (t > 0) whose outward normal faces the ray count.
  */
-export function nearestFace(half, origin, dir, directional, order) {
+export function nearestFace(half, origin, dir, directional, order, skip = 0) {
     let best = 999999, face = -1, crossings = 0;
     for (const f of order) {
+        // A face marked open (a ground box's side against a neighbour, `SimBox.openFaces`) is not there.
+        if (skip & (1 << f))
+            continue;
         const { axis, sign } = FACES[f];
         if (dir[axis] === 0)
             continue;

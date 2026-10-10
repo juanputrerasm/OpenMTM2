@@ -43,17 +43,9 @@ export default async function mount(container, context) {
   name.addEventListener("keydown", (event) => {
     if (event.key === "Enter") { event.preventDefault(); commitName(); name.blur(); }
   });
-  // "Sonic trucks", offered on Professional: the computer trucks drive as on a Sonic track (MONSTER_EXE_ANALYSIS.md 6.5).
-  const sonic = el("label", { class: "sonic-trucks" }, el("input", {
-    type: "checkbox", checked: !!settings.sonicTrucks,
-    onchange: (event) => { settings.sonicTrucks = event.target.checked; saveSettings(settings); },
-  }), " Sonic trucks");
-  const showSonic = () => { sonic.hidden = Number(settings.difficulty) !== 2; };
-  showSonic();
   skill.addEventListener("change", () => {
     settings.difficulty = Number(skill.value);
     saveSettings(settings);
-    showSonic();
   });
   // The truck turning in the mini garage (render/truck-preview.js).
   const look = context.settings.look === "enhanced" ? "enhanced" : "classic";
@@ -81,14 +73,13 @@ export default async function mount(container, context) {
     title: "Driver Check-in", backdrop: "DRIVER", current: "drivers",
     labels: [["Player Name", [35, 134, 184, 18]], ["Skill Level", [35, 195, 184, 18]], ["Select Truck", [354, 134, 242, 18]]],
     regions: {
-      name: [35, 154, 184, 32], skill: [35, 215, 184, 32], sonic: [35, 252, 184, 24], message: [35, 280, 184, 52],
+      name: [35, 154, 184, 32], skill: [35, 215, 184, 32], message: [35, 280, 184, 52],
       truck: [354, 154, 242, 32], preview: [354, 199, 242, 184],
     },
   });
   if (ui.classic) {
     ui.regions.name.append(name, names);
     ui.regions.skill.append(skill);
-    ui.regions.sonic.append(sonic);
     ui.regions.message.append(message);
     ui.regions.truck.append(truck);
     if (preview) ui.regions.preview.append(preview.canvas);

@@ -112,6 +112,8 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
   sparkPoints.renderOrder = 3;
   root.add(sparkPoints);
   function spark(x, y, z, speed, up = 6) {
+    // No sparks under water.
+    if (waterLevel !== null && y < waterLevel) return;
     const s = sparks.find((p) => p.life <= 0);
     if (!s) return;
     const a = random() * Math.PI * 2, v = speed * (0.4 + random() * 0.8);
@@ -251,6 +253,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
           s.life -= dt;
           s.vy -= GRAVITY * dt;
           s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
+          if (waterLevel !== null && s.y < waterLevel) s.life = 0;
           const floor = ground(s.x, s.z);
           if (s.y < floor) { s.y = floor; s.vy = Math.abs(s.vy) * 0.3; s.vx *= 0.6; s.vz *= 0.6; }
           any = true;

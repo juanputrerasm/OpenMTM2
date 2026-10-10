@@ -9,19 +9,22 @@ const TIRE_CUT_DOTS = [[459, 45], [428, 96], [408, 160]];
 const SUSPENSION_DOTS = [[447, 277], [490, 320], [546, 345]];
 const SLIDER_RECT = [44, 346, 280, 22];
 
+const TRANSFER_ENDS = 600 + 2000;
+
 export default async function mount(container, context) {
   const driver = currentDriver(await getProfiles(context));
   const setup = { ...driver.garage };
   const save = () => { driver.garage = { ...setup }; saveProfiles(context); };
   const transfer = el("input", {
-    type: "range", min: 600, max: 2000, step: 100, value: setup.transferSetting, "aria-label": "Transfer gear",
+    // The slider runs the other way from the setting: its two ends add up to TRANSFER_ENDS.
+    type: "range", min: 600, max: 2000, step: 100, value: TRANSFER_ENDS - setup.transferSetting, "aria-label": "Transfer gear",
   });
   const summary = el("span", { class: "garage-summary" });
   const refreshSummary = () => { summary.textContent = garageSummary(setup); };
   transfer.addEventListener("input", () => {
-    const next = Number(transfer.value);
+    const next = TRANSFER_ENDS - Number(transfer.value);
     if (next !== setup.transferSetting) {
-      playMenuSound(context.menuAudio, context.settings, next > setup.transferSetting ? "SLIDERUP" : "SLIDERDN", 0.65);
+      playMenuSound(context.menuAudio, context.settings, next < setup.transferSetting ? "SLIDERUP" : "SLIDERDN", 0.65);
     }
     setup.transferSetting = next;
     refreshSummary();
@@ -37,7 +40,7 @@ export default async function mount(container, context) {
     title: context.t("Garage"), backdrop: "GARAGE", current: "garage", regions: { summary: [328, 342, 104, 30] },
     labels: [
       ["Tire Cut", [330, 18, 120, 18]], ...dotLabels(TIRE_CUT_DOTS, ["Shallow", "Medium", "Deep"]),
-      ["Suspension", [400, 250, 120, 18]], ...dotLabels(SUSPENSION_DOTS, ["Soft", "Medium", "Hard"]),
+      ["Suspension", [400, 230, 120, 18]], ...dotLabels(SUSPENSION_DOTS, ["Soft", "Medium", "Hard"]),
       ["Transfer Gear", [44, 326, 280, 16]],
     ],
   });
