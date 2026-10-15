@@ -274,8 +274,6 @@ export function rumbleTarget(pos, zone, rivals, aggression, field = null) {
  * `{ FIRST, REVERSE }`, `field` the zone's flow field when there is one.
  */
 export function rumbleControls(s, driver, zone, rivals, gears, dt, field = null) {
-  const c = s.controls;
-  const forward = s.bvel[2];
   let { point, speed, left, launch } = rumbleTarget(s.pos, zone, rivals, driver.aggression, field);
   if (driver.mode === "drive" && launch && field && !driver.runup) driver.runup = planRunup(s, launch, field);
   const run = driver.runup;
@@ -296,6 +294,20 @@ export function rumbleControls(s, driver, zone, rivals, gears, dt, field = null)
       left = driver.best;
     }
   }
+  driveToPoint(s, driver, point, speed, left, gears, dt);
+}
+
+/**
+ * The pedals, steering and gear toward `point` at up to `speed` ft/s (0 stops there), with the
+ * Rumble driver's backing up to a near target behind, and its backing out when pinned. `left` is
+ * the path left to the goal for the headway watch; 0 turns that watch off. `back: false` never backs up
+ * to a target (Hockey's, which moves and is best come round to); `turnFloor` is the least share of the
+ * speed kept in a sharp turn (lower on ice, where a fast truck slides wide). Also the party modes'
+ * driving (game/hockey.js, game/tag.js); `driver` is a `createRumbleDriver` memory.
+ */
+export function driveToPoint(s, driver, point, speed, left, gears, dt, { back = true, turnFloor = 0.35 } = {}) {
+  const c = s.controls;
+  const forward = s.bvel[2];
   const dx = point[0] - s.pos[0], dz = point[2] - s.pos[2];
   const err = wrapPi(Math.atan2(dx, dz) - s.euler[2]);
 
@@ -316,7 +328,7 @@ export function rumbleControls(s, driver, zone, rivals, gears, dt, field = null)
 
   // A close target behind: back up to it rather than circle (a truck turns wider than the zone).
   const near = Math.hypot(dx, dz);
-  driver.backing = near < BACK_RANGE_FT && Math.abs(err) > (driver.backing ? 1.3 : 1.9);
+  driver.backing = back && near < BACK_RANGE_FT && Math.abs(err) > (driver.backing ? 1.3 : 1.9);
   if (driver.backing) {
     const back = wrapPi(err - Math.PI);
     c.gear = gears.REVERSE;
@@ -336,7 +348,7 @@ export function rumbleControls(s, driver, zone, rivals, gears, dt, field = null)
   }
   if (c.gear === gears.REVERSE) c.gear = gears.FIRST;
   // Slow for a sharp turn so the truck comes round instead of circling.
-  const want = speed * Math.max(0.35, Math.cos(err));
+  const want = speed * Math.max(turnFloor, Math.cos(err));
   steerTo(c, clamp(err * STEER_GAIN, -STEER_LOCK, STEER_LOCK), dt);
   const u = (want - forward) * SPEED_GAIN;
   if (speed === 0 && Math.abs(forward) < 4) {

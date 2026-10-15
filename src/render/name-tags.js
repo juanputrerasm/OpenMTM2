@@ -49,19 +49,25 @@ export function createNameTags(count, font = null, scale = 1) {
     /**
      * `labels[i]` is the text, two lines as `[first, second]`, or null; `positions[i]` the truck in game feet;
      * `hidden[i]` skips a truck (the one you sit in). `width` and `height` are the view's size in pixels.
+     * `marks[i]`, when given, is a party mode's indicator (`{ color, far }`): the label in that colour,
+     * and with `far` at any distance.
      */
-    update(camera, width, height, labels, positions, hidden = []) {
+    update(camera, width, height, labels, positions, hidden = [], marks = []) {
       tags.forEach((tag, i) => {
         const label = labels[i];
         const p = positions[i];
+        const mark = marks[i] ?? null;
         if (!label || !p || hidden[i]) { tag.hidden = true; return; }
         v.set(p[0], p[1] + ABOVE_FT, -p[2]);
-        if (v.distanceTo(camera.position) > RANGE_FT) { tag.hidden = true; return; }
+        if (!mark?.far && v.distanceTo(camera.position) > RANGE_FT) { tag.hidden = true; return; }
         v.project(camera);
         if (v.z > 1 || v.z < -1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) { tag.hidden = true; return; }
         tag.hidden = false;
         const lines = (Array.isArray(label) ? label : [label]).filter(Boolean).map(String), key = lines.join("\n");
         if (shown[i] !== key) { shown[i] = key; write(tag, lines); }
+        const color = mark?.color ?? "";
+        if (tag.dataset.color !== color) { tag.dataset.color = color; tag.style.color = color; }
+        tag.classList.toggle("name-tag-mark", !!mark);
         tag.style.transform = `translate(${((v.x * 0.5 + 0.5) * width).toFixed(1)}px, ${((-v.y * 0.5 + 0.5) * height).toFixed(1)}px) translate(-50%, -100%)`;
       });
     },

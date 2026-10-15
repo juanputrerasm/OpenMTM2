@@ -243,6 +243,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 
 .name-tags { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .name-tag { position: absolute; left: 0; top: 0; white-space: nowrap; font: 600 13px/1 Arial, sans-serif; color: #fff; text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000; }
+/* Hockey's team colour over a truck: larger, in that colour. */
+.name-tag.name-tag-mark { font-size: 16px; font-weight: 700; }
 
 /* Winner's Circle and Hall of Fame: the game's yellow italic text beside the truck previews. */
 .stage-panel-lit { pointer-events: none; }
@@ -371,9 +373,10 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 .pod-manager td.pod-actions { text-align: right; }
 .pod-manager td.pod-actions button { min-width: 0; margin-left: 4px; padding: 2px 8px; }
 
-/* Free roam on the Races screen: in the type of Laps and Weather. */
-.race-free-roam { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer; }
-.stage-panel-freeRoam, .stage-modern .stage-panel-freeRoam { display: grid; place-items: center start; padding: 0; overflow: visible; border: 0; border-radius: 0; background: none; }
+/* The Races screen's Mode list: the list on the bottom row, its label beside it. */
+.stage-panel-mode, .stage-panel-modeLabel, .stage-modern .stage-panel-mode, .stage-modern .stage-panel-modeLabel { padding: 0; border: 0; border-radius: 0; background: none; }
+.stage-panel-mode select { width: 100%; height: 100%; margin: 0; }
+.stage-panel-modeLabel { display: grid; place-items: center end; padding: 0 4px 0 0; overflow: visible; }
 
 /* The track filter above the Races list. */
 .race-track-filter { display: block; box-sizing: border-box; width: 100%; height: 22px; margin: 0; padding: 1px 6px; font: inherit; font-weight: 700; border: 1px solid #6c7fb3; border-radius: 0; background: #10141f; color: #fff; }
@@ -402,10 +405,6 @@ input.race-off { background: #777; color: #222; }
 
 /* The pause menu: every button the same width. */
 .race-pause > button { box-sizing: border-box; width: 220px; }
-/* The Fly-by button, on the row of Laps, Weather and Free roam, in their type. */
-.stage-panel-flyBy { padding: 0; border: 0; background: none; overflow: visible; }
-.stage-panel .race-flyby { box-sizing: border-box; width: 100%; height: 100%; padding: 0 6px; font: inherit; font-weight: 700; color: #fff; text-shadow: 0 1px 3px #000; border: 1px solid rgba(255, 255, 255, 0.45); border-radius: 3px; background: rgba(0, 0, 0, 0.55); cursor: pointer; }
-.stage-panel .race-flyby:hover { background: rgba(255, 255, 255, 0.2); }
 /* Zoom sits inside the track's picture, in its bottom right corner. */
 .stage-panel-preview, .track-preview-modern { position: relative; }
 .stage-panel .race-zoom, .race-zoom { position: absolute; right: 4px; bottom: 4px; z-index: 2; padding: 1px 8px; font: inherit; font-weight: 700; color: #fff; text-shadow: 0 1px 3px #000; border: 1px solid rgba(255, 255, 255, 0.6); border-radius: 3px; background: rgba(0, 0, 0, 0.7); cursor: pointer; }

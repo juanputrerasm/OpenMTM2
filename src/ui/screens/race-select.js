@@ -1,12 +1,19 @@
-/* One all-types track table, track preview, exact CPU field and allowed weather selection. */
+/*
+  One all-types track table, track preview, exact CPU field and allowed weather selection, and the Mode
+  list: the track's own race, driving alone (Free Roam), a camera-only visit (Fly-by) or a party game
+  (docs/PLAN.md, "Party modes"). Hockey locks the track to Breakneck Ridge and the weather to Snow;
+  Tag plays on any track in any weather it allows.
+*/
 import { startDragWeekend } from "../../app/drag-weekend.js";
 import { MAX_FIELD, MIN_FIELD } from "../../game/events/drag-event.js";
 import { el } from "../dom.js";
 import { currentDriver, getProfiles } from "../../app/profile-store.js";
 import { saveSettings } from "../../app/settings.js";
 import { setRaceConfig } from "../../app/flow.js";
-import { raceLengthLabel, raceTypeName, trackPreviewBmp } from "../../game/menu-data.js";
+import { GAME_MODES, raceLengthLabel, raceTypeName, trackPreviewBmp } from "../../game/menu-data.js";
 import { WEATHER_NAMES, allowedWeathers, resolveWeather } from "../../game/weather.js";
+import { DEFAULT_GOALS, HOCKEY_WEATHER, isHockeyTrack } from "../../game/hockey.js";
+import { DEFAULT_TAG_MINUTES } from "../../game/tag.js";
 import { playMenuSound } from "../../audio/menu-sounds.js";
 import { frame, uiImageUrl } from "../frame.js";
 
@@ -23,6 +30,19 @@ export default async function mount(container, context) {
     container.append(el("section", { class: "screen" }, el("p", { class: "error" }, "The install has no tracks.")));
     return;
   }
+  // The party modes: Hockey only where the install has Breakneck Ridge (MTM2's own, not another game's).
+  const hockeyTrack = tracks.find((item) => isHockeyTrack(item)) ?? null;
+  let gameMode = GAME_MODES.some((m) => m.id === settings.gameMode) && (settings.gameMode !== "hockey" || hockeyTrack) ? settings.gameMode : "default";
+  // Free Roam used to be its own box: a save with it ticked opens in the Free Roam mode now.
+  if (gameMode === "default" && settings.freeRoam) gameMode = "freeroam";
+  const isFlyBy = () => gameMode === "flyby";
+  /** The track chosen before Hockey took Breakneck Ridge, to go back to. */
+  let trackBeforeHockey = null;
+  if (gameMode === "hockey") { trackBeforeHockey = track; track = hockeyTrack; }
+  // A track with no checkpoints has no race on it: it is driven in Free Roam.
+  if (track.freeRoamOnly && gameMode === "default") gameMode = "freeroam";
+  /** The length box's value in a mode: a party game's own (goals or minutes), else the track's laps. */
+  const lengthFor = (mode, item) => (mode === "hockey" ? settings.hockeyGoals ?? DEFAULT_GOALS : mode === "tag" ? settings.tagMinutes ?? DEFAULT_TAG_MINUTES : item.defaultLaps);
 
   const validOpponentFiles = new Set(trucks.filter((item) => item.file !== driver.lastTruck).map((item) => item.file));
   // The player's own list (which may be empty: no opponents), or without one the default number (Options, Game).
@@ -50,33 +70,28 @@ export default async function mount(container, context) {
     return dragOpponents;
   };
 
-  const laps = el("input", { type: "number", min: 1, max: 99, value: track.defaultLaps, class: "race-length", "aria-label": "Laps or minutes" });
+  const laps = el("input", { type: "number", min: 1, max: 99, value: lengthFor(gameMode, track), class: "race-length", "aria-label": "Laps or minutes" });
+  const modes = GAME_MODES.filter((m) => m.id !== "hockey" || hockeyTrack);
+  const modeSelect = el("select", { "aria-label": "Mode", class: "race-mode" },
+    ...modes.map((m) => el("option", { value: m.id, selected: m.id === gameMode }, context.t(m.name))));
+  const modeLabel = el("span", { class: "race-length-label race-mode-label" }, context.t("Mode"));
   const lengthLabel = el("span", { class: "race-length-label" });
   const weather = el("select", { "aria-label": "Weather", class: "race-weather" });
   const tableBody = el("tbody");
   const table = el("table", { class: "race-track-table", role: "listbox", "aria-label": "Tracks" }, tableBody);
   const preview = el("img", { class: "track-preview", alt: "" });
   const opponentsButton = el("button", { class: "opponents-button" }, "Computer Opponents");
-  // Free roam: the track with no race on it, the player alone. A track without checkpoints offers nothing else.
-  const freeRoam = el("input", { type: "checkbox", "aria-label": "Free roam" });
-  const freeRoamLabel = el("label", { class: "race-length-label race-free-roam" }, freeRoam, " ", context.t("Free roam"));
-  const isFreeRoam = () => !!track.freeRoamOnly || freeRoam.checked;
-  const showFreeRoam = () => {
-    freeRoam.checked = !!track.freeRoamOnly || !!settings.freeRoam;
-    freeRoam.disabled = !!track.freeRoamOnly;
-    opponentsButton.disabled = isFreeRoam();
-    laps.disabled = isFreeRoam() || onDragStrip();
+  // Free Roam driving: the mode, or a track with no race on it in the Race mode. No opponents, no laps.
+  // Fly-by (ui/screens/fly-by.js): the track with no truck on it and a camera to fly through it.
+  const isFreeRoam = () => gameMode === "freeroam" || (gameMode === "default" && !!track.freeRoamOnly);
+  const updateDrivingUI = () => {
+    opponentsButton.disabled = isFreeRoam() || isFlyBy();
+    laps.disabled = isFreeRoam() || isFlyBy() || (gameMode === "default" && onDragStrip());
     // A disabled number box looks the same on the menu art: grey it and its label.
     laps.classList.toggle("race-off", laps.disabled);
     lengthLabel.classList.toggle("race-off", laps.disabled);
   };
   const goButton = el("button", { class: "primary", "data-menu-sound": "STARTOFF" }, "Race");
-  // Fly-by (ui/screens/fly-by.js): the track with no truck on it and a camera to fly through it. Every track has it.
-  const flyByButton = el("button", { class: "race-flyby", "data-menu-sound": "STARTOFF", title: "Fly through the track, no truck and no race" }, context.t("Fly-by"));
-  flyByButton.addEventListener("click", () => {
-    const chosen = remember();
-    context.router.go("fly-by", { track, weather: chosen.weather });
-  });
   // On a drag strip: a drag weekend (ui/screens/drag-event.js), a new one or the one in progress.
   const weekendButton = el("button", { class: "stage-event", "data-menu-sound": "STARTOFF", hidden: true });
   const showWeekend = () => {
@@ -101,6 +116,11 @@ export default async function mount(container, context) {
   let previewRequest = 0;
 
   const fillWeather = () => {
+    weather.disabled = gameMode === "hockey";
+    if (gameMode === "hockey") {
+      weather.replaceChildren(el("option", { value: HOCKEY_WEATHER, selected: true }, context.t(WEATHER_NAMES[HOCKEY_WEATHER])));
+      return;
+    }
     const allowed = allowedWeathers(track.weatherMask);
     const chosen = resolveWeather(settings.weather, track.weatherMask);
     weather.replaceChildren(
@@ -135,31 +155,59 @@ export default async function mount(container, context) {
     const text = item.descriptionTxt ? await context.assets.call("trackText", { name: item.descriptionTxt }).catch(() => null) : null;
     openZoomMap(item, url, text);
   });
+  /** Whether the chosen track can be played in the chosen mode: everything but a race runs anywhere; else the race types the port runs. */
+  const playable = (item) => gameMode !== "default" || SUPPORTED.has(item.raceType);
+  /** The Race button reads Fly-by in the Fly-by mode, where it starts a visit and not a race. */
+  const updateGoButton = () => {
+    goButton.textContent = isFlyBy() ? context.t("Fly-by") : "Race";
+    goButton.disabled = !playable(track);
+  };
   const remember = () => {
-    const value = Math.max(1, Math.min(99, Math.trunc(Number(laps.value)) || track.defaultLaps));
+    const value = Math.max(1, Math.min(99, Math.trunc(Number(laps.value)) || lengthFor(gameMode, track)));
     laps.value = String(value);
     const chosen = {
-      mode: track.raceType, track: track.file, laps: value, difficulty: settings.difficulty,
+      mode: track.raceType, track: track.file, laps: value, difficulty: settings.difficulty, gameMode,
       opponents: [...opponentsNow()], weather: weather.value === "random" ? "random" : Number(weather.value),
       freeRoam: isFreeRoam(),
-      spectator: spectator && !isFreeRoam(),
+      spectator: spectator && !isFreeRoam() && !isFlyBy(),
     };
     Object.assign(settings, {
-      spectator,
-      lastTrack: track.file, weather: chosen.weather, opponentTrucks: [...selectedOpponents], opponents: selectedOpponents.length,
+      gameMode, spectator, opponentTrucks: [...selectedOpponents], opponents: selectedOpponents.length,
     });
+    // Hockey's locked track and weather are not the player's choice: the ones chosen before stay remembered.
+    if (gameMode !== "hockey") Object.assign(settings, { lastTrack: track.file, weather: chosen.weather });
+    // Free Roam used to be a separate box; the mode holds it now.
+    delete settings.freeRoam;
+    if (gameMode === "hockey") settings.hockeyGoals = value;
+    if (gameMode === "tag") settings.tagMinutes = value;
     saveSettings(settings);
     setRaceConfig(context, chosen);
-    goButton.disabled = !SUPPORTED.has(track.raceType);
+    updateGoButton();
     return chosen;
   };
+  /** The Race choice needs checkpoints: on a track with none the list offers Free Roam instead. */
+  const updateModeOptions = () => {
+    for (const option of modeSelect.options) {
+      if (option.value === "default") option.disabled = !!track.freeRoamOnly;
+      else if (option.value === "hockey") option.disabled = !hockeyTrack;
+      else option.disabled = false;
+    }
+  };
   const chooseTrack = (item) => {
+    // Hockey's track is Breakneck Ridge, whatever is clicked.
+    if (gameMode === "hockey" && item !== hockeyTrack) return;
     if (item !== track) playMenuSound(context.menuAudio, settings, "TRACK", 0.7);
     track = item;
-    laps.value = String(item.defaultLaps);
-    lengthLabel.textContent = raceLengthLabel(item.raceType);
+    // A track with no race on it is driven in Free Roam: the list follows.
+    if (track.freeRoamOnly && gameMode === "default") {
+      gameMode = "freeroam";
+      modeSelect.value = gameMode;
+    }
+    updateModeOptions();
+    laps.value = String(lengthFor(gameMode, item));
+    lengthLabel.textContent = raceLengthLabel(item.raceType, gameMode);
     fillWeather();
-    showFreeRoam();
+    updateDrivingUI();
     showWeekend();
     showSelected();
     show();
@@ -185,10 +233,22 @@ export default async function mount(container, context) {
   filter.addEventListener("input", () => { context.trackFilter = filter.value; show(); });
   // Typing in the box is not driving the menus.
   filter.addEventListener("keydown", (event) => event.stopPropagation());
-  const show = () => tableBody.replaceChildren(...listed().map((item) => el("tr", {
-    class: item === track ? "selected" : null, role: "option", "aria-selected": item === track,
-    onclick: () => chooseTrack(item), ondblclick: () => { chooseTrack(item); if (SUPPORTED.has(item.raceType)) context.router.go("garage"); },
-  }, el("td", {}, item.name), el("td", {}, typeLabel(item)))));
+  const show = () => {
+    const locked = gameMode === "hockey";
+    filter.disabled = locked;
+    table.setAttribute("aria-disabled", String(locked));
+    tableBody.replaceChildren(...(locked ? [track] : listed()).map((item) => el("tr", {
+      class: item === track ? "selected" : null, role: "option", "aria-selected": item === track,
+      onclick: () => chooseTrack(item),
+      ondblclick: () => {
+        chooseTrack(item);
+        if (!playable(item)) return;
+        // Fly-by starts its visit from here and skips the Garage.
+        if (isFlyBy()) { const chosen = remember(); context.router.go("fly-by", { track, weather: chosen.weather }); }
+        else context.router.go("garage");
+      },
+    }, el("td", {}, item.name), el("td", {}, typeLabel(item)))));
+  };
 
   opponentsButton.addEventListener("click", async () => {
     // A drag strip has two lanes, the other tracks a grid of eight.
@@ -197,13 +257,39 @@ export default async function mount(container, context) {
     spectator = picked.spectator;
     remember();
   });
-  freeRoam.addEventListener("change", () => { settings.freeRoam = freeRoam.checked; showFreeRoam(); remember(); });
-  showFreeRoam();
+  modeSelect.addEventListener("change", () => {
+    let next = modeSelect.value;
+    if (next === gameMode) return;
+    // Hockey is hidden without Breakneck Ridge, and never selected then.
+    if (next === "hockey" && !hockeyTrack) return;
+    // Into Hockey the track goes to Breakneck Ridge; out of it, back to the one chosen before.
+    if (next === "hockey") { trackBeforeHockey = track; track = hockeyTrack; } else if (gameMode === "hockey") { track = trackBeforeHockey ?? track; trackBeforeHockey = null; }
+    // A track with no race on it has no Race mode: the list falls back to Free Roam.
+    if (track.freeRoamOnly && next === "default") next = "freeroam";
+    gameMode = next;
+    modeSelect.value = next;
+    updateModeOptions();
+    laps.value = String(lengthFor(gameMode, track));
+    lengthLabel.textContent = raceLengthLabel(track.raceType, gameMode);
+    fillWeather();
+    updateDrivingUI();
+    show();
+    showSelected();
+    showPreview();
+    remember();
+  });
+  updateModeOptions();
+  updateDrivingUI();
   laps.addEventListener("change", remember);
   weather.addEventListener("change", remember);
-  goButton.addEventListener("click", () => { remember(); context.router.go("garage"); });
+  goButton.addEventListener("click", () => {
+    const chosen = remember();
+    // Fly-by starts its visit from here and skips the Garage.
+    if (isFlyBy()) context.router.go("fly-by", { track, weather: chosen.weather });
+    else context.router.go("garage");
+  });
   fillWeather();
-  lengthLabel.textContent = raceLengthLabel(track.raceType);
+  lengthLabel.textContent = raceLengthLabel(track.raceType, gameMode);
   showWeekend();
   showSelected();
   show();
@@ -216,10 +302,11 @@ export default async function mount(container, context) {
     regions: {
       list: [42, 141, 274, 189], lengthLabel: [48, 350, 58, 24], length: [106, 350, 38, 24],
       opponents: [343, 81, 132, 38], preview: [342, 124, 258, 210], weather: [488, 349, 109, 27], weatherLabel: [0, 0, 0, 0],
-      freeRoam: [488, 378, 110, 22], flyBy: [404, 378, 78, 22], selected: [42, 88, 296, 24],
+      // The Mode list sits on the bottom row, right, its label to the left.
+      selected: [42, 88, 296, 24], mode: [489, 379, 109, 20], modeLabel: [427, 378, 58, 22],
     },
     // Without the art: the list takes its own column headings, and Weather sits beside Laps under the list, in the same type.
-    modernRegions: { opponents: [343, 84, 200, 32], list: [42, 122, 274, 208], weatherLabel: [150, 350, 70, 24], weather: [222, 350, 94, 24], freeRoam: [322, 350, 110, 24], flyBy: [522, 350, 78, 24] },
+    modernRegions: { opponents: [343, 84, 200, 32], list: [42, 122, 274, 208], weatherLabel: [150, 350, 70, 24], weather: [222, 350, 94, 24], modeLabel: [150, 378, 70, 24], mode: [222, 378, 94, 24] },
   });
   ui.regions.list.parentElement.append(weekendButton, tourneyButton);
   if (ui.classic) {
@@ -231,8 +318,8 @@ export default async function mount(container, context) {
     ui.regions.preview.append(preview, zoomButton);
     ui.regions.selected.append(selectedLabel);
     ui.regions.weather.append(weather);
-    ui.regions.freeRoam.append(freeRoamLabel);
-    ui.regions.flyBy.append(flyByButton);
+    ui.regions.modeLabel.append(modeLabel);
+    ui.regions.mode.append(modeSelect);
     if (!ui.art) {
       ui.regions.weatherLabel.append(el("span", { class: "race-length-label" }, context.t("Weather")));
       table.prepend(el("thead", {}, el("tr", {}, el("th", {}, context.t("Track Name")), el("th", {}, context.t("Track Type")))));
@@ -240,7 +327,7 @@ export default async function mount(container, context) {
   } else {
     ui.regions.list.append(selectedLabel, listHead, table,
       el("div", { class: "form-row" },
-        el("label", {}, lengthLabel, " ", laps), el("label", {}, "Weather ", weather), freeRoamLabel, opponentsButton, flyByButton),
+        el("label", {}, lengthLabel, " ", laps), el("label", {}, "Weather ", weather), el("label", {}, modeLabel, " ", modeSelect), opponentsButton),
       el("div", { class: "track-preview-modern" }, preview, zoomButton),
       el("div", { class: "screen-actions" }, goButton));
   }

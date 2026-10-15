@@ -39,6 +39,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   weather: 0,                 // 0 Clear ... 8 Pitch Black, or "random" (a track may not allow it)
   opponents: 3,               // MONSTER.INI defaultOpponents (built-in default 3)
   opponentTrucks: Object.freeze([]), // explicitly selected CPU truck files from the Races dialog
+  gameMode: "default",        // the Races screen's Mode: "default" (the track's own race), "freeroam", "flyby", "hockey" or "tag" (docs/PLAN.md, "Party modes")
+  hockeyGoals: 3,             // Hockey: the goals that win
+  tagMinutes: 5,              // Tag: the game's length
   wording: "",                // a .LOC from the install that rewords the game's text ("" is the standard wording)
   skin: "auto",               // "auto" (classic on retail and beta builds, modern on a community patch), "classic" or "modern"
   developer: false,           // list tracks and trucks with the developer views on the Start screen

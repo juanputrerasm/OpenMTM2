@@ -11,12 +11,20 @@
 */
 import { mtm2Sim as S } from "../vendor/openphotex/index.js";
 import { createCrossingLog, raceGap, recordCrossings } from "../game/timing.js";
-import { buildRumbleField, createRumbleDriver, rumbleControls } from "../game/rumble-ai.js";
-import { REVERSE_SPEED, TREE_S, createDrag, dragCollision, dragLamps, dragOver, dragPlaces, dragTick, mirrorCourse, stageSpeed, stagingDistance } from "../game/drag-race.js";
+import { buildRumbleField, createRumbleDriver, driveToPoint, rumbleControls } from "../game/rumble-ai.js";
+import { REVERSE_SPEED, TREE_S, createDrag, dragCollision, dragLamps, dragOver, dragPlaces, dragTick, mirrorCourse, stageSpeed, stagingDistance, stillStaging } from "../game/drag-race.js";
+import { ESCAPE_S, NUDGE_AFTER_S, NUDGE_FT_S, TURN_FLOOR, createHockey, hockeyAim, hockeyHeld, hockeyPlaces, hockeyRoles, hockeySpot, hockeyStep, outsideRink, rinkGround } from "../game/hockey.js";
+import { TAG_SPEED, coverOf, createTag, createTagDriver, roamRect, tagDrivePoint, tagHeld, tagPlaces, tagRanks, tagSafe, tagStep } from "../game/tag.js";
 import { createFlight, departVisual, flightVisual, nearestCourseSpot, stepFlight, timerVisual } from "../game/heli-flight.js";
 
 export const STEP = 1 / 60;
 
+
+/** A truck's velocity in the world, ft/s. */
+function worldVelocity(s) {
+  const m = s.matrix, [x, y, z] = s.bvel;
+  return [m[0] * x + m[1] * y + m[2] * z, m[3] * x + m[4] * y + m[5] * z, m[6] * x + m[7] * y + m[8] * z];
+}
 
 /** A cheap fingerprint of a box's pose, to tell which boxes moved. */
 const poseKey = (b) => `${b.pos[0]},${b.pos[1]},${b.pos[2]},${b.matrix[2]},${b.matrix[5]},${b.matrix[6]}`;
@@ -157,6 +165,17 @@ const GROUND_BOX_SMOOTH_FT = 4;
  * The index of the course straight a truck at `pos` heading `heading` is on: the nearest one that runs its way.
  * For a grid that stands part way round the course (CART Precision Racing); 0 without one.
  */
+/** The course's points in the ground plane, so Tag's trucks can roam the ground around it (game/tag.js `roamRect`). */
+function roamPoints(course) {
+  const pts = [];
+  for (const seg of course) {
+    if (seg.start) pts.push([seg.start[0], seg.start[2]]);
+    if (seg.end) pts.push([seg.end[0], seg.end[2]]);
+    if (seg.centre) pts.push([seg.centre[0], seg.centre[2]]);
+  }
+  return pts;
+}
+
 function nearestStraight(course, pos, heading) {
   let best = 0, bestDistance = Infinity;
   course.forEach((seg, i) => {
@@ -189,6 +208,13 @@ export function createSession(init) {
   // truck asks with its own height, so what stands over it is not its ground (OpenPhotex world/road.ts `below`).
   const meshGround = init.meshGround ? S.createRoadGround(terrainGround, init.meshGround) : null;
   for (const g of [ground, meshGround]) if (g) g.rules = rules;
+  /**
+   * A party mode (game/hockey.js, game/tag.js; docs/PLAN.md, "Party modes"): `{ mode: "hockey", rink, teams, goals }`
+   * or `{ mode: "tag", minutes, it }`, played over the race's countdown and clock (`race` with no checkpoints).
+   */
+  const party = init.party && init.race ? init.party : null;
+  // Hockey's trucks take the frozen lake as gravel: on the game's ice a truck at rest can never move off.
+  const rink = party?.mode === "hockey" ? rinkGround(ground) : null;
   // Static scenery (CPR's walls, 4x4 Evolution's objects and trees): immovable upright boxes, found by a grid of 64 ft
   // cells (a box is in every cell it reaches).
   const WALL_CELL_FT = 64;
@@ -257,7 +283,7 @@ export function createSession(init) {
     const state = S.createTruckState(spec.start.pos, spec.start.heading ?? 0, S.GEAR.FIRST, params);
     if (init.startOnNearestSegment) state.ap.segment = nearestStraight(course, spec.start.pos, spec.start.heading ?? 0);
     // A Rumble needs no course: its computer trucks drive to the zone (rumble-ai.js).
-    const autopilot = !!spec.autopilot && (course.length > 0 || init.race?.mode === "summit");
+    const autopilot = !!spec.autopilot && (course.length > 0 || init.race?.mode === "summit" || !!party);
     // Without a course the reset keeps the heading and the helicopter sets the truck down in place.
     // `proLift`: a computer truck that misses a checkpoint or comes to rest is always fetched by the helicopter, never
     // set back on the course at once as the game does on Professional (the port's choice).
@@ -265,7 +291,7 @@ export function createSession(init) {
       racing: true, player: i === 0 && !autopilot, autopilot, difficulty, summit: false, segment: null, previous: null, proLift: true,
     };
     // A foot under the body's origin: a step up to about a wheel's height is climbed, a taller face is not ground.
-    const ownGround = meshGround ? meshGround.below(() => state.pos[1] - 1) : ground;
+    const ownGround = meshGround ? meshGround.below(() => state.pos[1] - 1) : rink ?? ground;
     const ctx = { ground: ownGround, human: i === 0 && !autopilot, difficulty, sonicTrack, recovery };
     return { state, params, autopilot, recovery, ctx, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
   });
@@ -341,6 +367,139 @@ export function createSession(init) {
   let started = false;
   const keys = { accelerate: false, brake: false, left: false, right: false };
 
+  // The party mode's game, its puck, and the hull touches between trucks since its last tick.
+  const hockey = party?.mode === "hockey" ? createHockey(party.rink, party.teams, party.goals) : null;
+  const tag = party?.mode === "tag" ? createTag(trucks.length) : null;
+  if (tag && Number.isInteger(party.it) && party.it >= 0 && party.it < trucks.length) tag.it = party.it;
+  if (tag) race.roundSeconds = Math.max(1, Number(party.minutes) || 5) * 60;
+  const puck = hockey ? levelBoxes.find((b) => b.sitIndex === party.rink.puck.sitIndex) ?? null : null;
+  const touches = [];
+  // Tag: computer trucks wander the ground around the course, and use its objects (game/tag.js). They do not drive the lap.
+  const home = [specs.reduce((a, spec) => a + spec.start.pos[0], 0) / specs.length, specs.reduce((a, spec) => a + spec.start.pos[2], 0) / specs.length];
+  const tagCovers = [];
+  if (tag) {
+    for (const box of levelBoxes) {
+      const cover = coverOf(box);
+      if (cover) tagCovers.push(cover);
+    }
+    for (const w of init.walls ?? []) {
+      const cover = coverOf({ pos: w.pos, reach: Math.hypot(w.size[0], w.size[2]) * 0.5, tall: w.size[1] });
+      if (cover) tagCovers.push(cover);
+    }
+  }
+  const tagRect = tag ? roamRect(roamPoints(course), home) : null;
+  /** Hockey: each truck's part in its team, from the last tick (game/hockey.js `hockeyRoles`). */
+  let roles = null;
+  if (party) {
+    for (const [i, t] of trucks.entries()) {
+      // Every truck gets a driver, so the player's full autopilot plays too.
+      t.party = createRumbleDriver(0.5 + ((i * 0.37) % 0.3));
+      if (tag) t.tagDriver = createTagDriver();
+    }
+    if (hockey) for (const t of trucks) driveByPoint(t);
+    if (puck) setPuck();
+  }
+
+  /** The puck at the rink's centre, still, on the ice; its pose goes to the screen with the next reply. */
+  function setPuck() {
+    const { start, psi } = party.rink.puck;
+    puck.pos[0] = start[0]; puck.pos[1] = start[1]; puck.pos[2] = start[2];
+    puck.vel.fill(0);
+    puck.bvel.fill(0);
+    puck.rates.fill(0);
+    puck.force.fill(0);
+    puck.moment.fill(0);
+    puck.euler.set([0, 0, psi]);
+    S.eulerToMatrix(0, 0, psi, puck.matrix);
+    puck.depths.fill(-9999);
+    dirty.add(puck);
+  }
+  /** A truck put down at `spot` (`{ pos, heading }`) in Park, at rest, as a new one would be. */
+  function placeTruck(t, spot) {
+    const fresh = S.createTruckState(spot.pos, spot.heading, S.GEAR.PARK, t.params);
+    for (const [key, value] of Object.entries(fresh)) {
+      if (ArrayBuffer.isView(value)) t.state[key].set(value);
+      else t.state[key] = value;
+    }
+    t.state.heliVisual = null;
+    t.flight = null;
+    t.exit = null;
+    t.headway = null;
+    t.party = createRumbleDriver(t.party.aggression);
+  }
+  /** A truck that drives at a point is recovered as the player's is: set upright, never lifted for being slow. */
+  function driveByPoint(t) {
+    t.recovery.player = true;
+    t.recovery.autopilot = false;
+  }
+  /** Seconds since the countdown ended. */
+  const sinceStart = () => race.clock - race.startTime;
+  /** Whether truck i is held where it stands this step: Hockey's face-off, Tag's It at the start. */
+  const partyHeld = (i) => (hockey ? hockeyHeld(hockey) : tag ? tagHeld(tag, i, sinceStart()) : false);
+  /** The party game after the race tick: goals and face-offs, tags, the end, and the places. */
+  function partyTick() {
+    if (hockey) {
+      const action = hockeyStep(hockey, puck ? puck.pos : [...party.rink.puck.start], STEP);
+      if (action === "reset") {
+        trucks.forEach((t, i) => placeTruck(t, hockeySpot(party.rink, hockey.teams, i)));
+        if (puck) setPuck();
+      } else if (action === "over") endParty();
+      if (puck) roles = hockeyRoles(hockey, trucks.map((t) => t.state.pos), trucks.map((t) => t.autopilot), puck.pos);
+      // A truck that got over the boards is put back at its face-off spot.
+      trucks.forEach((t, i) => {
+        t.outside = t.flight || !outsideRink(party.rink, t.state.pos) ? 0 : (t.outside ?? 0) + STEP;
+        if (t.outside >= ESCAPE_S) { placeTruck(t, hockeySpot(party.rink, hockey.teams, i)); t.outside = 0; }
+      });
+      hockeyPlaces(hockey).forEach((place, i) => { race.trucks[i].place = place; });
+    } else if (tag) {
+      tagStep(tag, sinceStart(), STEP, touches);
+      if (sinceStart() >= race.roundSeconds) endParty();
+      tagPlaces(tag).forEach((place, i) => { race.trucks[i].place = place; });
+    }
+    touches.length = 0;
+  }
+  function endParty() {
+    race.over = true;
+    for (const rt of race.trucks) rt.finished = true;
+  }
+  /**
+   * On the rink, a truck pressed against a board or a truck stands still whatever its throttle: with three hull
+   * points touching, the simulation stops anything under 0.5 ft/s a step. Held there under throttle, it is nudged
+   * the way its gear drives.
+   */
+  function nudge(t) {
+    const s = t.state, c = s.controls;
+    const driving = c.throttle > 0.5 && c.gear !== S.GEAR.PARK && c.gear !== S.GEAR.NEUTRAL;
+    t.still = driving && Math.hypot(s.bvel[0], s.bvel[1], s.bvel[2]) < 0.05 ? (t.still ?? 0) + STEP : 0;
+    if (t.still >= NUDGE_AFTER_S) s.bvel[2] += c.gear === S.GEAR.REVERSE ? -NUDGE_FT_S : NUDGE_FT_S;
+  }
+  /** A party computer truck's driving for this step (the player's too, on full autopilot). */
+  function partyDrive(t, i) {
+    const s = t.state;
+    if (hockey) {
+      const role = roles?.[i] ?? { role: "attack", side: 1 };
+      const aim = puck ? hockeyAim(party.rink, hockey.teams[i], role.role, { pos: s.pos, heading: s.euler[2] }, puck.pos, role.side, t.party) : { point: s.pos, speed: 0 };
+      driveToPoint(s, t.party, aim.point, aim.speed, 0, S.GEAR, STEP, { back: false, turnFloor: TURN_FLOOR });
+      return;
+    }
+    const since = sinceStart();
+    const role = t === trucks[tag.it] ? "it" : "free";
+    const standings = tagRanks(tag);
+    const quarry = role === "it"
+      ? trucks.map((o, j) => (o === t || o.state.heliTimer > 0 || tagSafe(tag, j, since) ? null : { pos: o.state.pos, vel: worldVelocity(o.state), place: standings[j] }))
+      : null;
+    const point = tagDrivePoint(t.tagDriver, role, {
+      clock: since, pos: s.pos, itPos: trucks[tag.it].state.pos, quarry, rect: tagRect,
+      covers: tagCovers, ramps: allRamps, heightAt: (x, z) => ground.height(x, z),
+      water: weather === S.WEATHER.SNOW ? null : ground.waterLevelFt, random: Math.random,
+    });
+    driveByPoint(t);
+    driveToPoint(s, t.party, point ?? s.pos, point ? TAG_SPEED[t.tagDriver.kind] ?? TAG_SPEED.wander : 0, 0, S.GEAR, STEP);
+    // Held, It stands still on purpose: no helicopter for that.
+    if (role === "it" && tagHeld(tag, i, since)) t.headway = null;
+    else watchHeadway(t);
+  }
+
   /**
    * This frame's boxes (MTM2_PHYSICS.md 14.15): those within r + R + 10 ft on x and z of a truck
    * or of a box already listed, and those moving faster than 0.1 ft/s; then the ramps (14.19).
@@ -377,6 +536,7 @@ export function createSession(init) {
         const force = Math.hypot(a.state.extForce[0] - before[0], a.state.extForce[1] - before[1], a.state.extForce[2] - before[2]);
         if (force > 0) {
           if (drag) dragCollision(drag, a.lane, b.lane);
+          if (party) touches.push([i, j]);
           const where = [0, 1, 2].map((k) => (a.state.pos[k] + b.state.pos[k]) / 2);
           // `hull`: bodywork met, not only tires (which throw no sparks).
           for (const t of [a, b]) {
@@ -388,7 +548,7 @@ export function createSession(init) {
       }
     }
     const grounds = [];
-    for (const t of trucks) {
+    for (const [ti, t] of trucks.entries()) {
       t.nearBoxes.length = 0;
       if (t.state.heliTimer > 0) continue;
       if (ra0 && ra1) S.groundBoxesAround(ra0, ra1, t.state.pos[0], t.state.pos[2], t.nearBoxes, groundBoxSmoothFt, groundBoxStepFt);
@@ -397,7 +557,13 @@ export function createSession(init) {
       // what stands across the world's seam is met as what stands beside the truck is.
       const near = (thing, test) => S.withNearest(t.state, thing.pos[0], thing.pos[2], test);
       for (const box of t.nearBoxes) near(box, () => S.collideTruckImmovableBox(t.state, t.params, box, STEP));
-      for (const box of listed) near(box, () => S.collideTruckBox(t.state, t.params, box, STEP));
+      for (const box of listed) {
+        if (box !== puck) { near(box, () => S.collideTruckBox(t.state, t.params, box, STEP)); continue; }
+        // Hockey: the truck that pushed the puck last is the one a goal is credited to.
+        const [f0, f1, f2] = box.force;
+        near(box, () => S.collideTruckBox(t.state, t.params, box, STEP));
+        if (box.force[0] !== f0 || box.force[1] !== f1 || box.force[2] !== f2) hockey.lastTouch = ti;
+      }
       for (const car of crushCars) near(car, () => S.collideTruckTopCrush(car, t.state, t.params, crushCtx));
       // Ramp sides and front ends are walls (14.19), for ramps within reach of the truck.
       for (const ramp of ground.ramps) {
@@ -407,6 +573,12 @@ export function createSession(init) {
       grounds.push(...t.nearBoxes);
     }
     const all = listed.length ? [...listed, ...grounds] : listed;
+    // Hockey's boards stop the puck, wherever the trucks are.
+    if (puck && listed.includes(puck)) {
+      const boards = [];
+      wallsAround(puck.pos[0], puck.pos[2], puck.radius, boards);
+      for (const wall of boards) if (!all.includes(wall)) all.push(wall);
+    }
     for (let i = 0; i < all.length; i++) {
       for (let j = i + 1; j < all.length; j++) S.collideBoxes(all[i], all[j], STEP);
     }
@@ -575,6 +747,7 @@ export function createSession(init) {
       // The game's `bonusLaps` (0x485afc): a lap closed in first place is a lap led, for the points.
       race.trucks.forEach((rt, i) => { if (rt.laps > lapsBefore[i] && rt.place === 1) lapsLed[i]++; });
       if (drag) dragStep();
+      if (party && S.raceStarted(race)) partyTick();
       recordCrossings(crossings, race.trucks);
     }
     const go = !race || S.raceStarted(race);
@@ -584,7 +757,8 @@ export function createSession(init) {
       if (t.autopilot) {
         if (!race || drag) S.advanceAutopilotSegment(t.state, apOf(t));
         recoveryOf(t);
-        if (go && t.rumble) {
+        if (go && party) partyDrive(t, i);
+        else if (go && t.rumble) {
           const onSummit = race.summit.trucks[i].state !== 0;
           t.recovery.autopilot = !onSummit;
           if (onSummit && t.state.heliTimer < 0) t.state.heliTimer = 0;
@@ -633,6 +807,19 @@ export function createSession(init) {
       started = true;
       for (const t of trucks) t.state.controls.gear = S.GEAR.FIRST;
     }
+    // A party mode's held trucks sit in Park, as through the countdown; let go, they go into first.
+    if (party && go) {
+      trucks.forEach((t, i) => {
+        const held = partyHeld(i);
+        const c = t.state.controls;
+        if (held) {
+          c.gear = S.GEAR.PARK;
+          c.throttle = 0;
+          c.brakeFront = c.brakeRear = 1;
+        } else if (t.held) c.gear = S.GEAR.FIRST;
+        t.held = held;
+      });
+    }
     keys.shiftUp = keys.shiftDown = false;
     if (joystick) joystick.shiftUp = joystick.shiftDown = false;
     for (const t of trucks) t.previous = snapshot(t.state);
@@ -648,6 +835,7 @@ export function createSession(init) {
     for (const t of trucks) {
       // The player's helicopter holds the truck still and carries it itself (game/heli-flight.js).
       if (t.flight) { flyTruck(t); continue; }
+      if (rink) nudge(t);
       S.stepTruck(t.state, t.params, t.ctx, STEP);
       t.snd.impact = Math.max(t.snd.impact, t.state.impactForce);
       t.snd.splash = t.snd.splash || t.state.splash;
@@ -790,7 +978,15 @@ export function createSession(init) {
       laps: race.laps,
       over: race.over,
       /** The HUD's Lead or Back gap for the player's truck (game/timing.js). */
-      gap: race.summit ? null : raceGap(race.trucks, crossings, 0),
+      gap: race.summit || party ? null : raceGap(race.trucks, crossings, 0),
+      /** A party mode's game (game/hockey.js, game/tag.js), else null. */
+      party: hockey ? {
+        mode: "hockey", score: [...hockey.score], target: hockey.target, teams: hockey.teams, phase: hockey.phase,
+        timer: Math.max(0, hockey.timer), event: hockey.event, events: hockey.events,
+      } : tag ? {
+        mode: "tag", it: tag.it, itTime: [...tag.itTime], points: [...tag.points], safe: tagSafe(tag, tag.safe, Math.max(0, since)) ? tag.safe : -1, hold: Math.max(0, tag.holdUntil - Math.max(0, since)),
+        left: Math.max(0, race.roundSeconds - Math.max(0, since)), event: tag.event, events: tag.events,
+      } : null,
       /** Summit Rumble: scores and the seconds left in the round (6.3), else null. */
       summit: race.summit ? { left: Math.max(0, race.roundSeconds - since), states: race.summit.trucks.map((t) => t.state) } : null,
       trucks: race.trucks.map((rt, i) => ({
@@ -799,7 +995,7 @@ export function createSession(init) {
         dq: laneOf(i)?.dq ?? null,
         rerun: !!laneOf(i)?.rerun,
         reaction: laneOf(i)?.reaction ?? null,
-        score: race.summit ? race.summit.trucks[race.trucks.indexOf(rt)].score : 0,
+        score: race.summit ? race.summit.trucks[race.trucks.indexOf(rt)].score : hockey ? hockey.goals[i] : tag ? tag.points[i] : 0,
         laps: rt.laps,
         lap: Math.min(rt.laps + 1, race.laps),
         lapTime: rt.finished ? (rt.lapTimes[rt.lapTimes.length - 1] ?? 0) : Math.max(0, since - rt.raceTime),
@@ -819,6 +1015,8 @@ export function createSession(init) {
    */
   function finishRace() {
     if (!race) return null;
+    // A party game left early ends where it stands.
+    if (party) { endParty(); return raceView(); }
     const until = race.clock + FAST_SIMULATION_S;
     while (race.clock < until && !race.trucks.every((rt) => rt.finished)) step({});
     return raceView();
@@ -843,7 +1041,7 @@ export function createSession(init) {
   }
 
   return {
-    state: player.state, params: player.params, trucks, race, ground, levelBoxes, course, rumbleField, crushCars,
+    state: player.state, params: player.params, trucks, race, ground, levelBoxes, course, rumbleField, crushCars, hockey, tag, puck,
     step, advance, raceView, finishRace, command, gold, now: () => time, snapshot: () => snapshot(player.state),
   };
 }

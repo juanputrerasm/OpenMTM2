@@ -16,7 +16,19 @@ export function raceTypeName(type) {
   return RACE_TYPE_NAMES[type] ?? RACE_TYPE_NAMES.unsupported;
 }
 
-export function raceLengthLabel(type) {
+/** The Races screen's Mode list (docs/PLAN.md, "Party modes"): the track's own race, driving alone, a camera-only visit, or a party game. */
+export const GAME_MODES = Object.freeze([
+  Object.freeze({ id: "default", name: "Default" }),
+  Object.freeze({ id: "freeroam", name: "Free Roam" }),
+  Object.freeze({ id: "flyby", name: "Fly-by" }),
+  Object.freeze({ id: "hockey", name: "Hockey" }),
+  Object.freeze({ id: "tag", name: "Tag" }),
+]);
+
+/** What the length box counts: a party game's goals or minutes, else a Rumble's minutes or a race's laps. */
+export function raceLengthLabel(type, gameMode = "default") {
+  if (gameMode === "hockey") return "Goals";
+  if (gameMode === "tag") return "Minutes";
   return type === "summit" ? "Minutes" : "Laps";
 }
 

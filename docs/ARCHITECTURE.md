@@ -13,6 +13,7 @@ the game did not (smoothed ground, its own water and weather) is specified in `V
 | Install, virtual file system, content catalogue, render preparation | `src/worker/` | the asset worker |
 | Race session | `src/game/` | the main thread, driving the sim worker |
 | Rendering | `src/render/` (the only code importing three.js) | the main thread |
+| Party modes (Hockey, Tag; `PLAN.md`, "Party modes") | rules in `src/game/hockey.js` and `src/game/tag.js`, run by the sim worker after the race tick; the rink's boards and goal tints in `src/render/party-scene.js` | the sim worker and the main thread; the rules also Node in tests |
 | Headset mode | rules in `src/game/vr/`, drawing in `src/render/xr/`, the app's side in `src/app/xr.js` | the main thread; the rules also Node in tests |
 | The port's own scenery (`VISUALS.md`) | rules in `src/game/` (`terrain-relief.js`, `drawn-ground.js`, `ground-maps.js`, `snow-cover.js`, `atmosphere.js`, `fog-floor.js`, `water.js`, `ice.js`, `lighting.js`, `ground-detail.js`, `particles.js`, `truck-lights.js`, `replay-effects.js`, `visuals.js`), the mesh in `src/worker/relief-mesh.js`, drawing in `src/render/` (`scenery.js` and what it makes) | the asset worker and the main thread; the rules also Node in tests |
 | Screens | `src/ui/` (HTML), `src/app/` (boot, router, settings) | the main thread |

@@ -37,6 +37,7 @@ import { setLightsInFog } from "../../render/atmosphere.js";
 import { createFpsCounter } from "../fps-counter.js";
 import { saveSettings } from "../../app/settings.js";
 import { enableSunShadows } from "../../render/sun-shadows.js";
+import { dressParty } from "../../render/party-scene.js";
 
 /** A terrain cell's side: the draw distance is set in cells. */
 const TERRAIN_CELL_FT = 32;
@@ -101,7 +102,9 @@ export default async function mount(container, context, { replay }) {
     terrainDetail: context.settings.terrainDetail !== false, reflections: context.settings.reflections !== false,
   });
   scene.add(world);
-  cleanups.push(() => { disposeObject(scene); renderer.dispose(); });
+  // A party game's own scenery (render/party-scene.js): Hockey's boards and the teams' goals, as the race drew them.
+  const partyScene = dressParty(scene, world, replay.party);
+  cleanups.push(() => { partyScene.dispose(); disposeObject(scene); renderer.dispose(); });
 
   let shadows = null;
   const playback = createPlayback(replay, {});

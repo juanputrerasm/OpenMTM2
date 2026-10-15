@@ -830,6 +830,25 @@ export function tintObjects(world, tints) {
   }
 }
 
+/** A material's texture swapped for a grey copy of itself, from half to full brightness. */
+function greyMap(material) {
+  const map = material?.map;
+  const image = map?.image;
+  if (!image?.data || map.userData.grey) return;
+  const data = new Uint8ClampedArray(image.data.length);
+  for (let i = 0; i < data.length; i += 4) {
+    const luma = 0.299 * image.data[i] + 0.587 * image.data[i + 1] + 0.114 * image.data[i + 2];
+    data[i] = data[i + 1] = data[i + 2] = 128 + luma / 2;
+    data[i + 3] = image.data[i + 3];
+  }
+  const grey = map.clone();
+  grey.image = { data, width: image.width, height: image.height };
+  grey.userData = { grey: true };
+  grey.needsUpdate = true;
+  material.map = grey;
+  material.needsUpdate = true;
+}
+
 /** Draw the SIT backdrop models as camera-centred scenery behind the world. */
 export function createBackdrops(build, look) {
   if (!build.backdrops?.length) return null;
