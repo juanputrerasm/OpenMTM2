@@ -3,8 +3,7 @@
   The truck's models come from the asset worker once per truck; a screen that has no WebGL goes without.
 */
 import { createTruckPreview } from "../render/truck-preview.js";
-
-const builds = new Map();
+import { cachedTruckPreview, dropTruckPreview } from "./truck-preview-cache.js";
 
 /**
  * @param {object} context the app context
@@ -23,10 +22,9 @@ export function createPreviewSlot(context, { width, height, mode }) {
       if (!file) { preview.show(null); return; }
       const key = `${file}|${mode === "crown"}`;
       try {
-        if (!builds.has(key)) builds.set(key, context.assets.call("truckPreview", { file, winner: mode === "crown" }));
-        const build = await builds.get(key);
+        const build = await cachedTruckPreview(key, () => context.assets.call("truckPreview", { file, winner: mode === "crown" }));
         if (mine === request) preview.show(build);
-      } catch { builds.delete(key); }
+      } catch { dropTruckPreview(key); }
     },
     dispose() { request++; preview?.dispose(); },
   };

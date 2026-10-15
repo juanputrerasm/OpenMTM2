@@ -5,11 +5,12 @@
   Archives can be added from any game without that game being installed, removed again, and moved:
   when two archives of one game hold the same file, the one mounted first wins. Every archive is
   optional but the ones OpenMTM2 needs (install/required-pods.js); one of the base install's that is
-  removed stays copied, and Reload POD.INI mounts it again. A change takes effect when the dialog closes, which
-  reloads the page as Reload POD.INI does.
+  removed stays copied, and Reload POD.INI mounts it again. A change takes effect when the dialog closes:
+  the screen underneath reads the fresh catalogue, with no page reload.
 */
 import { el } from "./dom.js";
 import { isZipName, podsInZip } from "../shared/zip.js";
+import { refreshAfterPodChange } from "./pod-refresh.js";
 
 const megabytes = (bytes) => (bytes == null ? "" : `${(bytes / 1048576).toFixed(1)} MB`);
 
@@ -131,8 +132,9 @@ export async function openPodManager(context) {
   dialog.addEventListener("cancel", (event) => { if (busy) event.preventDefault(); });
   dialog.addEventListener("close", () => {
     dialog.remove();
-    // The catalogue and everything loaded from the archives are stale: start again, as Reload POD.INI does.
-    if (changed) window.location.reload();
+    // The catalogue is rebuilt and the screen under the dialog reads it again. Only a refresh
+    // that fails falls back to a reload, which is what the manager did before.
+    if (changed) refreshAfterPodChange(context).catch(() => window.location.reload());
   }, { once: true });
   document.body.append(dialog);
   dialog.showModal();

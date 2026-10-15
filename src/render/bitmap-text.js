@@ -7,6 +7,14 @@ import { fontSpacing } from "../worker/bitmap-font.js";
 
 const loaded = new Map();
 
+/**
+ * Forget every loaded font (the POD manager, after the mounted archives change: another archive
+ * may now hold the sheet).
+ */
+export function clearFontCache() {
+  loaded.clear();
+}
+
 /** A font ready to draw with, loaded through the asset worker once per stem. */
 export function loadFont(assets, stem) {
   if (!loaded.has(stem)) {

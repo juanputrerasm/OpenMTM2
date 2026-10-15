@@ -225,6 +225,8 @@ export function createAudio(assets, volumes = {}) {
   const api = {
     /** Load samples ahead of their first use, so a one-shot plays the moment it is asked for. */
     preload(names) { for (const name of names) if (name) sample(name); },
+    /** Forget every decoded sample, so the next play reads it from the worker again (the POD manager). */
+    clearSamples() { buffers.clear(); },
     context: ctx, sample, play, playMod, setVolumes, setDucking, setListener,
     /** The mix as it sounds now: `out` (a Uint8Array of up to 1024) filled with samples, 128 the silence. */
     waveform,
@@ -278,7 +280,7 @@ export function createAudio(assets, volumes = {}) {
 export function createSilentAudio() {
   const voice = { done: Promise.resolve(), stopped: true, setGain() {}, setRate() {}, setPosition() {}, stop() {} };
   return {
-    context: null, stats: () => ({ state: "none", samples: 0, sampleNames: [], voices: 0 }), sample: async () => null, preload() {}, play: async () => voice, playMod: async () => voice, setVolumes() {}, setListener() {}, setRange() {},
+    context: null, stats: () => ({ state: "none", samples: 0, sampleNames: [], voices: 0 }), sample: async () => null, preload() {}, clearSamples() {}, play: async () => voice, playMod: async () => voice, setVolumes() {}, setListener() {}, setRange() {},
     setDucking() {}, setEffectsPaused() {}, waveform: (out) => out.fill(128), resume: async () => {}, suspend: async () => {}, dispose: async () => {},
     scoped() { return { ...this, stopAll() {} }; },
   };

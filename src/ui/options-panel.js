@@ -402,7 +402,6 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         + "Add POD.INI reads another game folder's POD.INI and mounts every archive it lists. Reload POD.INI mounts again every archive "
         + "the base install's POD.INI lists, in its order. Change base install picks the Monster Truck Madness 2 folder again, or another one. "
         + "The POD manager shows what is mounted, and adds single POD files from any game without the game being installed."),
-      el("h3", {}, "POD.INI"),
       el("div", { class: "opt-actions opt-data" },
         button("Add POD.INI", async (event) => {
           const target = event.currentTarget;

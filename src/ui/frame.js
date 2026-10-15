@@ -48,6 +48,15 @@ export function uiImageUrl(assets, name) {
 }
 
 /**
+ * Forget every cached `UI\*.BMP` (the POD manager, after the mounted archives change: another
+ * archive may now hold the file). Pictures already on screen stay put; the next screen reads again.
+ */
+export function clearUiImageCache() {
+  for (const pending of images.values()) pending.then((url) => { if (url) URL.revokeObjectURL(url); }).catch(() => {});
+  images.clear();
+}
+
+/**
  * @param {HTMLElement} container
  * @param {object} context
  * @param {{ title: string, backdrop?: string, bar?: keyof typeof BARS, regions?: Record<string, number[]>, options?: boolean,
