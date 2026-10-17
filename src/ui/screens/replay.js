@@ -417,7 +417,9 @@ export default async function mount(container, context, { replay }) {
     const under = isUnderwater(camera.position.y, water ? water.userData.levelFt + water.position.y : null, weatherScene.weather);
     weatherScene.setUnderwater(under);
     // How far under the eye is, for the lens: it comes on over the first half foot (docs/VISUALS.md, "Under water").
-    scenery.underwater(under && water ? (water.userData.levelFt + water.position.y - camera.position.y) / 0.5 : 0);
+    scenery.underwater(under && water ? (water.userData.levelFt + water.position.y - camera.position.y) / 0.5 : 0, {
+      dt: playing ? dt * Math.abs(rate) : 0, levelFt: water ? water.userData.levelFt + water.position.y : null, viewHeight: canvas.height,
+    });
     trackLights?.update(camera, !!WEATHER_LOOK[weatherScene.weather]?.headlights);
     startLamps?.update(camera, { daylight: WEATHER_LOOK[weatherScene.weather]?.light ?? 1 });
     weatherScene.update(dt, state.trucks.filter(Boolean).map((p) => ({ x: p.pos[0], y: p.pos[1], z: p.pos[2], heading: p.euler[2], lit: headlights })),

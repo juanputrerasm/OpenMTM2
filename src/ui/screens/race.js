@@ -1242,7 +1242,9 @@ async function mountRace(container, context, params) {
     const under = isUnderwater(camera.position.y, water ? water.userData.levelFt + water.position.y : null, weatherScene.weather);
     weatherScene.setUnderwater(under);
     // How far under the eye is, for the lens: it comes on over the first half foot (docs/VISUALS.md, "Under water").
-    scenery.underwater(under && water ? (water.userData.levelFt + water.position.y - camera.position.y) / 0.5 : 0);
+    scenery.underwater(under && water ? (water.userData.levelFt + water.position.y - camera.position.y) / 0.5 : 0, {
+      dt: paused ? 0 : dt, levelFt: water ? water.userData.levelFt + water.position.y : null, viewHeight: host.presenting ? HEADSET_VIEW_HEIGHT : canvas.height,
+    });
     tireFx.setWater(water ? water.userData.levelFt + water.position.y : null);
     if (latest && shownPoses) {
       waterFx.update(dt, {
@@ -1257,7 +1259,8 @@ async function mountRace(container, context, params) {
     if (latest?.crush) world.userData.crush = latest.crush;
     // After the sky is placed: the port's water shows it.
     // The wheels stir the water and the puddles (render/water-ripples.js).
-    if (shownPoses) scenery.stir(shownPoses.map((p, i) => (p && drawn[i] ? { hubs: p.tires.map((_, k) => drawn[i].tireHub(k)), radiusFt: seats[i].radius } : null)), paused ? 0 : dt);
+    // How fast each wheel turns, as the simulation says: its tread beats the water white (game/water.js `wheelStir`).
+    if (shownPoses) scenery.stir(shownPoses.map((p, i) => (p && drawn[i] ? { hubs: p.tires.map((_, k) => drawn[i].tireHub(k)), radiusFt: seats[i].radius, spins: latest?.poses[i]?.sound?.tires?.map((tire) => tire.spin) ?? null } : null)), paused ? 0 : dt);
     waterSurface?.update(dt, weatherScene.weather, { sun, light: weatherScene.lightLevel(), sky, fog: scene.fog, background, levelFt: water ? water.userData.levelFt + water.position.y : null });
     // A headset draws everything twice: terrain past the fog's end, which nothing can be seen of, is left out.
     const sight = vr.sight(scene.fog);

@@ -25,7 +25,9 @@ import { createGroundTexture, createPuddleTexture, createShelterTexture } from "
 import { createLens } from "./lens.js";
 import { createLightRig } from "./light-rig.js";
 import { createOverScene } from "./over-scene.js";
+import { createWaterReflection } from "./water-reflection.js";
 import { createWaterRipples } from "./water-ripples.js";
+import { createUnderwater } from "./underwater.js";
 import { createWaterSystem } from "./water-surface.js";
 import { createWeatherVolume } from "./weather-volume.js";
 
@@ -84,7 +86,10 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
       geometry.setAttribute("snowShare", new p.constructor(share, 1));
     });
   }
-  const groundSurface = on.puddles || on.snow ? createGroundSurface({ world, puddleTexture, shelterTexture, puddles: on.puddles, snow: on.snow, sun, ripples, puddleMap: build.puddles ?? null }) : null;
+  // The ground's own colour taken broadly: the silt that clouds stirred water, in the lake and in a puddle.
+  const groundTone = build.terrain?.atlas ? meanTone(build.terrain.atlas) : [...DEFAULT_GROUND];
+  const groundSurface = on.puddles || on.snow
+    ? createGroundSurface({ world, puddleTexture, shelterTexture, puddles: on.puddles, snow: on.snow, sun, ripples, puddleMap: build.puddles ?? null, groundTone }) : null;
   const groundDetail = on.detail && renderer && build.terrain?.atlas
     ? createGroundDetail({ world, atlas: build.terrain.atlas, textureValues: build.sim?.textureValues ?? null, renderer, sun, look }) : null;
   // Without the detail the ground is still mipmapped, in either picture: its tiles from a stack, each filtered down by itself.
@@ -97,9 +102,20 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
   const over = on.particles && renderer ? createOverScene({ renderer, plainScreen: !(on.lens || aa), soft: on.lens }) : null;
   const lens = on.lens && renderer ? createLens({ renderer, aa, over }) : null;
   const gloss = on.gloss ? createGloss({ world, sun, groundArt: build.terrain?.atlas ?? null }) : null;
-  const water = on.water ? createWaterSystem({ world, groundTexture, lights: { sun, ambient, hemisphere: lightRig?.hemisphere ?? null }, ripples: hasWater ? ripples : null }) : null;
+  // The land the water mirrors, worked out once a frame from the map of the ground and the colours of its textures (render/water-reflection.js).
+  const reflection = hasWater && renderer && build.groundMap && groundTexture
+    ? createWaterReflection({
+      renderer, groundMap: build.groundMap, groundTexture, clr: build.sim?.clr ?? null, wraps: !build.noWrap,
+      tones: build.terrain?.atlas ? tileTones(build.terrain.atlas) : null, fallbackTone: groundTone,
+    }) : null;
+  const water = on.water ? createWaterSystem({
+    world, groundTexture, lights: { sun, ambient, hemisphere: lightRig?.hemisphere ?? null }, ripples: hasWater ? ripples : null, reflection,
+    groundTone,
+  }) : null;
   /** How far under water the eye is, 0 to 1 (`underwater`), for the lens. */
   let under = 0;
+  // What fills the water about the eye while it is under it: motes and the sun's shafts (render/underwater.js).
+  const underwaterLook = water && hasWater ? createUnderwater({ scene, water, random }) : null;
   // Where the snow has depth (a race that began in Snow), the same depth the terrain's mesh was built with.
   const snowCover = groundSurface?.snowHasDepth ? settled : null;
   /*
@@ -131,7 +147,7 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
   }) : null;
   const particles = on.particles ? {
     look,
-    groundTone: build.terrain?.atlas ? meanTone(build.terrain.atlas) : [...DEFAULT_GROUND],
+    groundTone,
     /** The height a rut lies at, at game (x, z), feet, for a wheel at height `y`: the deck it is over, else the drawn mesh's, without its snow. */
     bareGround: (x, z, y) => deckAt(x, z, y) ?? ground(x, z),
     /**
@@ -176,6 +192,7 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
     draw(view, { plain = false } = {}) {
       // The waves run on by the time the wheels were stirred for, before the water and the puddles that show them are drawn.
       ripples?.step([view.position.x, view.position.y, -view.position.z]);
+      water?.prepare(view);
       if (lens && !plain) lens.render(scene, view, { tone: !!lightRig, under: water ? under : 0 });
       else if (aa && !plain) aa.renderFlat(scene, view, { tone: !!lightRig, over });
       else {
@@ -242,8 +259,15 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
     stir(trucks, dt) { ripples?.stir(trucks, dt); },
     /** The drawn ground's height at game (x, z), feet, without snow: its mesh's where there is one (`relief` given), else `ground`. */
     groundAt: ground,
-    /** Say how far under water the eye is, 0 to 1, once a frame: under it the lens takes the red out of the picture (render/lens.js). */
-    underwater(amount) { under = Math.min(1, Math.max(0, amount)); },
+    /**
+     * Say how far under water the eye is, 0 to 1, once a frame: under it the lens takes the red out of the picture
+     * (render/lens.js), and motes and the sun's shafts fill the water (render/underwater.js). `dt` the frame's seconds (none
+     * while paused), `levelFt` the water's level now, `viewHeight` the picture's height in pixels.
+     */
+    underwater(amount, { dt = 0, levelFt = null, viewHeight = 900 } = {}) {
+      under = Math.min(1, Math.max(0, amount));
+      underwaterLook?.update(dt, { under: levelFt === null ? 0 : under, levelFt: levelFt ?? 0, viewHeight, fog: scene.fog?.color ?? null });
+    },
     /**
      * The height of what a truck's dust, tracks and spray lie on, and a camera keeps clear of,
      * at game (x, z): the drawn ground, and on it the snow that is down.
@@ -260,6 +284,8 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
       over?.dispose();
       aa?.dispose();
       ripples?.dispose();
+      underwaterLook?.dispose();
+      reflection?.dispose();
       lightRig?.dispose();
       groundDetail?.dispose();
       groundTiles?.dispose();

@@ -5,8 +5,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  BACKDROP_DARK, BACKDROP_DISTANCE_FT, BACKDROP_FOOT, CLEAR_FADE, CLEAR_HALF, FOG_BANKS, FOG_FADE_FROM, FOG_REACH, ICE_SNOW_SHARE, PRECIPITATION, SNOW_SETTLE_SECONDS, SNOW_START, WET,
-  FOG_TOP, backdropHides, fogAtHeight, fogBank, fogColumn, fogLight, fogProfile, fogTopLit, fogHides, fogSliceEnd, fogVolume, groundWetness, precipitationOf, puddlesFilled, snowDown, snowSettled,
+  BACKDROP_DARK, BACKDROP_DISTANCE_FT, BACKDROP_FOOT, CLEAR_FADE, CLEAR_HALF, FOG_BANKS, FOG_FADE_FROM, FOG_REACH, ICE_SNOW_SHARE, POOL_LOOK, PRECIPITATION, SNOW_SETTLE_SECONDS, SNOW_START, WET,
+  FOG_TOP, backdropHides, fogAtHeight, fogBank, fogColumn, fogLight, fogProfile, fogTopLit, fogHides, fogSliceEnd, fogVolume, groundWetness, poolMurk, precipitationOf, puddlesFilled, snowDown, snowSettled,
 } from "../src/game/atmosphere.js";
 import { WEATHER_LOOK } from "../src/game/weather.js";
 
@@ -265,6 +265,19 @@ test("wet ground is darker and deeper in colour, with a slight sheen: standing w
   assert.ok(WET.darker > 0.6 && WET.darker < 0.9 && WET.deeper > 0);
   // Looking down it mirrors next to nothing; along the ground some of the sky, never as much as a puddle.
   assert.ok(WET.sheen < 0.05 && WET.sheenLow > WET.sheen && WET.sheenMost >= WET.sheenLow && WET.sheenMost <= 0.25);
+});
+
+test("rain standing on dirt is muddy: a film shows the ground, an inch of it hides most of it, and stirred up it hides it all", () => {
+  assert.equal(poolMurk(0), 0);
+  assert.ok(poolMurk(0.01) < 0.25, `a film: ${poolMurk(0.01)}`);
+  assert.ok(poolMurk(0.08) > 0.55, `an inch: ${poolMurk(0.08)}`);
+  for (let d = 0; d < 0.3; d += 0.01) assert.ok(poolMurk(d + 0.01) > poolMurk(d));
+  assert.ok(poolMurk(10) <= POOL_LOOK.murkMost && POOL_LOOK.murkMost < 0.95, "however deep, some of the bed's light comes through");
+  // Its colour is the ground's own, a little darker; stirred up, a shade paler, and froth never hides the water whole.
+  assert.ok(POOL_LOOK.mud > 0.3 && POOL_LOOK.mud < 1 && POOL_LOOK.mud + POOL_LOOK.stirredPaler <= 1);
+  assert.ok(POOL_LOOK.froth > 0 && POOL_LOOK.froth < 1);
+  // The bank a puddle has soaked is darker than wet ground, and keeps a film of its water.
+  assert.ok(POOL_LOOK.soaked > 0 && POOL_LOOK.soaked < 0.5 && POOL_LOOK.film > 0 && POOL_LOOK.film < 1);
 });
 
 test("the ground is wet within seconds of Rain and its puddles fill over a minute", () => {

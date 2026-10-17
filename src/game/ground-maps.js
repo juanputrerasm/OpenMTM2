@@ -63,26 +63,88 @@ export function holdAt(x, z) {
   return Math.min(1, Math.max(0, (worldNoise(x, z, 23, 71) + 0.2) / 0.55));
 }
 
+/*
+  The course. Trucks churn the ground they race over into ruts and potholes, and pack it so that
+  it keeps its water: on a dirt track after rain the deepest puddles lie in the driven line. So
+  along a course the ground is given potholes besides the open ground's unevenness, and a hollow
+  there keeps more of what runs into it.
+*/
+/**
+ * The driven line reaches `edgeFt` past a course's half width, and fades out over `blendFt` more.
+ * A pothole is up to `potholeFt` deep and some twenty feet across; a hollow in the driven line
+ * fills `fillFt` higher than one in the open would.
+ */
+export const COURSE_PUDDLES = Object.freeze({ edgeFt: 4, blendFt: 12, potholeFt: 0.3, fillFt: 0.2 });
+
+/** The potholes along a course, feet: how far a point lies under the driven ground about it, 0 to `potholeFt`. */
+export function potholeFt(x, z) {
+  const n = worldNoise(x, z, 205, 74) + 0.5 * worldNoise(x, z, 410, 75);
+  return COURSE_PUDDLES.potholeFt * smoothstep(0.0, 0.7, n);
+}
+
+/**
+ * How much each sample of a `side` x `side` map lies in a course's driven line, 0 to 1. `courses`
+ * are each a SIT course's straights in order (MTM2_PHYSICS.md 12); the turns between them are
+ * taken as the line from one straight's end to the next one's start.
+ *
+ * @param {{ startFt: number[], endFt: number[], trackWidthFt?: number }[][]} courses
+ */
+export function drivenMap(courses, side = GROUND_MAP_SIDE) {
+  const out = new Float32Array(side * side), step = WORLD_FT / side, mask = side - 1;
+  const { edgeFt, blendFt } = COURSE_PUDDLES;
+  const along = (from, to, half) => {
+    const inner = half + edgeFt, outer = inner + blendFt;
+    const dx = to[0] - from[0], dz = to[2] - from[2], length2 = dx * dx + dz * dz;
+    const i0 = Math.floor((Math.min(from[0], to[0]) - outer) / step), i1 = Math.ceil((Math.max(from[0], to[0]) + outer) / step);
+    const j0 = Math.floor((Math.min(from[2], to[2]) - outer) / step), j1 = Math.ceil((Math.max(from[2], to[2]) + outer) / step);
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const x = (i + 0.5) * step - from[0], z = (j + 0.5) * step - from[2];
+        const t = length2 > 0 ? Math.min(1, Math.max(0, (x * dx + z * dz) / length2)) : 0;
+        const driven = 1 - smoothstep(inner, outer, Math.hypot(x - t * dx, z - t * dz));
+        const at = (j & mask) * side + (i & mask);
+        if (driven > out[at]) out[at] = driven;
+      }
+    }
+  };
+  for (const course of courses) {
+    course.forEach((straight, i) => {
+      const half = (straight.trackWidthFt ?? 0) / 2;
+      along(straight.startFt, straight.endFt, half);
+      const next = course[(i + 1) % course.length];
+      if (course.length > 1) along(straight.endFt, next.startFt, Math.max(half, (next.trackWidthFt ?? 0) / 2));
+    });
+  }
+  return out;
+}
+
+function smoothstep(a, b, v) {
+  const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+
 /**
  * Where rain stands: per sample, the ground's depth under its pool's surface as a byte around
  * `PUDDLE_WATERLINE`.
  *
  * @param {Float32Array} ground `buildGroundMap`'s heights
- * @param {{ side?: number, waterLevelFt?: number|null, wraps?: boolean }} [options] ground under
- *   the level's water holds no puddle and takes whatever runs into it; `wraps` false is a
- *   stadium, whose edge drains away
+ * @param {{ side?: number, waterLevelFt?: number|null, wraps?: boolean, courses?: object[][] }} [options]
+ *   ground under the level's water holds no puddle and takes whatever runs into it; `wraps`
+ *   false is a stadium, whose edge drains away; `courses` (`drivenMap`) are where trucks race,
+ *   whose driven line is potholed and keeps its water
  */
-export function buildPuddleMap(ground, { side = Math.round(Math.sqrt(ground.length)), waterLevelFt = null, wraps = true } = {}) {
+export function buildPuddleMap(ground, { side = Math.round(Math.sqrt(ground.length)), waterLevelFt = null, wraps = true, courses = [] } = {}) {
   const count = side * side, step = WORLD_FT / side, mask = side - 1;
   if (side & mask) throw new RangeError("the puddle map's side must be a power of two");
+  const driven = courses.length ? drivenMap(courses, side) : null;
   const height = new Float32Array(count);
   // Basin 0 is everything that takes water and keeps none: the level's water, and a stadium's edge.
   const drain = new Uint8Array(count);
   let lowest = Infinity, highest = -Infinity;
   for (let j = 0; j < side; j++) {
     for (let i = 0; i < side; i++) {
-      const at = j * side + i;
-      const h = ground[at] + unevennessFt((i + 0.5) * step, (j + 0.5) * step);
+      const at = j * side + i, x = (i + 0.5) * step, z = (j + 0.5) * step;
+      const h = ground[at] + unevennessFt(x, z) - (driven && driven[at] > 0 ? driven[at] * potholeFt(x, z) : 0);
       height[at] = h;
       if (h < lowest) lowest = h;
       if (h > highest) highest = h;
@@ -128,12 +190,13 @@ export function buildPuddleMap(ground, { side = Math.round(Math.sqrt(ground.leng
   // How high each basin's water would stand with nowhere to run: its low point and what its ground gathers.
   const full = new Float64Array(basins);
   for (let b = 1; b < basins; b++) {
-    const i = lowAt[b] % side, j = (lowAt[b] - i) / side;
-    full[b] = low[b] + basinDepthFt(area[b], holdAt((i + 0.5) * step, (j + 0.5) * step));
+    const i = lowAt[b] % side, j = (lowAt[b] - i) / side, onCourse = driven ? driven[lowAt[b]] : 0;
+    full[b] = low[b] + basinDepthFt(area[b], Math.max(onCourse, holdAt((i + 0.5) * step, (j + 0.5) * step))) + onCourse * COURSE_PUDDLES.fillFt;
   }
 
-  // The saddles between basins, lowest first (a counting sort over their heights).
-  const buckets = Math.ceil((highest - lowest) / SADDLE_STEP_FT) + 2;
+  // The saddles between basins, lowest first (a counting sort over their heights). The steps are whole steps of height,
+  // not steps from the lowest ground: what lies far off is sorted the same whatever is done to the ground elsewhere.
+  const base = Math.floor(lowest / SADDLE_STEP_FT), buckets = Math.floor(highest / SADDLE_STEP_FT) - base + 2;
   const starts = new Int32Array(buckets + 1);
   const eachPair = (visit) => {
     for (let j = 0; j < side; j++) {
@@ -141,7 +204,7 @@ export function buildPuddleMap(ground, { side = Math.round(Math.sqrt(ground.leng
       for (let i = 0; i < side; i++) {
         const at = here + i, right = (i + 1) & mask, left = (i - 1) & mask;
         for (const other of [here + right, below + i, below + right, below + left]) {
-          if (basin[other] !== basin[at]) visit(at, other, Math.floor((Math.max(height[at], height[other]) - lowest) / SADDLE_STEP_FT));
+          if (basin[other] !== basin[at]) visit(at, other, Math.floor(Math.max(height[at], height[other]) / SADDLE_STEP_FT) - base);
         }
       }
     }

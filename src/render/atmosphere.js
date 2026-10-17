@@ -26,7 +26,7 @@
   lens draws into a picture of light (render/lens.js), as light (`output`, `screenColor`).
 */
 import * as THREE from "three";
-import { BACKDROP_DISTANCE_FT, BACKDROP_FOOT, FOG_BANKS, FOG_TOP, fogTopLit } from "../game/atmosphere.js";
+import { BACKDROP_DISTANCE_FT, BACKDROP_FOOT, FOG_BANKS, FOG_TOP, fogColumn, fogTopLit } from "../game/atmosphere.js";
 import { FOG_FLOOR } from "../game/fog-floor.js";
 import { WORLD_FT } from "../shared/scene-frame.js";
 import { SHARED_NOISE_GLSL, billowNoise, cloudNoise, detailNoise } from "./noise-textures.js";
@@ -527,6 +527,25 @@ export const atmosphere = {
   update(dt, floorFt) {
     STATE[7] = (STATE[7] + dt) % 3600;
     if (Number.isFinite(floorFt)) STATE[3] = floorFt + STATE[23];
+  },
+  /**
+   * How deep the fog over an eye at height `eyeY` (feet) lies against the sky, as the shaders' `mtmFogSkyHidden` takes
+   * it (the sky's depth times `mtmFogOverhead`): it hides `1 - exp(-veil / sine)` of the sky a line `sine` steep meets.
+   * It depends on the eye alone, so a shader that veils many lines (the sky in the water) is given it once a frame. 0
+   * with the volume off.
+   */
+  skyVeil(eyeY) {
+    if (STATE[0] < 0.5 || STATE[15] <= 0 || !(STATE[2] > 0)) return 0;
+    const shape = { cap: STATE[32], capFt: STATE[33], crispFt: STATE[34], wisps: STATE[35], scaleHeightFt: 1 / STATE[2] };
+    return STATE[15] * fogColumn(eyeY - STATE[3], 1, 1e5, shape) / Math.max(fogColumn(-STATE[23], 1, 1e5, shape), 1e-3);
+  },
+  /**
+   * The haze the volume lays on what is far off, for a shader that hazes what it works out at a distance of its own (the
+   * land in the water, render/water-reflection.js): how thick it is a foot, and where the far fade starts and ends.
+   * Null with the volume off.
+   */
+  haze() {
+    return STATE[0] < 0.5 ? null : { densityPerFt: STATE[1], fadeStartFt: STATE[4], farFt: STATE[5] };
   },
   /** For tests in the browser: the state itself. */
   state: STATE,

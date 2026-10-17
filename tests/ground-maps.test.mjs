@@ -6,8 +6,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  COVER_CLEAR_FT, COVER_MIN_WIDTH_FT, NO_COVER_FT, PUDDLE_RANGE_FT, PUDDLE_WATERLINE,
-  basinDepthFt, buildCoverMap, buildGroundMap, buildPuddleMap, buildShelterMap, holdAt, puddleDepthAt, shelterAt, unevennessFt,
+  COURSE_PUDDLES, COVER_CLEAR_FT, COVER_MIN_WIDTH_FT, NO_COVER_FT, PUDDLE_RANGE_FT, PUDDLE_WATERLINE,
+  basinDepthFt, buildCoverMap, buildGroundMap, buildPuddleMap, buildShelterMap, drivenMap, holdAt, potholeFt, puddleDepthAt, shelterAt, unevennessFt,
 } from "../src/game/ground-maps.js";
 
 // The real map's size: the unevenness that seeds the puddles is finer than a coarser map could show.
@@ -130,6 +130,87 @@ test("the unevenness is inches, repeats with the world and is the same every tim
   assert.equal(unevennessFt(100, 200), unevennessFt(100 + 8192, 200 - 8192));
   const flat = buildGroundMap(() => 50, 256);
   assert.deepEqual(buildPuddleMap(flat), buildPuddleMap(flat));
+});
+
+/** A course of one straight along z = 4096 from x = 1000 to 7000, 32 ft wide, over ground of height `heightAt`. */
+const straightCourse = (heightAt) => [[{ startFt: [1000, heightAt(1000, 4096), 4096], endFt: [7000, heightAt(7000, 4096), 4096], trackWidthFt: 32 }]];
+/** Depth under the waterline (feet; negative over it) of each sample in the band `fromFt` to `toFt` off the straight. */
+function band(puddles, fromFt, toFt) {
+  const depths = [];
+  for (let x = 1200; x < 6800; x += STEP) {
+    for (let off = fromFt; off < toFt; off += STEP) {
+      for (const side of [-1, 1]) depths.push(((puddles[at(x, 4096 + side * off)] - PUDDLE_WATERLINE) / 127) * PUDDLE_RANGE_FT);
+    }
+  }
+  return depths;
+}
+
+test("the driven line holds the deepest puddles: the trucks have churned it into potholes and packed it", () => {
+  const level = () => 50;
+  const plain = buildPuddleMap(mapOf(level)), raced = buildPuddleMap(mapOf(level), { courses: straightCourse(level) });
+  const on = band(raced, 0, 16), before = band(plain, 0, 16);
+  const share = (depths, least = 0) => depths.filter((d) => d > least).length / depths.length;
+  // Where a wheel counts as standing in a puddle (game/particles.js `PUDDLE_FOOTING_FT`, 0.03 ft): a fifth to a half of
+  // the driven line on level ground, against a few in a hundred before.
+  assert.ok(share(on, 0.03) > 0.2 && share(on, 0.03) < 0.5, `driven line: ${share(on, 0.03)}`);
+  assert.ok(share(before, 0.03) < 0.05, `the same ground without the course: ${share(before, 0.03)}`);
+  // An inch or two at the middle of a puddle, three inches at the most.
+  const wet = on.filter((d) => d > 0).sort((a, b) => a - b);
+  const middle = wet[wet.length >> 1];
+  assert.ok(middle > 0.05 && middle < 0.15, `middle ${middle}`);
+  assert.ok(wet.at(-1) > 0.2, `deepest ${wet.at(-1)}`);
+  // Puddles one after another along the line, each some ten to forty feet long.
+  let runs = 0, inRun = false, wetFt = 0;
+  for (let x = 1200; x < 6800; x += 2) {
+    const d = puddleDepthAt({ depth: raced, side: SIDE }, x, 4096);
+    if (d > 0.03) { wetFt += 2; if (!inRun) runs++; inRun = true; } else inRun = false;
+  }
+  assert.ok(runs > 40, `${runs} puddles in 5600 ft`);
+  assert.ok(wetFt / runs > 10 && wetFt / runs < 40, `${wetFt / runs} ft long`);
+  // A pool on the course that fills past a low saddle runs over into the ground beside it; well off the course the
+  // ground is as it was.
+  const far = (map) => band(map, 150, 600);
+  assert.deepEqual(far(raced), far(plain));
+});
+
+test("a course that slopes holds no more water than any slope does", () => {
+  // One in twenty along the course, rising to a ridge and falling again so the world still wraps.
+  const ridge = (x) => 60 + 0.05 * (4096 - Math.abs(x - 4096));
+  const puddles = buildPuddleMap(mapOf(ridge), { courses: straightCourse(ridge) });
+  assert.ok(band(puddles, 0, 16).filter((d) => d > 0).length === 0);
+});
+
+test("the driven line is a course's width and a little more, fading out beyond, and the turns between straights are driven too", () => {
+  const { edgeFt, blendFt } = COURSE_PUDDLES;
+  // Two straights at right angles, joined by the line from one's end to the other's start (and back).
+  const course = [{ startFt: [1000, 0, 1000], endFt: [3000, 0, 1000], trackWidthFt: 32 }, { startFt: [3100, 0, 1100], endFt: [3100, 0, 3000], trackWidthFt: 32 }];
+  const driven = drivenMap([course], SIDE);
+  const near = (x, z) => driven[at(x, z)];
+  assert.equal(near(2000, 1000), 1);
+  assert.equal(near(2000, 1000 + 16 + edgeFt - STEP), 1);
+  assert.equal(near(2000, 1000 + 16 + edgeFt + blendFt + STEP), 0);
+  const fading = near(2000, 1000 + 16 + edgeFt + blendFt / 2);
+  assert.ok(fading > 0.2 && fading < 0.8, `fading ${fading}`);
+  // The turn from the first straight's end to the second's start.
+  assert.equal(near(3050, 1050), 1);
+  assert.equal(near(5000, 5000), 0);
+  // No course, nothing driven: the map is as it was.
+  const flat = buildGroundMap(() => 50, 256);
+  assert.deepEqual(buildPuddleMap(flat, { courses: [] }), buildPuddleMap(flat));
+});
+
+test("potholes are inches deep, cover about half the driven ground and repeat with the world", () => {
+  let holed = 0, most = 0;
+  for (let i = 0; i < 4000; i++) {
+    const depth = potholeFt(i * 37.7, i * 91.3);
+    assert.ok(depth >= 0 && depth <= COURSE_PUDDLES.potholeFt);
+    if (depth > 0) holed++;
+    most = Math.max(most, depth);
+  }
+  assert.ok(holed / 4000 > 0.3 && holed / 4000 < 0.7, `holed ${holed / 4000}`);
+  assert.ok(most > 0.8 * COURSE_PUDDLES.potholeFt);
+  assert.ok(COURSE_PUDDLES.potholeFt >= 0.2 && COURSE_PUDDLES.potholeFt <= 0.4);
+  assert.equal(potholeFt(100, 200), potholeFt(100 + 8192, 200 - 8192));
 });
 
 test("a stadium's edge drains away", () => {

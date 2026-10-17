@@ -7,6 +7,7 @@
 */
 import * as THREE from "three";
 import { WORLD_FT, worldNoise } from "../game/terrain-relief.js";
+import { waveTile } from "../game/water-waves.js";
 import { puffNoiseBytes } from "./puff-noise.js";
 
 const SIDE = 256;
@@ -88,6 +89,27 @@ export function waveNoise() {
   }
   waves = texture(data);
   return waves;
+}
+
+let waveField = null;
+/**
+ * The water's own waves (game/water-waves.js `waveTile`): a square that repeats every way, its
+ * pictures in a loop along the third axis, filtered between pictures and mipmapped, so that far
+ * off it holds the mean of the slopes and of their squares. Made once.
+ */
+export function waveFieldTexture() {
+  if (waveField) return waveField;
+  const tile = waveTile();
+  const made = new THREE.Data3DTexture(tile.data, tile.side, tile.side, tile.frames);
+  made.format = THREE.RGBAFormat;
+  made.wrapS = made.wrapT = made.wrapR = THREE.RepeatWrapping;
+  made.magFilter = THREE.LinearFilter;
+  made.minFilter = THREE.LinearMipmapLinearFilter;
+  made.generateMipmaps = true;
+  made.unpackAlignment = 1;
+  made.needsUpdate = true;
+  waveField = made;
+  return waveField;
 }
 
 /**

@@ -498,9 +498,9 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       if (shelter) cover = { side: GROUND_MAP_SIDE, top, shelter };
     }
   }
+  // Every course a truck may be put on: the primary one, and Professional's (MONSTER_EXE_ANALYSIS.md 9).
+  const courses = [sit.primaryCourse, ...(sit.extendedCourses ?? [])].map((course) => course?.segments ?? []).filter((segments) => segments.length);
   if (visuals.smoothing || visuals.snow) {
-    // Every course a truck may be put on: the primary one, and Professional's (MONSTER_EXE_ANALYSIS.md 9).
-    const courses = [sit.primaryCourse, ...(sit.extendedCourses ?? [])].map((course) => course?.segments ?? []).filter((segments) => segments.length);
     const data = buildReliefData({
       clr: level.clr, textureValues: level.textureValues, ra0: level.groundBoxes.ra0, ra1: level.groundBoxes.ra1, footprint: cells,
       objects: groundKeepouts({ objects, boxes: sit.boxes, ramps, models, groundAt: drawnGround.simAt }),
@@ -520,7 +520,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     mesh = buildTerrainMesh({ heights: level.heights, heightsFt: level.heightsFt, clr: level.clr, lte: cpr ? null : level.lte, atlas, footprint: cells, tileInset });
   }
   const groundMap = visuals.groundMap || visuals.puddles ? buildGroundMap(sampledGround ?? drawnGround.heightAt, GROUND_MAP_SIDE) : null;
-  const puddles = visuals.puddles ? buildPuddleMap(groundMap, { side: GROUND_MAP_SIDE, waterLevelFt: level.waterLevelFt, wraps: !cells }) : null;
+  // The driven line holds the deepest puddles: the trucks have churned it into potholes.
+  const puddles = visuals.puddles ? buildPuddleMap(groundMap, { side: GROUND_MAP_SIDE, waterLevelFt: level.waterLevelFt, wraps: !cells, courses }) : null;
 
   // The stadium (SIT "*** Stadium ***", MONSTER.EXE 0x564ca0): at cell (x, z), unrotated, at
   // the ground height of its footprint's low corner.

@@ -6,8 +6,14 @@
   Rain ("Rain puddles"). The ground darkens as it gets wet and takes a sheen at a low angle.
   Water stands where the puddle map says the ground has a low point (game/ground-maps.js): the
   map holds how far each place lies under or over its pool's surface, so the waterline falls
-  where it should between samples, and a little noise frays it. A puddle shows the wet ground
-  under it from above and the sky at a low angle, as water does, ruffled by the rain.
+  where it should between samples, and a little noise frays it. A puddle is muddy water over
+  soaked ground. It mirrors the sky the level's water mirrors (render/water-common.js), as much
+  as water does at the angle it is seen, ruffled by the rain and, close to the eye, ringed by its
+  drops; under that the ground is darker, and the deeper the water the more its silt hides it.
+  Its bank is soaked darker still. The waves the trucks stir (render/water-ripples.js) lift and
+  lower it: a wheel parts it down to its bed and the water runs back in behind, and what a wheel
+  churns clouds it and leaves a scum of froth. On a lit ground what is mirrored is worked out
+  before the light, as light the ground gives off, so that little is kept across the lighting.
 
   Snow ("Snow cover"). Snow has a depth (game/snow-cover.js): deep on level ground, thinning
   as the ground steepens, thin along the course. In a race that begins in Snow the terrain's
@@ -28,19 +34,30 @@
   crystals glint.
 */
 import * as THREE from "three";
-import { SNOW_START, WET, groundWetness, puddlesFilled, snowDown } from "../game/atmosphere.js";
+import { POOL_LOOK, SNOW_START, WET, groundWetness, puddlesFilled, snowDown } from "../game/atmosphere.js";
 import { PUDDLE_RANGE_FT, PUDDLE_WATERLINE, puddleDepthAt } from "../game/ground-maps.js";
 import { SNOW_BARE_SLOPE, SNOW_DEPTH_SCALE_FT, SNOW_HOLD_SLOPE, SNOW_LINE, SNOW_MAX_FT } from "../game/snow-cover.js";
 import { PUDDLE_FILL_DROP_FT, WATER_RIPPLES } from "../game/water.js";
 import { WEATHER_LOOK } from "../game/weather.js";
+import { atmosphere } from "./atmosphere.js";
 import { SHARED_NOISE_GLSL, sharedNoiseUniforms } from "./noise-textures.js";
 import { addShaderHook } from "./shader-hooks.js";
+import { RAIN_RINGS_GLSL, mirrorSky, skyAlongGlsl } from "./water-common.js";
 
 const RAIN = 4, SNOW = 5;
 /** When the weather turns, the ground dries and the snow goes over this long, seconds. */
 const DRY_SECONDS = 45, MELT_SECONDS = 12;
 /** A puddle not yet full stands this far below its full level, feet. */
 const FILL_DROP_FT = PUDDLE_FILL_DROP_FT;
+/** The ground is soaked up the bank of a puddle until it stands this far over the water, feet. */
+const POOL_RIM_FT = 0.025;
+/** A wave can lift a puddle's water this far up its bank at the most, feet: no further from it is the field read. */
+const LIFT_REACH_FT = 0.12;
+/**
+ * The rain's rings on a puddle (render/water-common.js): drawn `scale` times as fine as the lake's, so half their size, and
+ * tipping its face `slope` as far; whole where a pixel spans `sharpFt` of the ground or less, gone where it spans `goneFt`.
+ */
+const POOL_RINGS = Object.freeze({ scale: 2, slope: 0.5, sharpFt: 0.025, goneFt: 0.08 });
 const glsl = (n) => n.toFixed(5);
 
 const VERTEX_PARS = /* glsl */ `
@@ -97,14 +114,25 @@ float gfxPuddleDepth( vec2 uv ) {
   return g0.y * ( g0.x * texture2D( uGfxPuddles, a ).r + g1.x * texture2D( uGfxPuddles, vec2( b.x, a.y ) ).r )
     + g1.y * ( g0.x * texture2D( uGfxPuddles, vec2( a.x, b.y ) ).r + g1.x * texture2D( uGfxPuddles, b ).r );
 }
-// The water standing at game (x, z) \`at\` now: x how much of the point a puddle covers (0 to 1), y how deep it is
-// there (feet). The map's waterline, lower while the puddles are filling, frayed by a little noise.
-vec2 gfxPoolAt( vec2 at ) {
-  if ( uGfx.y <= 0.0 ) return vec2( 0.0 );
+// The puddle map at game (x, z) \`at\`, as its bytes have it (0 to 1): x the ground's depth under its pool's surface, y
+// the waterline there now (the map's, lower while the puddles are filling, frayed by a little noise).
+vec2 gfxPoolRest( vec2 at ) {
   float line = ${glsl(PUDDLE_WATERLINE / 255)} + ( 1.0 - uGfx.y ) * ${glsl((FILL_DROP_FT / PUDDLE_RANGE_FT) * (127 / 255))}
     + ( texture2D( uGfxNoise, at / 41.0 ).b - 0.5 ) * 0.03 + ( texture2D( uGfxNoise, at / 9.0 ).a - 0.5 ) * 0.02 - 0.012;
-  float depth = gfxPuddleDepth( at / 8192.0 );
-  return vec2( smoothstep( line - 0.003, line + 0.01, depth ), max( depth - line, 0.0 ) * ${glsl((255 / 127) * PUDDLE_RANGE_FT)} );
+  return vec2( gfxPuddleDepth( at / 8192.0 ), line );
+}
+// The water standing over \`rest\` (\`gfxPoolRest\`), its face lifted \`liftFt\` by the waves the trucks stir: x how much of
+// the point a puddle covers (0 to 1), y how deep it is there (feet), z how soaked the ground is by the puddle at rest (1
+// under it and at its waterline, 0 a little way up the bank: ground a wave has just bared is as soaked as ever).
+vec3 gfxPoolLifted( vec2 rest, float liftFt ) {
+  float depth = rest.x + liftFt * ${glsl((127 / 255) / PUDDLE_RANGE_FT)};
+  return vec3( smoothstep( rest.y - 0.003, rest.y + 0.01, depth ), max( depth - rest.y, 0.0 ) * ${glsl((255 / 127) * PUDDLE_RANGE_FT)},
+    smoothstep( rest.y - ${glsl(POOL_RIM_FT * (127 / 255) / PUDDLE_RANGE_FT)}, rest.y, rest.x ) );
+}
+// The water standing at game (x, z) \`at\` now, at rest: how much of the point a puddle covers, and how deep it is (feet).
+vec2 gfxPoolAt( vec2 at ) {
+  if ( uGfx.y <= 0.0 ) return vec2( 0.0 );
+  return gfxPoolLifted( gfxPoolRest( at ), 0.0 ).xy;
 }
 `;
 
@@ -133,6 +161,67 @@ vec2 gfxSnowShown( vec2 at, float deep, vec4 grain, vec4 patch_ ) {
 }
 `;
 
+/*
+  What wet ground and standing water mirror, and what glints in the snow: worked out the same for a ground that is lit,
+  which adds them to its own light as light it gave off (`ALBEDO`), and for one that is not, which lays them over what it
+  draws (`SHINE`).
+*/
+const MIRROR_GLSL = /* glsl */ `
+#ifdef GFX_WET
+// What wet ground and a puddle mirror at game (x, z) \`at\`, seen from the eye: rgb the light they send it, a how much of
+// what the eye sees there that is (the rest is the ground's own light, seen through the water). \`wet\`, \`pool\` and
+// \`snow\` as the ground has them, \`level\` how level it is, \`froth\` how much of the water muddy froth covers. Called where
+// every pixel calls it, for the sake of the derivatives.
+vec4 gfxMirror( vec2 at, float wet, float pool, float snow, float level, float froth ) {
+  // How much ground one pixel spans here, feet: what is finer than that cannot be drawn.
+  float span = length( fwidth( at ) );
+  if ( wet <= 0.0 ) return vec4( 0.0 );
+  vec3 eye = normalize( cameraPosition - vGfxWorld );
+  // How the water's face slopes here, along the map's x and z. Rain on standing water: its surface is never still. The
+  // rain ruffles it, and close to the eye each drop's ring shows (render/water-common.js), at half the lake's size, since
+  // a puddle is seen nearer; further off, where a pixel spans more than a ring, they would only shimmer.
+  vec2 slope = ( ( texture2D( uGfxNoise, at / 4.3 + uGfx.w * vec2( 0.37, 0.19 ) ).rg - 0.5 )
+    + ( texture2D( uGfxNoise, at / 1.9 - uGfx.w * vec2( 0.23, 0.43 ) ).ba - 0.5 ) ) * 0.16;
+  float rings = pool * uGfxRain * ( 1.0 - smoothstep( ${glsl(POOL_RINGS.sharpFt)}, ${glsl(POOL_RINGS.goneFt)}, span ) );
+  if ( rings > 0.0 ) slope += mtmRainRings( at * ${glsl(POOL_RINGS.scale)}, uGfx.w ) * ( ${glsl(POOL_RINGS.slope)} * rings );
+  #ifdef GFX_RIPPLES
+    // In a puddle, the wakes and rings the trucks stir.
+    vec2 uv = ( at - uRippleAt.xy ) * uRippleAt.z;
+    if ( pool > 0.0 && uRippleAt.w > 0.5 && all( greaterThan( uv, vec2( 0.0 ) ) ) && all( lessThan( uv, vec2( 1.0 ) ) ) ) {
+      vec2 edge = min( uv, 1.0 - uv ), texel = vec2( ${(1 / WATER_RIPPLES.windowTexels).toFixed(6)}, 0.0 );
+      slope += vec2(
+        texture2D( uRipples, uv + texel.xy ).r - texture2D( uRipples, uv - texel.xy ).r,
+        texture2D( uRipples, uv + texel.yx ).r - texture2D( uRipples, uv - texel.yx ).r ) * ( ${(4 / (2 * WATER_RIPPLES.texelFt)).toFixed(4)} * smoothstep( 0.0, 0.1, min( edge.x, edge.y ) ) );
+    }
+  #endif
+  // The scene mirrors z, so a slope along the map's second axis leans the other way.
+  vec3 face = normalize( vec3( - slope.x, 1.0, slope.y ) ), back = reflect( - eye, face );
+  // A puddle mirrors the sky, as much as water does at this angle (Schlick's, from 2% seen straight on), but where froth
+  // covers it. A ray tipped under the horizon by a ripple meets what stands there, as the horizon has it.
+  float shine = pool * ( 1.0 - froth ) * ( 0.02 + 0.98 * pow( clamp( 1.0 - dot( eye, face ), 0.0, 1.0 ), 5.0 ) );
+  vec3 sky = shine > 0.0 ? gfxSkyAlong( vec3( back.x, max( back.y, 0.0 ), back.z ), 2.0 + 2.0 * uGfxRain ) : vec3( 0.0 );
+  // Wet ground that holds no pool has a film of water on it, which mirrors the sky a very little from above and somewhat
+  // at a low angle, unevenly, as the ground under it is uneven. It is a sheen on the ground and never hides what the
+  // ground is: a track's textures must read through it as they do when dry. So slight a mirror shows the sky's two
+  // colours, its horizon and its top, and no more of it, as dim as the weather's light.
+  float film = clamp( wet * ( 1.0 - pool ) * ( 1.0 - snow ) * level * ( ${glsl(WET.sheen)} + ${glsl(WET.sheenLow - WET.sheen)} * pow( clamp( 1.0 - eye.y, 0.0, 1.0 ), 4.0 ) )
+    * ( 0.5 + texture2D( uGfxNoise, at / 41.0 ).a ), 0.0, ${glsl(WET.sheenMost)} );
+  vec3 sheen = mix( uGfxHorizon, uGfxSkyCap, smoothstep( 0.0, 0.55, back.y ) ) * ( uGfxSkyOn > 0.5 ? uGfxLight : 1.0 );
+  // The film over the puddle's mirror (only at its edge are both).
+  return vec4( sky * shine * ( 1.0 - film ) + sheen * film, 1.0 - ( 1.0 - shine ) * ( 1.0 - film ) );
+}
+#endif
+// Crystals of snow close to the eye glint at game (x, z) \`at\`, where \`snow\` covers the ground: a fine field of points,
+// each catching the light from one way only, so they come and go as the eye moves. Far off the field runs together and
+// there are none. The light they send the eye.
+vec3 gfxGlints( vec2 at, float snow ) {
+  if ( snow <= 0.0 ) return vec3( 0.0 );
+  vec3 seen = normalize( cameraPosition - vGfxWorld );
+  float crystal = texture2D( uGfxNoise, at / 1.3 + seen.xz * 0.21 ).a * texture2D( uGfxNoise, at / 0.47 - seen.zx * 0.33 ).a;
+  return snow * smoothstep( 0.36, 0.46, crystal ) * uGfxLight * ( 0.25 + 2.2 * uGfxSun.w ) * vec3( 1.0, 0.98, 0.95 );
+}
+`;
+
 const FRAGMENT_PARS = /* glsl */ `
 varying vec3 vGfxWorld;
 varying vec3 vGfxUp;
@@ -145,8 +234,19 @@ varying vec3 vGfxUp;
 ${POOL_GLSL}
 ${SNOW_LINE_GLSL}
 uniform float uGfxLight;
-uniform vec3 uGfxSky, uGfxHorizon;
 #define uGfxRelief mtmDetailNoise
+#ifdef GFX_WET
+  // What wet ground and puddles mirror (render/water-common.js): the sky's picture and the colour over its top, what veils
+  // it toward the horizon, whether there is a sky to show, how dark the weather makes its horizon, how deep the fog over
+  // the eye lies; and whether it is raining, which rings the puddles.
+  uniform sampler2D uGfxSkyMap;
+  uniform vec3 uGfxSkyCap, uGfxHorizon;
+  uniform float uGfxSkyOn, uGfxDark, uGfxSkyVeil, uGfxRain;
+  ${skyAlongGlsl("gfxSkyAlong", { on: "uGfxSkyOn", map: "uGfxSkyMap", cap: "uGfxSkyCap", horizon: "uGfxHorizon", dark: "uGfxDark", veil: "uGfxSkyVeil" })}
+  ${RAIN_RINGS_GLSL}
+  // the ground's own colour, taken broadly: the colour of the silt that muddies a puddle
+  uniform vec3 uGfxMud;
+#endif
 #ifdef GFX_SHELTER
   // where the ground lies under cover (a bridge, a tunnel): neither rain nor snow falls there
   uniform sampler2D uGfxShelter;
@@ -158,6 +258,7 @@ uniform vec3 uGfxSky, uGfxHorizon;
 #endif
 // the way to the sun (scene axes), and how much of the light is the sun's own
 uniform vec4 uGfxSun;
+${MIRROR_GLSL}
 `;
 
 /* After the texture is read: what the weather does to the ground's own colour. */
@@ -170,7 +271,10 @@ const ALBEDO = /* glsl */ `
   float gfxLevel = smoothstep( 0.8, 0.96, vGfxUp.y );
   // How open to the sky the ground is here: all of it, but under a bridge or in a tunnel.
   float gfxOpen = 1.0;
-  float gfxWet = 0.0, gfxPool = 0.0, gfxSnow = 0.0;
+  // (What is worked out here and read again after the light is worked out is kept to a few numbers: everything kept
+  // across the lighting costs every pixel of the ground, puddle or not.)
+  // \`gfxFroth\` how much of a puddle's water muddy froth covers, which mirrors nothing
+  float gfxWet = 0.0, gfxPool = 0.0, gfxSnow = 0.0, gfxFroth = 0.0;
   if ( uGfx.x > 0.0 || uGfx.z > 0.0 ) {
     gfxGrain = texture2D( uGfxNoise, gfxAt / 41.0 );
     gfxPatch = texture2D( uGfxNoise, gfxAt / 430.0 );
@@ -178,14 +282,49 @@ const ALBEDO = /* glsl */ `
       gfxOpen = 1.0 - texture2D( uGfxShelter, gfxAt / 8192.0 ).r;
     #endif
     gfxWet = uGfx.x * gfxOpen;
-    #ifdef GFX_POOLS
-      gfxPool = gfxPoolAt( gfxAt ).x * gfxLevel * gfxOpen;
-    #endif
-    // Wet ground is darker and its colours deeper, and what it is made of is as plain to see as when it was dry; under
-    // standing water it is darker still.
+    // Wet ground is darker and its colours deeper, and what it is made of is as plain to see as when it was dry. Ground
+    // soaked at a puddle's edge is darker yet, and under standing water darker again.
     float gfxGrey = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
     diffuseColor.rgb = max( mix( vec3( gfxGrey ), diffuseColor.rgb, 1.0 + ${glsl(WET.deeper)} * gfxWet ), 0.0 ) * mix( 1.0, ${glsl(WET.darker)}, gfxWet );
-    diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 0.42, 0.45, 0.48 ), gfxPool );
+    #ifdef GFX_POOLS
+      if ( uGfx.y > 0.0 && gfxLevel * gfxOpen > 0.0 ) {
+        vec2 gfxRest = gfxPoolRest( gfxAt );
+        // The waves the trucks stir here (render/water-ripples.js): the water's height (feet), its height a step before,
+        // its foam and its silt; read where they could reach, in a puddle or a little way up its bank.
+        vec4 gfxStirred = vec4( 0.0 );
+        #ifdef GFX_RIPPLES
+          vec2 gfxRippleUv = ( gfxAt - uRippleAt.xy ) * uRippleAt.z;
+          if ( gfxRest.x > gfxRest.y - ${glsl(LIFT_REACH_FT * (127 / 255) / PUDDLE_RANGE_FT)} && uRippleAt.w > 0.5
+            && all( greaterThan( gfxRippleUv, vec2( 0.0 ) ) ) && all( lessThan( gfxRippleUv, vec2( 1.0 ) ) ) ) {
+            vec2 gfxRippleEdge = min( gfxRippleUv, 1.0 - gfxRippleUv );
+            gfxStirred = texture2D( uRipples, gfxRippleUv ) * smoothstep( 0.0, 0.1, min( gfxRippleEdge.x, gfxRippleEdge.y ) );
+          }
+        #endif
+        // The waves lift and lower the water: a wheel's trough parts a shallow puddle down to the ground under it, and the
+        // water runs back in behind it.
+        vec3 gfxPooled = gfxPoolLifted( gfxRest, gfxStirred.r );
+        gfxPool = gfxPooled.x * gfxLevel * gfxOpen;
+        float gfxRim = gfxPooled.z * gfxLevel * gfxOpen;
+        if ( gfxRim + gfxPool > 0.0 ) {
+          // The soaked ground at a puddle's edge is darker yet, and it and a puddle's bed where a wave has just bared it
+          // keep a film of the muddy water; under standing water the ground is darker again.
+          diffuseColor.rgb *= 1.0 - ${glsl(POOL_LOOK.soaked)} * gfxRim * ( 1.0 - gfxPool );
+          diffuseColor.rgb = mix( diffuseColor.rgb, uGfxMud * ${glsl(POOL_LOOK.mud)}, ${glsl(POOL_LOOK.film)} * gfxRim * ( 1.0 - gfxPool ) );
+          diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 0.42, 0.45, 0.48 ), gfxPool );
+          // Rain standing on dirt is muddy: the deeper the puddle, the more its water hides the ground under it in a
+          // colour of its own, the silt's, much as the ground's own colour taken broadly. A wheel through it stirs the silt
+          // up: the water clouds over whole and pales, in swirls that settle.
+          float gfxSilted = gfxStirred.b > 0.004 ? smoothstep( 0.02, 0.3, gfxStirred.b * ( 0.3 + 1.4 * texture2D( uGfxNoise, gfxAt / 9.0 + uGfx.w * 0.01 ).a ) ) : 0.0;
+          float gfxMurk = gfxPool * max( ${glsl(POOL_LOOK.murkMost)} * ( 1.0 - exp( - gfxPooled.y / ${glsl(POOL_LOOK.murkFt)} ) ), 0.95 * gfxSilted );
+          diffuseColor.rgb = mix( diffuseColor.rgb, uGfxMud * ( ${glsl(POOL_LOOK.mud)} + 0.3 * ( gfxPatch.g - 0.5 ) + ${glsl(POOL_LOOK.stirredPaler)} * gfxSilted ), gfxMurk );
+          // Where it was churned hardest, a scum of muddy froth rides on the water for a while.
+          if ( gfxStirred.b > 0.1 ) {
+            gfxFroth = gfxPool * ${glsl(POOL_LOOK.froth)} * smoothstep( 0.45, 0.85, gfxStirred.b * ( 0.3 + 1.4 * texture2D( uGfxNoise, gfxAt / 3.1 - uGfx.w * 0.02 ).b ) );
+            diffuseColor.rgb = mix( diffuseColor.rgb, uGfxMud * 1.4 + 0.06, gfxFroth );
+          }
+        }
+      }
+    #endif
     if ( uGfx.z > 0.0 ) {
     #ifdef GFX_SNOW_VOLUME
       // How deep the snow lies here now, feet: the mesh has its settled depth.
@@ -214,55 +353,29 @@ const ALBEDO = /* glsl */ `
     diffuseColor.rgb = mix( diffuseColor.rgb, gfxWhite, gfxSnow );
     }
   }
+  #ifdef GFX_LIT
+    // What wet ground and its puddles mirror, and the snow's glints, are light of their own over the ground's: the
+    // ground's own light gives way to what is mirrored, and that is added to it once it is lit, as light it gave off
+    // would be. (Worked out here, before the light is, so that of all of it only that light is kept across the lighting.)
+    #ifdef GFX_WET
+      vec4 gfxMirrored = gfxMirror( gfxAt, gfxWet, gfxPool, gfxSnow, gfxLevel, gfxFroth );
+      diffuseColor.rgb *= 1.0 - gfxMirrored.a;
+      totalEmissiveRadiance += gfxMirrored.rgb;
+    #endif
+    totalEmissiveRadiance += gfxGlints( gfxAt, gfxSnow );
+  #endif
 `;
 
 /* After the light is worked out: what water on the ground shows of the sky. */
 const SHINE = /* glsl */ `
-  if ( gfxWet > 0.0 ) {
-    vec3 gfxEye = normalize( cameraPosition - vGfxWorld );
-    // Rain on standing water: its surface is never still.
-    vec2 gfxRuffle = ( texture2D( uGfxNoise, gfxAt / 4.3 + uGfx.w * vec2( 0.37, 0.19 ) ).rg - 0.5 )
-      + ( texture2D( uGfxNoise, gfxAt / 1.9 - uGfx.w * vec2( 0.23, 0.43 ) ).ba - 0.5 );
-    vec3 gfxFace = normalize( vec3( gfxRuffle.x * 0.16, 1.0, gfxRuffle.y * 0.16 ) );
-    // In a puddle, the wakes and rings the trucks stir, and the water they churn.
-    float gfxChurned = 0.0;
-    #ifdef GFX_RIPPLES
-      vec2 gfxRippleUv = ( gfxAt - uRippleAt.xy ) * uRippleAt.z;
-      if ( gfxPool > 0.0 && uRippleAt.w > 0.5 && all( greaterThan( gfxRippleUv, vec2( 0.0 ) ) ) && all( lessThan( gfxRippleUv, vec2( 1.0 ) ) ) ) {
-        vec2 gfxTexel = vec2( ${(1 / WATER_RIPPLES.windowTexels).toFixed(6)}, 0.0 );
-        vec2 gfxSlope = vec2(
-          texture2D( uRipples, gfxRippleUv + gfxTexel.xy ).r - texture2D( uRipples, gfxRippleUv - gfxTexel.xy ).r,
-          texture2D( uRipples, gfxRippleUv + gfxTexel.yx ).r - texture2D( uRipples, gfxRippleUv - gfxTexel.yx ).r ) / ${(2 * WATER_RIPPLES.texelFt).toFixed(3)};
-        vec2 gfxRippleEdge = min( gfxRippleUv, 1.0 - gfxRippleUv );
-        float gfxRippleShown = smoothstep( 0.0, 0.1, min( gfxRippleEdge.x, gfxRippleEdge.y ) );
-        // The scene mirrors z, so a slope along the map's second axis leans the other way.
-        gfxFace = normalize( gfxFace + vec3( - gfxSlope.x, 0.0, gfxSlope.y ) * ( 4.0 * gfxRippleShown ) );
-        gfxChurned = texture2D( uRipples, gfxRippleUv ).b * gfxRippleShown;
-      }
-    #endif
-    float gfxGlance = pow( clamp( 1.0 - dot( gfxEye, gfxFace ), 0.0, 1.0 ), 5.0 );
-    vec3 gfxBack = reflect( - gfxEye, gfxFace );
-    vec3 gfxSkyShown = mix( uGfxHorizon, uGfxSky, smoothstep( 0.0, 0.55, gfxBack.y ) ) * uGfxLight;
-    gl_FragColor.rgb = mix( gl_FragColor.rgb, gfxSkyShown, gfxPool * clamp( 0.1 + 1.5 * gfxGlance, 0.0, 1.0 ) );
-    // Churned puddle water is stirred up: the silt under it clouds it, paler and browner, in swirls that settle, with
-    // a little froth at their heart.
-    float gfxSwirl = 0.3 + 1.4 * texture2D( uGfxNoise, gfxAt / 9.0 + uGfx.w * 0.01 ).a;
-    float gfxSilt = smoothstep( 0.02, 0.3, gfxChurned * gfxSwirl );
-    gl_FragColor.rgb = mix( gl_FragColor.rgb, gl_FragColor.rgb * vec3( 1.5, 1.4, 1.25 ) + vec3( 0.05, 0.04, 0.025 ) * uGfxLight, gfxPool * gfxSilt * 0.8 );
-    gl_FragColor.rgb = mix( gl_FragColor.rgb, vec3( 0.62, 0.6, 0.55 ) * uGfxLight, gfxPool * smoothstep( 0.35, 0.7, gfxChurned * gfxSwirl ) * 0.5 );
-    // Wet ground that holds no pool has a film of water on it, which mirrors the sky a very little from above and
-    // somewhat at a low angle, unevenly, as the ground under it is uneven. It is a sheen on the ground and never
-    // hides what the ground is: a track's textures must read through it as they do when dry.
-    float gfxFilm = ( ${glsl(WET.sheen)} + ${glsl(WET.sheenLow - WET.sheen)} * pow( clamp( 1.0 - gfxEye.y, 0.0, 1.0 ), 4.0 ) ) * ( 0.5 + gfxGrain.a );
-    gl_FragColor.rgb = mix( gl_FragColor.rgb, gfxSkyShown, clamp( gfxWet * ( 1.0 - gfxPool ) * ( 1.0 - gfxSnow ) * gfxLevel * gfxFilm, 0.0, ${glsl(WET.sheenMost)} ) );
-  }
-  if ( gfxSnow > 0.0 ) {
-    // Crystals close to the eye glint: a fine field of points, each catching the light from one way only, so they
-    // come and go as the eye moves. Far off the field runs together and there are none.
-    vec3 gfxSeen = normalize( cameraPosition - vGfxWorld );
-    float gfxCrystal = texture2D( uGfxNoise, gfxAt / 1.3 + gfxSeen.xz * 0.21 ).a * texture2D( uGfxNoise, gfxAt / 0.47 - gfxSeen.zx * 0.33 ).a;
-    gl_FragColor.rgb += gfxSnow * smoothstep( 0.36, 0.46, gfxCrystal ) * uGfxLight * ( 0.25 + 2.2 * uGfxSun.w ) * vec3( 1.0, 0.98, 0.95 );
-  }
+#ifndef GFX_LIT
+  // A ground that is not lit: what it mirrors is laid over what it draws.
+  #ifdef GFX_WET
+    vec4 gfxMirrored = gfxMirror( vec2( vGfxWorld.x, - vGfxWorld.z ), gfxWet, gfxPool, gfxSnow, smoothstep( 0.8, 0.96, vGfxUp.y ), gfxFroth );
+    gl_FragColor.rgb = gl_FragColor.rgb * ( 1.0 - gfxMirrored.a ) + gfxMirrored.rgb;
+  #endif
+  gl_FragColor.rgb += gfxGlints( vec2( vGfxWorld.x, - vGfxWorld.z ), gfxSnow );
+#endif
 `;
 
 /**
@@ -273,16 +386,20 @@ const SHINE = /* glsl */ `
  *   `puddles` and `snow` are the two switches; `sun` the scene's sun, which lights the snow's
  *   ridges; `ripples` the waves the trucks stir (render/water-ripples.js), which a puddle shows,
  *   and `puddleMap` the puddle map itself, which says how deep a puddle is where a wheel stands. Whether the snow has depth is read off the terrain itself: its mesh has `snowDepth`
- *   when the track was built for a race in Snow.
+ *   when the track was built for a race in Snow. `groundTone` is the ground's own colour taken broadly (linear), which a
+ *   puddle's silt has.
  */
-export function createGroundSurface({ world, puddleTexture = null, shelterTexture = null, puddles = true, snow = true, sun = null, ripples = null, puddleMap = null }) {
+export function createGroundSurface({ world, puddleTexture = null, shelterTexture = null, puddles = true, snow = true, sun = null, ripples = null, puddleMap = null, groundTone = [0.2, 0.16, 0.12] }) {
   const uniforms = {
     ...(ripples?.uniforms ?? {}),
     ...sharedNoiseUniforms(), uGfx: { value: new THREE.Vector4() }, uGfxLight: { value: 1 }, uGfxSun: { value: new THREE.Vector4(0, 1, 0, 0) },
-    uGfxSky: { value: new THREE.Color(0.6, 0.7, 0.85) }, uGfxHorizon: { value: new THREE.Color(0.7, 0.75, 0.8) },
+    uGfxSkyMap: { value: null }, uGfxSkyCap: { value: new THREE.Color(0.6, 0.7, 0.85) }, uGfxHorizon: { value: new THREE.Color(0.7, 0.75, 0.8) },
+    uGfxSkyOn: { value: 0 }, uGfxDark: { value: 0 }, uGfxSkyVeil: { value: 0 }, uGfxRain: { value: 0 },
+    uGfxMud: { value: new THREE.Color(...groundTone) },
     uGfxPuddles: { value: puddleTexture }, uGfxShelter: { value: shelterTexture },
     uGfxPuddleSide: { value: puddleTexture?.image.width ?? 1 },
   };
+  const sky = { on: uniforms.uGfxSkyOn, map: uniforms.uGfxSkyMap, cap: uniforms.uGfxSkyCap, horizon: uniforms.uGfxHorizon, dark: uniforms.uGfxDark };
   const dressed = new Set();
   let volume = false;
 
@@ -297,7 +414,9 @@ export function createGroundSurface({ world, puddleTexture = null, shelterTextur
     if (dressed.has(material)) return material;
     dressed.add(material);
     const pooled = pools && puddles && puddleTexture;
-    const defines = `${pooled ? "#define GFX_POOLS\n" : ""}${pooled && ripples ? "#define GFX_RIPPLES\n" : ""}${depth && snow ? "#define GFX_SNOW_VOLUME\n" : ""}${shelter && shelterTexture ? "#define GFX_SHELTER\n" : ""}${share && snow ? "#define GFX_SNOW_SHARE\n" : ""}`;
+    // A ground the scene's lights light adds what it mirrors to its own light; one they do not lays it over (`MIRROR_GLSL`).
+    const lit = !!(material.isMeshLambertMaterial || material.isMeshPhongMaterial || material.isMeshStandardMaterial);
+    const defines = `${lit ? "#define GFX_LIT\n" : ""}${puddles ? "#define GFX_WET\n" : ""}${pooled ? "#define GFX_POOLS\n" : ""}${pooled && ripples ? "#define GFX_RIPPLES\n" : ""}${depth && snow ? "#define GFX_SNOW_VOLUME\n" : ""}${shelter && shelterTexture ? "#define GFX_SHELTER\n" : ""}${share && snow ? "#define GFX_SNOW_SHARE\n" : ""}`;
     // Its lines go beside three.js's own, which stay where they are for whoever replaces them (render/ground-detail.js).
     return addShaderHook(material, `ground-surface:${defines}`, 10, (shader) => {
       Object.assign(shader.uniforms, uniforms);
@@ -342,10 +461,11 @@ export function createGroundSurface({ world, puddleTexture = null, shelterTextur
       weather = next;
     },
     /**
-     * Once a frame: `light` the weather's brightness, `fog` the scene's fog and `background` the
-     * sky's colour, which standing water shows.
+     * Once a frame: `light` the weather's brightness; `sky` the sky's dome, `fog` the scene's fog
+     * and `background` the sky's colour, which wet ground and standing water mirror; `eyeY` the
+     * eye's height in the scene, which says how much of that sky the fog over it hides.
      */
-    update(dt, { light = 1, fog = null, background = null } = {}) {
+    update(dt, { light = 1, fog = null, background = null, sky: dome = null, eyeY = null } = {}) {
       if (puddles && weather === RAIN) {
         rainSeconds += dt;
         wet = Math.max(wet, groundWetness(rainSeconds));
@@ -365,10 +485,17 @@ export function createGroundSurface({ world, puddleTexture = null, shelterTextur
         way.set(sun.position.x, sun.position.y, sun.position.z, 0).normalize();
         way.w = WEATHER_LOOK[weather]?.sun ?? 1;
       }
-      horizon.copy(fog?.color ?? background ?? uniforms.uGfxHorizon.value);
-      uniforms.uGfxHorizon.value.copy(horizon);
-      // Overhead the sky is the sky's own colour, greyed toward the fog by how much the weather shuts it out.
-      uniforms.uGfxSky.value.copy(background ?? horizon).lerp(horizon, WEATHER_LOOK[weather]?.fogEndFt ? 0.6 : 0);
+      // The sky that wet ground and puddles mirror, the lake's own (render/water-common.js); without a dome to show it,
+      // the sky's colour overhead, greyed toward the fog by how much the weather shuts it out.
+      if (puddles) {
+        mirrorSky(sky, { sky: dome, fog, background, light, weather });
+        if (!dome?.userData.cap) {
+          horizon.copy(fog?.color ?? background ?? uniforms.uGfxHorizon.value);
+          uniforms.uGfxSkyCap.value.copy(background ?? horizon).lerp(horizon, WEATHER_LOOK[weather]?.fogEndFt ? 0.6 : 0);
+        }
+        uniforms.uGfxSkyVeil.value = eyeY === null ? 0 : atmosphere.skyVeil(eyeY);
+        uniforms.uGfxRain.value = weather === RAIN ? 1 : 0;
+      }
     },
     /** How deep the puddle that stands at game (x, z) is now, feet, as the ground draws it; 0 where none does. */
     puddleAt(x, z) {

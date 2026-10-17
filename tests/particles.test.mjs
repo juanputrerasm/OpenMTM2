@@ -9,8 +9,8 @@ import {
   DUST, DUST_BY_TYPE, DUST_WEATHER, LANDING_AIR_S, PLOUGH, PLOUGH_MAP, PUDDLE_FOOTING_FT, SPARKS, SPARK_LIGHT, LANDING_MIN_FT_PER_S, LITE_SHARE, PUFF_KINDS, PUFF_POOL, RUT, SLIDE_SHOWS, SNOW_FOOTING_FT, SPIN_FULL_FT_S, SPIN_SHOWS_FT_S,
   STREAK_KINDS, STREAK_POOL, SUBMERGED_FT, TRACK_FADE_FT, TRACK_FADE_LITE_FT, TRACK_KINDS, TRACK_WIDTH_FT, TREAD_REPEAT_FT,
   OVER, overIsHeavy, puffCover,
-  SPRAY, dustColour, dustTone, puddleRut, footing, groundDust, landingThrows, muddyWater, scrapePuff, sprayDrops, sprayVelocity, scrapeThrows, slideAmount, slideThrows, snowTrench, sparkFlight, sparkGlow, sparkShower, sparkVelocity,
-  tireThrows, trackKind,
+  ROOSTER, SPRAY, dustColour, dustTone, puddleRut, footing, groundDust, landingThrows, muddyWater, roosterDrops, roosterVelocity, roosterWading, scrapePuff, sprayDrops, sprayVelocity, scrapeThrows, slideAmount, slideThrows, snowTrench, sparkFlight, sparkGlow, sparkShower, sparkVelocity,
+  tireThrows, trackKind, BUBBLES, bubbleRiseFtS, bubbleSpiral, bubbleVelocity, bubbleWidth, MIST, mistSpacingFt,
 } from "../src/game/particles.js";
 import { SNOW_LINE, SNOW_MAX_FT, SNOW_TRACK_SHARE } from "../src/game/snow-cover.js";
 import { skidAmount, surfaceFamily } from "../src/game/sound-model.js";
@@ -73,9 +73,9 @@ test("a puff is a cloud and a streak a small hard thing: what each is made of", 
   assert.ok(STREAK_KINDS.spark.tone[0] > 5 && STREAK_KINDS.spark.cool[0] > STREAK_KINDS.spark.cool[1] * 4);
   assert.deepEqual(STREAK_KINDS.spark.tone, SPARKS.hot);
   for (const name of ["drop", "chip", "clod", "bubble"]) assert.equal(STREAK_KINDS[name].glow, 0, name);
-  // A bubble rises, and is gone at the surface; the others fall as thrown things do.
-  assert.ok(STREAK_KINDS.bubble.weight < 0 && STREAK_KINDS.bubble.bounce === 0);
-  for (const name of ["spark", "drop", "chip", "clod"]) assert.equal(STREAK_KINDS[name].weight ?? 1, 1, name);
+  // A bubble rises, and is gone at the surface (`BUBBLES`); the others fall as thrown things do.
+  assert.ok(STREAK_KINDS.bubble.rises && STREAK_KINDS.bubble.bounce === 0);
+  for (const name of ["spark", "drop", "chip", "clod"]) assert.ok(!STREAK_KINDS[name].rises, name);
   // A spark is a glowing dot; a drop is drawn out longest. A drop ends where it falls, the others skip on.
   assert.equal(STREAK_KINDS.spark.trailS, 0);
   assert.ok(STREAK_KINDS.drop.trailS > STREAK_KINDS.chip.trailS && STREAK_KINDS.chip.trailS > STREAK_KINDS.clod.trailS);
@@ -112,8 +112,8 @@ test("what a wheel throws each tick follows what it stands on and how fast it go
   assert.deepEqual(tireThrows("mud", mph(10), always), { puff: null, streak: "clod", streaks: 2 });
   assert.equal(tireThrows("mud", mph(10), never).streaks, 1);
   assert.equal(tireThrows("mud", mph(60), always).puff, null);
-  // Wet hard ground: mist above 14 mph, drops above 22.
-  assert.equal(tireThrows("wet", mph(18), always).puff, "mist");
+  // Wet hard ground: drops above 22 mph; its mist is laid along the way the tire rolls (`mistSpacingFt`), not thrown each tick.
+  assert.equal(tireThrows("wet", mph(18), always).puff, null);
   assert.equal(tireThrows("wet", mph(18), always).streaks, 0);
   assert.equal(tireThrows("wet", mph(30), never).streaks, 1);
   // Snow: powder and chips, a chip for every 24 mph.
@@ -124,11 +124,30 @@ test("what a wheel throws each tick follows what it stands on and how fast it go
   assert.equal(tireThrows("ice", mph(20), always).streak, "chip");
   assert.equal(tireThrows("ice", mph(20), always).puff, null);
   assert.equal(tireThrows("ice", mph(40), always).puff, "powder");
-  // Water: thrown aside in sheets of spray (`SPRAY`, below); beaten to mist at speed, more often the faster.
+  // Water: thrown aside in sheets of spray (`SPRAY`, below); the mist it is beaten to at speed is laid along the way, as on
+  // wet ground.
   assert.equal(tireThrows("water", mph(90), always).streaks, 0);
-  assert.equal(tireThrows("water", mph(10), always).puff, null);
-  assert.equal(tireThrows("water", mph(30), always).puff, "mist");
-  assert.equal(tireThrows("water", mph(30), never).puff, null);
+  assert.equal(tireThrows("water", mph(30), always).puff, null);
+});
+
+test("a wet tread's mist is laid low behind it along the way it rolls, closer the faster, and the air stops it at once", () => {
+  const near = (a, b, e = 1e-9) => assert.ok(Math.abs(a - b) < e, `${a} is not ${b}`);
+  // None at a crawl; from 14 mph on wet ground (12 wading), a puff every 6 ft, closing to every 1.8 ft from 50 mph.
+  assert.equal(mistSpacingFt(mph(13), "wet"), Infinity);
+  assert.ok(Number.isFinite(mistSpacingFt(mph(13), "water")));
+  near(mistSpacingFt(mph(14.0001), "wet"), MIST.spacingFt[0], 1e-3);
+  near(mistSpacingFt(mph(50), "wet"), MIST.spacingFt[1]);
+  near(mistSpacingFt(mph(90), "water"), MIST.spacingFt[1]);
+  for (let v = 15; v < 60; v += 5) assert.ok(mistSpacingFt(mph(v + 5), "wet") <= mistSpacingFt(mph(v), "wet"), `${v} mph`);
+  // Only off a film of water or wading: mud is flung in clods, a puddle in sheets, and dry ground has none.
+  for (const stood of ["mud", "puddle", "dust", "hard", "snow", "under"]) assert.equal(mistSpacingFt(mph(40), stood), Infinity, stood);
+  // A veil, not a cloud: low and flat, under nine feet across when it has spread, thin, and so fine that what it was
+  // thrown with is gone within a fifth of a second.
+  const mist = PUFF_KINDS.mist;
+  assert.ok(mist.squash <= 0.6, "flat");
+  assert.ok(mist.sizeFt[1] + mist.growFt <= 4.5, `${mist.sizeFt[1] + mist.growFt} ft at the most`);
+  assert.ok(mist.opacity <= 0.15 && mist.drag >= 5 && Math.exp(-mist.drag * 0.2) < 0.4);
+  assert.ok(MIST.carried < 0.5 && MIST.upFtS[1] < 4);
 });
 
 test("dust is laid as an even trail, as thick as the ground there is dusty", () => {
@@ -306,6 +325,38 @@ test("a hull strikes sparks from what is hard, digs clods and chips from what is
   // A spark struck under water is quenched as it is struck: what is seen is the air shaken out of the gap.
   assert.equal(scrapeThrows({ underWater: true }), "bubble");
   assert.equal(scrapeThrows({ onGround: true, underWater: true, family: "cement", type: CEMENT }), "bubble");
+});
+
+test("a bubble rises as fast as its size lets it, to the surface; the water takes at once whatever it was thrown with", () => {
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} is not ${b}`);
+  const [small, large] = BUBBLES.widthFt;
+  // A third of an inch to nearly two inches, most of them small.
+  assert.ok(small > 0.01 && small < 0.04 && large > 0.1 && large < 0.2);
+  let seed = 7;
+  const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const widths = Array.from({ length: 2000 }, () => bubbleWidth(random)).sort((a, b) => a - b);
+  assert.ok(widths[0] >= small && widths.at(-1) <= large);
+  assert.ok(widths[1000] < (small + large) / 2, `median ${widths[1000]}`);
+  // Under a foot a second for the smallest, a foot and a half for the largest, as real bubbles of those sizes rise.
+  near(bubbleRiseFtS(small), 0.75);
+  near(bubbleRiseFtS(large), 1.5);
+  for (let w = small; w < large; w += 0.01) assert.ok(bubbleRiseFtS(w + 0.01) >= bubbleRiseFtS(w));
+  // The smallest go straight up; middling ones spiral fast and close, large ones slower and wider.
+  assert.equal(bubbleSpiral(small).radiusFt, 0);
+  assert.ok(bubbleSpiral(0.08).radiusFt > 0 && bubbleSpiral(large).radiusFt > bubbleSpiral(0.08).radiusFt);
+  assert.ok(bubbleSpiral(0.08).turnsPerS > bubbleSpiral(large).turnsPerS);
+  assert.ok(bubbleSpiral(large).radiusFt < 2 * large, "a wobble about its own size");
+  // Thrown at 30 ft/s, it has given it up within half a second, and rises at its own pace.
+  let v = [30, -10, 0];
+  for (let t = 0; t < 0.5; t += 1 / 60) v = bubbleVelocity(v, 1 / 60, 1.2);
+  assert.ok(Math.hypot(v[0], v[2]) < 1 && Math.abs(v[1] - 1.2) < 0.4, `${v}`);
+  // It lasts long enough to rise from ten feet down at the slowest.
+  assert.ok(STREAK_KINDS.bubble.lifeS[0] * BUBBLES.riseFtS[0] > 10);
+  // A tire lets them go in little clouds, more often the faster: a bubble or two a tick at speed, a few a second slow.
+  const perTick = (speedMph) => { let n = 0; for (let k = 0; k < 4000; k++) n += tireThrows("under", speedMph / MPH_PER_FTS, random).streaks; return n / 4000; };
+  assert.ok(perTick(40) > 1 && perTick(40) < 1.8, `${perTick(40)}`);
+  assert.ok(perTick(5) > 0.1 && perTick(5) < perTick(40) / 2, `${perTick(5)}`);
+  assert.ok(BUBBLES.carried < 0.5, "the water the tire drags along carries them only a little way");
 });
 
 test("a wheel wholly under the water throws nothing out of it, only bubbles, and leaves no track", () => {
@@ -551,4 +602,35 @@ test("the tracks' shader draws a triangle from the first frame, before any rut i
   const tracks = readFileSync(new URL("../src/render/tire-tracks.js", import.meta.url), "utf8");
   assert.match(tracks, /geometry\.addGroup\(0, 6, 0\);\n  const mesh = new THREE\.Mesh\(geometry, \[material\]\);/);
   assert.match(tracks, /geometry\.addGroup\(0, Math\.max\(1, pieces\) \* 6, 0\);/);
+});
+
+test("a tire wading in the water flings a rooster tail up behind it, higher the faster its tread runs, most from a tire half under", () => {
+  const r = 2.75, none = () => 0, half = () => 0.5;
+  // Barely wet, it throws its sheets alone; half under, the most; wholly under, nothing out of the water.
+  assert.equal(roosterWading(0.2, r), 0);
+  assert.ok(Math.abs(roosterWading(r, r) - 1) < 1e-9);
+  assert.equal(roosterWading(2.2 * r, r), 0);
+  assert.ok(roosterWading(0.5 * r, r) < roosterWading(r, r));
+  // From `fromFtS` of tread, more the faster, all of them from `fullFtS`.
+  assert.equal(roosterDrops(ROOSTER.fromFtS, 1, half), 0);
+  assert.equal(roosterDrops(ROOSTER.fullFtS, 1, none), ROOSTER.drops[1]);
+  assert.equal(roosterDrops(80, 1, none), ROOSTER.drops[1]);
+  assert.equal(roosterDrops(30, 0, half), 0);
+  let last = 0;
+  for (let v = 6; v <= 45; v += 3) { const n = roosterDrops(v, 1, half); assert.ok(n >= last, `${v} ft/s`); last = n; }
+  // Up behind the wheel: as fast up as a share of the tread's speed, slower than the truck along its way, the higher the
+  // slower, so the tail leans back from the wheel.
+  const vel = [0, 0, 40], forward = [0, 1];
+  let seed = 11;
+  const random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const drops = Array.from({ length: 2000 }, () => roosterVelocity({ vel, forward, treadFtS: 40, random }));
+  const mean = (k) => drops.reduce((sum, d) => sum + d[k], 0) / drops.length;
+  assert.ok(Math.abs(mean(1) - 40 * (ROOSTER.rise[0] + ROOSTER.rise[1]) / 2) < 1, "up at the mean of `rise` of the tread");
+  assert.ok(mean(2) < 40 && mean(2) > 0, "slower than the truck: the tail trails behind");
+  assert.ok(Math.abs(mean(0)) < 0.3, "not out to either side");
+  const ma = mean(1), mb = mean(2);
+  const corr = drops.reduce((sum, d) => sum + (d[1] - ma) * (d[2] - mb), 0);
+  assert.ok(corr < 0, "the higher the slower");
+  // Mostly a faint plume.
+  assert.ok(ROOSTER.veil > 0.5 && ROOSTER.veilOpacity < 0.2 && ROOSTER.veilWidthFt[1] > SPRAY.widthFt[1]);
 });

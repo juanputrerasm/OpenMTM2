@@ -57,7 +57,7 @@ What is the game's and what is the port's, in one place:
 | | From the game (section 13) | The port's |
 |---|---|---|
 | Ground | the heights, the two triangles a cell | the smooth surface, the relief, the mesh |
-| Water | its level, its bob, that Snow freezes it (its translucency by weather is not used: the water's depth decides) | waves, reflections, light through its depth, the bed, the view from under it, foam |
+| Water | its level, its bob, that Snow freezes it (its translucency by weather is not used: the water's depth decides) | wind waves, the sky and the land mirrored in it, the sun's glint, light through its depth, the bed, the view from under it, foam |
 | Fog | each weather's colour and the distance its fog ends or its view is cut | the layer, where it lies, its banks, the sky's veil |
 | Rain and snow | that they fall, and lightning in Rain | the fields, their speeds and sizes, splashes, the shelter of bridges |
 | Ice | 0.94 opaque; snow spreads over 100 s, to half of it | how it looks, and that the snow ends over a seventh of it |
@@ -309,19 +309,42 @@ part adds to a material's shader, in a set order, since three.js gives a materia
 that bobs a quarter foot every eight seconds and is solid in Snow (`MTM2_PHYSICS.md` 2.4). The
 port keeps the plane, its level and its bob, and draws it with a shader of its own:
 
-- **Waves.** Three fields of ripples of different sizes (about 15, 43 and 127 ft) moving across
-  each other give the surface its slope at each point. They are calmer in the distance, where
-  they would only shimmer, and in the shallows.
+- **Waves.** Wind waves, worked out as waves on water run ("Waves" below) and laid over the
+  water at four sizes, in gusts that run with the wind. They lie down in the shallows. Before,
+  the surface was three fields of noise sliding across each other at one speed, as steep as a
+  rough sea, and flattened with distance where they would only shimmer.
+- **Rough water far off.** Where the water is too far off for its waves to be drawn, their slope
+  becomes roughness: the field's pictures are filtered as they shrink, and what a point loses of
+  its slope (the mean of the slopes' squares less the square of their mean) is how rough the
+  water is there. Below the smallest waves the water has a roughness of its own, a mean square
+  slope of 0.004 over both axes, more in a gust and less between gusts. Roughness blurs what the
+  water mirrors and spreads the sun's glint, as unseen ripples do.
 - **The sky in it.** How much the water mirrors grows as the eye looks along it (Fresnel, 2 % from
   straight above). What it mirrors is the level's own sky art, read where a ray off the surface
   would meet the sky dome, so Dusk's water is orange and Rain's is the storm, but never the
   art's last rows, which are the horizon's own line of haze (a pale strip in the Dusk art): a
-  hand's breadth above it. The sun adds a glint. Fog veils the mirrored sky as it veils the sky
+  hand's breadth above it. It is blurred as much as the water is rough: a reflection spreads by
+  twice the slopes' spread along an axis. Fog veils the mirrored sky as it veils the sky
   itself, and in the dark weathers their darkness veils its horizon as it veils the backdrop.
+  The fog's veil over the sky depends on the eye alone, and is worked out once a frame.
+- **The land in it.** The hills stand upside down in the water, as a level mirror shows them,
+  broken up and drawn out by the waves ("The land in it" below). Before, the water mirrored the
+  sky alone, and stood bright under a dark cliff.
+- **The sun's glint** (Cox and Munk). The share of the water's facets, too small to draw, that are
+  tipped to send the sun to the eye, by how the slopes about the point's own spread (the
+  roughness), times what water sends back of the sun at that angle, over the eye's slant to the
+  water and the facet's tilt (`WATER_GLINT`). Near, where the waves are drawn and the roughness
+  is small, the glints are sparks on the faces of the waves; far off they run together into a
+  path toward the sun, long and low at Dusk. The eye's slant is taken as no flatter than a sine
+  of 0.15, and the glint as no brighter than 1.2 times the sun's own light on a face square to
+  it: the sun mirrored is far brighter, and past that the lens would only spread it into a
+  blaze. Before, the glint was two fixed lobes about the mirrored line, as sharp far off as near.
 - **Shadows.** With the enhanced look's sun shadows the water reads the same cascades as the
-  ground (`sunReaches`, the finest one that covers the point): where the hills or anything
-  standing shade it, it loses the sun's share of the daylight it sends back and the sun's glint,
-  and keeps what it mirrors of the sky, as water in a shadow does.
+  ground (`sunReaches`, the finest one that covers the point), at four points of its map weighed
+  between them: where the hills or anything standing shade it, it loses the sun's share of the
+  daylight it sends back and the sun's glint, and keeps what it mirrors of the sky, as water in
+  a shadow does. Before, it read three.js's soft shadows, sixteen points in each of the four
+  maps, which cost the water more than all the rest of it.
 - **A body of water.** How deep the water is at a point is its level less the ground under it,
   read from the ground map (below), and what the eye sees there is light that has come through
   that depth (`src/game/water.js`). The line of sight bends toward the upright at the surface,
@@ -330,19 +353,28 @@ port keeps the plane, its level and its bob, and draws it with a shader of its o
   light, red first: a foot takes 34 % of red, 11 % of green and 8 % of blue (pond water, far
   murkier than the sea), so a foot of water hides a sixth of the bed, a truck's depth more than
   half and 30 ft nearly all of it. And the water gives light of its own, the daylight that fell into
-  it and is scattered back, in the water's blue green: as bright as the scene's own sun, sky
-  and ground light make it, so it is bright at noon, dull under cloud, dim orange at Dusk and
-  nothing in Pitch Black, where deep water is black and not clear. In Rain the water is
-  stirred and silted, 0.45 of the way to a dull grey green. The game's translucency for the
-  weather (0.75 in the clear to 0.0625 in Pitch Black), which let the bed show through deep
-  water in the dark, is not used: the depth decides how much is seen.
+  it and is scattered back, in the water's blue green, 0.004 of red, 0.035 of green and 0.041 of
+  blue, as lake and coastal water send back: as bright as the scene's own sun, sky and ground
+  light make it, so it is bright at noon, dull under cloud, dim orange at Dusk and nothing in
+  Pitch Black, where deep water is black and not clear. Deep water is dark, and the sky and the
+  land it mirrors show in it. Before, it sent back three times as much, and deep water was an
+  opaque pale teal that hid what it mirrored. What the eye sees is what the surface mirrors, as
+  much as it mirrors, and of the rest the water's own light, as much as its depth hides of the
+  bed, over the bed itself. In Rain the water is stirred and silted, 0.45 of the way to a dull
+  grey green. The game's translucency for the weather (0.75 in the clear to 0.0625 in Pitch
+  Black), which let the bed show through deep water in the dark, is not used: the depth decides
+  how much is seen.
 - **The bed.** The ground under the water is drawn as seen through it: its light has come down
-  through the water over it, so it darkens and blues with depth. In the shallows, down to 9 ft,
-  light dances on it, up to 0.6 brighter and 0.4 darker, drawn together and apart by the
-  waves; under ice it is still. Ground within 0.7 ft over the waterline is wet from it,
-  0.28 darker.
+  through the water over it, so it darkens and blues with depth. What comes back up from it to
+  an eye over the water passes through the water too, along the eye's line bent at the surface:
+  the water's opacity takes how much of it, and the bed takes the colour that leaves, its red the
+  first to go, so that a sandy shallow is green under a little water and blue under more. In the
+  shallows, down to 9 ft, light dances on it, up to 0.6 brighter and 0.4 darker, drawn together
+  and apart by the waves; under ice it is still. Ground within 0.7 ft over the waterline is wet
+  from it, 0.28 darker.
 - **The shore.** Where the water is under about half a foot deep it carries foam that laps in
-  and out, and its edge fades out onto the ground instead of ending in a line.
+  and out, as a lace, broken and thin, and its edge fades out onto the ground instead of ending
+  in a line. Before, the foam was a white line round every shore.
 - **Rain** rings the surface.
 - **Wakes and rings.** The trucks stir the water ("Ripples and wakes" below): a truck that runs
   through it drags a V of waves and a trail of foam behind it, one that stops sends out a
@@ -354,7 +386,82 @@ port keeps the plane, its level and its bob, and draws it with a shader of its o
   water under it ("Under water" below).
 
 It needs no second view of the scene and no picture of what lies behind it: one pass over the
-water, which a headset can afford.
+water, and for the land in it a small pass a frame over the map of the ground, the same size on
+any screen, which a headset can afford. The open water and the ice are two programs, the planes
+wearing one or the other; in one, the ice's many lines made the open water cost nearly twice as
+much, though it never ran them.
+
+### Waves
+
+`src/game/water-waves.js`. A field of wind waves, worked out once, as waves on water are, and
+kept as 32 pictures of a square of 128 points that repeats every way, in a loop (a 3D texture,
+filtered between pictures and mipmapped). It is the sum of every wave that fits a whole number
+of times across the square, from 4.2 to 34 times, each of a random height and phase:
+
+- as high as the wind's waves are, each octave holding as much slope as the next (a height
+  falling as the fourth power of the number across), shaded in and out over the band's ends so
+  that sizes of the square 2.8 apart add up to one even spread of waves;
+- mostly running with the wind, less across it and none into it (the cosine of half the angle
+  off the wind, to the sixth power): 96 % of it runs downwind, and its slope is the steeper
+  along the wind, so the crests run across it;
+- each at deep water's pace, its frequency the square root of g times its wavenumber, so a
+  longer wave runs faster: the field changes as it moves and nothing slides. In a loop each wave
+  comes round a whole number of times, the longest twice and a shorter one up to six times, as
+  its frequency has it to the nearest whole turn.
+
+Each picture holds every point's slope along both axes, its height and the square of its slope.
+Its slope's root mean square is 0.1 along an axis. Working it out takes about a seventh of a
+second, once.
+
+It is laid over the water at four sizes, 120, 42, 15 and 5.3 ft, so that their waves meet end to
+end, from two inches to 28 ft long, each turned a little off the wind and laid at 0.66, 0.6,
+0.54 and 0.45 of the field's slope. Each comes round its loop as deep water's waves would at its
+size: in 4.7, 2.8, 1.7 and 1.0 s. The smallest is drawn only within 180 ft of the eye, fading out
+over the last third of that; past it, its slope is roughness.
+
+The wind blows the way the fog drifts, and gusts: patches one or two hundred feet across run
+with it at 6 ft/s. In a gust the shorter waves rise at once, to 1.45 of their strength, and between
+gusts they lie down to 0.25; the longest follow as the square root of that, and the roughness
+below the field as its square, so between gusts the water is glassy and mirrors cleanly. Each
+weather has its wind against a clear day's: 1.1 Cloudy, 0.45 Foggy and 0.35 Dense Fog (fog lies
+on still air), 1.35 Rain, 0.8 Dusk, 0.75 Night and Pitch Black. In Snow the water is ice.
+
+### The land in it
+
+`src/render/water-reflection.js`; the rules are `src/game/water.js` `WATER_REFLECTION`,
+`highestGround` and `landTones`. A level mirror shows the eye what an eye as far under the water
+as it is over it would see of the land above the water. Before each frame is drawn, a pass works
+that picture out as a map of directions from that eye under the water: 512 columns round the
+horizon and 128 rows from it to straight up, the rows by the square root of the sine of the
+elevation, so that the few degrees over the horizon where the land in the water lies have most
+of them (five degrees, a quarter of the rows).
+
+For each, the line is followed from where it comes up through the water to the first ground it
+meets, over the ground map ("The ground map" below), a cell at a time over the highest ground in
+the cells it crosses, from 32 ft (the terrain's own) to 512 ft: where it enters a cell over all
+the ground in it, it runs on to where it leaves the cell (it only climbs) and tries the next size
+up; where it does not, the next size down; in a 32 ft cell it does not clear, against the ground
+itself, in steps of 8 ft or 1.2 % of how far it has run, whichever is longer. A cell holds the
+highest of its samples and of a row round them, since the ground between samples is drawn from
+the four about it. On Voodoo Island a line reads 18 times on average, a line over open water
+fewer and one that meets a hill more; it reads 64 times at the most.
+
+The ground it meets is lit as the scene lights it: the mean colour of the texture its cell wears
+(by the cell's `.CLR` word), the sky's light, and the sun's as its slope faces the sun. It is
+hazed by how far the light has come from it to the eye, which is as far as from the eye under
+the water: by the haze's even thickness and the far fade.
+
+The water reads the map along each point's own line off its waves, blurred as much as the water
+is rough: so the hills stand upside down in it, whole where the water is calm, broken up where
+it is rough and drawn out toward the eye where it is rough far off.
+
+The map depends on where the eye is and not where it looks. An eye that has not moved, under the
+same light, keeps it as it was (a paused race, a still camera); one that moves works out half
+its columns each frame, in blocks of sixteen, so that each is a frame old at most; a jump of
+more than 30 ft, or a change of the light, works it all out. It draws nothing of the scene and
+reads nothing back, it is the same size on any screen, and one serves both eyes of a headset.
+What stands on the ground (trees, buildings, the trucks) is not in it, and there is none with
+the eye under the water or the water frozen.
 
 Every copy of the wrapped world has its own water plane. The game's surface used to be given
 only to the first, and only the first bobbed; both surfaces now cover all nine.
@@ -372,7 +479,22 @@ four a frame, by the wave equation. A wave runs as on shallow water, `sqrt(g d)`
 deep (`waveSpeed`), but no faster than 12 ft/s: so it slows in the shallows, which bends it
 toward the shore, and the shore throws it back. A truck at speed outruns its own waves, and its
 wake is a V. The waves die away by 1/e in 1.8 s, and toward the field's edges, so nothing is
-thrown back from them.
+thrown back from them. Shallow water cannot hold a crest much higher than it is deep (a
+puddle's, or the level's water at its shore): a crest over 0.35 of the depth starts to break,
+and from 0.7 of it spends itself by 1/e in 0.12 s (`waveAfter`); nor can the water fall further
+than 1.2 times its depth below its rest, so a trough bares the bed and goes no lower, and the
+water running back in fills it as any wave moves.
+
+The field is moved with the eye as it steps. In a frame too short for a step, and while a race
+is paused, it stays where it was, and so does the corner the shaders that read it are given.
+Before, that corner followed the eye every frame while the field moved only when it stepped:
+every frame without a step left the water out of place by as far as the eye had moved, for good.
+Wakes, foam and churned silt were drawn tens of feet from the wheels that made them, most of it
+on dry ground where none of it showed, and on a screen faster than 60 frames a second hardly
+anywhere near them. A wheel stirs the water all along its way since the field last stepped, not
+only where it is, so its wake is whole however far apart frames come; a wheel that has only now
+come to the water, or went further than 30 ft (it was moved), stirs where it is. Before, a fast
+truck's wake broke into a row of dots wherever a frame took longer than a sixtieth of a second.
 
 - **A wheel at the surface** (`wheelStir`) holds the water down over 1.8 ft about it, by 0.12 ft
   standing and 0.025 ft more for every foot a second it moves, 0.9 ft at the most. It churns as
@@ -383,12 +505,34 @@ thrown back from them.
 - **A wheel that comes down into the water** (`landingStir`) at 5 ft/s or more pushes it down at
   once over 3 ft, by 0.06 ft for every foot a second it fell, 2.5 ft at the most, and a ring
   runs out from where it struck.
-- **Foam.** A wheel churns the water white from 6 ft/s, fully from 36 ft/s, and where it
-  strikes the water. The foam spreads a little, halves every 2.2 s, and is drawn as lace that
-  breaks up as it thins, over the shore's.
+- **Foam.** A turning tire beats the water white (`wheelStir`, `WHEEL_CHURN`): from 3 ft/s of
+  its tread, all it can from 25 ft/s (17 mph), over 1.2 times the tire's radius about it, its width
+  and the white water off it; and so does a wheel striking the water, over 4 ft. The tread runs
+  as fast as the simulation turns the wheel and never slower than the wheel goes, so a wheel the
+  engine spins in the air churns as it comes down. Fresh foam thicker than 0.45 of all the field
+  holds collapses, halving every 1.2 s; foam thinner than 0.12 lingers, halving every 8 s; between
+  the two, between the two. So a wake is whitewater for a second or two, broken patches for a
+  few seconds more, and a lace for many after. Foam spreads a little, which widens a wake as it
+  ages. Before, a wheel churned only from 6 ft/s of its hub, fully from 36, over 1.8 ft, and its
+  foam halved every 2.2 s whatever its thickness: a grey lace that was soon gone.
+- **Silt.** A wheel in the water at all, deep under it or not, stirs the bed's silt up into it:
+  from 1 ft/s of its tread, all it can from 15 ft/s; a wheel striking the water, as hard as it
+  struck. Silt spreads further than foam and halves every 14 s.
 
-The water's shader reads the field's slope into the surface's, and its foam; the ground's reads
-it in its puddles. The field runs only while there is water to run on (the level's, not frozen,
+The water's shader reads the field's slope into the surface's, 1.4 times as steep, and its
+foam; churned water is rough as well, with a mean square slope of 0.05 for full foam, so what it
+mirrors is blurred and its glints spread, as whitewater's are. Before, the field's slope was
+taken 2.4 times as steep and churned water was a clean mirror, which against the calmer waves
+read as broken glass. The foam is drawn as it ages: as much of the water is covered as there is
+foam, in clots a few feet across and bubbles a few inches across that churn as they go, heaped on
+the crests of the wake's own waves, so fresh foam is whitewater all over and older foam breaks
+into ragged patches; thin, it is a lace. It is as white as the day lights it, greyer in its
+hollows. Under it the water beaten full of air is milky and pale, a white green that hides some
+of the bed. Silt clouds the water in the ground's colour made paler (fine silt held in the water
+scatters more light than the wet bed it came off), and hides the bed, all of it from not half of
+all the field holds, where the water is under 4 ft deep, and less to none by 14 ft, where the
+cloud stays down by the bed. The ground's reads the field in its puddles, its foam as their silt
+and froth. The field runs only while there is water to run on (the level's, not frozen,
 or puddles with water in them), and is stepped just before each frame is drawn by as much time
 as the frame's wheels were stirred for, so it stands still while a race is paused. A replay
 stirs the water as the race did. In Snow the water is ice, and with no puddles the field is
@@ -508,6 +652,32 @@ screen the lens takes the red out of the picture (to half, against 0.86 of green
 blue) and darkens its corners further. It does not make the picture sway: a wobble over the
 whole view was more tiring than it was like water. The surface overhead is Snell's window: the sky in a cone of 48.6 degrees
 about straight up, and outside it a mirror of the water.
+
+The water darkens with the eye's depth, and its red goes first: the light that lights the water
+about the eye has come down through it (`lightAtDepth`, through 0.6 of the water over the eye, as
+water takes light). Three feet down its red is at half and its green at four fifths; ten feet
+down its red is all but gone and its green and blue at a half to two thirds. Before, the water was
+one colour at any depth.
+
+What fills the water about the eye (`src/render/underwater.js`, `UNDERWATER_LOOK`), only while it
+is under the level's water:
+
+- *Motes.* 4000 specks of silt, 0.035 to 0.1 ft across, in a box 56 ft across that goes with the
+  eye, a mote coming round on its far side as it leaves the near one. They drift with the water
+  at 0.3 ft/s and sway a little, and fade out from 13 ft away to nothing at 26, so the box's edge
+  is never seen. They are lit as the water about them is, 1.8 times as bright and a little paler.
+  They show the eye how it moves through the water.
+- *Shafts.* By day the sun comes down through the waves in 90 shafts, 0.6 to 3.5 ft wide and 48 ft
+  long, standing in a square 110 ft across that goes with the eye as the motes' box does. Each
+  slants the way the surface bends the sunlight (`sunUnderWater`: straight down with the sun
+  overhead, never more than 48.6 degrees from it), carries a twenty-fifth of the sun's light coming
+  into the water, fades in under the surface and out by 1/e every 14 ft down, and brightens and
+  dims as the waves over it gather the light and spread it. They are added to what is behind
+  them, and what stands in front hides them. Only where the weather shows the sun clearly (Clear
+  fully, none in Rain, Fog, Snow or at night), and none through ice.
+
+Both are worked out on the graphics card about the eye that draws them, so each eye of a headset
+has its own, and they cost nothing measurable on the Intel HD Graphics 630 ("Cost").
 
 ### The ground map
 
@@ -756,11 +926,35 @@ it was dry. It has a film of water on it, which mirrors the sky a very little fr
 it is uneven (`WET`). The sheen is kept slight on purpose: the ground used to darken to 0.6
 and mirror up to 65 % at a low angle, and a wet road seen along its length from the chase
 camera was one grey mirror, under which a driver could not read the course by what it is made
-of. Standing water is the mirror; the ground is not. Water stands where the puddle map says
-so: a puddle shows the wet ground under it from above and the sky at a low angle, ruffled by
-the rain. A race that begins in Rain begins wet
+of. Standing water is the mirror; the ground is not. A race that begins in Rain begins wet
 with its puddles full; rain that GOLD mode brings on wets the ground and fills them from a
 third over 40 seconds, and when it stops the ground dries over 45.
+
+**A puddle** stands where the puddle map says the ground lies under water. It is muddy water over
+soaked ground, and it mirrors the sky:
+
+- *What it mirrors.* The sky the level's water mirrors (`src/render/water-common.js`): the dome's
+  own picture, veiled toward the horizon by the fog as the sky itself is, as much as water
+  mirrors at the angle it is seen, 2 % from straight above and all of it along the ground
+  (Schlick's). A ray that a ripple tips under the horizon meets what stands there, as the
+  horizon has it. Rain ruffles the face, and close to the eye each drop's ring shows: the lake's
+  rings at half their size, since a puddle is seen nearer, left out where a pixel spans more than
+  about a twelfth of a foot of ground and they would only shimmer.
+- *Under it.* The ground, darker under water, and the deeper the water the more its own colour
+  hides it: rain standing on dirt is the ground's colour taken broadly (the mean of its textures)
+  at 0.6 of its brightness, and hides 1 - e^(-depth / 0.06 ft) of the bed, never more than 0.85
+  (`POOL_LOOK`, `poolMurk`), so under an inch of water little of the ground shows.
+- *Its bank.* Up its bank, until the ground stands a fortieth of a foot over the water, the
+  ground is soaked 0.3 darker than wet ground and keeps a film of the muddy water (0.4 of the
+  silt's colour).
+
+On a lit ground (the enhanced look's) what a puddle and the wet film mirror is light of the
+ground's own: the ground's light gives way to it and it is added once the ground is lit, as
+light it gave off would be. So a puddle in a shadow still mirrors the sky, and the work is done
+before the ground is lit, which keeps the ground's shader as fast as it was ("Cost"). The
+classic look's unlit ground lays it over what it draws. Before, a puddle was the wet ground
+darkened, and mirrored at least a tenth of a sky of two colours dimmed by the weather's light,
+so that in Rain it was hardly lighter than the wet ground about it.
 
 **The puddle map** (`src/game/ground-maps.js` `buildPuddleMap`) is worked out the way water
 would do it, on the ground map's samples:
@@ -769,9 +963,11 @@ would do it, on the ground map's samples:
    each around one low point.
 2. A basin holds a depth above its low point: a little anywhere, and 0.07 ft more for every
    doubling of the ground that drains into it beyond 60 000 square feet, up to 0.8 ft.
-3. The saddles between basins are taken lowest first. Where two pools both reach a saddle they
-   become one pool, which goes on filling as far as the better fed of the two would. Where only
-   one reaches it, that pool runs over and rises no further.
+3. The saddles between basins are taken lowest first, in whole steps of a sixty-fourth of a
+   foot of height, so that what is done to the ground in one place leaves the order far off as
+   it was. Where two pools both reach a saddle they become one pool, which goes on filling as
+   far as the better fed of the two would. Where only one reaches it, that pool runs over and
+   rises no further.
 
 So the foot of a slope gathers a pond, a dimple on a flat gathers a puddle, and ground that
 slopes holds nothing. The game's ground is flat to the last bit where it is flat, which has no
@@ -779,8 +975,25 @@ low points, so an unevenness of a few inches that is never drawn is added first 
 50 ft apart), and how well the ground holds water varies over a few hundred feet, so puddles
 come in patches. Ground under the level's water holds none and takes what runs into it.
 
+The courses (`COURSE_PUDDLES`, `drivenMap`, `potholeFt`). Trucks churn the ground they race over
+into ruts and potholes and pack it so that it keeps its water: on a dirt track after rain the
+deepest puddles lie in the driven line. So every course a truck may be put on (the primary one
+and Professional's) has a driven line, its width and 4 ft more to either side, fading out over
+12 ft beyond. There the ground is given potholes besides its dimples, up to 0.3 ft deep and some
+twenty to forty feet across, over about half of it; the ground holds its water as well as any
+ground does; and a hollow fills 0.2 ft higher than one in the open, with what runs into it off
+the packed course. A pool there that fills past a low saddle runs over into the ground beside
+it, and nothing further than some 140 ft from a course changes. A course that slopes holds
+nothing, as any slope does.
+
 On the stock tracks 0.1 % to 6 % of the ground is under water; half the puddles are a single
-sample (8 ft), nine in ten are under 21 ft across and the largest are 50 to 80 ft.
+sample (8 ft), nine in ten are under 21 ft across and the largest are 50 to 80 ft. Along the
+courses, 4 % (Farm Road 29, whose course mostly climbs and falls) to 23 % (Crazy '98) of the
+wheel lines (the course's line and 6 ft either side) run through water at least 0.03 ft deep,
+where a wheel counts as standing in a puddle ("Particles"); 15 % to 39 % where the course is
+level. Its puddles are some 17 to 31 ft long, half of them over 0.06 to 0.11 ft deep, the
+deepest a quarter of a foot. Before, 0 % to 1.6 % of a course stood that deep, and half the
+puddles a truck met were under a fortieth of a foot: next to nothing to drive through.
 
 The map keeps, for each sample, how far the ground lies under its pool's surface or above it
 (a byte, the waterline at 128, a quarter foot either way), and the shader reads it through a
@@ -793,14 +1006,25 @@ and wakes"): where a puddle is deeper than the level's water there, the field ta
 from the puddle map, less the tenth of a foot a puddle stands under its full level while it
 fills, so a puddle's waves run at a puddle's pace (under two feet a second in a tenth of a foot
 of water) and its edge throws them back. A wheel on the ground in a puddle (its tire's foot
-within half a foot of the ground) stirs it (`puddleStir`): it holds the water down over 1.5 ft
-about it by 0.04 ft standing and 0.008 ft more for every foot a second it moves, 0.3 ft at the
-most, in a puddle a tenth of a foot deep or more, less in a shallower one and not at all in one
-under a hundredth. From 4 ft/s it churns the water, fully from 29 ft/s: churned puddle water is
-clouded by the silt stirred up from under it, paler and browner in swirls that settle, with a
-little froth at their heart. The puddle's mirror is turned by the waves' slope. And a wheel in a
-puddle throws a sheet of spray ("Particles", `puddle`). With "Reflective water" off the field
-still runs for the puddles; with "Rain puddles" off there are none to stir.
+within half a foot of the ground) stands on its bed (`puddleStir`, `PUDDLE_PARTING`): it holds
+the water down over 2 ft about it, toward 2.2 times the puddle's depth below its rest, so that
+even a wheel that crosses a point in one step of the field bares the bed under its tread; and
+the faster it goes the harder it pushes the water aside, by 0.04 ft standing and 0.008 ft more
+for every foot a second, 0.3 ft at the most. It does so in a puddle a tenth of a foot deep or
+more, less in a shallower one and not at all in one under a hundredth. It holds the water
+down steadily, without the churning beat of a wheel afloat, and all along its way since the
+field last stepped. The water runs back in behind it: a wheel leaves a bare track through a
+puddle that fills again within a fraction of a second, and its waves run out across the
+puddle, where in water so shallow they break before they could bare the bed again. The ground's
+shader moves a puddle's edge and depth with the waves, and ground a trough has just bared is
+as soaked as ever, under a film of the muddy water. From 4 ft/s a wheel churns the water, fully
+from 29 ft/s: the silt it stirs up clouds the water whole and paler, in swirls that settle, and
+where it was churned hardest a scum of muddy froth rides on the water, lit as the ground is and
+mirroring nothing. The puddle's mirror is turned by the waves' slope. And a wheel in a puddle
+throws a sheet of spray ("Particles", `puddle`). With "Reflective water" off the field still
+runs for the puddles; with "Rain puddles" off there are none to stir. Before, a wheel held a
+puddle down by little more than an inch and nothing ever bared its bed, and the churned water
+was drawn over the puddle's mirror as flat white blotches.
 
 ### Snow on the ground
 
@@ -1094,7 +1318,7 @@ thing in flight under gravity, drawn out along its way for as long as the eye wo
 | dust | the ground type's own colour, half the ground's own made paler ("Dust" below) | 1.8 to 2.6 ft, 6.5 ft | 0.75 | 1.7 to 3.1 s | 0.42 |
 | smoke | dark grey | 1.5 to 2.2 ft, 5 ft | 1 | 1.3 to 2.4 s | 0.46 |
 | powder | snow | 1.3 to 2 ft, 4.6 ft | 0.8 | 0.8 to 1.5 s | 0.5 |
-| mist | water | 1.3 to 2 ft, 5.2 ft | 0.9 | 0.6 to 1.2 s | 0.2 |
+| mist | water, a spray so fine it is about white ("Mist" below) | 0.7 to 1.2 ft, 3 ft | 0.5 | 0.7 to 1.3 s | 0.11 |
 | rubber | pale grey: a sliding tire's smoke | 1.6 to 2.4 ft, 6 ft | 0.85 | 1.4 to 2.8 s | 0.2 |
 
 What hangs by the ground spreads along it, so all but smoke are a little flattened.
@@ -1105,7 +1329,7 @@ What hangs by the ground spreads along it, so all but smoke are a little flatten
 | drop | water; off a puddle, muddy ("Spray" below) | 0.06 to 0.12 ft, and spray's own | 0.018 s | ends |
 | chip | ice or packed snow | 0.1 ft | 0.014 s | skips a little |
 | clod | earth | 0.13 ft | 0.012 s | skips a little |
-| bubble | air under water | 0.14 ft | none | rises, and is gone at the surface |
+| bubble | air under water: a bright rim about a clear middle, and a spark where its skin faces the light | 0.025 to 0.15 ft, most of them small | none | rises at its own pace, and is gone at the surface ("Bubbles" below) |
 
 Sand's dust is pale, mud's dark, gravel's and rock's grey. Powder and mist are brighter than a
 matt white face in the same light, as a cloud that throws light about inside itself is.
@@ -1116,11 +1340,11 @@ matt white face in the same light, as a cloud that throws light about inside its
 |---|---|---|
 | dust | dust, laid along the way it rolls when the game's own rule says the tire raises it ("Dust" below) | a clod now and then above 22 mph |
 | mud | none: mud raises neither dust nor spray | one or two clods above 8 mph |
-| wet | mist every other tick above 14 mph | a drop or two above 22 mph |
+| wet | mist laid along the way it rolls above 14 mph ("Mist" below) | a drop or two above 22 mph |
 | snow | powder, more often the faster (from 5 mph) | chips, one for every 24 mph and at times one more |
 | ice | powder now and then above 30 mph | a chip at times above 10 mph |
-| water | mist at times from 12 mph, more often the faster | spray ("Spray" below) |
-| under | none | bubbles above 3 mph, more often the faster, and one more for every 20 mph |
+| water | mist laid along the way it rolls above 12 mph ("Mist" below) | spray ("Spray" below) |
+| under | none | a little cloud of one to four bubbles now and then, from 3 mph, more often the faster ("Bubbles" below) |
 | puddle | none | spray ("Spray" below) |
 
 The game raises no dust in Rain or Snow, and neither does this: in Rain soft ground is mud,
@@ -1161,6 +1385,25 @@ still the game's rule: over 10 mph on dusty ground, and a second puff with even 
   the wheel made paler (1.3 times, and a little more), since dry fine dust is lighter than the
   earth it is raised from: red earth raises red dust. Clods take the same ground's colour.
 
+**Mist** (`MIST`, `mistSpacingFt`). A tread running over a film of water, on wet hard ground or
+wading in the level's water, flings it off as spray so fine that the air stops it at once: it
+hangs low behind the wheel and thins away, a veil trailing behind a truck at speed. So it is
+laid along the way the tire rolled since the last tick, as dust is: from 14 mph on wet ground
+(12 wading) a puff every 6 ft, closing to every 1.8 ft from 50 mph, each somewhere along that
+way, behind the tread and a little either side of it, 0.3 to 1.2 ft up, some larger and some
+smaller. It leaves with three tenths of the truck's velocity and half a foot to two and a half a
+second up, and the air takes what it was thrown with by 1/e in a sixth of a second. A puff is
+flat (half as high as it is wide), 0.7 to 1.2 ft in radius at first and spreading by 3 ft as it
+goes, thin (0.11 at most), and about white, as a cloud of drops that throws light about inside
+itself is. A truck further than 400 ft from the eye lays half as many, each 1.3 times the size,
+as it does dust. A tire that spins or slides on wet ground, and a wheel that lands on it or in
+the level's water, still throw their mist up and out of the tire as before, in these smaller
+puffs.
+Before, a mist puff was a ball 1.3 to 2 ft in radius at birth that swelled by 5.2 ft, to some
+fourteen feet across, nearly as round as it was wide, thrown every other tick from 14 mph and
+carried along beside the truck with four tenths of its speed: a truck on wet asphalt rolled
+along in grey billows, like a burnout's smoke.
+
 **Spray** (`SPRAY`, `sprayDrops`, `sprayVelocity`, `muddyWater`). A tire running through
 standing water, a puddle or the shallows of the level's water, pushes it aside: it leaves in a
 sheet either side of the tire, and the tread lifts a little of it and throws it up behind.
@@ -1185,6 +1428,26 @@ and a few drops at random every way.
 - *The air* brakes every drop, as it does a spark, toward a terminal speed of 18 to 30 ft/s.
 - *Muddy water.* A puddle's drops are water with 0.35 of the colour of the ground under it, made
   paler (1.6 times, and a little more); the level's water is clear.
+
+**Rooster tails** (`ROOSTER`, `roosterWading`, `roosterDrops`, `roosterVelocity`). A tire wading in
+the level's water, its tread part way under, paddles the water up with its lugs and flings it off
+behind as the tread comes up out of the water: a tall fan of spray behind each wheel, besides its
+sheets. Before, the tread threw a few drops, as off a puddle.
+
+- *How much a tire wades.* Most with its foot about its radius under the water (its hub at the
+  surface); from nothing at 0.15 of its radius to all of it at 0.7, and none again from 1.5 to 2.1
+  of it, where the tire is wholly under and throws nothing out of the water. A puddle is too
+  shallow to wade in.
+- *How many.* Each tick, from 6 ft/s of tread, 2 drops, up to 10 at 45 ft/s, times how much it
+  wades. The tread runs as fast as the simulation turns the wheel (on the ground with the ground,
+  in the air with the engine), and never slower than the truck goes; in a replay, which records
+  no tires, as fast as the truck goes.
+- *Up and back.* A drop leaves from the back of the tread, anywhere across its width and up from
+  the water toward the hub, upward at 0.3 to 0.8 of the tread's speed and along the truck's way
+  at 0.5 of its velocity for the lowest down to 0.1 for the highest, so the tail leans back from
+  the wheel; each scattered by up to 2.5 ft/s every way.
+- *A plume.* Six in ten are drawn large and faint (0.25 to 0.5 ft across, hiding 0.13), the rest
+  as a sheet's plain drops.
 
 The rings a drop leaves where it falls back into water are the water's own: the field of waves
 the trucks stir ("Ripples and wakes"). The game's `SPLATRIP` rings, flat sprites of a few rings
@@ -1295,6 +1558,21 @@ nothing out of it either: a truck sunk in a lake stirred mist and drops up on th
 it, as if it were churning the top of the water. Its tires stir up bubbles instead, and the
 surface over it is left alone. The water splashes with "Rich particles" off keep to the same
 rule.
+
+**Bubbles** (`BUBBLES`, `bubbleWidth`, `bubbleRiseFtS`, `bubbleSpiral`, `bubbleVelocity`). A
+bubble has next to no weight of its own to carry it on: whatever it was thrown with, the water
+takes from it by 1/e in 0.15 s, and it rises as fast as its size lets it, 0.75 ft/s for the
+smallest (0.025 ft) to 1.5 ft/s for the largest (0.15 ft), as real bubbles of those sizes do.
+Most are small. Middling ones climb in a spiral, four turns a second about a circle of their own
+width, and the largest wobble wider and slower, a turn and a half a second; the smallest go
+straight up. They rise to the surface, however long that takes (14 to 20 s at the most, for one
+lost in very deep water), and are gone there. A tire under the water lets them go in little
+clouds of one to four from behind its tread, between the bed and its middle, carried with a fifth
+of the truck's speed: from 3 mph a cloud on 15 % of its ticks, on 55 % from 30 mph. Before, a
+bubble was thrown off the tread like a clod, at a third to three quarters of the truck's speed and
+up to 14 ft/s up, slowed by the water evenly every way, and lasted 0.5 to 1.4 s: it shot out of the
+tire, drifted up a foot or two and was gone in the middle of the water, all of them alike, flat
+white flecks.
 
 **How a puff is drawn.** A puff is a soft ball, flattened as its kind says, its thickness
 falling from its middle to nothing at its rim as 1 minus the square of the way out. It is
@@ -1764,6 +2042,33 @@ the default. Off, FXAA, SMAA and TAA take its place when chosen and were not mea
   dashboard: asked for and not waited for, since waiting held every other frame 15 to 50 ms
   (a median of 24 ms a frame, 17 ms now); in thick dust the mirror's frames are still the
   slow ones.
+- **The water.** Measured on the same Intel HD Graphics 630 at 1280 x 720 on Voodoo Island, on
+  Max, the water's own draws and the pass for the land in it, by the graphics card's own clock,
+  the race paused, before the water of "Waves" and "The land in it" and after, with the eye still
+  and with it moving at 60 ft/s (the land in the water then worked out half a map a frame):
+  looking along the water from 3 ft over it 3.8 ms a frame, and 2.2 still and 2.6 moving; looking
+  down at it from 30 ft 5.5, and 3.1 and 3.6; over it from 120 ft 2.2, and 1.3 and 1.7; from
+  under it 4.6, and 2.5. The pass for the land in it is 0.45 to 0.5 ms a frame while the eye
+  moves, 0.65 worked out whole, and next to nothing while it is still; twice as many columns
+  looked the same through the waves and cost a third more. On Low, the eye still, looking down
+  4.2 and 2.6, from 120 ft 2.1 and 1.3. The ice in Snow 6.0 and 5.0, and looking down at it 8.0
+  and 6.8. Most of what was saved was the ice's lines in the open water's program, and
+  three.js's soft shadows.
+- **Puddles.** Measured on the same Intel HD Graphics 630 at 1280 x 720 on Crazy '98 in Rain,
+  the race paused and nothing drawn but the ground, by the graphics card's own clock: with no
+  water standing the ground costs what it did before, and over a view a course's puddle fills,
+  0.1 to 0.35 ms a frame more than the same view did when it held next to no puddle. That took
+  care. The card shades the ground sixteen pixels at a time only while its shader fits the
+  card's registers, and eight at a time otherwise, which costs every pixel of ground, puddle or
+  not; what the puddles mirror first took the ground's shader over that line (0.5 ms a frame
+  more on dry ground). A lit ground now works out what it mirrors before it is lit and keeps
+  only that light across the lighting, where everything kept holds a register through all of
+  it. The field of waves, racing with three computer trucks: 0.43 ms a step, against 0.42 when
+  the stock courses held so little water that a wheel almost never stirred it; a step reads each
+  point about a point once (it read them twice), and a wheel skips the field beyond its reach.
+- **Under water.** The motes and the sun's shafts ("Under water"), measured the same way with the
+  eye ten feet under the water on The Heights on a clear day: 16.1 to 17.2 ms a frame with them
+  and without, within what one run differs from the next.
 - **Presets.** Auto (`src/game/graphics.js`, the chip's name from
   `src/app/graphics-hardware.js`) picks from the card and from how many points the picture
   has. A software renderer, a phone chip, Intel HD or UHD, or under 4 GB of memory when no
@@ -1788,12 +2093,22 @@ the default. Off, FXAA, SMAA and TAA take its place when chosen and were not mea
 - **Each frame.** Fog is five slices in every fragment, ten reads of its noise and eight of
   its floor, and in Foggy, where a line of sight passes through the top's billows, eight steps
   of five reads more (four steps in a headset). Rain and snow are one draw each field. The
-  water is one pass over itself, and the bed a few lines in the terrain's shader; ice is some
+  water is one pass over itself, and the bed a few lines in the terrain's shader: a point of
+  open water reads the waves three times and a fourth near the eye, the gusts, the depth, the
+  sky and the land in it once each, and the sun's shadows at four points of one map. The land in
+  the water is one pass a frame over a map of 512 x 128 points (half floats, half a megabyte, a
+  third more with its smaller copies), half of it each frame while the eye moves and none while it is still,
+  reading the highest ground (a quarter of a megabyte of floats) and the ground map; the waves'
+  pictures are 2 MB, an eighth more with their smaller copies. Ice is some
   thirty plate lookups a point of it (twenty more in the hairlines' patches), one read of its
   cell's list, and two reads and a star's cracks for each mark the list holds, each crack a
   few sums where the point is near enough to see it and fewer where it is not. The
   wakes are a field of 512 x 512 half floats twice over (4 MB), stepped once or twice a frame
-  by one pass of a quad, and five more reads for each point of water near the eye. The ground's
+  by one pass of a quad, and five more reads for each point of water near the eye, and one more
+  where the water is churned. Drawing churned water as foam and silt cost 0.2 to 0.3 ms a frame
+  more on the HD 630 below, with a truck fording in the middle of the picture, and nothing where
+  the water is not churned. A rooster tail is up to ten drops a tick from each wading tire,
+  from the same pool of streaks as the rest. The ground's
   weather skips its wet and snow work on dry ground, and the ground-detail grain is read only
   within the distance it shows. Nothing renders the scene twice. The lens's bright pass and its
   final pass read the finished picture; with TAA the picture is cleaned into its own target first.

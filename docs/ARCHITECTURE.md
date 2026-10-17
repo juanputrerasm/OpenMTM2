@@ -174,17 +174,29 @@ units.
   colour the screen. three.js keeps that for the screen and a headset's pictures, so
   `over-scene.js` marks its pictures as the second (r169's `isXRRenderTarget`): it is the one
   place that leans on how three.js is made inside.
-- **One part runs on the graphics card between frames.** The ripples and wakes of the water and
+- **Two parts run on the graphics card between frames.** The ripples and wakes of the water and
   the puddles (`src/render/water-ripples.js`) are one field of waves about the eye, stepped in a
   picture of their own by `scenery.draw` before the scene is drawn, and read by the water's
-  shader and the ground's. They draw nothing of the
-  scene and read nothing back, and they are drawn with the headset's own drawing set aside, so a
-  headset runs them as the flat screen does.
+  shader and the ground's. The land the water mirrors (`src/render/water-reflection.js`) is a map
+  of directions from the eye mirrored under the water, worked out by a pass over the map of the
+  ground, also before the scene is drawn (`water.prepare`), and read by the water's shader; it
+  is the same size on any screen and serves both eyes of a headset. Neither draws anything of
+  the scene or reads anything back, and both are drawn with the headset's own drawing set
+  aside, so a headset runs them as the flat screen does.
+- **Some textures are worked out once.** The noise the scenery reads (`src/render/noise-textures.js`)
+  and the water's waves, whose numbers are `src/game/water-waves.js`'s, are made the first time
+  a race needs them and kept.
 - **Several parts dress one material.** The ground's material takes lines of shader from the
   weather, from the ground's detail and from the shadow cascades; a truck's from the paint and
   the cascades. three.js gives a material one hook, so `src/render/shader-hooks.js` keeps a
   list behind it, run in a set order, with a key a hook that tells two materials' shaders
-  apart.
+  apart. What the level's water and the puddles draw alike (the sky they mirror, the rain's
+  rings on them) is one piece of shader in `src/render/water-common.js` that both take.
+- **What the ground's shader keeps across its lighting is kept small.** On a small chip a
+  shader that needs more registers than the card has to spare is shaded eight pixels at a time
+  instead of sixteen, every pixel of it. The ground's weather works out what wet ground and
+  puddles mirror before the ground is lit and hands the lighting only that light, as light the
+  ground gives off; a ground three.js does not light lays it over what it draws instead.
 - **The fog stays in the world.** Its floor and its banks are places in the world and its
   clock is the wind's: nothing in it is tied to where the eye is but what is seen from there, so
   a camera that moves fast does not move the fog.

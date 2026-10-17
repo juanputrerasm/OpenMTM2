@@ -37,7 +37,8 @@ export const PUFF_KINDS = Object.freeze({
   dust: Object.freeze({ tone: [0.4, 0.31, 0.22], ground: 0.5, sizeFt: [1.8, 2.6], growFt: 6.5, squash: 0.75, lifeS: [1.7, 3.1], opacity: 0.42, riseFtPerS: 1.2, drag: 2.2 }),
   smoke: Object.freeze({ tone: [0.11, 0.11, 0.12], ground: 0, sizeFt: [1.5, 2.2], growFt: 5, squash: 1, lifeS: [1.3, 2.4], opacity: 0.46, riseFtPerS: 3.6, drag: 1.6 }),
   powder: Object.freeze({ tone: [1.2, 1.24, 1.3], ground: 0, sizeFt: [1.3, 2], growFt: 4.6, squash: 0.8, lifeS: [0.8, 1.5], opacity: 0.5, riseFtPerS: -1.2, drag: 2.6 }),
-  mist: Object.freeze({ tone: [0.8, 0.86, 0.93], ground: 0, sizeFt: [1.3, 2], growFt: 5.2, squash: 0.9, lifeS: [0.6, 1.2], opacity: 0.2, riseFtPerS: 0.6, drag: 2.4 }),
+  // Fine spray off a wet tread: low and flat, and so fine that the air takes what it was thrown with at once (`MIST`).
+  mist: Object.freeze({ tone: [0.95, 1, 1.06], ground: 0, sizeFt: [0.7, 1.2], growFt: 3, squash: 0.5, lifeS: [0.7, 1.3], opacity: 0.11, riseFtPerS: 0.4, drag: 6 }),
   // The smoke of a tire that slides on hard ground: pale, and thinner than a crash's.
   rubber: Object.freeze({ tone: [0.5, 0.5, 0.52], ground: 0, sizeFt: [1.6, 2.4], growFt: 6, squash: 0.85, lifeS: [1.4, 2.8], opacity: 0.2, riseFtPerS: 2.4, drag: 2 }),
 });
@@ -95,6 +96,25 @@ export function puffCover(x, y, depth, radius, focal, aspect, near) {
    - Its colour is the ground's, paler (`dustColour`).
 */
 export const DUST = Object.freeze({ spacingFt: 6, farFt: 400, farSpacing: 2, farScale: 1.3, least: 0.1, paler: 1.3 });
+
+/*
+  Mist (docs/VISUALS.md, "Mist"). A tread running over a film of water flings it off as spray so
+  fine that the air stops it at once: it hangs low behind the wheel and thins away, a veil that
+  trails behind a truck at speed, not a cloud that rolls along with it. So it is laid along the
+  way a tire rolls, as dust is, a puff every so many feet: from `fromMph` (`fromWaterMph` wading
+  in the level's water), a puff every `spacingFt[0]` feet, closing to `spacingFt[1]` from
+  `fullMph`. Each leaves behind the tread, carried with `carried` of the truck's velocity and up
+  at `upFtS`.
+*/
+export const MIST = Object.freeze({ fromMph: 14, fromWaterMph: 12, fullMph: 50, spacingFt: Object.freeze([6, 1.8]), carried: 0.3, upFtS: Object.freeze([0.5, 2.5]) });
+
+/** How far apart a tire running at `speedFtS` lays its mist on what it stands on (`stood`, "wet" or "water"), feet; Infinity where it lays none. */
+export function mistSpacingFt(speedFtS, stood = "wet") {
+  const mph = Math.abs(speedFtS) * MPH_PER_FTS, from = stood === "water" ? MIST.fromWaterMph : MIST.fromMph;
+  if (!(mph > from) || (stood !== "wet" && stood !== "water")) return Infinity;
+  const fast = Math.min(1, (mph - from) / (MIST.fullMph - from));
+  return MIST.spacingFt[0] + (MIST.spacingFt[1] - MIST.spacingFt[0]) * fast;
+}
 
 /**
  * How much dust each ground type gives where its colour says it is dry and bare (the `.TTY`
@@ -163,9 +183,56 @@ export const STREAK_KINDS = Object.freeze({
   drop: Object.freeze({ tone: [0.72, 0.8, 0.88], ground: 0, glow: 0, widthFt: 0.09, trailS: 0.018, lifeS: [0.7, 2.0], bounce: 0, opacity: 0.4, terminalFtS: [18, 30] }),
   chip: Object.freeze({ tone: [0.92, 0.95, 1], ground: 0, glow: 0, widthFt: 0.1, trailS: 0.014, lifeS: [0.5, 1.2], bounce: 0.2, opacity: 0.95 }),
   clod: Object.freeze({ tone: [0.1, 0.075, 0.05], ground: 0.35, glow: 0, widthFt: 0.13, trailS: 0.012, lifeS: [0.5, 1.3], bounce: 0.12, opacity: 1 }),
-  // A bubble under water: it rises (`weight` is its pull against a falling thing's, so under nothing it goes up) and is gone at the surface.
-  bubble: Object.freeze({ tone: [0.75, 0.88, 0.95], ground: 0, glow: 0, widthFt: 0.14, trailS: 0, lifeS: [0.5, 1.4], bounce: 0, opacity: 0.5, weight: -0.22 }),
+  // A bubble under water: it rises as fast as its size lets it, and is gone at the surface (`BUBBLES`).
+  bubble: Object.freeze({ tone: [0.8, 0.9, 0.96], ground: 0, glow: 0, widthFt: 0.06, trailS: 0, lifeS: [14, 20], bounce: 0, opacity: 0.7, rises: true }),
 });
+
+/*
+  Bubbles (docs/VISUALS.md, "Under water"). A bubble has next to no weight of its own to carry it
+  on: whatever it was thrown with, the water takes from it at once (by 1/e in `settleS`), and it
+  rises as fast as its size lets it, under a foot a second for one a quarter of an inch across and
+  a foot and a half for one of an inch and a half. Middling ones climb in a spiral and big ones
+  wobble; the smallest go straight up. They rise to the surface, however long that takes (`lifeS`
+  is for one lost in very deep water), and are gone there. A tire under the water lets them go in
+  little clouds behind its tread, carried a moment by the water it drags along.
+*/
+/**
+ * A bubble is `widthFt` across, most of them near the small end (`bubbleWidth`), and rises at
+ * `riseFtS`, from the first for the smallest to the second for the largest. It spirals
+ * `turnsPerS` times a second (the larger, the slower) about a circle `spiral` of its own width
+ * across, the smallest not at all. A tire lets `clouds` go each tick (`DUST_TICK_S`), from the
+ * first at `fromMph` to the second at `fullMph`, each of one to `cloud` bubbles, carried with
+ * `carried` of the truck's velocity give or take `jitterFtS`.
+ */
+export const BUBBLES = Object.freeze({
+  widthFt: Object.freeze([0.025, 0.15]), riseFtS: Object.freeze([0.75, 1.5]), settleS: 0.15,
+  turnsPerS: Object.freeze([4, 1.5]), spiral: 1.2,
+  clouds: Object.freeze([0.15, 0.55]), fromMph: 3, fullMph: 30, cloud: 4, carried: 0.2, jitterFtS: 1,
+});
+
+/** How wide a new bubble is, feet, from `random()` in [0, 1): most of them small. */
+export const bubbleWidth = (random = Math.random) => BUBBLES.widthFt[0] + (BUBBLES.widthFt[1] - BUBBLES.widthFt[0]) * random() ** 2;
+
+/** How fast a bubble `widthFt` across rises once the water has taken what it was thrown with, ft/s. */
+export function bubbleRiseFtS(widthFt) {
+  const [small, large] = BUBBLES.widthFt, share = Math.min(1, Math.max(0, (widthFt - small) / (large - small)));
+  return BUBBLES.riseFtS[0] + (BUBBLES.riseFtS[1] - BUBBLES.riseFtS[0]) * share;
+}
+
+/** How a bubble `widthFt` across climbs: `{ turnsPerS, radiusFt }` of its spiral, none for the smallest. */
+export function bubbleSpiral(widthFt) {
+  const [small, large] = BUBBLES.widthFt, share = Math.min(1, Math.max(0, (widthFt - small) / (large - small)));
+  return {
+    turnsPerS: BUBBLES.turnsPerS[0] + (BUBBLES.turnsPerS[1] - BUBBLES.turnsPerS[0]) * share,
+    radiusFt: BUBBLES.spiral * widthFt * smoothstep(0.1, 0.4, share),
+  };
+}
+
+/** A bubble's velocity `vel` (ft/s, game axes) after `dt` seconds rising at `riseFtS`: the water takes what it was thrown with. */
+export function bubbleVelocity(vel, dt, riseFtS) {
+  const keep = Math.exp(-dt / BUBBLES.settleS);
+  return [vel[0] * keep, riseFtS + (vel[1] - riseFtS) * keep, vel[2] * keep];
+}
 
 /*
   Sparks (docs/VISUALS.md, "Sparks"). A spark is a glowing dot: a fleck torn off where two
@@ -312,15 +379,23 @@ export function tireThrows(stoodOn, speedFtS, random = Math.random) {
     case "dust": return mph > 22 ? { puff: null, streak: "clod", streaks: odds(Math.min(0.7, (mph - 22) / 50)) } : NOTHING;
     // Mud is flung in clods; it raises neither dust nor spray.
     case "mud": return mph > 8 ? { puff: null, streak: "clod", streaks: 1 + odds(Math.min(0.9, mph / 60)) } : NOTHING;
-    case "wet": return mph > 14 ? { puff: odds(0.5) ? "mist" : null, streak: "drop", streaks: mph > 22 ? 1 + odds(0.5) : 0 } : NOTHING;
+    // Wet hard ground: drops off the tread at speed. Its mist is laid along the way the tire rolls (`MIST`).
+    case "wet": return mph > 14 ? { puff: null, streak: "drop", streaks: mph > 22 ? 1 + odds(0.5) : 0 } : NOTHING;
     case "snow": return mph > 5 ? { puff: odds(Math.min(0.75, 0.3 + mph / 80)) ? "powder" : null, streak: "chip", streaks: Math.floor(mph / 24) + odds(0.45) } : NOTHING;
     case "ice": return mph > 10 ? { puff: mph > 30 && odds(0.2) ? "powder" : null, streak: "chip", streaks: odds(Math.min(0.6, mph / 70)) } : NOTHING;
-    // Open water is thrown aside in sheets of spray (`SPRAY`), and at speed some of it is beaten to mist.
-    case "water": return mph > 12 ? { puff: odds(Math.min(0.6, (mph - 12) / 60)) ? "mist" : null, streak: null, streaks: 0 } : NOTHING;
+    // Open water is thrown aside in sheets of spray (`SPRAY`), and at speed some of it is beaten to mist, laid along the way
+    // as on wet ground (`MIST`).
+    case "water": return NOTHING;
     // A puddle is thrown aside in sheets of spray (`SPRAY`), and raises no mist.
     case "puddle": return NOTHING;
-    // Under water a tire stirs up bubbles, and nothing breaks the surface.
-    case "under": return mph > 3 ? { puff: null, streak: "bubble", streaks: odds(Math.min(0.8, 0.3 + mph / 40)) + Math.floor(mph / 20) } : NOTHING;
+    // Under water a tire stirs up bubbles, a little cloud of them now and then, more often the faster (`BUBBLES`), and
+    // nothing breaks the surface.
+    case "under": {
+      if (!(mph > BUBBLES.fromMph)) return NOTHING;
+      const fast = Math.min(1, (mph - BUBBLES.fromMph) / (BUBBLES.fullMph - BUBBLES.fromMph));
+      const clouds = odds(BUBBLES.clouds[0] + (BUBBLES.clouds[1] - BUBBLES.clouds[0]) * fast);
+      return { puff: null, streak: "bubble", streaks: clouds ? 1 + Math.floor(random() * BUBBLES.cloud) : 0 };
+    }
     default: return NOTHING;
   }
 }
@@ -376,6 +451,49 @@ export function sprayVelocity({ vel, forward, side, random = Math.random }) {
   // The truck's right, in game axes.
   const right = [forward[1], -forward[0]];
   return [vel[0] * ahead + right[0] * out + jitter(), speed * rise + jitter(), vel[2] * ahead + right[1] * out + jitter()];
+}
+
+/*
+  Rooster tails (docs/VISUALS.md, "Spray"). A tire wading in the level's water, its tread part way
+  under, paddles the water up with its lugs and flings it off behind as the tread comes up out of
+  the water: a tall fan of spray behind each wheel, the higher the faster the tread runs. A tire
+  about half under throws the most; one barely wet throws only its sheets, and one wholly under
+  throws nothing out of the water. A puddle is too shallow to wade in.
+*/
+/**
+ * `drops` a tick (`DUST_TICK_S`), from `fromFtS` of tread to all of them at `fullFtS`, times how
+ * much the tire wades (`roosterWading`). A drop leaves the back of the tire at the water, up at
+ * `rise` of the tread's speed and along the truck's way at `ahead` of its speed, the higher the
+ * slower, so the tail leans back from the wheel; each scattered by up to `spreadFtS` every way.
+ * `veil` of them are drawn large and faint (`veilWidthFt` across, hiding `veilOpacity`): together
+ * a plume.
+ */
+export const ROOSTER = Object.freeze({
+  fromFtS: 6, fullFtS: 45, drops: Object.freeze([2, 10]), rise: Object.freeze([0.3, 0.8]), ahead: Object.freeze([0.5, 0.1]), spreadFtS: 2.5,
+  veil: 0.6, veilWidthFt: Object.freeze([0.25, 0.5]), veilOpacity: 0.13,
+});
+
+/** How much a tire of radius `radiusFt` wades, 0 to 1, with its foot `wetFt` under the water: most about half under, none barely wet or wholly under. */
+export function roosterWading(wetFt, radiusFt = 2.75) {
+  return smoothstep(0.15 * radiusFt, 0.7 * radiusFt, wetFt) * (1 - smoothstep(1.5 * radiusFt, 2.1 * radiusFt, wetFt));
+}
+
+/** How many drops of its rooster tail a tire whose tread runs at `treadFtS`, wading `wading`, throws in a tick. */
+export function roosterDrops(treadFtS, wading, random = Math.random) {
+  const fast = Math.min(1, Math.max(0, (Math.abs(treadFtS) - ROOSTER.fromFtS) / (ROOSTER.fullFtS - ROOSTER.fromFtS)));
+  if (!(fast > 0) || !(wading > 0)) return 0;
+  return Math.floor((ROOSTER.drops[0] + (ROOSTER.drops[1] - ROOSTER.drops[0]) * fast) * wading + random());
+}
+
+/**
+ * A rooster tail's drop's velocity as it leaves, ft/s, game axes: `vel` is the truck's, `forward` its heading (x, z, a
+ * unit vector) and `treadFtS` how fast the tire's tread runs.
+ */
+export function roosterVelocity({ vel, forward, treadFtS, random = Math.random }) {
+  const at = random(), across = ([from, to]) => from + (to - from) * at;
+  const up = across(ROOSTER.rise) * Math.abs(treadFtS), ahead = across(ROOSTER.ahead);
+  const jitter = () => (random() - 0.5) * 2 * ROOSTER.spreadFtS;
+  return [vel[0] * ahead + jitter(), up + jitter(), vel[2] * ahead + jitter()];
 }
 
 /** The colour of spray off a puddle over ground whose colour is `ground` (linear): water, with `muddy` of the ground's own, a little paler. */

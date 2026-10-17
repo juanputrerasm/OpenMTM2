@@ -4,9 +4,15 @@
   draws that). This is the same plane, at the same level and with the same bob, drawn by a
   shader of its own:
 
-   - waves: three fields of ripples moving across each other, calmer far off and in the shallows;
+   - waves: a field of wind waves worked out as waves on water run (game/water-waves.js), laid at
+     four sizes, in gusts, lying down in the shallows; far off, where the picture cannot show a
+     wave, its slope is roughness, read from the field's filtered pictures;
    - the sky in it: the level's own sky art, read where a ray off the surface would meet the
-     dome, more of it the lower the eye looks, with the sun's glint;
+     dome, more of it the lower the eye looks, as blurred as the water is rough;
+   - the land in it: the hills, as a level mirror would show them, broken up by the waves
+     (render/water-reflection.js works out what a mirror shows, once a frame);
+   - the sun's glint: the share of the water's facets tipped to send the sun to the eye, sparks
+     near and a path far off (Cox and Munk);
    - depth: how deep the water is at each point comes from the map of the ground under it
      (game/ground-maps.js), and what the eye sees is light that has passed through that much
      water (game/water.js): the bed, less of it the deeper it lies and its red gone first; and
@@ -26,17 +32,23 @@
      dragged over it, it is scored white. Each point of the ice looks only at the marks that
      reach into its own cell, so it costs the same however many there are.
 
-  It needs no second view of the scene and no picture of what lies behind it, so it costs one
-  pass over the water and a headset can afford it. Fog is the scene's, as for everything else.
+  The open water and the ice are two programs, the planes wearing one or the other: in one, the
+  ice's many lines made the open water cost nearly twice as much.
+
+  It needs no second view of the scene and no picture of what lies behind it: one pass over the
+  water, and the land it mirrors a small pass over the map of the ground, the same size on any
+  screen, so a headset can afford it. Fog is the scene's, as for everything else.
 */
 import * as THREE from "three";
-import { BACKDROP_DARK, ICE_SNOW_SHARE, SNOW_START, snowDown } from "../game/atmosphere.js";
+import { ICE_SNOW_SHARE, SNOW_START, snowDown } from "../game/atmosphere.js";
 import { ICE, ICE_MARKS, ICE_SCRAPES, ICE_STARS, createIceMarks } from "../game/ice.js";
-import { SNELL_WINDOW, WATER_BED, WATER_INDEX, WATER_RIPPLES, WATER_SCATTER, WATER_SILT, WATER_SILT_TONE, WATER_TAKES } from "../game/water.js";
+import { SNELL_WINDOW, WATER_BED, WATER_GLINT, WATER_INDEX, WATER_REFLECTION, WATER_RIPPLES, WATER_SCATTER, WATER_SILT, WATER_SILT_TONE, WATER_TAKES } from "../game/water.js";
 import { addShaderHook } from "./shader-hooks.js";
 import { WEATHER_LOOK, waterOffsetFt, waterOpacity } from "../game/weather.js";
-import { ATMOSPHERE_FRAGMENT_GLSL, atmosphereUniforms, screenColor } from "./atmosphere.js";
-import { cloudNoise, waveNoise } from "./noise-textures.js";
+import { ATMOSPHERE_FRAGMENT_GLSL, atmosphere, atmosphereUniforms, screenColor } from "./atmosphere.js";
+import { WATER_WAVES, WATER_WAVE_LAYOUT, waveLoopSeconds } from "../game/water-waves.js";
+import { cloudNoise, waveFieldTexture, waveNoise } from "./noise-textures.js";
+import { RAIN_RINGS_GLSL, mirrorSky, skyAlongGlsl } from "./water-common.js";
 
 const RAIN = 4, SNOW = 5;
 /** The game's opacity for the frozen water of Snow. */
@@ -75,22 +87,37 @@ void main() {
   gl_Position = projectionMatrix * view;
 }`;
 
-const FRAGMENT = /* glsl */ `
+/** What the water and the ice share: the scene's light and shadows, the sky and the fog. */
+const PRELUDE = /* glsl */ `
 varying vec3 vWorld;
 varying vec3 vView;
 #include <packing>
 #include <shadowmap_pars_fragment>
 // uSunShare: the sun's share of the daylight on the water, which a shadow takes away
-uniform float uTime, uLight, uIce, uSnow, uRain, uSkyOn, uWave, uDark, uSunShare;
+// uSkyVeil: how deep the fog over the eye lies, for the sky's veil (render/atmosphere.js \`skyVeil\`)
+uniform float uTime, uLight, uSnow, uRain, uSkyOn, uDark, uSunShare, uSkyVeil;
 // uDaylight: the light that falls on the water from the sky and the sun together; uScatter: the water's own colour
 uniform vec3 uSun, uSunColor, uDaylight, uScatter, uSkyCap, uHorizon, uFogColor, uFogRange, uGroundAt;
-uniform sampler2D uGround, uWaves, uCloud, uSky, uRipples;
+uniform sampler2D uGround, uCloud, uSky, uRipples;
 // the ripples' field (render/water-ripples.js): its corner on the map (feet), 1 / its width (feet), whether there is one
 uniform vec4 uRippleAt;
 // The marks the trucks have left in the ice, and each cell's list of those that reach into it (game/ice.js \`createIceMarks\`).
 uniform sampler2D uIceMarks, uIceGrid;
 ${ATMOSPHERE_FRAGMENT_GLSL}
 
+// The sun's shadow map at \`coord\` (three.js's packed depths), read at the four texels about the point and weighed
+// between them: soft over a texel. three.js's soft shadows read sixteen, in each cascade the loop below unrolls, which
+// cost the water more than all the rest of it; a surface that ripples needs no more than this.
+#if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
+float shadowAt( sampler2D map, vec2 size, float bias, vec4 coord ) {
+  vec3 on = coord.xyz / coord.w;
+  vec2 texel = on.xy * size - 0.5, f = fract( texel ), step_ = 1.0 / size;
+  vec2 base = ( floor( texel ) + 0.5 ) * step_;
+  float z = on.z + bias;
+  return mix( mix( texture2DCompare( map, base, z ), texture2DCompare( map, base + vec2( step_.x, 0.0 ), z ), f.x ),
+    mix( texture2DCompare( map, base + vec2( 0.0, step_.y ), z ), texture2DCompare( map, base + step_, z ), f.x ), f.y );
+}
+#endif
 // How much of the sun reaches this point, 0 to 1: from the finest of the sun's shadow maps that covers it (they are listed
 // nearest first), 1 where none does or there are no shadows.
 float sunReaches() {
@@ -104,7 +131,7 @@ float sunReaches() {
       if ( ! found ) {
         vec3 on = vDirectionalShadowCoord[ i ].xyz / vDirectionalShadowCoord[ i ].w;
         if ( all( greaterThan( on.xy, vec2( 0.01 ) ) ) && all( lessThan( on.xy, vec2( 0.99 ) ) ) && on.z <= 1.0 ) {
-          lit = getShadow( directionalShadowMap[ i ], caster.shadowMapSize, caster.shadowIntensity, caster.shadowBias, caster.shadowRadius, vDirectionalShadowCoord[ i ] );
+          lit = mix( 1.0, shadowAt( directionalShadowMap[ i ], caster.shadowMapSize, caster.shadowBias, vDirectionalShadowCoord[ i ] ), caster.shadowIntensity );
           found = true;
         }
       }
@@ -114,23 +141,48 @@ float sunReaches() {
   return lit;
 }
 
-// The sky a ray leaving the water along \`way\` would meet: the dome's own picture (render/track-scene.js skyGeometry).
-vec3 skyAlong( vec3 way, float blur ) {
-  if ( uSkyOn < 0.5 ) return uHorizon;
-  // Never the art's very last rows, which are the horizon's own line of haze: a hand above it.
-  float elevation = max( asin( clamp( way.y, 0.0, 1.0 ) ), 0.07 );
-  float around = atan( way.x, - way.z ) / 6.2831853;
-  // Four turns of the picture around the horizon; its rows from the bottom at the horizon to the top at 67.5 degrees.
-  vec2 uv = vec2( around * 4.0, ( 254.0 - 252.0 * clamp( elevation / 1.1780972, 0.0, 1.0 ) ) / 256.0 );
-  vec3 shown = mix( textureLod( uSky, uv, blur ).rgb, uSkyCap, smoothstep( 1.0, 1.178, elevation ) );
-  // Toward the horizon the sky is veiled as the land is: by the fog, or in the dark weathers by their darkness.
-  shown = mix( shown, uHorizon, uDark * ( 1.0 - smoothstep( 0.0, 0.22, way.y ) ) );
-  return mix( shown, uHorizon, mtmFogSkyHidden( way ) );
-}
-
+// The sky a ray leaving the water along \`way\` would meet (render/water-common.js).
+${skyAlongGlsl("skyAlong", { on: "uSkyOn", map: "uSky", cap: "uSkyCap", horizon: "uHorizon", dark: "uDark", veil: "uSkyVeil" })}
+${RAIN_RINGS_GLSL}
 float hash1( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
 vec2 hash2( vec2 p ) { return fract( sin( vec2( dot( p, vec2( 127.1, 311.7 ) ), dot( p, vec2( 269.5, 183.3 ) ) ) ) * 43758.5453 ); }
+`;
 
+/** The start of each one's `main`: where the point is, how deep the water under it, and the light on it. */
+const SETUP = /* glsl */ `
+  vec3 toEye = cameraPosition - vWorld;
+  float dist = length( toEye );
+  vec3 eye = toEye / dist;
+  bool under = eye.y < 0.0;
+  vec2 at = vec2( vWorld.x, - vWorld.z );
+  // How deep the water is here: its surface over the ground under it.
+  float depth = uGroundAt.z > 0.5 ? vWorld.y - ( texture2D( uGround, at * uGroundAt.y ).r + uGroundAt.x ) : 8.0;
+  float through = 1.0 - exp( - max( depth, 0.0 ) * 0.26 );
+  vec4 cloud = texture2D( uCloud, at / 61.0 );
+  vec3 color;
+  float alpha;
+  // In a shadow the water has the sky's light alone: no sun's share of the daylight, and no glint.
+  float sunLit = sunReaches();
+  float shade = 1.0 - uSunShare * ( 1.0 - sunLit );
+  vec3 daylight = uDaylight * shade;
+`;
+
+/** The end of each one's `main`: the colour out, through the curve and the fog. */
+const FINISH = /* glsl */ `
+  gl_FragColor = vec4( color, alpha );
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+  // The scene's fog, as every other material has it (render/atmosphere.js).
+  if ( mtmFog[ 0 ].x > 0.5 ) gl_FragColor.rgb = mtmFogApply( gl_FragColor.rgb, uFogColor, vView );
+  else if ( uFogRange.z > 0.5 ) gl_FragColor.rgb = mix( gl_FragColor.rgb, uFogColor, smoothstep( uFogRange.x, uFogRange.y, - vView.z ) );
+`;
+
+/**
+ * The ice (Snow), a program of its own. In one with the open water its many lines made the water cost nearly twice as
+ * much, though it never ran them: a graphics card sets aside for every point what the longer of the two needs.
+ */
+const ICE_FRAGMENT = /* glsl */ `
+${PRELUDE}
 // A value from 0 to 1 that wanders smoothly along \`u\`, its own for each \`seed\`.
 float iceWander( float u, float seed ) {
   float i = floor( u ), f = fract( u );
@@ -397,183 +449,258 @@ vec4 iceMarks( vec2 at, vec2 lean, float pixel, out float piece, out vec2 scrape
   return found;
 }
 
-// Rings where rain falls on the water: the slope they give the surface at \`p\` (feet).
-vec2 rainRings( vec2 p ) {
-  vec2 slope = vec2( 0.0 );
-  for ( int layer = 0; layer < 2; layer ++ ) {
-    vec2 q = p / ( 2.4 + float( layer ) * 1.9 ) + float( layer ) * 13.7;
-    vec2 cell = floor( q );
-    float seed = hash1( cell );
-    float age = fract( uTime * ( 0.8 + seed * 0.7 ) + seed * 9.0 );
-    vec2 off = fract( q ) - ( 0.3 + 0.4 * vec2( hash1( cell + 7.3 ), hash1( cell + 19.1 ) ) );
-    float r = length( off ), front = age * 0.42;
-    float band = exp( - pow( ( r - front ) / 0.035, 2.0 ) ) * ( 1.0 - age );
-    slope += ( off / max( r, 1e-3 ) ) * ( sin( ( r - front ) * 60.0 ) * band );
+void main() {
+${SETUP}
+  // How wide a pixel is on the ice here, feet, and how far aside the eye's line runs a foot down in it.
+  float pixel = length( fwidth( at ) );
+  vec2 lean = - vec2( eye.x, - eye.z ) / max( abs( eye.y ), ${glsl(ICE.flattest)} ) * ${glsl(ICE.bend)};
+  // Fine things fewer far off, where they would only shimmer.
+  float fineness = 1.0 / ( 1.0 + dist / 260.0 );
+  // The marks the trucks have left: where it was struck and which broken piece this is, and where a body was dragged.
+  float piece;
+  vec2 scraped;
+  vec4 struck = iceMarks( at, lean, pixel, piece, scraped );
+  // Ice: level and hard, and what it shows of the sky is blurred. A broken piece is tipped its own way; crushed ice is all facets.
+  vec4 vein = texture2D( uCloud, at / 23.0 );
+  vec3 face = normalize( vec3( ( vein.a - 0.5 ) * 0.04, 1.0, ( vein.b - 0.5 ) * 0.04 ) );
+  if ( piece >= 0.0 ) face = normalize( face + vec3( ( hash2( vec2( piece, 1.3 ) ) - 0.5 ) * ${glsl(2 * ICE_STARS.tiltRad)}, 0.0 ).xzy );
+  // Crushed ice is shards a few inches across, each tipped its own way, with fine cracks between them.
+  vec4 shards = struck.z > 0.0 ? icePlates( at / 0.42 + 5.0 + ( vein.rg - 0.5 ) * 1.4 ) : vec4( 1.0, 0.5, 0.0, 0.0 );
+  face = normalize( face + vec3( hash2( vec2( shards.y, 7.7 ) ) - 0.5, 0.0 ).xzy * 0.6 * struck.z );
+  if ( under ) face = - face;
+  // Scored ice is rough: it throws back less of the sky, and that blurred.
+  float glance = pow( clamp( 1.0 - dot( eye, face ), 0.0, 1.0 ), 5.0 ) * ( 1.0 - 0.6 * scraped.y );
+  vec3 back = reflect( - eye, face );
+  back.y = abs( back.y );
+  // Dark where water lies under it, pale where it is frozen to the bed, a shade lighter or darker in broad patches;
+  // milky in places.
+  vec3 body = mix( vec3( 0.5, 0.64, 0.71 ), vec3( 0.045, 0.14, 0.21 ), through ) * ( 0.9 + 0.2 * cloud.g );
+  float milk = smoothstep( 0.42, 0.66, texture2D( uCloud, ( at + lean * 0.5 ) / 140.0 ).g * 0.7 + vein.r * 0.3 );
+  body = mix( body, vec3( 0.52, 0.66, 0.73 ), milk * 0.55 );
+  // Bubbles caught in it, in swarms, a little way down.
+  float bubbles = smoothstep( 0.6, 0.68, texture2D( uCloud, ( at + lean * 0.3 ) / 2.3 ).a ) * smoothstep( 0.5, 0.6, texture2D( uCloud, at / 37.0 ).b );
+  body = mix( body, vec3( 0.7, 0.8, 0.85 ), bubbles * 0.5 );
+  /*
+    The ice's own cracks (game/ice.js \`ICE\`), each a bright line on the surface over its face, which is seen running down
+    into the ice where the eye's line meets it. Three fields of them, each pushed about so that no two plates are alike:
+    long cracks between floes; plates, most of their cracks showing where the ice is broken up and few where it is
+    whole; and hairlines in patches. Each crack is as wide, deep and bright as its own number has it.
+  */
+  float broken = smoothstep( 0.35, 0.65, texture2D( uCloud, at / ${glsl(ICE.patchFt)} + 0.43 ).g );
+  vec4 floes = iceCracks( at / ${glsl(ICE.floeFt)} + 5.3 + ( texture2D( uCloud, at / 433.0 ).ba - 0.5 ) * ${glsl(2 * ICE.warp)} + ( cloud.ba - 0.5 ) * 0.03,
+    ${glsl(ICE.floesKept)} );
+  vec2 floe = crackSeen( floes.x * ${glsl(ICE.floeFt)}, - dot( lean, floes.zw ), ${glsl(ICE.floeDepthFt)} * iceVary( floes.y, 7.31 ), 0.045 * iceVary( floes.y, 13.7 ), pixel )
+    * ( 0.55 + 0.45 * fract( floes.y * 3.17 ) );
+  vec4 plates = iceCracks( at / ${glsl(ICE.plateFt)} + ( texture2D( uCloud, at / 157.0 ).rg - 0.5 ) * ${glsl(2 * ICE.warp)} + ( cloud.rg - 0.5 ) * 0.22 + ( vein.ba - 0.5 ) * 0.03,
+    mix( ${glsl(ICE.platesKept[0])}, ${glsl(ICE.platesKept[1])}, broken ) );
+  vec2 crack = crackSeen( plates.x * ${glsl(ICE.plateFt)}, - dot( lean, plates.zw ), ${glsl(ICE.crackDepthFt)} * iceVary( plates.y, 7.31 ), 0.03 * iceVary( plates.y, 13.7 ), pixel )
+    * ( 0.55 + 0.45 * fract( plates.y * 3.17 ) );
+  float hairy = smoothstep( 0.42, 0.62, texture2D( uCloud, at / 89.0 + 0.37 ).b ) * fineness;
+  vec2 hair = vec2( 0.0 );
+  if ( hairy > 0.02 ) {
+    vec4 fine = iceCracks( at / ${glsl(ICE.hairlineFt)} + 17.0 + ( vein.gb - 0.5 ) * 0.7, ${glsl(ICE.hairlinesKept)} );
+    hair = crackSeen( fine.x * ${glsl(ICE.hairlineFt)}, - dot( lean, fine.zw ), ${glsl(ICE.hairlineDepthFt)} * iceVary( fine.y, 7.31 ), 0.01 * iceVary( fine.y, 13.7 ), pixel ) * 0.5 * hairy;
   }
-  return slope;
+  // Faces, the ice's own and the marks' alike: silvery, as a plane of ice against air throws back what reaches it.
+  // A face throws back more in some places than others.
+  body += vec3( 0.42, 0.55, 0.6 ) * ( crack.y * 0.5 + floe.y * 0.55 + hair.y + struck.y * ( 0.45 + 0.4 * vein.r ) ) * ( 0.4 + 0.6 * through ) * fineness;
+  float lines = clamp( crack.x * 0.85 + floe.x + hair.x + struck.x, 0.0, 1.0 );
+  body = mix( body, vec3( 0.8, 0.9, 0.94 ), lines * ( 0.35 + 0.65 * through ) );
+  // Water welled up round the crushed middle of a blow: dark, and wet on top.
+  body *= 1.0 - 0.45 * struck.w;
+  // The crushed middle: white, broken small, darker in the cracks between the shards.
+  vec3 crushedIce = vec3( 0.86, 0.92, 0.95 ) * ( 0.8 + 0.2 * shards.y ) * ( 1.0 - 0.18 * iceCrack( shards.x * 0.42, 0.015, pixel ) );
+  body = mix( body, crushedIce, struck.z * ( 0.6 + 0.4 * vein.a ) );
+  // Scored white where a body was dragged over it.
+  body = mix( body, vec3( 0.8, 0.87, 0.91 ) * ( 0.9 + 0.1 * vein.a ), scraped.y * 0.8 );
+  body *= uLight * shade;
+  color = mix( body, skyAlong( back, 3.5 + 2.0 * scraped.y ), ( 0.05 + 0.55 * glance + 0.25 * struck.w ) * ( 1.0 - 0.6 * struck.z ) );
+  color += uSunColor * ( pow( max( dot( back, uSun ), 0.0 ), 90.0 ) * 0.6 * ( 1.0 - 0.7 * scraped.y ) ) * sunLit;
+  // Snow on the ice, in drifts the wind has drawn out: it covers \`uSnow\` of it (the noise lies about a half, so a
+  // threshold there covers half), and gathers first along the shore.
+  vec2 blown = vec2( at.x * 0.82 + at.y * 0.57, at.y * 0.82 - at.x * 0.57 );
+  float drift = texture2D( uCloud, blown / vec2( 310.0, 120.0 ) ).r * 0.55 + texture2D( uCloud, blown / vec2( 90.0, 31.0 ) ).b * 0.3 + cloud.b * 0.15;
+  // (The threshold falls with the share to cover: at a seventh, the tops of the drifts and a fringe along the shore.)
+  float edge = 0.85 - 0.7 * uSnow;
+  float lying = smoothstep( edge - 0.015, edge + 0.045, drift + ( 1.0 - smoothstep( 0.0, 2.5, depth ) ) * 0.3 + ( vein.a - 0.5 ) * 0.05 ) * step( 0.001, uSnow );
+  // The drift's edge is thin and lets the ice show; a blow, or a body dragged through it, sweeps it clear.
+  lying *= 1.0 - 0.85 * max( max( struck.z, struck.w ), scraped.x );
+  color = mix( color, vec3( 0.87, 0.91, 0.97 ) * uLight * shade * ( 0.92 + 0.08 * vein.a ), lying );
+  alpha = ${ICE_OPACITY.toFixed(4)} * smoothstep( - 0.05, 0.12, depth );
+${FINISH}
+}`;
+
+/** The open water. */
+const WATER_FRAGMENT = /* glsl */ `
+${PRELUDE}
+// The land in the water (render/water-reflection.js): its map, and whether it holds anything this frame.
+uniform sampler2D uLand;
+uniform float uLandOn;
+// The waves (game/water-waves.js): the field, and for each of the four sizes it is laid at the way its waves run on
+// the map (the wind's, turned a little) and 1 / its size (feet), and how far through its loop it is.
+uniform highp sampler3D uWaveField;
+uniform vec3 uWaveWays[ 4 ];
+uniform vec4 uWaveLoop;
+// how strongly each size is laid, this weather's wind times its own (the gusts come on top), and the roughness below them
+uniform vec4 uWaveGain;
+uniform float uWaveRough;
+// where the gusts' pattern lies now (feet), 1 / their size (feet); the sun's light on a face square to it, for its glint
+uniform vec3 uGustAt;
+uniform vec3 uSunGlint;
+// the colour of the silt the trucks stir up: the level's ground's
+uniform vec3 uSiltTone;
+// The field at one of its sizes, at the map point \`at\`, as strong as \`gain\`: its slope, onto \`slope\` (the map's axes),
+// and the mean square of what of it is too fine to show at this distance, onto \`rough\`.
+void waveAt( int size, vec2 at, float gain, inout vec2 slope, inout float rough ) {
+  vec3 way = uWaveWays[ size ];
+  vec2 across = vec2( - way.y, way.x );
+  vec4 field = texture( uWaveField, vec3( vec2( dot( way.xy, at ), dot( across, at ) ) * way.z, uWaveLoop[ size ] ) );
+  vec2 s = ( field.rg - 0.5 ) * ${glsl(2 * WATER_WAVES.slopeRange)};
+  float meanSquare = field.a * ${glsl(2 * WATER_WAVES.slopeRange * WATER_WAVES.slopeRange)};
+  slope += gain * ( way.xy * s.x + across * s.y );
+  rough += gain * gain * max( meanSquare - dot( s, s ), 0.0 );
+}
+// The land a line leaving the water along \`way\` meets, as the map holds it: its colour, already as much of it as
+// fills the line, and how much of the line it fills (none where the line meets only the sky).
+vec4 landAlong( vec3 way, float blur ) {
+  if ( uLandOn < 0.5 ) return vec4( 0.0 );
+  return textureLod( uLand, vec2( atan( way.x, - way.z ) / 6.2831853, sqrt( clamp( way.y, 0.0, 1.0 ) ) ), blur );
 }
 
 void main() {
-  vec3 toEye = cameraPosition - vWorld;
-  float dist = length( toEye );
-  vec3 eye = toEye / dist;
-  bool under = eye.y < 0.0;
-  vec2 at = vec2( vWorld.x, - vWorld.z );
-  // How deep the water is here: its surface over the ground under it.
-  float depth = uGroundAt.z > 0.5 ? vWorld.y - ( texture2D( uGround, at * uGroundAt.y ).r + uGroundAt.x ) : 8.0;
-  float through = 1.0 - exp( - max( depth, 0.0 ) * 0.26 );
-  vec4 cloud = texture2D( uCloud, at / 61.0 );
-  vec3 color;
-  float alpha;
-  // In a shadow the water has the sky's light alone: no sun's share of the daylight, and no glint.
-  float sunLit = sunReaches();
-  float shade = 1.0 - uSunShare * ( 1.0 - sunLit );
-  vec3 daylight = uDaylight * shade;
-
-  if ( uIce > 0.5 ) {
-    // How wide a pixel is on the ice here, feet, and how far aside the eye's line runs a foot down in it.
-    float pixel = length( fwidth( at ) );
-    vec2 lean = - vec2( eye.x, - eye.z ) / max( abs( eye.y ), ${glsl(ICE.flattest)} ) * ${glsl(ICE.bend)};
-    // Fine things fewer far off, where they would only shimmer.
-    float fineness = 1.0 / ( 1.0 + dist / 260.0 );
-    // The marks the trucks have left: where it was struck and which broken piece this is, and where a body was dragged.
-    float piece;
-    vec2 scraped;
-    vec4 struck = iceMarks( at, lean, pixel, piece, scraped );
-    // Ice: level and hard, and what it shows of the sky is blurred. A broken piece is tipped its own way; crushed ice is all facets.
-    vec4 vein = texture2D( uCloud, at / 23.0 );
-    vec3 face = normalize( vec3( ( vein.a - 0.5 ) * 0.04, 1.0, ( vein.b - 0.5 ) * 0.04 ) );
-    if ( piece >= 0.0 ) face = normalize( face + vec3( ( hash2( vec2( piece, 1.3 ) ) - 0.5 ) * ${glsl(2 * ICE_STARS.tiltRad)}, 0.0 ).xzy );
-    // Crushed ice is shards a few inches across, each tipped its own way, with fine cracks between them.
-    vec4 shards = struck.z > 0.0 ? icePlates( at / 0.42 + 5.0 + ( vein.rg - 0.5 ) * 1.4 ) : vec4( 1.0, 0.5, 0.0, 0.0 );
-    face = normalize( face + vec3( hash2( vec2( shards.y, 7.7 ) ) - 0.5, 0.0 ).xzy * 0.6 * struck.z );
-    if ( under ) face = - face;
-    // Scored ice is rough: it throws back less of the sky, and that blurred.
-    float glance = pow( clamp( 1.0 - dot( eye, face ), 0.0, 1.0 ), 5.0 ) * ( 1.0 - 0.6 * scraped.y );
-    vec3 back = reflect( - eye, face );
-    back.y = abs( back.y );
-    // Dark where water lies under it, pale where it is frozen to the bed, a shade lighter or darker in broad patches;
-    // milky in places.
-    vec3 body = mix( vec3( 0.5, 0.64, 0.71 ), vec3( 0.045, 0.14, 0.21 ), through ) * ( 0.9 + 0.2 * cloud.g );
-    float milk = smoothstep( 0.42, 0.66, texture2D( uCloud, ( at + lean * 0.5 ) / 140.0 ).g * 0.7 + vein.r * 0.3 );
-    body = mix( body, vec3( 0.52, 0.66, 0.73 ), milk * 0.55 );
-    // Bubbles caught in it, in swarms, a little way down.
-    float bubbles = smoothstep( 0.6, 0.68, texture2D( uCloud, ( at + lean * 0.3 ) / 2.3 ).a ) * smoothstep( 0.5, 0.6, texture2D( uCloud, at / 37.0 ).b );
-    body = mix( body, vec3( 0.7, 0.8, 0.85 ), bubbles * 0.5 );
-    /*
-      The ice's own cracks (game/ice.js \`ICE\`), each a bright line on the surface over its face, which is seen running down
-      into the ice where the eye's line meets it. Three fields of them, each pushed about so that no two plates are alike:
-      long cracks between floes; plates, most of their cracks showing where the ice is broken up and few where it is
-      whole; and hairlines in patches. Each crack is as wide, deep and bright as its own number has it.
-    */
-    float broken = smoothstep( 0.35, 0.65, texture2D( uCloud, at / ${glsl(ICE.patchFt)} + 0.43 ).g );
-    vec4 floes = iceCracks( at / ${glsl(ICE.floeFt)} + 5.3 + ( texture2D( uCloud, at / 433.0 ).ba - 0.5 ) * ${glsl(2 * ICE.warp)} + ( cloud.ba - 0.5 ) * 0.03,
-      ${glsl(ICE.floesKept)} );
-    vec2 floe = crackSeen( floes.x * ${glsl(ICE.floeFt)}, - dot( lean, floes.zw ), ${glsl(ICE.floeDepthFt)} * iceVary( floes.y, 7.31 ), 0.045 * iceVary( floes.y, 13.7 ), pixel )
-      * ( 0.55 + 0.45 * fract( floes.y * 3.17 ) );
-    vec4 plates = iceCracks( at / ${glsl(ICE.plateFt)} + ( texture2D( uCloud, at / 157.0 ).rg - 0.5 ) * ${glsl(2 * ICE.warp)} + ( cloud.rg - 0.5 ) * 0.22 + ( vein.ba - 0.5 ) * 0.03,
-      mix( ${glsl(ICE.platesKept[0])}, ${glsl(ICE.platesKept[1])}, broken ) );
-    vec2 crack = crackSeen( plates.x * ${glsl(ICE.plateFt)}, - dot( lean, plates.zw ), ${glsl(ICE.crackDepthFt)} * iceVary( plates.y, 7.31 ), 0.03 * iceVary( plates.y, 13.7 ), pixel )
-      * ( 0.55 + 0.45 * fract( plates.y * 3.17 ) );
-    float hairy = smoothstep( 0.42, 0.62, texture2D( uCloud, at / 89.0 + 0.37 ).b ) * fineness;
-    vec2 hair = vec2( 0.0 );
-    if ( hairy > 0.02 ) {
-      vec4 fine = iceCracks( at / ${glsl(ICE.hairlineFt)} + 17.0 + ( vein.gb - 0.5 ) * 0.7, ${glsl(ICE.hairlinesKept)} );
-      hair = crackSeen( fine.x * ${glsl(ICE.hairlineFt)}, - dot( lean, fine.zw ), ${glsl(ICE.hairlineDepthFt)} * iceVary( fine.y, 7.31 ), 0.01 * iceVary( fine.y, 13.7 ), pixel ) * 0.5 * hairy;
-    }
-    // Faces, the ice's own and the marks' alike: silvery, as a plane of ice against air throws back what reaches it.
-    // A face throws back more in some places than others.
-    body += vec3( 0.42, 0.55, 0.6 ) * ( crack.y * 0.5 + floe.y * 0.55 + hair.y + struck.y * ( 0.45 + 0.4 * vein.r ) ) * ( 0.4 + 0.6 * through ) * fineness;
-    float lines = clamp( crack.x * 0.85 + floe.x + hair.x + struck.x, 0.0, 1.0 );
-    body = mix( body, vec3( 0.8, 0.9, 0.94 ), lines * ( 0.35 + 0.65 * through ) );
-    // Water welled up round the crushed middle of a blow: dark, and wet on top.
-    body *= 1.0 - 0.45 * struck.w;
-    // The crushed middle: white, broken small, darker in the cracks between the shards.
-    vec3 crushedIce = vec3( 0.86, 0.92, 0.95 ) * ( 0.8 + 0.2 * shards.y ) * ( 1.0 - 0.18 * iceCrack( shards.x * 0.42, 0.015, pixel ) );
-    body = mix( body, crushedIce, struck.z * ( 0.6 + 0.4 * vein.a ) );
-    // Scored white where a body was dragged over it.
-    body = mix( body, vec3( 0.8, 0.87, 0.91 ) * ( 0.9 + 0.1 * vein.a ), scraped.y * 0.8 );
-    body *= uLight * shade;
-    color = mix( body, skyAlong( back, 3.5 + 2.0 * scraped.y ), ( 0.05 + 0.55 * glance + 0.25 * struck.w ) * ( 1.0 - 0.6 * struck.z ) );
-    color += uSunColor * ( pow( max( dot( back, uSun ), 0.0 ), 90.0 ) * 0.6 * ( 1.0 - 0.7 * scraped.y ) ) * sunLit;
-    // Snow on the ice, in drifts the wind has drawn out: it covers \`uSnow\` of it (the noise lies about a half, so a
-    // threshold there covers half), and gathers first along the shore.
-    vec2 blown = vec2( at.x * 0.82 + at.y * 0.57, at.y * 0.82 - at.x * 0.57 );
-    float drift = texture2D( uCloud, blown / vec2( 310.0, 120.0 ) ).r * 0.55 + texture2D( uCloud, blown / vec2( 90.0, 31.0 ) ).b * 0.3 + cloud.b * 0.15;
-    // (The threshold falls with the share to cover: at a seventh, the tops of the drifts and a fringe along the shore.)
-    float edge = 0.85 - 0.7 * uSnow;
-    float lying = smoothstep( edge - 0.015, edge + 0.045, drift + ( 1.0 - smoothstep( 0.0, 2.5, depth ) ) * 0.3 + ( vein.a - 0.5 ) * 0.05 ) * step( 0.001, uSnow );
-    // The drift's edge is thin and lets the ice show; a blow, or a body dragged through it, sweeps it clear.
-    lying *= 1.0 - 0.85 * max( max( struck.z, struck.w ), scraped.x );
-    color = mix( color, vec3( 0.87, 0.91, 0.97 ) * uLight * shade * ( 0.92 + 0.08 * vein.a ), lying );
-    alpha = ${ICE_OPACITY.toFixed(4)} * smoothstep( - 0.05, 0.12, depth );
-  } else {
-    // Waves: three fields of ripples crossing, calmer in the distance (where they would only shimmer) and in the shallows.
-    float calm = 1.0 / ( 1.0 + dist / 450.0 );
-    vec2 slope = ( texture2D( uWaves, at / 43.0 + uTime * vec2( 0.013, 0.008 ) ).rg - 0.5 ) * 0.9
-      + ( texture2D( uWaves, at / 15.0 - uTime * vec2( 0.023, - 0.015 ) ).rg - 0.5 ) * 0.55
-      + ( texture2D( uWaves, at / 127.0 + uTime * vec2( - 0.004, 0.006 ) ).rg - 0.5 ) * 1.1;
-    slope *= uWave * ( 0.3 + 0.7 * calm ) * ( 0.35 + 0.65 * smoothstep( 0.0, 2.0, depth ) );
-    if ( uRain > 0.0 ) slope += rainRings( at ) * ( uRain * 0.5 * calm );
-    // The ripples and wakes the trucks stir, and their foam, about the eye.
-    float churned = 0.0;
-    vec2 rippleUv = ( at - uRippleAt.xy ) * uRippleAt.z;
-    if ( uRippleAt.w > 0.5 && all( greaterThan( rippleUv, vec2( 0.0 ) ) ) && all( lessThan( rippleUv, vec2( 1.0 ) ) ) ) {
-      vec2 texel = vec2( ${(1 / WATER_RIPPLES.windowTexels).toFixed(6)}, 0.0 );
-      vec2 rippleSlope = vec2(
-        texture2D( uRipples, rippleUv + texel.xy ).r - texture2D( uRipples, rippleUv - texel.xy ).r,
-        texture2D( uRipples, rippleUv + texel.yx ).r - texture2D( uRipples, rippleUv - texel.yx ).r ) / ${(2 * WATER_RIPPLES.texelFt).toFixed(3)};
-      vec2 rippleEdge = min( rippleUv, 1.0 - rippleUv );
-      float rippleShown = smoothstep( 0.0, 0.1, min( rippleEdge.x, rippleEdge.y ) );
-      slope += rippleSlope * ( 2.4 * rippleShown );
-      churned = texture2D( uRipples, rippleUv ).b * rippleShown;
-    }
-    // The scene mirrors z, so a slope along the map's second axis leans the other way.
-    vec3 face = normalize( vec3( - slope.x, 1.0, slope.y ) );
-    if ( under ) face = - face;
-    float glance = 0.02 + 0.98 * pow( clamp( 1.0 - dot( eye, face ), 0.0, 1.0 ), 5.0 );
-    vec3 back = reflect( - eye, face );
-    if ( under ) {
-      // From below. Within a cone about straight up the sky is seen through the surface, ruffled and bright; outside
-      // it the surface is a mirror of the water under it (game/water.js \`SNELL_WINDOW\`).
-      float up = - eye.y + ( slope.x + slope.y ) * 0.25;
-      float window = smoothstep( ${(SNELL_WINDOW - 0.07).toFixed(3)}, ${(SNELL_WINDOW + 0.05).toFixed(3)}, up );
-      vec3 through_ = refract( - eye, face, ${WATER_INDEX.toFixed(3)} );
-      through_.y = abs( through_.y );
-      vec3 above = skyAlong( normalize( through_ + vec3( 0.0, 1e-3, 0.0 ) ), 2.0 ) * 0.85 + uSunColor * pow( max( dot( through_, uSun ), 0.0 ), 60.0 ) * 0.6;
-      color = mix( uScatter * uDaylight * 1.4, above, window );
-      alpha = mix( 0.92, 0.8, window );
-    } else {
-      back.y = abs( back.y );
-      // The line of sight through the water, bent toward the upright at the surface, and what the water does along it:
-      // it takes the bed's light, red first, and gives its own, the daylight it scatters.
-      float path = max( depth, 0.0 ) / sqrt( 1.0 - ( 1.0 - eye.y * eye.y ) / ${(WATER_INDEX * WATER_INDEX).toFixed(4)} );
-      vec3 passes = exp( - vec3( ${WATER_TAKES.map((v) => v.toFixed(4)).join(", ")} ) * path );
-      float hides = 1.0 - dot( passes, vec3( 0.2126, 0.7152, 0.0722 ) );
-      vec3 body = uScatter * daylight * ( 1.0 - passes ) / max( hides, 1e-3 );
-      color = mix( body, skyAlong( back, 1.0 ), glance );
-      float toSun = max( dot( back, uSun ), 0.0 );
-      color += uSunColor * ( pow( toSun, 420.0 ) * 2.4 + pow( toSun, 36.0 ) * 0.05 ) * sunLit;
-      // How much of the bed the water hides is the water's own doing, whatever the weather: in the dark deep water is
-      // black, not clear.
-      alpha = max( hides, glance );
-      // Foam where the water meets the shore, lapping in and out, as bright as the day.
-      float reach = 0.3 + 0.22 * sin( uTime * 0.7 + cloud.r * 9.0 );
-      float foam = ( 1.0 - smoothstep( 0.0, reach, depth ) ) * smoothstep( 0.25, 0.6, cloud.b + 0.25 * sin( uTime * 1.3 + cloud.g * 12.0 ) );
-      // And where the trucks have churned it, in streaks that break up as it thins.
-      float lace = texture2D( uCloud, at / 40.0 + uTime * 0.004 ).a * 0.6 + texture2D( uCloud, at / 23.0 - uTime * 0.006 ).b * 0.4;
-      float churnedShows = smoothstep( 0.25, 0.55, churned * ( 0.2 + 1.8 * lace ) ) * smoothstep( 0.02, 0.12, churned );
-      foam = max( foam, churnedShows );
-      color = mix( color, vec3( 0.8, 0.84, 0.86 ) * daylight, foam * 0.75 );
-      alpha = max( alpha, foam * 0.8 ) * smoothstep( - 0.02, 0.1, depth );
-    }
+${SETUP}
+  /*
+    Waves (game/water-waves.js): the field at four sizes, with the wind and gusting. A gust raises the short waves at
+    once, the long less; between gusts the water below the field lies glassy. Far off, where the picture cannot show a
+    wave, its slope becomes roughness: the sky in the water blurs and the sun's glint spreads into a path. The waves lie
+    down in the shallows.
+  */
+  vec2 gusts = texture2D( uCloud, ( at - uGustAt.xy ) * uGustAt.z ).rg;
+  float gust = mix( ${glsl(WATER_WAVE_LAYOUT.gustReach[0])}, ${glsl(WATER_WAVE_LAYOUT.gustReach[1])}, smoothstep( 0.32, 0.68, gusts.r * 0.65 + gusts.g * 0.35 ) );
+  float shallow = 0.35 + 0.65 * smoothstep( 0.0, 2.0, depth );
+  vec2 slope = vec2( 0.0 );
+  float rough = 0.0;
+  waveAt( 0, at, uWaveGain.x * sqrt( gust ) * shallow, slope, rough );
+  waveAt( 1, at, uWaveGain.y * gust * shallow, slope, rough );
+  waveAt( 2, at, uWaveGain.z * gust * shallow, slope, rough );
+  // The finest only near the eye; further off, all its slope is roughness (the field's mean square, twice its square slope).
+  float finest = uWaveGain.w * gust * shallow, near = 1.0 - smoothstep( ${glsl(WATER_WAVE_LAYOUT.finestFt * 2 / 3)}, ${glsl(WATER_WAVE_LAYOUT.finestFt)}, dist );
+  if ( near > 0.0 ) waveAt( 3, at, finest * near, slope, rough );
+  rough += finest * finest * ( 1.0 - near * near ) * ${glsl(2 * WATER_WAVES.slopeRms * WATER_WAVES.slopeRms)};
+  rough += uWaveRough * gust * gust * shallow * shallow;
+  // Rain's rings, fewer far off where they would only shimmer.
+  if ( uRain > 0.0 ) slope += mtmRainRings( at, uTime ) * ( uRain * 0.5 / ( 1.0 + dist / 450.0 ) );
+  // The ripples and wakes the trucks stir, the water they beat white and the silt they stir up, about the eye.
+  float churned = 0.0, silt = 0.0;
+  vec4 stirred = vec4( 0.0 );
+  vec2 rippleUv = ( at - uRippleAt.xy ) * uRippleAt.z;
+  if ( uRippleAt.w > 0.5 && all( greaterThan( rippleUv, vec2( 0.0 ) ) ) && all( lessThan( rippleUv, vec2( 1.0 ) ) ) ) {
+    vec2 texel = vec2( ${(1 / WATER_RIPPLES.windowTexels).toFixed(6)}, 0.0 );
+    vec2 rippleSlope = vec2(
+      texture2D( uRipples, rippleUv + texel.xy ).r - texture2D( uRipples, rippleUv - texel.xy ).r,
+      texture2D( uRipples, rippleUv + texel.yx ).r - texture2D( uRipples, rippleUv - texel.yx ).r ) / ${(2 * WATER_RIPPLES.texelFt).toFixed(3)};
+    vec2 rippleEdge = min( rippleUv, 1.0 - rippleUv );
+    float rippleShown = smoothstep( 0.0, 0.1, min( rippleEdge.x, rippleEdge.y ) );
+    slope += rippleSlope * ( 1.4 * rippleShown );
+    stirred = texture2D( uRipples, rippleUv ) * rippleShown;
+    churned = stirred.b;
+    silt = stirred.a;
+    // Churned water is rough: what it mirrors blurs, and its glints spread.
+    rough += 0.05 * churned;
   }
-  gl_FragColor = vec4( color, alpha );
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
-  // The scene's fog, as every other material has it (render/atmosphere.js).
-  if ( mtmFog[ 0 ].x > 0.5 ) gl_FragColor.rgb = mtmFogApply( gl_FragColor.rgb, uFogColor, vView );
-  else if ( uFogRange.z > 0.5 ) gl_FragColor.rgb = mix( gl_FragColor.rgb, uFogColor, smoothstep( uFogRange.x, uFogRange.y, - vView.z ) );
+  // The scene mirrors z, so a slope along the map's second axis leans the other way.
+  vec3 face = normalize( vec3( - slope.x, 1.0, slope.y ) );
+  if ( under ) face = - face;
+  float glance = 0.02 + 0.98 * pow( clamp( 1.0 - dot( eye, face ), 0.0, 1.0 ), 5.0 );
+  vec3 back = reflect( - eye, face );
+  // How far the roughness spreads what the water mirrors, radians either way: twice the slope's spread along an axis.
+  rough = max( rough, 1e-4 );
+  float spread = 2.0 * sqrt( 0.5 * rough );
+  if ( under ) {
+    // From below. Within a cone about straight up the sky is seen through the surface, ruffled and bright; outside
+    // it the surface is a mirror of the water under it (game/water.js \`SNELL_WINDOW\`).
+    float up = - eye.y + ( slope.x + slope.y ) * 0.25;
+    float window = smoothstep( ${(SNELL_WINDOW - 0.07).toFixed(3)}, ${(SNELL_WINDOW + 0.05).toFixed(3)}, up );
+    vec3 through_ = refract( - eye, face, ${WATER_INDEX.toFixed(3)} );
+    through_.y = abs( through_.y );
+    vec3 above = skyAlong( normalize( through_ + vec3( 0.0, 1e-3, 0.0 ) ), 2.0 ) * 0.85 + uSunColor * pow( max( dot( through_, uSun ), 0.0 ), 60.0 ) * 0.6;
+    color = mix( uScatter * uDaylight * 4.2, above, window );
+    alpha = mix( 0.92, 0.8, window );
+  } else {
+    back.y = abs( back.y );
+    // The line of sight through the water, bent toward the upright at the surface, and what the water does along it:
+    // it takes the bed's light, red first, and gives its own, the daylight it scatters.
+    float path = max( depth, 0.0 ) / sqrt( 1.0 - ( 1.0 - eye.y * eye.y ) / ${(WATER_INDEX * WATER_INDEX).toFixed(4)} );
+    vec3 passes = exp( - vec3( ${WATER_TAKES.map((v) => v.toFixed(4)).join(", ")} ) * path );
+    float hides = 1.0 - dot( passes, vec3( 0.2126, 0.7152, 0.0722 ) );
+    vec3 body = uScatter * daylight * ( 1.0 - passes ) / max( hides, 1e-3 );
+    /*
+      Churned water (game/water.js \`wheelStir\`): beaten full of air it is milky and pale, a white green under its foam;
+      stirred off the bed it is clouded with silt the colour of the ground, which hides the bed, the more the shallower the
+      water (in deep water the cloud stays down by the bed).
+    */
+    if ( churned + silt > 0.002 ) {
+      float aired = smoothstep( 0.04, 0.6, churned ), silted = smoothstep( 0.0, 0.45, silt ) * ( 1.0 - smoothstep( 4.0, 14.0, depth ) );
+      body = mix( body, vec3( 0.3, 0.42, 0.41 ) * daylight, aired * 0.65 );
+      hides = max( hides, aired * 0.55 );
+      // (Fine silt held in the water scatters more light than the wet bed it came off: it is paler.)
+      body = mix( body, ( uSiltTone * 1.3 + 0.06 ) * daylight * 0.8, silted );
+      hides = max( hides, silted * 0.97 );
+    }
+    // What it mirrors, blurred by the roughness (the land's map and the sky's art each so many points a radian): the land
+    // the line off the water meets, and the sky past it.
+    vec4 land = landAlong( back, log2( max( 1.0, spread * ${(WATER_REFLECTION.columns / (2 * Math.PI)).toFixed(1)} ) ) );
+    vec3 mirrored = skyAlong( back, log2( max( 1.0, spread * 700.0 ) ) ) * ( 1.0 - land.a ) + land.rgb;
+    /*
+      The sun's glint (Cox and Munk): the share of the water's facets, too small to draw, that are tipped to send the
+      sun to the eye, by how the slopes about this point's own spread (the roughness), times what such a facet sends back.
+      Near, the waves themselves are drawn and the glints are sparks; far off they are a path. Where the hills or what
+      stands round the water shade it, the sun's shadows take it away.
+    */
+    vec3 half_ = normalize( eye + uSun );
+    vec2 off = vec2( - half_.x, half_.z ) / max( half_.y, 0.05 ) - slope;
+    float sigma2 = 0.5 * rough;
+    float facets = exp( - dot( off, off ) / ( 2.0 * sigma2 ) ) / ( 6.2831853 * sigma2 );
+    float sends = 0.02 + 0.98 * pow( 1.0 - max( dot( eye, half_ ), 0.0 ), 5.0 );
+    float glint = facets * sends / ( 4.0 * max( dot( eye, face ), ${glsl(WATER_GLINT.grazing)} ) * pow( max( dot( half_, face ), 0.05 ), 4.0 ) );
+    vec3 sparkle = uSunGlint * min( glint, ${glsl(WATER_GLINT.most)} ) * sunLit;
+    /*
+      What the eye sees: what the surface mirrors, as much as it mirrors (\`glance\`), and of the rest the water's own
+      light, as much as its depth hides of the bed, over the bed itself (what lies under, which the blend brings). How
+      much of the bed the water hides is the water's own doing, whatever the weather: in the dark deep water is black,
+      not clear. The bed's own colour through the water is the ground's to give (\`dressBed\`). A glint stands over all.
+    */
+    alpha = 1.0 - ( 1.0 - glance ) * ( 1.0 - hides );
+    vec3 seen = mirrored * glance + ( 1.0 - glance ) * hides * body + sparkle;
+    alpha = max( alpha, clamp( dot( sparkle, vec3( 0.2126, 0.7152, 0.0722 ) ), 0.0, 1.0 ) );
+    color = seen / max( alpha, 1e-3 );
+    // Foam where the water meets the shore, lapping in and out, as bright as the day: a lace, broken and thin, not a line.
+    float lace = texture2D( uCloud, at / 40.0 + uTime * 0.004 ).a * 0.6 + texture2D( uCloud, at / 23.0 - uTime * 0.006 ).b * 0.4;
+    float reach = 0.3 + 0.22 * sin( uTime * 0.7 + cloud.r * 9.0 );
+    float foam = ( 1.0 - smoothstep( 0.0, reach, depth ) ) * smoothstep( 0.25, 0.6, cloud.b + 0.25 * sin( uTime * 1.3 + cloud.g * 12.0 ) )
+      * smoothstep( 0.32, 0.62, lace ) * 0.8;
+    /*
+      And where the trucks have beaten it white. Fresh, it is whitewater all over; as it thins it breaks into clots and
+      patches, ragged and full of bubbles, which cover as much of the water as there is foam left, heaped on the crests of
+      the wake's own waves; thinner still, a lace that lingers.
+    */
+    float clots = 0.5, bubbles = 0.5;
+    if ( churned > 0.004 ) {
+      // Clots a few feet across, and in them bubbles a few inches across: the noise's broad and fine fields, read once.
+      vec2 froth = texture2D( uCloud, at / 9.0 - uTime * vec2( 0.006, 0.009 ) + stirred.r * 0.06 ).ba;
+      clots = froth.x;
+      bubbles = froth.y;
+      // (The noise lies close about a half: spread to cover from nothing to all.)
+      float patch_ = clamp( 0.5 + 2.6 * ( 0.65 * ( clots - 0.5 ) + 0.35 * ( bubbles - 0.5 ) ) + 0.35 * clamp( stirred.r, - 0.5, 0.5 ), 0.0, 1.0 );
+      float white = smoothstep( 0.92 - churned, 1.08 - churned, patch_ );
+      float lacework = smoothstep( 0.25, 0.55, churned * ( 0.2 + 1.8 * lace ) ) * smoothstep( 0.02, 0.12, churned );
+      foam = max( foam, max( white * 0.95, lacework * 0.8 ) );
+    }
+    // White, as bright as the day lights it: greyer in the hollows between the clots and between the bubbles.
+    color = mix( color, vec3( 0.9, 0.93, 0.95 ) * daylight * ( 0.76 + 0.16 * clots + 0.12 * bubbles ), foam * 0.94 );
+    alpha = max( alpha, foam * 0.94 ) * smoothstep( - 0.02, 0.1, depth );
+  }
+${FINISH}
 }`;
 
 /*
@@ -585,6 +712,7 @@ const BED_VERTEX_PARS = "varying vec3 vBedWorld;";
 const BED_VERTEX = "\tvBedWorld = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;";
 const BED_PARS = /* glsl */ `
 varying vec3 vBedWorld;
+// (cameraPosition is three.js's own)
 // the water's level now, the clock, 1 where the water is open (0 frozen), unused
 uniform vec4 uBed;
 uniform sampler2D uBedWaves;
@@ -601,7 +729,17 @@ const BED = /* glsl */ `
       float bedLace = texture2D( uBedWaves, bedAt / 9.0 + uBed.y * vec2( 0.031, 0.017 ) ).b * texture2D( uBedWaves, bedAt / 6.1 - uBed.y * vec2( 0.019, 0.027 ) ).b;
       float bedDance = 1.0 + ${WATER_BED.caustics.toFixed(2)} * ( smoothstep( 0.2, 0.34, bedLace ) * 2.0 - 0.8 ) * uBed.z * ( 1.0 - smoothstep( 0.0, ${WATER_BED.causticsToFt.toFixed(1)}, bedDeep ) );
       // The light that reaches it has come down through the water over it.
-      diffuseColor.rgb *= mix( vec3( 1.0 ), exp( - vec3( ${WATER_TAKES.map((v) => v.toFixed(4)).join(", ")} ) * max( bedDeep, 0.0 ) ) * bedDance, bedUnder );
+      vec3 bedTakes = vec3( ${WATER_TAKES.map((v) => v.toFixed(4)).join(", ")} );
+      vec3 bedLit = exp( - bedTakes * max( bedDeep, 0.0 ) ) * bedDance;
+      // And what comes back up from it to an eye over the water passes through the water on the eye's line, bent toward the
+      // upright at the surface: the water's own opacity takes how much of it (render/water-surface.js), and this the
+      // colour that leaves, red the first to go.
+      if ( cameraPosition.y > uBed.x ) {
+        float bedSine = clamp( normalize( cameraPosition - vBedWorld ).y, 0.0, 1.0 );
+        vec3 bedUp = exp( - bedTakes * max( bedDeep, 0.0 ) / sqrt( 1.0 - ( 1.0 - bedSine * bedSine ) / ${(WATER_INDEX * WATER_INDEX).toFixed(4)} ) );
+        bedLit *= bedUp / max( dot( bedUp, vec3( 0.2126, 0.7152, 0.0722 ) ), 1e-3 );
+      }
+      diffuseColor.rgb *= mix( vec3( 1.0 ), bedLit, bedUnder );
     }
   }
 `;
@@ -616,7 +754,7 @@ const BED = /* glsl */ `
  *   (render/water-ripples.js), which the water is told its level and its ice each frame.
  * @returns the water, or null where the level has none
  */
-export function createWaterSystem({ world, groundTexture = null, lights = {}, ripples = null }) {
+export function createWaterSystem({ world, groundTexture = null, lights = {}, ripples = null, reflection = null, groundTone = [0.2, 0.16, 0.12] }) {
   const meshes = [];
   let level = null;
   world.traverse((object) => { if (object.name === "water") { meshes.push(object); level ??= object.userData.levelFt ?? null; } });
@@ -628,19 +766,27 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
     ...THREE.UniformsUtils.clone(THREE.UniformsLib.lights),
     ...atmosphereUniforms(),
     uSunShare: { value: 0 },
-    uTime: { value: 0 }, uLight: { value: 1 }, uIce: { value: 0 }, uSnow: { value: 0 }, uRain: { value: 0 }, uWave: { value: 1 }, uDark: { value: 0 },
+    uTime: { value: 0 }, uLight: { value: 1 }, uSnow: { value: 0 }, uRain: { value: 0 }, uDark: { value: 0 }, uSkyVeil: { value: 0 },
     uSun: { value: new THREE.Vector3(0, 1, 0) }, uSunColor: { value: new THREE.Color(1, 1, 1) },
     uDaylight: { value: new THREE.Color(1, 1, 1) }, uScatter: { value: new THREE.Color(...WATER_SCATTER) },
     uSkyOn: { value: 0 }, uSky: { value: null }, uSkyCap: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() },
     uFogColor: { value: new THREE.Color() }, uFogRange: { value: new THREE.Vector3() },
     uGround: { value: groundTexture?.texture ?? null }, uGroundAt: { value: new THREE.Vector3(groundTexture?.referenceFt ?? 0, 1 / 8192, groundTexture ? 1 : 0) },
-    uWaves: { value: waveNoise() }, uCloud: { value: cloudNoise() },
+    uCloud: { value: cloudNoise() },
+    uWaveField: { value: waveFieldTexture() }, uWaveWays: { value: WATER_WAVE_LAYOUT.sizesFt.map(() => new THREE.Vector3()) },
+    uWaveLoop: { value: new THREE.Vector4() }, uWaveGain: { value: new THREE.Vector4() }, uWaveRough: { value: 0 }, uGustAt: { value: new THREE.Vector3(0, 0, 1 / WATER_WAVE_LAYOUT.gustFt) },
+    uSunGlint: { value: new THREE.Color() }, uSiltTone: { value: new THREE.Color(...groundTone) },
     uIceMarks: { value: dataTexture(ice.marks, ICE_MARKS.perRow * 2, ICE_MARKS.kept / ICE_MARKS.perRow) },
     uIceGrid: { value: dataTexture(ice.grid, (ICE_MARKS.cells * ICE_MARKS.perCell) / 4, ICE_MARKS.cells) },
     // The ripples and wakes the trucks stir (render/water-ripples.js), where they run.
     ...(ripples?.uniforms ?? { uRipples: { value: null }, uRippleAt: { value: new THREE.Vector4() } }),
+    // The land in the water (render/water-reflection.js).
+    ...(reflection?.uniforms ?? { uLand: { value: null }, uLandOn: { value: 0 } }),
   };
-  const material = new THREE.ShaderMaterial({ uniforms, vertexShader: VERTEX, fragmentShader: FRAGMENT, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false, lights: true });
+  // The open water and the ice, two programs over the one set of uniforms: the planes wear one or the other.
+  const made = (fragmentShader) => new THREE.ShaderMaterial({ uniforms, vertexShader: VERTEX, fragmentShader, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false, lights: true });
+  const material = made(WATER_FRAGMENT), iceMaterial = made(ICE_FRAGMENT);
+  let worn = material;
   const replaced = new Set();
   // The water takes the shadows of the hills and of what stands round it; it casts none.
   for (const mesh of meshes) { replaced.add(mesh.material); mesh.material = material; mesh.receiveShadow = true; mesh.castShadow = false; }
@@ -663,9 +809,20 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
     });
   }
   world.traverse((object) => { if (object.name === "terrain" && object.material) dressBed(object.material); });
-  const daylight = new THREE.Color(), part = new THREE.Color();
+  const daylight = new THREE.Color(), part = new THREE.Color(), eyeAt = new THREE.Vector3();
+  /** The sun's light as it comes down into the water, where the weather shows the sun clearly (render/underwater.js). */
+  const shafting = new THREE.Color();
+  /** The light on the land the water mirrors (render/water-reflection.js), worked out with the water's own. */
+  const landLight = { sun: uniforms.uSun.value, sunLight: new THREE.Color(), skyLight: new THREE.Color(), horizon: uniforms.uHorizon.value, fade: [0, 0], haze: 0 };
+  let levelNow = level, frozenNow = false;
 
-  let clock = 0, bobClock = 0, snowSeconds = 0, snowStart = 0, begun = false, wasFrozen = false;
+  let clock = 0, bobClock = 0, snowSeconds = 0, snowStart = 0, begun = false, wasFrozen = false, gustAt = 0;
+  const waveLoop = [0, 0, 0, 0];
+  // Each size's way on the map: the wind's, turned by its own amount; and 1 / its size.
+  WATER_WAVE_LAYOUT.sizesFt.forEach((size, i) => {
+    const turn = WATER_WAVE_LAYOUT.turns[i], [wx, wz] = WATER_WAVE_LAYOUT.windWay, length = Math.hypot(wx, wz);
+    uniforms.uWaveWays.value[i].set((wx * Math.cos(turn) - wz * Math.sin(turn)) / length, (wx * Math.sin(turn) + wz * Math.cos(turn)) / length, 1 / size);
+  });
   const display = new THREE.Color();
   return {
     /**
@@ -685,7 +842,11 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
       begun = true;
       uniforms.uTime.value = clock;
       uniforms.uLight.value = light;
-      uniforms.uIce.value = frozen ? 1 : 0;
+      // A change of weather builds the shaders it needs (render/weather-scene.js `warmPools`); so does this.
+      if (worn !== (frozen ? iceMaterial : material)) {
+        worn = frozen ? iceMaterial : material;
+        for (const mesh of meshes) mesh.material = worn;
+      }
       // The marks the ice has taken, each star as far as its cracks have run; a thaw heals them.
       if (!frozen && ice.count) ice.clear();
       const changed = ice.update(dt);
@@ -693,9 +854,16 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
       if (changed.grid) uniforms.uIceGrid.value.needsUpdate = true;
       uniforms.uSnow.value = frozen ? snowDown(snowSeconds, snowStart) * ICE_SNOW_SHARE : 0;
       uniforms.uRain.value = weather === RAIN ? 1 : 0;
-      // What the dark weathers' darkness takes of what stands at the horizon (game/atmosphere.js), it takes of the sky's mirror image there.
-      uniforms.uDark.value = BACKDROP_DARK[weather] ?? 0;
-      uniforms.uWave.value = weather === RAIN ? 1.35 : 1;
+      // The waves: each size through its loop, the gusts running on with the wind (game/water-waves.js).
+      const wind = WATER_WAVE_LAYOUT.weather[weather] ?? 1, [wx, wz] = WATER_WAVE_LAYOUT.windWay;
+      if (!frozen) {
+        WATER_WAVE_LAYOUT.sizesFt.forEach((size, i) => { waveLoop[i] = (waveLoop[i] + dt / waveLoopSeconds(size)) % 1; });
+        gustAt = (gustAt + dt * WATER_WAVE_LAYOUT.gustFtPerS) % WATER_WAVE_LAYOUT.gustFt;
+      }
+      uniforms.uWaveLoop.value.fromArray(waveLoop);
+      uniforms.uGustAt.value.set(wx * gustAt, wz * gustAt, 1 / WATER_WAVE_LAYOUT.gustFt);
+      uniforms.uWaveGain.value.fromArray(WATER_WAVE_LAYOUT.gains).multiplyScalar(wind);
+      uniforms.uWaveRough.value = WATER_WAVE_LAYOUT.roughness * wind * wind;
       if (sun) uniforms.uSun.value.copy(sun.position).normalize();
       // The light that falls on the water: the sky's from all round, and the sun's by how high it stands. With the
       // scene's own lights it has their colours (dim orange at Dusk, the moon's blue at Night); without, the weather's white.
@@ -705,33 +873,46 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
       if (hemisphere) daylight.add(part.copy(hemisphere.color).multiplyScalar(hemisphere.intensity / Math.PI));
       const height = Math.max(0, uniforms.uSun.value.y);
       uniforms.uSunShare.value = 0;
+      landLight.skyLight.copy(daylight);
+      landLight.sunLight.setScalar(0);
       if (sunLight?.isLight) {
+        landLight.sunLight.copy(sunLight.color).multiplyScalar(sunLight.intensity / Math.PI);
         const sky = luminance(daylight);
         daylight.add(part.copy(sunLight.color).multiplyScalar((sunLight.intensity / Math.PI) * height));
         // What a shadow takes: the sun's part of it.
         uniforms.uSunShare.value = 1 - sky / Math.max(luminance(daylight), 1e-6);
         uniforms.uSunColor.value.copy(sunLight.color).multiplyScalar(Math.min(1.6, sunLight.intensity * 0.42) * (frozen ? 1 : look.sun > 0 ? 1 : 0));
+        // The glint is the sun itself, mirrored: all its light, where the weather shows it.
+        uniforms.uSunGlint.value.copy(sunLight.color).multiplyScalar(sunLight.intensity * (look.sun > 0 ? 1 : 0));
       } else {
         daylight.setScalar(light);
+        landLight.skyLight.setScalar(light);
         uniforms.uSunColor.value.setScalar(look.sun * light * 1.4);
+        uniforms.uSunGlint.value.setScalar(look.sun * light * 3);
       }
       uniforms.uDaylight.value.copy(daylight);
       // Stirred and silted in Rain.
       uniforms.uScatter.value.setRGB(...WATER_SCATTER).lerp(part.setRGB(...WATER_SILT_TONE), weather === RAIN ? WATER_SILT : 0);
+      // The sun's light coming down into the water, for its shafts there: only where the weather shows the sun clearly,
+      // and none through ice.
+      const clear = Math.min(1, Math.max(0, (look.sun - 0.45) / 0.45));
+      shafting.copy(uniforms.uSunGlint.value).multiplyScalar(frozen ? 0 : clear * clear * (3 - 2 * clear));
       bed.uBed.value.set(levelFt ?? level ?? -1e6, clock, frozen ? 0 : 1, 0);
+      levelNow = levelFt ?? level;
+      frozenNow = frozen;
       ripples?.lake(levelFt ?? level, frozen);
-      const skyMap = sky && sky.visible !== false ? sky.material?.map : null;
-      uniforms.uSkyOn.value = skyMap ? 1 : 0;
-      uniforms.uSky.value = skyMap ?? null;
-      if (sky?.userData.cap) uniforms.uSkyCap.value.copy(sky.userData.cap.material.color);
-      const horizon = fog?.color ?? background;
-      if (horizon) uniforms.uHorizon.value.copy(horizon).multiplyScalar(skyMap ? 1 : light);
+      mirrorSky({ on: uniforms.uSkyOn, map: uniforms.uSky, cap: uniforms.uSkyCap, horizon: uniforms.uHorizon, dark: uniforms.uDark }, { sky, fog, background, light, weather });
       // Fog is mixed in after the colours are encoded for where they are going, so its colour is encoded the same way.
       if (fog?.isFog) {
         screenColor(fog.color, display);
         uniforms.uFogColor.value.copy(display);
         uniforms.uFogRange.value.set(fog.near, fog.far, 1);
       } else uniforms.uFogRange.value.set(0, 1, 0);
+      // The haze on the land in the water: the fog's, or the classic fog's ramp, or none.
+      const haze = atmosphere.haze();
+      if (haze) { landLight.fade[0] = haze.fadeStartFt; landLight.fade[1] = haze.farFt; landLight.haze = haze.densityPerFt; }
+      else if (fog?.isFog) { landLight.fade[0] = fog.near; landLight.fade[1] = fog.far; landLight.haze = 0; }
+      else { landLight.fade[0] = 9000; landLight.fade[1] = 10000; landLight.haze = 0; }
     },
     /**
      * The ice was struck at game (x, z) by something coming down at `speedFtPerS`: it stars
@@ -754,9 +935,23 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
     /** Dress one more ground material as the water's bed (the lit twin of the classic look's, render/weather-scene.js). */
     dressBed,
     /** The colour of the water seen from inside it, as the scene's fog has it under water: what the depth sends back of the light that is. */
-    underColor: (target = new THREE.Color()) => target.copy(uniforms.uScatter.value).multiply(uniforms.uDaylight.value).multiplyScalar(2.2),
+    underColor: (target = new THREE.Color()) => target.copy(uniforms.uScatter.value).multiply(uniforms.uDaylight.value).multiplyScalar(6.6),
+    /**
+     * The light under the water, for what is drawn in it (render/underwater.js), kept up to date each frame: `way` to the
+     * sun (scene axes), `sun` its light coming down into the water (none where the weather hides it), `daylight` the light
+     * on the water, `scatter` the water's own colour.
+     */
+    under: { way: uniforms.uSun.value, sun: shafting, daylight: uniforms.uDaylight.value, scatter: uniforms.uScatter.value },
+    /** Before a frame is drawn with `view`: how deep the fog over the eye lies, for the sky in the water. */
+    prepare(view) {
+      view.getWorldPosition(eyeAt);
+      uniforms.uSkyVeil.value = atmosphere.skyVeil(eyeAt.y);
+      // The land in the water, but not from under it, nor on ice.
+      reflection?.render(eyeAt, frozenNow ? null : levelNow, landLight);
+    },
     dispose() {
       material.dispose();
+      iceMaterial.dispose();
       uniforms.uIceMarks.value.dispose();
       uniforms.uIceGrid.value.dispose();
       dressed.clear();

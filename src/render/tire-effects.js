@@ -19,9 +19,9 @@ import {
 } from "../game/tire-effects.js";
 import { iceHullContacts, standOnFt } from "../game/ice.js";
 import {
-  DUST, DUST_BY_TYPE, DUST_WEATHER, LANDING_AIR_S, LITE_SHARE, PUFF_KINDS, RUT, SPRAY, STREAK_KINDS, TRACK_FADE_FT, TRACK_FADE_LITE_FT, TRACK_KINDS,
-  SPARKS, SPARK_LIGHT, SUBMERGED_FT, dustColour, footing, groundDust, landingThrows, muddyWater, puddleRut, sparkShower, sparkVelocity, scrapePuff, scrapeThrows, slideAmount, slideThrows,
-  sprayDrops, sprayVelocity, tireThrows, trackKind,
+  DUST, DUST_BY_TYPE, DUST_WEATHER, LANDING_AIR_S, LITE_SHARE, PUFF_KINDS, ROOSTER, RUT, SPRAY, STREAK_KINDS, TRACK_FADE_FT, TRACK_FADE_LITE_FT, TRACK_KINDS,
+  BUBBLES, MIST, SPARKS, SPARK_LIGHT, SUBMERGED_FT, dustColour, footing, groundDust, landingThrows, mistSpacingFt, muddyWater, puddleRut, roosterDrops, roosterVelocity, roosterWading, sparkShower, sparkVelocity,
+  scrapePuff, scrapeThrows, slideAmount, slideThrows, sprayDrops, sprayVelocity, tireThrows, trackKind,
 } from "../game/particles.js";
 import { bodyInSnow, scourShape, scourSteps } from "../game/snow-scour.js";
 import { classicFogDims } from "./atmosphere.js";
@@ -313,8 +313,9 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
     // coming down, where its hub was a frame ago; and where the truck was, and its velocity from that.
     ruts: ruts ? [0, 1, 2, 3].map(() => ruts.strip()) : null, stood: [null, null, null, null], air: [0, 0, 0, 0], fall: [0, 0, 0, 0], hubY: [null, null, null, null],
     before: null, vel: [0, 0, 0],
-    // Where each tire was on the last tick, and the share of a puff of dust it owes the ground it has rolled since.
-    dustAt: [null, null, null, null], dustOwed: [0, 0, 0, 0],
+    // Where each tire was on the last tick, and the share of a puff of dust it owes the ground it has rolled since; the
+    // same for the mist off a wet tread.
+    dustAt: [null, null, null, null], dustOwed: [0, 0, 0, 0], mistAt: [null, null, null, null], mistOwed: [0, 0, 0, 0],
     // For "Rich particles": the last hollow its body left in the snow while it is in it, and its lids (`pressBody`).
     scour: null, scourChain: {},
     // For "Rich particles": how far each point of its hull was over the ice a frame ago, and the band its body is
@@ -371,6 +372,30 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       vel[0] * carried + out[0] * flung + jitter() * 1.2, up, vel[2] * carried + out[1] * flung + jitter() * 1.2, { tone, scale, thick, life });
   }
   /**
+   * A tire of radius `radius` on wet ground or wading (`stood`) lays the mist off its tread along the way it rolled since
+   * the last tick, from `state.mistAt[k]` to `hub`, a puff every so many feet by how fast it goes (game/particles.js
+   * `MIST`), `few` of them in a headset: each behind the tread, a little either side of it, carried a moment with the
+   * truck moving at `vel` with heading `forward`, and stopped by the air at once. A truck far from the eye (`far`) lays
+   * fewer, larger ones, as it does dust.
+   */
+  function layMist(state, k, hub, floor, vel, forward, speed, stood, radius, few, far) {
+    const from = state.mistAt[k], spacing = mistSpacingFt(speed, stood) * (far ? DUST.farSpacing : 1), larger = far ? DUST.farScale : 1;
+    if (!from || !Number.isFinite(spacing)) { state.mistOwed[k] = 0; return; }
+    const dx = hub[0] - from[0], dz = hub[2] - from[1], rolled = Math.hypot(dx, dz);
+    // (Not across a jump from one place to another.)
+    if (rolled > 40) return;
+    state.mistOwed[k] += (rolled / spacing) * few;
+    const count = Math.floor(state.mistOwed[k]);
+    state.mistOwed[k] -= count;
+    const jitter = () => (random() - 0.5) * 2;
+    for (let n = 0; n < count; n++) {
+      const along = (n + random()) / count - 1, across = jitter() * 0.9, behind = radius * (0.4 + 0.6 * random());
+      const up = MIST.upFtS[0] + (MIST.upFtS[1] - MIST.upFtS[0]) * random();
+      particles.puff(PUFF_KINDS.mist, hub[0] + dx * along - forward[0] * behind + forward[1] * across, floor + 0.3 + random() * 0.9, hub[2] + dz * along - forward[1] * behind - forward[0] * across,
+        vel[0] * MIST.carried + jitter(), up, vel[2] * MIST.carried + jitter(), { scale: (0.7 + 0.6 * random()) * larger });
+    }
+  }
+  /**
    * A tire raising dust lays it along the way it rolled since the last tick, from `state.dustAt[k]` to `hub`: a puff
    * every `DUST.spacingFt` for each of the game's puffs this tick (`raised`), `few` of them in a headset, as thick as the
    * ground there is dusty. A truck far from the eye (`far`) lays fewer, larger ones.
@@ -389,6 +414,20 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
     for (let n = 0; n < count; n++) {
       const along = (n + 0.5) / count - 1;
       throwPuff("dust", [hub[0] + dx * along, hub[1], hub[2] + dz * along], floor, vel, out, family, type, far ? DUST.farScale : 1, thick);
+    }
+  }
+  /**
+   * A little cloud of `count` bubbles let go by a tire of radius `radius` under the water at `hub`, on a truck moving at
+   * `vel` with heading `forward` (game/particles.js `BUBBLES`): behind its tread, between the bed and its middle, each
+   * carried a moment by the water the tire drags along.
+   */
+  function throwBubbles(count, hub, floor, vel, forward, radius) {
+    const back = radius * (0.4 + random() * 0.6), across = (random() - 0.5) * 1.6, up = random() * radius * 1.1;
+    const x = hub[0] - forward[0] * back + forward[1] * across, z = hub[2] - forward[1] * back - forward[0] * across;
+    const jitter = () => (random() - 0.5) * 2 * BUBBLES.jitterFtS;
+    for (let n = 0; n < count; n++) {
+      particles.streak(STREAK_KINDS.bubble, x + (random() - 0.5) * 0.6, floor + up + random() * 0.4, z + (random() - 0.5) * 0.6,
+        vel[0] * BUBBLES.carried + jitter(), 0.5 + jitter(), vel[2] * BUBBLES.carried + jitter());
     }
   }
   /** A streak of `kind` (its name) thrown up and back off a tire at `hub`: the faster the truck, the higher and wider. */
@@ -423,6 +462,24 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
     };
     for (let n = 0; n < sheet; n++) { drop(1); drop(-1); }
     for (let n = 0; n < tread; n++) drop(0);
+  }
+  /**
+   * A rooster tail off a tire at `hub` wading `wading` in the level's water, whose surface is at `surface` (game/particles.js
+   * `ROOSTER`): drops flung up from behind it as its tread, running at `tread`, comes up out of the water.
+   */
+  function throwRooster(hub, surface, wading, tread, vel, forward, radius, few) {
+    const spec = STREAK_KINDS.drop, count = roosterDrops(tread, wading, random);
+    for (let n = 0; n < count; n++) {
+      if (random() >= few) continue;
+      const v = roosterVelocity({ vel, forward, treadFtS: tread, random }), since = random() * DUST_TICK_S;
+      // Off the back of the tread, anywhere across its width and up from the water toward the hub.
+      const back = radius * (0.6 + 0.4 * random()), across = (random() - 0.5) * 1.6;
+      const x = hub[0] - forward[0] * back + forward[1] * across - vel[0] * since + v[0] * since;
+      const z = hub[2] - forward[1] * back - forward[0] * across - vel[2] * since + v[2] * since;
+      const y = surface + random() * radius * 0.7 + v[1] * since - 0.5 * GRAVITY * since * since;
+      const veil = random() < ROOSTER.veil, [narrow, wide] = veil ? ROOSTER.veilWidthFt : SPRAY.widthFt;
+      particles.streak(spec, x, y, z, v[0], v[1] - GRAVITY * since, v[2], { width: narrow + (wide - narrow) * random(), opacity: veil ? ROOSTER.veilOpacity : SPRAY.opacity });
+    }
   }
   /** What a wheel throws as it lands at `fall` ft/s (game/particles.js `landingThrows`): a ring of puffs and a burst of streaks; ice stars. */
   function land(hub, stood, fall, vel, flags, family, type) {
@@ -475,7 +532,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       if (dt > 0) state.hubY[k] = hub[1];
       if (!onGround[k]) {
         state.air[k] += dt;
-        state.dustAt[k] = null;
+        state.dustAt[k] = state.mistAt[k] = null;
         ruts.lift(state.ruts[k]);
         return;
       }
@@ -508,6 +565,10 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       if (raised) layDust(state, k, hub, floor, vel, out, family, type, raised, few, far);
       else state.dustOwed[k] = 0;
       state.dustAt[k] = [hub[0], hub[2]];
+      // On wet ground, and wading in the level's water, the tread's finest spray hangs behind it as mist.
+      if ((stood === "wet" || stood === "water") && flags.splash) layMist(state, k, hub, floor, vel, forward, speed, stood, t.radius ?? 2.75, few, far);
+      else state.mistOwed[k] = 0;
+      state.mistAt[k] = [hub[0], hub[2]];
       const thrown = tireThrows(stood, speed, random);
       if (thrown.puff && lets(flags, thrown.puff) && random() < few) throwPuff(thrown.puff, hub, floor, vel, out, family, type);
       // Standing water is thrown aside in sheets.
@@ -515,8 +576,15 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
         const puddle = stood === "puddle", bed = floorUnder(hub[0], hub[2], hub[1]);
         const depth = puddle ? rich.puddleAt?.(hub[0], hub[2]) ?? 0 : waterLevel !== null ? waterLevel - bed : 0;
         throwSpray(hub, puddle ? bed + depth : floor, depth, vel, forward, speed, t.radius ?? 2.75, puddle, few);
+        // Wading in the level's water, the tread paddles it up into a rooster tail behind the wheel. The tread runs as
+        // fast as the simulation turns the wheel, as fast as the truck goes where it says nothing (a replay).
+        if (!puddle && waterLevel !== null) {
+          const radius = t.radius ?? 2.75, tread = Math.max(speed, Math.abs(t.tires?.[k]?.spin ?? 0) * radius);
+          throwRooster(hub, waterLevel, roosterWading(waterLevel - (hub[1] - radius), radius), tread, vel, forward, radius, few);
+        }
       }
-      for (let n = 0; n < thrown.streaks && lets(flags, thrown.streak); n++) throwStreak(thrown.streak, hub, floor, vel, speed, family, type);
+      if (thrown.streak === "bubble") { if (thrown.streaks && lets(flags, "bubble")) throwBubbles(thrown.streaks, hub, floor, vel, forward, t.radius ?? 2.75); }
+      else for (let n = 0; n < thrown.streaks && lets(flags, thrown.streak); n++) throwStreak(thrown.streak, hub, floor, vel, speed, family, type);
       // A tire that slides or spins: smoke off hard ground, and soft ground, snow and water dug out and flung. They
       // are flung the way the tire pushes the ground, which is against the force the ground gives the tire: back from
       // a tire that drives, forward from one that brakes, outward from one that slides sideways.

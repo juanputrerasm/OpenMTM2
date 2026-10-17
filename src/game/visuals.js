@@ -12,7 +12,7 @@ import { allowedWeathers } from "./weather.js";
 /** The switches as the Options screen lists them: the setting's key, its name and what it does. */
 export const VISUAL_OPTIONS = Object.freeze([
   Object.freeze({ key: "terrainSmoothing", label: "Smooth terrain", hint: "Rounds the ground's 32 ft facets and gives steep slopes and cliffs relief. Trucks drive on the same ground as before." }),
-  Object.freeze({ key: "enhancedWater", label: "Reflective water", hint: "Waves, reflections of the sky, a shore that shallows, wakes and rings where the trucks stir it, and solid ice in Snow." }),
+  Object.freeze({ key: "enhancedWater", label: "Reflective water", hint: "Wind waves that gust, the sky and the hills mirrored in it, the sun's glint, a shore that shallows, wakes and rings where the trucks stir it, and solid ice in Snow." }),
   // A slider, not a switch: None (off), Few, Default or Max, how thick the fog is (game/atmosphere.js `FOG_AMOUNTS`).
   Object.freeze({ key: "volumetricWeather", label: "Volumetric weather", hint: "Fog that lies in layers and drifts, a sea of cloud in the valleys with a lit top, and rain and snow that fall through the air around you. The slider sets how thick the fog is: None is the game's own fog, Max the thickest.", amountKey: "weatherAmount", levels: WEATHER_LEVEL_NAMES, defaultLevel: DEFAULT_WEATHER_LEVEL, level: weatherLevel }),
   Object.freeze({ key: "rainPuddles", label: "Rain puddles", hint: "In Rain the ground is wet, and water stands where the ground has a low point, which the trucks splash through and stir." }),

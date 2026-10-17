@@ -322,6 +322,22 @@ export const snowDown = (seconds, start = SNOW_START) => start + (1 - start) * s
  */
 export const WET = Object.freeze({ darker: 0.74, deeper: 0.3, sheen: 0.015, sheenLow: 0.17, sheenMost: 0.24 });
 
+/**
+ * Standing water (render/ground-surface.js). Up a puddle's bank, where the water has soaked it,
+ * the ground is `soaked` darker. Rain standing on dirt is muddy: a puddle hides the ground under
+ * it in the colour of its silt, the ground's own colour taken broadly at `mud` of its brightness,
+ * by 1 - e^(-depth / `murkFt`) and never more than `murkMost`, so that under an inch of water
+ * little of the ground shows. Stirred up by a wheel the silt hides the ground whole, a shade
+ * paler (`stirredPaler` more of the ground's brightness), and where the wheel beat it hardest a
+ * scum of muddy froth covers up to `froth` of the water for a while. The soaked bank, and a
+ * puddle's bed where a wave has just bared it, keep a film of the muddy water: `film` of the
+ * silt's colour over the ground's.
+ */
+export const POOL_LOOK = Object.freeze({ soaked: 0.3, murkFt: 0.06, murkMost: 0.85, mud: 0.6, stirredPaler: 0.25, froth: 0.55, film: 0.4 });
+
+/** How much of a puddle's bed its muddy water hides where it stands `depthFt` deep, 0 to `POOL_LOOK.murkMost`. */
+export const poolMurk = (depthFt) => POOL_LOOK.murkMost * (1 - Math.exp(-Math.max(0, depthFt) / POOL_LOOK.murkFt));
+
 /** How wet the ground is after `seconds` of Rain, 0 to 1: it darkens within seconds, and the puddles fill over a minute. */
 export const groundWetness = (seconds) => Math.min(1, Math.max(0, seconds / 8));
 export const puddlesFilled = (seconds) => Math.min(1, Math.max(0, 0.35 + seconds / 60));

@@ -15,7 +15,7 @@
   both take the scene's own lights, so dust is dim at Night and orange at Dusk.
 */
 import * as THREE from "three";
-import { PUFF_POOL, STREAK_POOL, puffCover, sparkFlight, sparkGlow } from "../game/particles.js";
+import { PUFF_POOL, STREAK_POOL, bubbleRiseFtS, bubbleSpiral, bubbleVelocity, bubbleWidth, puffCover, sparkFlight, sparkGlow } from "../game/particles.js";
 import { VEIL_GLSL, veilUniforms } from "./atmosphere.js";
 import { puffNoise } from "./noise-textures.js";
 
@@ -163,7 +163,7 @@ attribute vec4 iPlace;
 attribute vec4 iWay;
 // its colour and how much it hides
 attribute vec4 iTone;
-// 1 where it is its own light
+// 1 where it is its own light, -1 for a bubble
 attribute float iGlow;
 uniform float uViewHeight;
 // how fast the eye itself moves (the scene's axes, feet a second): a streak is blurred by how it moves against the eye
@@ -203,21 +203,30 @@ varying vec4 vTone;
 varying float vGlow, vLong;
 varying vec4 vVeil;
 void main() {
+  float glow = max( vGlow, 0.0 ), bubble = step( vGlow, - 0.5 );
+  // Where in its fleck this point is, the top up.
+  vec2 disc = vec2( vAt.x, vAt.y * 2.0 - 1.0 );
+  float out_ = length( disc );
   // A short one is a round fleck; a long one a streak, bright at its head and thinning to its tail.
-  float fleck = 1.0 - smoothstep( 0.45, 1.0, length( vec2( vAt.x, vAt.y * 2.0 - 1.0 ) ) );
+  float fleck = 1.0 - smoothstep( 0.45, 1.0, out_ );
+  // A bubble is seen by the light its skin sends back, the light from above caught all round its edge: a bright rim about a
+  // clearer middle, and a spark where its skin faces the light.
+  float spark = 1.0 - smoothstep( 0.0, 0.3, length( disc - vec2( - 0.3, - 0.35 ) ) );
+  float skin = smoothstep( 0.4, 0.78, out_ ) * ( 1.0 - smoothstep( 0.8, 1.0, out_ ) ) + 0.18 * ( 1.0 - smoothstep( 0.8, 1.0, out_ ) );
+  fleck = mix( fleck, min( 1.0, skin + spark ), bubble );
   // (Where the picture is drawn with several samples a point, a point just off the streak has these a hair out of range.)
   float tail = max( 1.0 - vAt.x * vAt.x, 0.0 ) * pow( clamp( 1.0 - vAt.y, 0.0, 1.0 ), 1.5 ) * smoothstep( 0.0, 0.07, vAt.y );
   float alpha = vTone.a * mix( fleck, tail, vLong );
   if ( alpha < 0.004 ) discard;
-  // Lit from above, as something small in the open air is.
-  vec3 color = vTone.rgb * mix( uSkyLight + uSunLight, vec3( 1.0 ), vGlow );
+  // Lit from above, as something small in the open air is; a bubble's spark brighter.
+  vec3 color = vTone.rgb * mix( uSkyLight + uSunLight, vec3( 1.0 ), glow ) * ( 1.0 + bubble * spark );
   gl_FragColor = vec4( color, 1.0 );
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
   // Fog veils what is lit and dims what is its own light.
-  gl_FragColor.rgb = mix( mix( gl_FragColor.rgb, vVeil.rgb, vVeil.a ), gl_FragColor.rgb * ( 1.0 - vVeil.a ), vGlow );
+  gl_FragColor.rgb = mix( mix( gl_FragColor.rgb, vVeil.rgb, vVeil.a ), gl_FragColor.rgb * ( 1.0 - vVeil.a ), glow );
   // Its own light is added to the picture; the rest lies over it.
-  gl_FragColor = vec4( gl_FragColor.rgb * alpha, alpha * ( 1.0 - vGlow ) );
+  gl_FragColor = vec4( gl_FragColor.rgb * alpha, alpha * ( 1.0 - glow ) );
 }`;
 
 function instanced(count, quad, attributes) {
@@ -329,6 +338,12 @@ export function createParticles({ scene, ground, random = Math.random, over = nu
         if (kind.glow) s.heat = 0.85 + 0.3 * random();
       }
       if (width !== null) s.width = width;
+      // A bubble: its own size, and from it how fast it rises and how it spirals as it goes (game/particles.js `BUBBLES`).
+      if (kind.rises) {
+        s.width = width ?? bubbleWidth(random);
+        const spiral = bubbleSpiral(s.width);
+        s.rise = bubbleRiseFtS(s.width); s.turn = spiral.turnsPerS * Math.PI * 2; s.spiral = spiral.radiusFt; s.phase = random() * Math.PI * 2;
+      }
       s.opacity = opacity ?? kind.opacity;
       streaks.push(s);
       return s;
@@ -424,17 +439,20 @@ export function createParticles({ scene, ground, random = Math.random, over = nu
       for (let i = streaks.length - 1; i >= 0; i--) {
         const s = streaks[i];
         s.age += dt;
-        // (A bubble's weight is against it: it rises, slowed by the water, and is gone at the surface.)
-        const weight = s.kind.weight ?? 1;
-        if (s.terminal) {
+        const rises = s.kind.rises;
+        if (rises) {
+          // A bubble: the water takes what it was thrown with at once, and it rises as fast as its size lets it.
+          const v = bubbleVelocity([s.vx, s.vy, s.vz], dt, s.rise);
+          s.vx = v[0]; s.vy = v[1]; s.vz = v[2];
+        } else if (s.terminal) {
           // A spark or a drop is braked by the air toward its terminal speed; a spark cools as it flies (game/particles.js).
           const v = sparkFlight([s.vx, s.vy, s.vz], dt, s.terminal, GRAVITY);
           s.vx = v[0]; s.vy = v[1]; s.vz = v[2];
           if (s.kind.glow) s.heat *= Math.exp(-dt / (s.life * 0.5));
-        } else s.vy -= GRAVITY * weight * dt;
-        if (weight < 0) { const slow = Math.exp(-3 * dt); s.vx *= slow; s.vy *= slow; s.vz *= slow; }
+        } else s.vy -= GRAVITY * dt;
         s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
-        let over = s.age >= s.life || (weight < 0 && waterFt !== null && s.y >= waterFt) || (s.kind.glow && s.heat < 0.03);
+        // A bubble is gone at the surface, or in the open air (it was let go where the water is not, or the water fell).
+        let over = s.age >= s.life || (rises && (waterFt === null || s.y >= waterFt)) || (s.kind.glow && s.heat < 0.03);
         if (!over && s.vy < 0) {
           const floor = ground(s.x, s.z, s.y);
           const wet = waterFt !== null && floor < waterFt;
@@ -457,6 +475,11 @@ export function createParticles({ scene, ground, random = Math.random, over = nu
         const s = streaks[i], kind = s.kind, t = s.age / s.life;
         const o = i * 4;
         head[o] = s.x; head[o + 1] = s.y; head[o + 2] = -s.z; head[o + 3] = s.width;
+        // A bubble is drawn where its spiral has it about the line it rises on.
+        if (kind.rises && s.spiral > 0) {
+          const turned = s.phase + s.turn * s.age;
+          head[o] += Math.cos(turned) * s.spiral; head[o + 2] -= Math.sin(turned) * s.spiral;
+        }
         way[o] = s.vx; way[o + 1] = s.vy; way[o + 2] = -s.vz; way[o + 3] = kind.trailS;
         // A spark cools as it flies and dims as it goes out; anything else thins over the last part of its time.
         const fade = Math.min(1, (1 - t) / 0.25);
@@ -466,7 +489,8 @@ export function createParticles({ scene, ground, random = Math.random, over = nu
           hue[o] = lit[0] * fade; hue[o + 1] = lit[1] * fade; hue[o + 2] = lit[2] * fade;
           hue[o + 3] = kind.opacity;
         } else { hue[o] = s.r; hue[o + 1] = s.g; hue[o + 2] = s.b; hue[o + 3] = s.opacity * fade; }
-        glow[i] = kind.glow;
+        // (-1 is a bubble, which the shader draws by the light its skin sends back.)
+        glow[i] = kind.rises ? -1 : kind.glow;
       }
       streakBuffers.geometry.instanceCount = streaks.length;
       if (streaks.length) streakBuffers.iPlace.needsUpdate = streakBuffers.iWay.needsUpdate = streakBuffers.iTone.needsUpdate = streakBuffers.iGlow.needsUpdate = true;

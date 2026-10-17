@@ -17,7 +17,7 @@
 import * as THREE from "three";
 import { setBackdropWeather } from "./track-scene.js";
 import { UNDERWATER_FOG_FT, WEATHER_LOOK } from "../game/weather.js";
-import { UNDERWATER } from "../game/water.js";
+import { UNDERWATER, lightAtDepth } from "../game/water.js";
 import { BACKDROP_DARK } from "../game/atmosphere.js";
 import { DEFAULT_POOL, placeHeadlightPools } from "../game/truck-lights.js";
 import { atmosphere } from "./atmosphere.js";
@@ -71,6 +71,8 @@ export function createWeatherScene(env) {
 
   // Terrain materials, unlit and lit, swapped for the dark weathers. The terrain's chunks and
   // the world's copies share one material, so each gets one lit twin.
+  // The sky's dome, which wet ground and puddles mirror (render/ground-surface.js).
+  const skyDome = world.getObjectByName("sky") ?? null;
   const surfaces = [], lit = new Map();
   world.traverse((o) => {
     if ((o.name === "terrain" || o.name === "groundBoxes") && o.material?.isMeshBasicMaterial) {
@@ -145,6 +147,7 @@ export function createWeatherScene(env) {
   }
 
   let underwater = false;
+  const deep = new THREE.Color(), passing = new THREE.Color();
   /** The weather's fog and clear colour, or under water the 320 ft fog in the weather's fog colour (the game fills the screen with it instead of the sky). */
   function applyFog() {
     const w = WEATHER_LOOK[current];
@@ -252,7 +255,15 @@ export function createWeatherScene(env) {
       } else applyLight();
     }
     volume?.update(dt, { flash: w.lightning ? flashLevel : 0, light: w.light, floorFt, viewHeight, lite });
-    groundSurface?.update(dt, { light: Math.min(1.6, w.light + (w.lightning ? flashLevel : 0)), fog: scene.fog, background: skyAverage });
+    // Under the water its colour darkens with the eye's depth, and its red goes first: the light that lights the water about
+    // the eye has come down through the water over it (game/water.js `lightAtDepth`).
+    if (underwater && env.water?.underColor && scene.fog && floorFt !== null) {
+      const passes = lightAtDepth(floorFt - camera.position.y);
+      env.water.underColor(deep).multiply(passing.setRGB(passes[0], passes[1], passes[2]));
+      scene.fog.color.copy(deep);
+      if (scene.background?.isColor) scene.background.copy(deep);
+    }
+    groundSurface?.update(dt, { light: Math.min(1.6, w.light + (w.lightning ? flashLevel : 0)), fog: scene.fog, background: skyAverage, sky: skyDome, eyeY: camera.position.y });
     env.groundDetail?.update({ weather: current, lite });
     env.gloss?.update({ weather: current });
     // The pools of light on the ground: all hidden while none is lit, and while any is, the spare ones put out
