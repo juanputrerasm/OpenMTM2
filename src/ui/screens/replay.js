@@ -40,6 +40,8 @@ import { saveSettings } from "../../app/settings.js";
 import { enableSunShadows } from "../../render/sun-shadows.js";
 import { createExtensionScene } from "../../render/extensions/loader.js";
 import { GRASS_RADII, grassLevel } from "../../render/evo-grass.js";
+import { createGpuPacer } from "../../render/gpu-pacer.js";
+import { screenSampled } from "../../game/aa.js";
 
 /** A terrain cell's side: the draw distance is set in cells. */
 const TERRAIN_CELL_FT = 32;
@@ -86,8 +88,11 @@ export default async function mount(container, context, { replay }) {
   const look = context.settings.look === "enhanced" ? "enhanced" : "classic";
   const canvas = el("canvas", { class: "race-canvas" });
   view.prepend(canvas);
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // Samples on the screen's own picture only where the scene is drawn straight onto it (game/aa.js `screenSampled`).
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: screenSampled(context.settings) });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+  // A frame waits for the graphics card as the race's do (render/gpu-pacer.js).
+  const pacer = createGpuPacer(renderer.getContext());
   const scene = new THREE.Scene();
   const drawDistance = Math.max(16, Math.min(256, context.settings.drawCells ?? 128)) * TERRAIN_CELL_FT;
   const camera = new THREE.PerspectiveCamera(60, 1, 0.5, drawDistance);
@@ -342,6 +347,8 @@ export default async function mount(container, context, { replay }) {
 
   const loop = (now) => {
     frameId = requestAnimationFrame(loop);
+    // The graphics card two frames behind: this one is skipped, and the next takes its time.
+    if (pacer.behind(now)) return;
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     if (fpsCounter.visible !== !!context.settings.fpsCounter) fpsCounter.setVisible(!!context.settings.fpsCounter);
@@ -446,6 +453,7 @@ export default async function mount(container, context, { replay }) {
     }
     caption.update(dt);
     scenery.draw(camera);
+    pacer.drawn(now);
   };
   frameId = requestAnimationFrame(loop);
   cleanups.push(() => cancelAnimationFrame(frameId));

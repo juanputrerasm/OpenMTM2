@@ -25,6 +25,11 @@ import { addShaderHook } from "./shader-hooks.js";
 const glsl = (n) => n.toFixed(5);
 /** How many mip levels further down a tile's texels have run together into its colour: a 64 texel tile is 8 across there. */
 const FLAT_LEVELS = 3;
+/**
+ * A face of the grain seen less than this share of the whole is not read: its grain could move the ground's light by
+ * under a fifth of a shade of an 8 bit picture.
+ */
+const FACE_UNSEEN = 1 / 256;
 
 /*
   Which tile a point reads is found from where it falls in the atlas. With several samples a point (MSAA) a point on a
@@ -59,15 +64,20 @@ uniform float uDetFull;
 #ifdef DET_TILES
   uniform highp sampler2DArray uDetTiles;
 #endif
+// One face of the grain, seen \`weight\` of the whole: its noise at \`at\`, lit by the sun along \`sun\`. A face seen so little
+// that its grain could not change a shade (\`weight\` under ${glsl(FACE_UNSEEN)}) gives its mean without being read: on level ground
+// only the top is read, and on a sheer cliff only the sides.
+vec2 detFace( vec2 at, vec2 sun, float weight ) {
+  if ( weight < ${glsl(FACE_UNSEEN)} ) return vec2( 0.5, 0.0 ) * weight;
+  vec4 noise = texture2D( uDetNoise, at );
+  return vec2( noise.r, - dot( noise.gb - 0.5, sun ) ) * weight;
+}
 // The grain at one scale: its height (x, about a half) and how its slopes face the sun (y, about zero). \`weight\` says
 // how much of it is seen from above and how much from either side.
 vec2 detGrain( float feet, vec3 weight ) {
-  vec4 top = texture2D( uDetNoise, vDetWorld.xz / feet );
-  vec2 grain = vec2( top.r, - dot( top.gb - 0.5, uDetSun.xz ) ) * weight.y;
-  if ( uDetFull > 0.5 ) {
-    vec4 east = texture2D( uDetNoise, vDetWorld.zy / feet ), north = texture2D( uDetNoise, vDetWorld.xy / feet );
-    grain += vec2( east.r, - dot( east.gb - 0.5, uDetSun.zy ) ) * weight.x + vec2( north.r, - dot( north.gb - 0.5, uDetSun.xy ) ) * weight.z;
-  } else grain += vec2( 0.5, 0.0 ) * ( weight.x + weight.z );
+  vec2 grain = detFace( vDetWorld.xz / feet, uDetSun.xz, weight.y );
+  if ( uDetFull > 0.5 ) grain += detFace( vDetWorld.zy / feet, uDetSun.zy, weight.x ) + detFace( vDetWorld.xy / feet, uDetSun.xy, weight.z );
+  else grain += vec2( 0.5, 0.0 ) * ( weight.x + weight.z );
   return grain;
 }
 `;
@@ -101,8 +111,12 @@ const MAP = /* glsl */ `
     // A cliff shows its tile edge on, smeared down the face: there the tile gives its colour and the grain the structure.
     // Far off a tile's own picture is what shows it repeating, cell after cell: there too it gives its colour.
     // Its colour is the tile read that many levels further down than the distance asks, so it never reads finer than the screen can show.
-    vec3 detFlat = textureGrad( uDetTiles, vec3( detLocal, detSlot ), detAcross * ${glsl(2 ** FLAT_LEVELS)}, detDown * ${glsl(2 ** FLAT_LEVELS)} ).rgb;
-    sampledDiffuseColor.rgb = mix( sampledDiffuseColor.rgb, detFlat, max( detCliff * 0.7, detFar * ${glsl(PATCHES.farFlat)} ) );
+    // (Level ground near by takes none of it, and does not read it.)
+    float detFlatShare = max( detCliff * 0.7, detFar * ${glsl(PATCHES.farFlat)} );
+    if ( detFlatShare > 0.0 ) {
+      vec3 detFlat = textureGrad( uDetTiles, vec3( detLocal, detSlot ), detAcross * ${glsl(2 ** FLAT_LEVELS)}, detDown * ${glsl(2 ** FLAT_LEVELS)} ).rgb;
+      sampledDiffuseColor.rgb = mix( sampledDiffuseColor.rgb, detFlat, detFlatShare );
+    }
   #endif
   // Past a scale's fade the grain is the flat value the fade would multiply away, so it is not read.
   vec2 detFine = vec2( 0.5, 0.0 ), detCoarse = vec2( 0.5, 0.0 );
@@ -116,7 +130,7 @@ const MAP = /* glsl */ `
   float detAmount = detShare * ( 1.0 + 0.5 * detCliff );
   float detLight = ( detFine.x - 0.5 ) * 0.6 * detNear + ( detCoarse.x - 0.5 ) * 0.3 * detMid
     + ( detFine.y * detNear + detCoarse.y * detMid ) * uDetSun.w;
-  if ( uDetFull > 0.5 && detMid > 0.0 ) {
+  if ( uDetFull > 0.5 && detMid > 0.0 && detCliff > 0.0 ) {
     // Beds of rock along the contours of a cliff: the same grain drawn out level. They fade with the coarse grain.
     float detBeds = texture2D( uDetNoise, vec2( ( vDetWorld.x + vDetWorld.z ) / 310.0, vDetWorld.y / 27.0 ) ).a
       + texture2D( uDetNoise, vec2( ( vDetWorld.x - vDetWorld.z ) / 140.0, vDetWorld.y / 9.0 ) ).r * 0.5 - 0.75;

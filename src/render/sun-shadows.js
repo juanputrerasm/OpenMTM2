@@ -46,15 +46,33 @@
     - The fit is snapped to whole texels, so a refit does not make shadow edges crawl.
     - With Natural light each cascade keeps a copy of what never moves (the ground, the placed
       objects, the camera-facing trees among them: their shadows are held square to the sun). A
-      redraw puts that copy back and draws only the trucks and the keyframed models on top. A
-      cascade a truck's shadow cannot reach skips that truck.
+      redraw puts back only the texels that what moves covered the last time it was drawn,
+      and draws the trucks and the keyframed models on top. A cascade a truck's shadow cannot
+      reach skips that truck.
       The copies are 32 MB each. Without Natural light only a few objects cast, and every redraw
       draws the whole map, as before.
+    - A placed object a truck knocks about changes what never moves. Only the cascades its
+      shadow falls in, as it stood and as it stands, have their copy drawn again, and only
+      those whose texels are small enough to show it: a far cascade's texel is many feet
+      across. Every copy drawn again is the whole map, ground and all, so no more than one is
+      drawn in a frame; another waits a frame or two, nearest first. A cascade not yet drawn
+      at all never waits.
+
+  Reading them. three.js's soft shadows test the depth at sixteen texels about each point and
+  unpack each depth from a colour. Each cascade's map keeps its depth in a texture the graphics
+  card compares as well. In the first cascade (150 ft with Natural light, 500 ft without) the
+  lit materials read that four times, the card weighing the tests between texels itself, which
+  gives the same shadow (game/shadow-cache.js). Further out they read it once, the card
+  weighing the four texels about the point: an edge a texel wide instead of three. The packed
+  colour is still drawn: the water reads it.
 */
 
 import * as THREE from "three";
 import { CSM } from "three/addons/csm/CSM.js";
+import { CSMShader } from "three/addons/csm/CSMShader.js";
 import { SHADOW_CASCADE_ENDS_FT, SHADOW_FAR_FT } from "../game/lighting.js";
+import { REBUILDS_PER_FRAME, changeReaches, patchesToRestore, shadowPatch } from "../game/shadow-cache.js";
+import { WORLD_FT } from "../shared/scene-frame.js";
 
 const CASCADES = 4;
 const MAP_SIZE = 2048;
@@ -78,6 +96,64 @@ const DEPTH_BIAS_PER_TEXEL = 1.5;
 /** Materials whose shader uses the scene lights, and so the cascade lights. */
 const isLit = (material) => material && (material.isMeshLambertMaterial || material.isMeshPhongMaterial
   || material.isMeshStandardMaterial || material.isMeshToonMaterial);
+
+/*
+  The lit materials' read of a cascade. The first, where shadows are seen up close, gets three.js's soft shadow as four
+  tests the graphics card compares and weighs (game/shadow-cache.js `softShadowReads`); the others one test, the card
+  weighing the four texels about the point. Which cascade is read is known when the shader is built: three.js writes
+  CSM's loop out once per cascade. A material set up without MTM_SHADOW_COMPARED reads three.js's way.
+*/
+const COMPARED_PARS = /* glsl */ `
+#if defined( USE_CSM ) && defined( CSM_CASCADES ) && defined( MTM_SHADOW_COMPARED ) && defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
+uniform sampler2DShadow mtmShadowDepth[ NUM_DIR_LIGHT_SHADOWS ];
+float mtmShadowCompared( sampler2DShadow map, vec2 size, float intensity, float bias, vec4 coord, bool soft ) {
+  float shadow = 1.0;
+  coord.xyz /= coord.w;
+  coord.z += bias;
+  // A shadow of no strength changes nothing, and is not read.
+  if ( intensity > 0.0 && coord.x >= 0.0 && coord.x <= 1.0 && coord.y >= 0.0 && coord.y <= 1.0 && coord.z <= 1.0 ) {
+    if ( soft ) {
+      // Along each axis the texels left of the point's lower neighbour weigh 1 - f, 1, 1 and f: two pairs, each one read.
+      vec2 t = coord.xy * size + 0.5;
+      vec2 f = fract( t ), n = t - f;
+      vec2 first = 2.0 - f, second = 1.0 + f;
+      vec2 a = ( n - 1.5 + 1.0 / first ) / size, b = ( n + 0.5 + f / second ) / size;
+      shadow = ( first.x * first.y * texture( map, vec3( a, coord.z ) ) + second.x * first.y * texture( map, vec3( b.x, a.y, coord.z ) )
+        + first.x * second.y * texture( map, vec3( a.x, b.y, coord.z ) ) + second.x * second.y * texture( map, vec3( b, coord.z ) ) ) / 9.0;
+    } else {
+      shadow = texture( map, coord.xyz );
+    }
+  }
+  return mix( 1.0, shadow, intensity );
+}
+// A surface turned from the sun takes none of its light in these materials, shadowed or not, so its shadow is not read.
+// A coat, a sheen or a toon's steps are lit past that, and always read it. The cascade's number, nth, is a constant.
+#if defined( USE_CLEARCOAT ) || defined( USE_SHEEN ) || defined( TOON )
+#define MTM_CASCADE_SHADOW( packed, compared, caster, coord, nth ) mtmShadowCompared( compared, caster.shadowMapSize, caster.shadowIntensity, caster.shadowBias, coord, ( nth ) == 0 )
+#else
+#define MTM_CASCADE_SHADOW( packed, compared, caster, coord, nth ) ( dot( geometryNormal, directLight.direction ) > 0.0 ? mtmShadowCompared( compared, caster.shadowMapSize, caster.shadowIntensity, caster.shadowBias, coord, ( nth ) == 0 ) : 1.0 )
+#endif
+#else
+#define MTM_CASCADE_SHADOW( packed, compared, caster, coord, nth ) getShadow( packed, caster.shadowMapSize, caster.shadowIntensity, caster.shadowBias, caster.shadowRadius, coord )
+#endif
+`;
+/** three.js's read of a cascade in CSM's loop over them, and where that loop ends. */
+const CSM_GET_SHADOW = "getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] )";
+const CSM_LOOP_END = "#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Direct ) && !defined( USE_CSM ) && !defined( CSM_CASCADES )";
+
+/**
+ * CSM puts its chunks in three.js's for every material when it is made. Its loop over the cascades is made to read them
+ * as COMPARED_PARS does, in a material that asks for it. Whether the chunks were as this expects.
+ */
+function compareCascades() {
+  const begin = CSMShader.lights_fragment_begin, end = begin.indexOf(CSM_LOOP_END);
+  if (end < 0 || !begin.slice(0, end).includes(CSM_GET_SHADOW)) return false;
+  // three.js writes the loop out once per cascade, UNROLLED_LOOP_INDEX becoming each one's number.
+  const read = "MTM_CASCADE_SHADOW( directionalShadowMap[ i ], mtmShadowDepth[ i ], directionalLightShadow, vDirectionalShadowCoord[ i ], UNROLLED_LOOP_INDEX )";
+  THREE.ShaderChunk.lights_fragment_begin = begin.slice(0, end).split(CSM_GET_SHADOW).join(read) + begin.slice(end);
+  THREE.ShaderChunk.lights_pars_begin = CSMShader.lights_pars_begin + COMPARED_PARS;
+  return true;
+}
 
 export class SunShadows {
   /** `cascadeEnds` is where the first three cascades end, feet from the eye; the last runs on to `maxFar`. */
@@ -105,6 +181,9 @@ export class SunShadows {
       lightFar: LIGHT_FAR,
       lightMargin: LIGHT_MARGIN,
     });
+    // The depths the lit materials compare, a texture each cascade's map is drawn with; none where three.js's chunks are
+    // not as expected, and the materials read three.js's way.
+    this._depths = compareCascades() ? [] : null;
     for (const light of this._csm.lights) {
       // Set outright: the helper reads an intensity of 0 as "none given" and falls back to its own bright default, which
       // lit the ground and cast shadows in Pitch Black, the one weather whose sun is 0.
@@ -113,8 +192,19 @@ export class SunShadows {
       light.shadow.bias = DEPTH_BIAS;
       // Redrawn per cascade, only when _fit or invalidate says so.
       light.shadow.autoUpdate = false;
+      // three.js makes the map on its first draw, unless there is one.
+      if (this._depths) {
+        light.shadow.map = cascadeMap(light);
+        this._depths.push(light.shadow.map.depthTexture);
+      }
     }
-    this._fits = this._csm.lights.map(() => ({ center: null, radius: 0, serial: -1, rebuilt: false }));
+    // `lx`, `ly`: where the cascade's middle lies in the light's own frame, across the light's way.
+    this._fits = this._csm.lights.map(() => ({ center: null, radius: 0, lx: 0, ly: 0, serial: -1, rebuilt: false }));
+    // What moves, as last drawn into each cascade over its static copy: patches of the map, [x0, y0, x1, y1] in texels,
+    // or null where that is not known (the whole map is put back).
+    this._drawn = this._csm.lights.map(() => null);
+    // Whether a copy between two maps has been seen to work, after which it is not asked of the graphics card again.
+    this._blitChecked = false;
     this._frame = 0;
     this._dynamic = false;
     this._renderer = null;
@@ -263,14 +353,20 @@ export class SunShadows {
     // materials may share a hook's text and differ in what the hook was made with (render/ground-surface.js).
     const ownKey = own ? material.customProgramCacheKey() : "";
     this._csm.setupMaterial(material);
-    if (!own) return;
+    const depths = this._depths;
+    if (!own && !depths) return;
+    // The cascades read as the graphics card compares them (COMPARED_PARS).
+    if (depths) material.defines.MTM_SHADOW_COMPARED = "";
     const csmHook = material.onBeforeCompile;
     material.onBeforeCompile = (shader, renderer) => {
-      own.call(material, shader, renderer);
+      own?.call(material, shader, renderer);
       csmHook.call(material, shader, renderer);
+      if (depths) shader.uniforms.mtmShadowDepth = { value: depths };
     };
-    const key = `${ownKey}|${csmHook.toString()}`;
-    material.customProgramCacheKey = () => key;
+    if (own) {
+      const key = `${ownKey}|${csmHook.toString()}`;
+      material.customProgramCacheKey = () => key;
+    }
     material.needsUpdate = true;
   }
 
@@ -301,32 +397,48 @@ export class SunShadows {
       if (this._caching) for (const mesh of fresh) if (mesh.castShadow) this._dynamicCasters.push(mesh);
       fresh.length = 0;
     }
-    let any = false, staticSpent = false;
+    let any = false, rebuilds = 0;
     const serial = this._world?.userData.shadowStaticSerial ?? 0;
     this._csm.lights.forEach((light, i) => {
       const fit = this._fits[i];
       const reach = this._csm.breaks[i] * far * spread;
       const radius = reach * (1 + SLACK);
-      const stale = !fit.center || Math.abs(fit.radius - radius) > radius * 1e-3
+      const unbuilt = !fit.center || !light.shadow.map || (this._caching && !this._cache?.[i]);
+      let stale = !fit.center || Math.abs(fit.radius - radius) > radius * 1e-3
         || fit.center.distanceTo(camera.position) > reach * SLACK;
       const due = this._dynamic && this._frame % (1 << i) === 0;
-      // A far cascade is not redrawn every frame, so a moved prop has to mark it even on a frame it would skip. A still
-      // thing that changed (a tree knocked down) redraws the still copies one cascade a frame, nearest first: all four
-      // at once, with a forest in them, would hold up the frame for tens of milliseconds.
+      // A far cascade is not redrawn every frame, so a moved prop has to mark it even on a frame it would skip. A prop
+      // whose shadow this cascade does not show changes nothing in it.
       let serialStale = this._caching && fit.serial !== serial;
-      if (serialStale && !stale) {
-        if (staticSpent) serialStale = false;
-        else staticSpent = true;
+      if (serialStale && !this._changeReaches(fit, serial)) { fit.serial = serial; serialStale = false; }
+      // One copy drawn afresh a frame at most (the nearest that wants it): all four at once, with a forest in them, would
+      // hold up the frame for tens of milliseconds. The rest keep what they have for now.
+      if (this._caching && !unbuilt && (stale || serialStale)) {
+        if (rebuilds >= REBUILDS_PER_FRAME) { stale = false; serialStale = false; }
+        else rebuilds++;
       }
       if (!stale && !due && !serialStale) return;
       if (stale) this._fit(light, fit, radius);
       // A refit, a moved prop, or a missing copy redraws the static ground. A truck's frame only redraws what moves.
-      fit.rebuilt = !!(this._caching && (stale || serialStale || !light.shadow.map || !this._cache?.[i]));
+      fit.rebuilt = !!(this._caching && (stale || serialStale || unbuilt));
       light.shadow.needsUpdate = true;
       any = true;
     });
     this._dynamic = false;
     return any;
+  }
+
+  /**
+   * Whether anything that changed in what never moves since the cascade fitted as `fit` last drew its static copy (up
+   * to `serial`) shows in it (game/shadow-cache.js `changeReaches`): what it shows is its circle across the light's way.
+   */
+  _changeReaches(fit, serial) {
+    if (!fit.center) return true;
+    _orientation.lookAt(_zero, this._csm.lightDirection, _worldUp);
+    _inverse.copy(_orientation).invert();
+    const toLight = (x, y, z) => { _point.set(x, y, z).applyMatrix4(_inverse); return [_point.x, _point.y]; };
+    const cascade = { serial: fit.serial, radius: fit.radius, x: fit.center.x, z: fit.center.z, lx: fit.lx, ly: fit.ly };
+    return changeReaches(cascade, this._world?.userData.shadowChanges, serial, { toLight, worldFt: WORLD_FT, mapSize: MAP_SIZE });
   }
 
   /*
@@ -341,6 +453,8 @@ export class SunShadows {
     _center.copy(this._camera.position).applyMatrix4(_inverse);
     _center.x = Math.round(_center.x / texel) * texel;
     _center.y = Math.round(_center.y / texel) * texel;
+    fit.lx = _center.x;
+    fit.ly = _center.y;
     _center.applyMatrix4(_orientation);
 
     const cam = light.shadow.camera;
@@ -445,18 +559,33 @@ export class SunShadows {
       if (!this._cache[i]) this._cache[i] = staticShadowCopy();
       if (!this._blit(map, this._cache[i])) { this._failCache(); full(); return; }
       fit.serial = serial;
-    } else if (!this._blit(this._cache[i], light.shadow.map)) { this._failCache(); full(); return; }
-    this._overlay(light);
+      // The map holds what never moves, and nothing else yet.
+      this._drawn[i] = [];
+    } else if (!this._blit(this._cache[i], light.shadow.map, this._drawn[i])) { this._failCache(); full(); return; }
+    this._drawn[i] = this._overlay(light);
   }
 
-  /** Draw the trucks, keyframed models and camera-facing trees over the restored static copy. */
+  /**
+   * Draw the trucks, keyframed models and camera-facing trees over the restored static copy. Returns the patches of the
+   * map they were drawn in, for the next redraw to put back, or null where they cover too much of it for patches.
+   */
   _overlay(light) {
     this._setCast(this._staticCasters, false);
     light.shadow.updateMatrices(light);
     const frustum = light.shadow.getFrustum();
+    const patches = [];
     for (const truck of this._truckCasters) {
       const reach = this._truckSphere(truck);
-      this._setCast(truck.meshes, !!(reach && frustum.intersectsSphere(reach)));
+      const shown = !!(reach && frustum.intersectsSphere(reach));
+      this._setCast(truck.meshes, shown);
+      if (shown) this._patch(light, reach, patches);
+    }
+    for (const mesh of this._dynamicCasters) {
+      const geometry = mesh.geometry;
+      if (!geometry) continue;
+      if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+      _sphere.copy(geometry.boundingSphere).applyMatrix4(mesh.matrixWorld);
+      if (frustum.intersectsSphere(_sphere)) this._patch(light, _sphere, patches);
     }
     this._setCast(this._dynamicCasters, true);
     this._suppressClear = true;
@@ -467,6 +596,19 @@ export class SunShadows {
       this._suppressClear = false;
       this._restoreCast();
     }
+    return patchesToRestore(patches, MAP_SIZE);
+  }
+
+  /**
+   * Where `sphere` (in the world) lies on cascade `light`'s map, whose matrices are current, added to `patches`
+   * (game/shadow-cache.js `shadowPatch`). The map is drawn straight down the light's way, so what lies in the sphere is
+   * drawn within it.
+   */
+  _patch(light, sphere, patches) {
+    const camera = light.shadow.camera;
+    _point.copy(sphere.center).applyMatrix4(light.shadow.matrix);
+    const patch = shadowPatch(_point.x, _point.y, sphere.radius / (camera.right - camera.left), MAP_SIZE);
+    if (patch) patches.push(patch);
   }
 
   _truckSphere(entry) {
@@ -494,8 +636,15 @@ export class SunShadows {
     for (const truck of this._truckCasters) this._setCast(truck.meshes, true);
   }
 
-  /** Copy a cascade's colour and depth. The packed depth lives in the colour, and the test uses the depth buffer. */
-  _blit(src, dst) {
+  /**
+   * Copy a cascade's colour and depth. The packed depth lives in the colour, and the test uses the depth buffer. With
+   * `patches` ([x0, y0, x1, y1] in texels) only those are copied, and none when there are none.
+   *
+   * Whether the browser takes the copy is asked of it once, the first time: asking waits for the graphics card to catch
+   * up with everything drawn before it, which held up every frame by as long as the card was behind.
+   */
+  _blit(src, dst, patches = null) {
+    if (patches && !patches.length) return true;
     const renderer = this._renderer;
     const gl = renderer.getContext();
     if (!gl.blitFramebuffer) return false;
@@ -510,12 +659,16 @@ export class SunShadows {
       const srcFb = renderer.properties.get(src).__webglFramebuffer;
       const dstFb = renderer.properties.get(dst).__webglFramebuffer;
       if (!srcFb || !dstFb) return false;
-      for (let n = 0; n < 8 && gl.getError() !== gl.NO_ERROR; n++) { /* a stale error is not this copy */ }
+      const check = !this._blitChecked;
+      if (check) for (let n = 0; n < 8 && gl.getError() !== gl.NO_ERROR; n++) { /* a stale error is not this copy */ }
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, srcFb);
       gl.readBuffer(gl.COLOR_ATTACHMENT0);
       gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, dstFb);
-      gl.blitFramebuffer(0, 0, src.width, src.height, 0, 0, dst.width, dst.height, gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT, gl.NEAREST);
-      const ok = gl.getError() === gl.NO_ERROR;
+      const mask = gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT;
+      if (patches) for (const [x0, y0, x1, y1] of patches) gl.blitFramebuffer(x0, y0, x1, y1, x0, y0, x1, y1, mask, gl.NEAREST);
+      else gl.blitFramebuffer(0, 0, src.width, src.height, 0, 0, dst.width, dst.height, mask, gl.NEAREST);
+      const ok = !check || gl.getError() === gl.NO_ERROR;
+      if (ok) this._blitChecked = true;
       // three.js remembers the framebuffer it bound. The copy bound its own, so bind through three.js again.
       renderer.setRenderTarget(null);
       renderer.setRenderTarget(dst);
@@ -571,6 +724,23 @@ export class SunShadows {
   }
 }
 
+/**
+ * A cascade's map as three.js would make it (its depth packed in the colour, which the water reads), its depth a texture
+ * the lit materials compare (COMPARED_PARS), bilinearly. 24 bit, as three.js's depth buffer, so a static copy's depth
+ * buffer takes a copy of it.
+ */
+function cascadeMap(light) {
+  const depth = new THREE.DepthTexture(MAP_SIZE, MAP_SIZE, THREE.UnsignedIntType);
+  depth.compareFunction = THREE.LessEqualCompare;
+  depth.minFilter = THREE.LinearFilter;
+  depth.magFilter = THREE.LinearFilter;
+  const target = new THREE.WebGLRenderTarget(MAP_SIZE, MAP_SIZE, {
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthTexture: depth,
+  });
+  target.texture.name = `${light.name}.shadowMap`;
+  return target;
+}
+
 /** One cascade's copy of the static shadow: the same 2048 square, nearest, with a depth buffer. 32 MB. */
 function staticShadowCopy() {
   const target = new THREE.WebGLRenderTarget(MAP_SIZE, MAP_SIZE, {
@@ -621,6 +791,7 @@ function truckMoved(watched) {
   }
   return moved;
 }
+const _point = new THREE.Vector3();
 
 /**
  * Turn on the sun's shadows for a track being drawn: the cascades replace the plain sun light,

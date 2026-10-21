@@ -951,7 +951,7 @@ async function mountRace(container, context, params, owned = []) {
   const blimp = build.blimp && hasBlimp({ detailLevel: context.settings.detailLevel ?? 2, raceType: track.raceType }) && straights.length
     ? createBlimp(straights, ground) : null;
   // The recovery helicopter and the pterodactyl (game/heli-flight.js).
-  const helicopters = createHelicopters(build.heli, look, scene);
+  const helicopters = createHelicopters(build.heli, look, scene, entrants.length);
   if (helicopters) cleanups.push(() => helicopters.dispose());
   let blimpObject = null, blimpHum = null;
   if (blimp) {

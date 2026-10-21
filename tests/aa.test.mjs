@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   AA_HINT, AA_MODES, DEFAULT_AA, MSAA_MANY_POINTS, TAA_DEPTH_FT, TAA_DEPTH_SHARE, TAA_HISTORY, TAA_RESET_FT, TAA_RESET_TURN,
-  aaChoice, aaPost, aaResets, aaSamples, taaJitter,
+  aaChoice, aaPost, aaResets, aaSamples, screenSampled, taaJitter,
 } from "../src/game/aa.js";
 
 test("MSAA is the default, and the optional passes stay off until one of them is chosen", () => {
@@ -90,8 +90,51 @@ test("the race and the replay take the choice, and the lens draws as many sample
   const lens = read("../src/render/lens.js");
   assert.match(lens, /uManual/);
   assert.match(lens, /aa\.samples\(w, h\)/);
-  assert.match(lens, /settle\(clean/);
+  // TAA is handed the scene's picture raw, with what is over it, and cleans it as it reads it: no pass of its own.
+  assert.match(lens, /settle\(target, target\.depthTexture, camera, \{ raw: true, over: laid \}\)/);
+  assert.doesNotMatch(lens, /CLEAN/);
   for (const screen of ["../src/ui/screens/race.js", "../src/ui/screens/replay.js"]) {
     assert.match(read(screen), /scenery\.setSize\(canvas\.width, canvas\.height\)/);
   }
+});
+
+test("TAA keeps its frame and the distance in one pass, and hands on the steady picture where it left it", () => {
+  const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
+  const aa = read("../src/render/aa.js");
+  // One picture out of one pass, kept for the next frame: the steady picture, the distance in its fourth number, read back
+  // at the nearest point. No second picture for the distance.
+  assert.match(aa, /layout\(location = 0\) out highp vec4 outSteady;/);
+  assert.doesNotMatch(aa, /outDistance|count: 2/);
+  assert.match(aa, /outSteady = vec4\(current, distance\);/);
+  assert.match(aa, /float zHist = texelFetch\(tHistory, clamp\(ivec2\(floor\(prevUv \* vec2\(kept\)\)\), ivec2\(0\), kept - 1\), 0\)\.a;/);
+  // No copy of the steady picture back into the scene's, and no pass for the distance.
+  assert.doesNotMatch(aa, /DEPTH_COPY|const COPY/);
+  assert.match(aa, /return write\.textures\[0\];/);
+  // The screen and the glow read the steady picture where TAA left it.
+  assert.match(aa, /grade\.uniforms\.tDiffuse\.value = steady \?\? flat\.texture;/);
+  const lens = read("../src/render/lens.js");
+  assert.match(lens, /drawBloom\(steady \?\? target\.texture\);/);
+  assert.match(lens, /material\.uniforms\.tDiffuse\.value = steady \?\? target\.texture;/);
+  // The final pass adds the glow whether or not it cleaned the picture.
+  assert.match(lens, /color \+= texture2D\( tBloom, vUv \)\.rgb;/);
+});
+
+test("the screen's own picture has samples only where MSAA draws the scene straight onto it, without the lens", () => {
+  assert.equal(screenSampled({}), true, "the defaults: MSAA, no lens");
+  assert.equal(screenSampled({ aa: "msaa" }), true);
+  assert.equal(screenSampled({ aa: "msaa", lensEffects: true }), false, "through the lens the scene has a picture of its own");
+  for (const aa of ["off", "fxaa", "smaa", "taa"]) assert.equal(screenSampled({ aa }), false, aa);
+  assert.equal(screenSampled({ aa: "nope" }), true, "an unknown choice is MSAA");
+  const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
+  const host = read("../src/render/xr/xr-host.js");
+  assert.match(host, /antialias: screenSampled\(context\.settings\)/);
+  // three.js is told the context has samples, so a headset's pictures keep theirs, and no alpha, as three.js had it.
+  assert.match(host, /gl\.getContextAttributes = \(\) => \(\{ \.\.\.attributes\(\), alpha: false, antialias: true \}\);/);
+  assert.match(host, /new THREE\.WebGLRenderer\(\{ canvas, context: gl \?\? null \}\)/);
+  // A race that wants MSAA without the lens on a screen made without samples draws it into a picture that has them.
+  const scenery = read("../src/render/scenery.js");
+  assert.match(scenery, /mode !== "msaa" \|\| \(!on\.lens && !screenSamples\(renderer\)\)/);
+  const aa = read("../src/render/aa.js");
+  assert.match(aa, /const samples = aaSamples\(mode, width, height\);/);
+  assert.match(aa, /flat = halfFloat\(width, height, \{ depth: true, samples \}\);/);
 });

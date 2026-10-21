@@ -25,7 +25,9 @@ import { FEET_PER_METRE } from "../../shared/scene-frame.js";
 import { snapshotGamepad } from "../../game/vr/controls.js";
 import { NO_CALIBRATION, calibrate } from "../../game/vr/pose.js";
 import { vrSettings } from "../../game/vr/settings.js";
+import { screenSampled } from "../../game/aa.js";
 import { createIdleStage } from "./idle-stage.js";
+import { createGpuPacer } from "../gpu-pacer.js";
 import { createVrMenu } from "./vr-panel.js";
 import { installAtmosphere } from "../atmosphere.js";
 
@@ -39,7 +41,21 @@ const ONE = new THREE.Vector3(1, 1, 1);
 /** @param {{ settings: object }} context the app's context: `settings.vr` holds the player's VR preferences */
 export function createXrHost(context) {
   const canvas = document.createElement("canvas");
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  /*
+    The context is the one three.js would make (r169's attributes for it), with samples on the screen's own picture only
+    where the settings draw the scene straight onto it (game/aa.js `screenSampled`). three.js is told the context has
+    samples: its WebXR manager gives a headset's pictures as many as it reads there, and those keep theirs. And it is
+    told the context has no alpha, as it would have had it from three.js's own default.
+  */
+  const gl = canvas.getContext("webgl2", {
+    alpha: true, depth: true, stencil: false, antialias: screenSampled(context.settings),
+    premultipliedAlpha: true, preserveDrawingBuffer: false, powerPreference: "default", failIfMajorPerformanceCaveat: false,
+  });
+  if (gl) {
+    const attributes = gl.getContextAttributes.bind(gl);
+    gl.getContextAttributes = () => ({ ...attributes(), alpha: false, antialias: true });
+  }
+  const renderer = new THREE.WebGLRenderer({ canvas, context: gl ?? null });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
   const xr = renderer.xr;
   xr.enabled = true;
@@ -177,15 +193,23 @@ export function createXrHost(context) {
     and left running (three.js moves it between the two as a session starts and ends; setting
     it again during a session would start the window's frames beside the headset's). With no
     screen drawing and no session, a frame does nothing.
+
+    The window's frames wait for the graphics card (render/gpu-pacer.js): one that comes while
+    the card is two frames behind is skipped, and the next takes its time. A headset paces its
+    own frames and must be given every one.
   */
+  const pacer = createGpuPacer(renderer.getContext());
   const frameOf = (frame) => {
     const now = performance.now();
+    const paced = loop && !xr.isPresenting;
+    if (paced && pacer.behind(now)) return;
     const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
     last = now;
     if (xr.isPresenting) readHead(frame);
     readHands();
     if (loop) loop(dt, now);
     else if (xr.isPresenting) (idle ??= createIdleStage(host)).frame(dt, now);
+    if (paced) pacer.drawn(now);
   };
   /*
     V-sync (Options, Display): off, the window's frames come from a timer instead of the display's refresh, as fast as the
@@ -210,6 +234,7 @@ export function createXrHost(context) {
   const onReset = () => { recenterDue = true; };
   xr.addEventListener("sessionstart", () => {
     session = xr.getSession();
+    pacer.reset();
     head.valid = false;
     recenterDue = true;
     session.addEventListener("visibilitychange", onVisibility);

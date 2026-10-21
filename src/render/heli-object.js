@@ -1,8 +1,12 @@
 /*
   The recovery helicopter (HELI.BIN) and the pterodactyl (TERYL.BIN, an animated BIN of four wing
   frames, TERYL1 to TERYL4, blended through morph targets like every animated model). One of each
-  per truck is built on first use; `update` places them from the trucks' `heli` poses
+  per truck, hidden until a truck needs it; `update` places them from the trucks' `heli` poses
   (game/heli-flight.js). The game draws them at the heading plus half a turn.
+
+  They are all made with the scene, `count` of each, so that the shaders built ahead of the race
+  (render/weather-scene.js `warmPools`) include theirs: made when first needed, the first rescue
+  stopped the picture to build the rotors' shaders. A truck past `count` has its own made then.
 
   HELI.BIN has the airframe only, so the port adds the rotors: a main rotor over the cabin and a tail
   rotor, turning fast, each with a faint disc for the blur.
@@ -31,8 +35,11 @@ function rotor({ radius, chord, rate }, axis) {
   return { wrap, spin: group, rate };
 }
 
-/** @param {{ heli: object|null, teryl: object|null, textures: object }} build `build.heli` of the track build */
-export function createHelicopters(build, look, scene) {
+/**
+ * @param {{ heli: object|null, teryl: object|null, textures: object }} build `build.heli` of the track build
+ * @param {number} [count] how many trucks there are: a helicopter and a pterodactyl are made for each at once
+ */
+export function createHelicopters(build, look, scene, count = 0) {
   if (!build) return null;
   const models = Object.fromEntries([build.heli, build.teryl].filter(Boolean).map((m) => [m.name, m]));
   const library = createModelLibrary(models, build.textures, look);
@@ -67,6 +74,7 @@ export function createHelicopters(build, look, scene) {
     scene.add(root);
     return (pool[i] = { root, heli, teryl, rotors });
   }
+  for (let i = 0; i < count; i++) slot(i);
   let clock = 0;
   return {
     /** `helis[i]` is truck i's `{ pos, heading, teryl }` or null. */

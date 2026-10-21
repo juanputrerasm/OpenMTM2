@@ -18,6 +18,11 @@
   settles slowly (game/water.js `WATER_RIPPLES`, `wheelStir`). The level's water and the puddles
   share the one field: the water's shader and the ground's read it.
 
+  Until a wheel first stirs it the field is calm, and is not stepped; nor is it once no wheel
+  has stirred it for as long as its waves, foam and silt take to run down to nothing that shows
+  (game/water.js `rippleQuietS`). Its readers are told it is not running, as where there is no
+  water, and a wheel that stirs it again starts it afresh, calm.
+
   The field stays round the eye: as the eye moves it is shifted by whole points, and what comes
   into it from outside is calm. Toward its edges the waves die away, so nothing is thrown back
   from them. It is stepped before each frame is drawn, by as much time as the frame's wheels
@@ -27,11 +32,11 @@
 import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { PUDDLE_RANGE_FT, PUDDLE_WATERLINE, puddleDepthAt } from "../game/ground-maps.js";
-import { WATER_RIPPLES, landingStir, puddleStir, wheelStir } from "../game/water.js";
+import { WATER_RIPPLES, landingStir, puddleStir, rippleQuietS, wheelStir } from "../game/water.js";
 
 const { windowTexels: SIDE, texelFt: TEXEL_FT, stepS: STEP_S, mostSteps: MOST_STEPS, fastestFtPerS, calmS, foamCollapseS, foamLingerS, foamThick, siltHalfLifeS, stirs: STIRS, breaks, breakS, bareBelow } = WATER_RIPPLES;
-/** Seconds unstirred after which the field is still to the eye: eight of its decay times, waves, foam and silt alike. */
-const QUIET_S = 8 * Math.max(calmS, foamLingerS / Math.LN2, siltHalfLifeS / Math.LN2);
+/** No wheel has stirred the field for this long, seconds: it has run down to nothing that shows. */
+const QUIET_S = rippleQuietS();
 const glsl = (n) => n.toFixed(5);
 /** A wheel is on the ground, for a puddle, when its tire's foot is within this of it, feet. */
 const ON_GROUND_FT = 0.5;
@@ -60,18 +65,19 @@ const STEP = {
     uniform vec2 uStirFrom[ ${STIRS} ];
     uniform int uStirs;
     varying vec2 vUv;
-    // The field as it was, at a point of the window as it is now; calm outside what it held.
-    vec4 was( vec2 uv ) {
-      vec2 from = uv + uWindow.zw / ${SIDE.toFixed(1)};
-      if ( any( lessThan( from, vec2( 0.0 ) ) ) || any( greaterThan( from, vec2( 1.0 ) ) ) ) return vec4( 0.0 );
-      return texture2D( uField, from );
+    // The field as it was, at point \`at\` of the window as it is now; calm outside what it held. The window moves by whole
+    // points, so every read falls on one, and is read as it is.
+    vec4 was( ivec2 at ) {
+      ivec2 from = at + ivec2( uWindow.zw );
+      if ( any( lessThan( from, ivec2( 0 ) ) ) || any( greaterThanEqual( from, ivec2( ${SIDE} ) ) ) ) return vec4( 0.0 );
+      return texelFetch( uField, from, 0 );
     }
     void main() {
-      vec2 texel = vec2( 1.0 / ${SIDE.toFixed(1)} );
-      vec4 here = was( vUv );
+      ivec2 point = ivec2( gl_FragCoord.xy );
+      vec4 here = was( point );
       float h = here.r, before = here.g, foam = here.b, silt = here.a;
       // The four points about it, each read once: their heights move this one, and their foam and silt spread into it.
-      vec4 near = was( vUv + vec2( texel.x, 0.0 ) ) + was( vUv - vec2( texel.x, 0.0 ) ) + was( vUv + vec2( 0.0, texel.y ) ) + was( vUv - vec2( 0.0, texel.y ) );
+      vec4 near = was( point + ivec2( 1, 0 ) ) + was( point - ivec2( 1, 0 ) ) + was( point + ivec2( 0, 1 ) ) + was( point - ivec2( 0, 1 ) );
       float around = near.r;
       vec2 at = uWindow.xy + vUv * ${(SIDE * TEXEL_FT).toFixed(2)};
       // How deep the water is here, the level's or a puddle's, the deeper; and so how fast its waves run (game/water.js \`waveSpeed\`).
@@ -147,12 +153,14 @@ export function createWaterRipples({ renderer, groundTexture = null, levelFt = n
   /** What the shaders that read the field are given: the field, and where it lies (its corner on the map, feet; 1 / its width; whether it runs). */
   const shared = { uRipples: { value: read.texture }, uRippleAt: { value: new THREE.Vector4() } };
   /** The window's corner, in whole points of the field, or null while the field is calm and not running. */
-  let corner = null, clock = 0, time = 0, stirredFor = 0, stillFor = 0;
+  let corner = null, clock = 0, time = 0, stirredFor = 0;
   /** Where each wheel was a frame ago, by truck and wheel, for how fast it moves and whether it has just come down into the water. */
   const before = new Map();
   /** Where each wheel that stirs was when the field last stepped, by truck and wheel: it stirs all along its way since. */
   const trail = new Map();
   let stirs = [], levelNow = levelFt ?? 0, frozen = false, puddleDrop = null;
+  /** Seconds since a wheel last stirred the field: none has, at first. */
+  let sinceStir = Infinity;
   const black = new THREE.Color(0, 0, 0), kept = new THREE.Color();
 
   function stepOnce() {
@@ -223,11 +231,9 @@ export function createWaterRipples({ renderer, groundTexture = null, levelFt = n
     step(eye) {
       const dt = stirredFor;
       stirredFor = 0;
-      if (!running()) { corner = null; shared.uRippleAt.value.w = 0; return; }
-      // Nothing stirred it for long enough that its waves, foam and silt have died away: it is not stepped, nor read, until a
-      // wheel stirs it again, and then it starts calm, as it is.
-      stillFor = stirs.length ? 0 : stillFor + dt;
-      if (stillFor > QUIET_S) { corner = null; shared.uRippleAt.value.w = 0; return; }
+      sinceStir = stirs.length ? 0 : sinceStir + dt;
+      // Nothing to run on, or nothing stirring it that shows: calm, and not stepped.
+      if (!running() || sinceStir > QUIET_S) { corner = null; clock = 0; shared.uRippleAt.value.w = 0; return; }
       // The window about the eye, in whole points, and how far it moved since the field last stepped. The field is moved
       // with the window as it steps: in a frame too short for a step (and while the race is paused) it stays where it was,
       // and so does the corner its readers are given.
@@ -272,6 +278,11 @@ export function createWaterRipples({ renderer, groundTexture = null, levelFt = n
       shared.uRipples.value = read.texture;
       shared.uRippleAt.value.set(corner[0] * TEXEL_FT, corner[1] * TEXEL_FT, 1 / (SIDE * TEXEL_FT), 1);
     },
+    /**
+     * Build the step's shader ahead of the race (render/scenery.js `compile`), not when a wheel first stirs the field,
+     * which would stop the picture for it: one step of the field at rest, which is cleared before the field runs.
+     */
+    warm() { if (!corner) stepOnce(); },
     dispose() {
       read.dispose();
       write.dispose();

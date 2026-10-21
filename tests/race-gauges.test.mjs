@@ -39,3 +39,15 @@ test("at 2560 x 1440 the HUD is laid out as Community Patch 3 draws it", async (
   assert.equal(layout.labelR, 219, "the numbers' radius grows with the height, so the dials stay round");
   assert.deepEqual(gaugeLayout().speedo, { x: 106, y: 391 }, "640 x 480 is the exe's own screen");
 });
+
+test("the dials' faces are drawn once a scale, and each reading lays them down and draws the needles over them", async () => {
+  const { readFileSync } = await import("node:fs");
+  const gauges = readFileSync(new URL("../src/render/race-gauges.js", import.meta.url), "utf8");
+  // Drawn again only when the units or size change.
+  assert.match(gauges, /if \(face && faceKey === key\) return face;/);
+  // Each reading: the faces, then both needles, then the gear strip, in that order.
+  const order = ["ctx.drawImage(faces(), 0, 0);", "drawNeedle(ctx, needle, layout.speedo", "drawNeedle(ctx, needle, layout.tacho", "labelOn(ctx, item,"];
+  const at = order.map((line) => gauges.indexOf(line));
+  assert.ok(at.every((i) => i > 0), "every step is there");
+  assert.deepEqual([...at].sort((a, b) => a - b), at, "in that order");
+});

@@ -6,8 +6,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   BACKDROP_DARK, BACKDROP_DISTANCE_FT, BACKDROP_FOOT, CLEAR_BACKDROP_FADE, CLEAR_BACKDROP_THIN, CLEAR_FADE, CLEAR_HALF, FOG_BANKS, FOG_FADE_FROM, FOG_REACH, ICE_SNOW_SHARE, POOL_LOOK, PRECIPITATION, SNOW_SETTLE_SECONDS, SNOW_START, WET,
-  FOG_TOP, backdropHides, fogAtHeight, fogBank, fogColumn, fogLight, fogProfile, fogTopLit, fogHides, fogSliceEnd, fogVolume, groundWetness, poolMurk, precipitationOf, puddlesFilled, snowDown, snowSettled,
+  FOG_TOP, backdropHides, fogAtHeight, fogBank, fogColumn, fogLight, fogProfile, fogTopLit, fogHides, fogSliceEnd, fogSlicesWhole, fogVolume, groundWetness, poolMurk, precipitationOf, puddlesFilled, snowDown, snowSettled,
 } from "../src/game/atmosphere.js";
+import { readFileSync } from "node:fs";
 import { WEATHER_LOOK } from "../src/game/weather.js";
 
 const near = (a, b, e = 1e-9) => assert.ok(Math.abs(a - b) < e, `${a} is not ${b}`);
@@ -220,6 +221,33 @@ test("the fog's banks stand in the world: the line of sight is cut in slices, sh
   for (const weather of [0, 1, 2, 3, 4, 5]) assert.ok(fogVolume(weather).windFtPerS > 0 && fogVolume(weather).windFtPerS <= 10, `weather ${weather}`);
   // Over a bank the layer's top stands higher.
   assert.ok(FOG_BANKS.topSwell > 0 && FOG_BANKS.topSwell < 1);
+});
+
+test("a line passes whole the slices that end before it does, which a fragment reads from the fog worked out once a frame", () => {
+  for (const slices of [FOG_BANKS.slices, FOG_BANKS.liteSlices]) {
+    for (const reach of [800, 1024, 2600]) {
+      for (let k = 0; k <= 400; k++) {
+        const dist = (k / 400) * reach * 1.3;
+        let whole = 0;
+        for (let i = 0; i < slices; i++) if (fogSliceEnd(i, slices, reach) <= dist * (1 + 1e-12)) whole = i + 1;
+        assert.equal(fogSlicesWhole(dist, slices, reach), whole, `${slices} slices to ${reach} ft, a line ${dist} ft`);
+      }
+    }
+  }
+  assert.equal(fogSlicesWhole(0, 5, 800), 0);
+  assert.equal(fogSlicesWhole(100, 5, 0), 0, "no reach, no slices");
+  // The shaders count them so, and the frame's pass keeps the line after each, in three bands (render/fog-state.js).
+  const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
+  const atmosphere = read("../src/render/atmosphere.js"), pass = read("../src/render/fog-state.js");
+  assert.match(atmosphere, /int whole = min\( slices, int\( float\( slices \) \* sqrt\( max\( dist, 0\.0 \) \/ far \) \) \);/);
+  // Only the eye the picture was worked out from reads it; any other eye works its fog out as before.
+  assert.match(atmosphere, /distance\( cameraPosition, mtmFogStateEye\.xyz \) > 0\.01/);
+  // The pass and the fragments take a slice with the same code.
+  assert.equal((atmosphere.match(/mtmFogSlice\( dir, from, to, billowFt, bandLow, bandHigh, sunFlat, steps, clear, seen \);/g) ?? []).length, 1);
+  assert.match(pass, /mtmFogSlice\( dir, from, to, billowFt, bandLow, bandHigh, sunFlat, steps, clear, seen \);/);
+  assert.match(pass, /if \(!atmosphere\.on \|\| atmosphere\.billows\) \{ atmosphere\.ahead\(\); return; \}/);
+  // A headset's eyes and the mirrors are drawn without it: only the flat screen's draw works it out.
+  assert.match(read("../src/render/scenery.js"), /if \(fogState && !plain\) fogState\.prepare\(/);
 });
 
 test("a bank thins the fog or thickens it, most in Foggy, less in a haze, and is an even fog on the whole", () => {

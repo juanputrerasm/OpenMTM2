@@ -192,7 +192,14 @@ units.
   ground, also before the scene is drawn (`water.prepare`), and read by the water's shader; it
   is the same size on any screen and serves both eyes of a headset. Neither draws anything of
   the scene or reads anything back, and both are drawn with the headset's own drawing set
-  aside, so a headset runs them as the flat screen does.
+  aside, so a headset runs them as the flat screen does. A third is the flat screen's alone: the
+  fog along every way from the eye (`src/render/fog-state.js`), worked out by `scenery.draw` just
+  before the scene, which every material's fog reads its whole slices from (the fog chunks in
+  `src/render/atmosphere.js`). Each material keeps its own copy of three.js's uniforms, so what
+  every material shares is of the kinds three.js copies without copying (arrays and their
+  items): the one picture, kept for every race and only resized, and two arrays of numbers.
+  Only the eye it was worked out from reads it; a mirror's and a headset's work their fog out as
+  before.
 - **Some textures are worked out once.** The noise the scenery reads (`src/render/noise-textures.js`)
   and the water's waves, whose numbers are `src/game/water-waves.js`'s, are made the first time
   a race needs them and kept.
@@ -218,6 +225,38 @@ units.
   says when the light changes (a weather beginning, a flash); with "Natural light" it asks
   `src/render/light-rig.js` for the lights, which takes its numbers from `src/game/lighting.js`
   and its colours from the level's own sky and ground art.
+
+## Frame pacing
+
+The browser asks for a frame at the display's rate and takes what a frame draws as fast as it
+is drawn, whether or not the graphics card has finished the frames before it. Where the card
+needs longer than the display's interval the frames queue in front of it, and the browser in a
+window (measured in Chromium on Wayland, Intel HD 630, 1920 x 1080) let the queue grow to 200
+to 450 ms before it stopped asking for frames for 80 to 220 ms while the queue ran down. That
+was a picture a quarter to half a second behind the controls, and the FPS counter's 1% low at
+10 whatever the average: the stops came every half second on Low at 50 frames a second, and
+more often on Max. A headless browser paces itself to the card and never shows it.
+
+So the window's frames wait for the card (`src/render/gpu-pacer.js`, used by the renderer's
+host, `src/render/xr/xr-host.js`, and by the replay screen's own renderer). A fence is set behind each frame's draws, and a frame that
+comes while the card has two frames still to finish is skipped: the loop is not called, and the
+next frame is given the time of both. The card stays busy, a frame drawn while the one before
+is drawn, and the picture is at most two frames behind; the frame rate is what the card can
+draw, its frames evenly spaced. A fence is read without waiting, and one that has not passed in
+a second is let go, so a driver that never signals one costs the pacing and not the game. A
+headset paces its own frames and is given every one. The FPS counter counts the frames drawn,
+so its rate and lows are the ones seen.
+
+Nothing in a frame waits on the card either: every call that would (reading a picture back,
+asking whether a copy worked) is made once, or not waited for, so the main thread is never held
+by how far behind the card is.
+
+Every shader a race draws with is built before its first frame is shown (`weather-scene.js`
+`warmPools`, `scenery.js` `compile`): one built in the middle of a race stops the picture for as
+long as the driver takes to build it, a tenth of a second and more on a small chip. So what a
+race shows only later is made with the scene and hidden until it is needed (the recovery
+helicopters, one a truck), and what is drawn in a picture of its own (the ripples' step, the
+passes that lay the dust on) is drawn once while the race loads.
 
 ## The headset
 

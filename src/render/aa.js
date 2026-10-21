@@ -2,8 +2,10 @@
   Optional anti-aliasing (docs/VISUALS.md, "Anti-aliasing").
 
   MSAA is not done here. The scene picture is simply drawn with several samples, which is what
-  the port already did, and this module is not even made for that choice. Off, FXAA, SMAA and
-  TAA are. Each draws the scene once a point. FXAA and SMAA then run on the encoded picture,
+  the port already did, and this module is not even made for that choice, except where the
+  screen's own picture was made without samples (game/aa.js `screenSampled`): then it draws the
+  scene into a picture of its own that has MSAA's samples, and puts that on the screen. Off,
+  FXAA, SMAA and TAA are. Each draws the scene once a point. FXAA and SMAA then run on the encoded picture,
   the one the eye sees. TAA runs on the light values, before the glow and the curve, and keeps
   nine tenths of the frame before where the new frame agrees with it.
 
@@ -18,6 +20,7 @@ import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { FXAAShader } from "three/addons/shaders/FXAAShader.js";
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
 import { TAA_DEPTH_FT, TAA_DEPTH_SHARE, TAA_HISTORY, aaPost, aaResets, aaSamples, taaJitter } from "../game/aa.js";
+import { LENS } from "../game/lighting.js";
 import { atmosphere } from "./atmosphere.js";
 import { TONE_GLSL } from "./light-rig.js";
 
@@ -64,66 +67,66 @@ const GRADE = {
   `,
 };
 
-const COPY = {
-  uniforms: { tDiffuse: { value: null } },
-  vertexShader: QUAD_VERT,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse;
-    varying vec2 vUv;
-    void main() { gl_FragColor = texture2D(tDiffuse, vUv); }
-  `,
-};
-
-/*
-  The distance of the surface at each point, in feet, from the window depth the picture was
-  drawn with. The same rearrangement of the projection the puffs use (render/particles.js).
-  Stored for the next frame, which rejects a point whose distance no longer agrees.
-*/
-const DEPTH_COPY = {
-  uniforms: { tDepth: { value: null }, uProj: { value: new THREE.Matrix4() } },
-  vertexShader: QUAD_VERT,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDepth;
-    uniform mat4 uProj;
-    varying vec2 vUv;
-    void main() {
-      float ndcZ = texture2D(tDepth, vUv).r * 2.0 - 1.0;
-      float viewZ = uProj[3][2] / (ndcZ + uProj[2][2]);
-      gl_FragColor = vec4(-viewZ, 0.0, 0.0, 1.0);
-    }
-  `,
-};
-
 /*
   One sample this frame, blended with the frame before. The new point is clipped to the
   colours around it, in YCoCg, so a colour the neighbourhood does not hold cannot bleed in
   from the frame before. Where the clip had to pull it back, less of that frame is kept.
+
+  It writes one picture, kept for the next frame: the steady picture, which is also what goes
+  on to the glow and the screen, and in its fourth number, which nothing that reads it for its
+  colour looks at, the distance of the surface at each point in feet, worked out from the window
+  depth the picture was drawn with (the same rearrangement of the projection the puffs use,
+  render/particles.js). The next frame rejects a point whose distance no longer agrees, read as
+  it is at the nearest point (a blended distance is not a surface). Written here, they cost no
+  passes of their own: a copy of the steady picture back into the scene's and a pass for the
+  distance cost 1.8 ms a frame on an Intel HD 630 at 1920 x 1080. The distance had a picture of
+  its own beside the steady one: two numbers more a point written and read each frame.
+
+  Through the lens (render/lens.js) the scene's picture comes raw, as it was drawn: each point
+  read is then given what is drawn over the scene and made safe to blur here, as the lens's
+  own passes do it, instead of in a pass of its own before this one (1.1 ms on that chip).
 */
 const TAA = {
   uniforms: {
     tCurrent: { value: null },
     tHistory: { value: null },
     tDepth: { value: null },
-    tHistoryDepth: { value: null },
+    tOver: { value: null },
+    uClean: { value: 0 },
+    uOver: { value: 0 },
     uTexel: { value: new THREE.Vector2() },
     uJitteredInvProj: { value: new THREE.Matrix4() },
     uJitteredCamWorld: { value: new THREE.Matrix4() },
     uPrevVP: { value: new THREE.Matrix4() },
     uPrevView: { value: new THREE.Matrix4() },
+    uProj: { value: new THREE.Matrix4() },
     uKeep: { value: 0 },
     uDepthFt: { value: TAA_DEPTH_FT },
     uDepthShare: { value: TAA_DEPTH_SHARE },
   },
   vertexShader: QUAD_VERT,
   fragmentShader: /* glsl */ `
-    uniform sampler2D tCurrent, tHistory, tDepth, tHistoryDepth;
+    uniform sampler2D tCurrent, tHistory, tDepth, tOver;
     uniform vec2 uTexel;
-    uniform mat4 uJitteredInvProj, uJitteredCamWorld, uPrevVP, uPrevView;
-    uniform float uKeep, uDepthFt, uDepthShare;
+    uniform mat4 uJitteredInvProj, uJitteredCamWorld, uPrevVP, uPrevView, uProj;
+    // uClean 1: the scene comes raw, through the lens, and is cleaned as it is read; uOver 1: with what is over it in tOver
+    uniform float uKeep, uDepthFt, uDepthShare, uClean, uOver;
     varying vec2 vUv;
+    layout(location = 0) out highp vec4 outSteady;
     vec3 safe(vec3 c) {
       if (any(isnan(c)) || any(isinf(c))) return vec3(0.0);
       return max(c, 0.0);
+    }
+    // The scene's picture at uv. Raw, what is over it (its colour already times how much it hides) is laid on, and a point
+    // that is not a number or is brighter than the lens keeps is made safe to blur (render/lens.js).
+    vec3 scene(vec2 uv) {
+      vec3 color = texture2D(tCurrent, uv).rgb;
+      if (uClean > 0.5) {
+        if (uOver > 0.5) { vec4 over = texture2D(tOver, uv); color = color * (1.0 - over.a) + over.rgb; }
+        if (any(isnan(color)) || any(isinf(color))) color = vec3(0.0);
+        color = clamp(color, 0.0, ${LENS.brightest.toFixed(1)});
+      }
+      return color;
     }
     vec3 rgbToYcocg(vec3 c) {
       return vec3(dot(c, vec3(0.25, 0.5, 0.25)), dot(c, vec3(0.5, 0.0, -0.5)), dot(c, vec3(-0.25, 0.5, -0.25)));
@@ -132,17 +135,20 @@ const TAA = {
       return vec3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z);
     }
     void main() {
-      vec3 current = safe(texture2D(tCurrent, vUv).rgb);
+      vec3 current = safe(scene(vUv));
+      float depth = texture2D(tDepth, vUv).r;
+      float distance = -uProj[3][2] / (depth * 2.0 - 1.0 + uProj[2][2]);
       float keep = uKeep;
       if (keep > 0.0) {
-        float depth = texture2D(tDepth, vUv).r;
         vec4 viewH = uJitteredInvProj * vec4(vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
         viewH /= viewH.w;
         vec3 world = (uJitteredCamWorld * vec4(viewH.xyz, 1.0)).xyz;
         vec4 prevClip = uPrevVP * vec4(world, 1.0);
         vec2 prevUv = prevClip.xy / prevClip.w * 0.5 + 0.5;
         float zPoint = -(uPrevView * vec4(world, 1.0)).z;
-        float zHist = texture2D(tHistoryDepth, prevUv).r;
+        // The kept distance at the point nearest prevUv, the edge repeated past the picture's edge.
+        ivec2 kept = textureSize(tHistory, 0);
+        float zHist = texelFetch(tHistory, clamp(ivec2(floor(prevUv * vec2(kept))), ivec2(0), kept - 1), 0).a;
         if (prevClip.w <= 1e-4 || prevUv.x < 0.0 || prevUv.y < 0.0 || prevUv.x > 1.0 || prevUv.y > 1.0
             || abs(zPoint - zHist) > max(uDepthFt, abs(zPoint) * uDepthShare)) keep = 0.0;
         if (keep > 0.0) {
@@ -150,7 +156,7 @@ const TAA = {
           vec3 mx = vec3(-1e9);
           for (int j = -1; j <= 1; j++) {
             for (int i = -1; i <= 1; i++) {
-              vec3 c = rgbToYcocg(safe(texture2D(tCurrent, vUv + vec2(float(i), float(j)) * uTexel).rgb));
+              vec3 c = rgbToYcocg(safe(scene(vUv + vec2(float(i), float(j)) * uTexel)));
               mn = min(mn, c);
               mx = max(mx, c);
             }
@@ -163,48 +169,59 @@ const TAA = {
           current = mix(current, ycocgToRgb(centre + offset), keep / max(outside, 1.0));
         }
       }
-      gl_FragColor = vec4(current, 1.0);
+      outSteady = vec4(current, distance);
     }
   `,
+  glslVersion: THREE.GLSL3,
 };
 
 const material = (shader) => new THREE.ShaderMaterial({
   uniforms: THREE.UniformsUtils.clone(shader.uniforms),
   vertexShader: shader.vertexShader,
   fragmentShader: shader.fragmentShader,
+  glslVersion: shader.glslVersion ?? null,
   depthTest: false,
   depthWrite: false,
   toneMapped: false,
 });
 
-const halfFloat = (w, h, { depth = false } = {}) => {
+/** One of TAA's two kept frames: the steady picture (light values), and in its fourth number the distance at each point (feet). */
+const taaFrame = (w, h) => {
+  const target = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, depthBuffer: false, stencilBuffer: false });
+  target.texture.generateMipmaps = false;
+  return target;
+};
+
+const halfFloat = (w, h, { depth = false, samples = 0 } = {}) => {
   const target = new THREE.WebGLRenderTarget(w, h, {
     type: THREE.HalfFloatType,
     depthBuffer: depth,
     stencilBuffer: false,
     depthTexture: depth ? new THREE.DepthTexture(w, h) : null,
+    samples,
   });
   target.texture.generateMipmaps = false;
   return target;
 };
 
 /**
- * The passes for one choice, made for the race and disposed with it. `mode` is a real choice
- * other than MSAA: the caller does not make this for MSAA.
+ * The passes for one choice, made for the race and disposed with it. `mode` is a real choice. The
+ * caller makes this for MSAA only where the screen's own picture has no samples (game/aa.js
+ * `screenSampled`): the scene is then drawn into a picture with MSAA's samples and put on the
+ * screen with no pass between.
  * @param {{ renderer: THREE.WebGLRenderer, mode: string }} env
  */
 export function createAntiAlias({ renderer, mode }) {
   const post = aaPost(mode);
   const grade = material(GRADE);
-  const copy = material(COPY);
   const quad = new FullScreenQuad(grade);
   const fxaa = post === "fxaa" ? material({ ...FXAAShader, uniforms: FXAAShader.uniforms }) : null;
   if (fxaa) fxaa.uniforms = THREE.UniformsUtils.clone(FXAAShader.uniforms);
   const taa = post === "taa" ? material(TAA) : null;
-  const depthCopy = post === "taa" ? material(DEPTH_COPY) : null;
   let smaa = null;
   let width = 0, height = 0, frame = 0, haveHistory = false, slot = 0;
-  let flat = null, encoded = null, depthHistory = null;
+  let flat = null, encoded = null;
+  // TAA's two kept frames (`taaFrame`): the one before is read while the new one is written.
   const history = [null, null];
   const jitteredInvProj = new THREE.Matrix4();
   const jitteredCamWorld = new THREE.Matrix4();
@@ -247,7 +264,6 @@ export function createAntiAlias({ renderer, mode }) {
       haveHistory = false;
       resize(flat);
       resize(encoded);
-      resize(depthHistory);
       resize(history[0]);
       resize(history[1]);
       smaa?.setSize(w, h);
@@ -290,21 +306,18 @@ export function createAntiAlias({ renderer, mode }) {
     },
     /**
      * Blend `source` (light values, a render target) with the frame before, using `depth` from
-     * the same draw, and write the steady picture back into `source`. The camera is the one
-     * `begin` already put back. The copy kept for the next frame is the picture before the
-     * glow is added.
+     * the same draw. Returns the texture the steady picture is in, which the glow and the screen
+     * read; null for any choice but TAA. The camera is the one `begin` already put back. What is
+     * kept for the next frame is the picture before the glow is added. `raw`: the source comes as
+     * the lens drew it, to be cleaned as it is read, with `over` (a texture, or null) laid on it.
      */
-    settle(source, depthTexture, camera) {
-      if (post !== "taa") return;
+    settle(source, depthTexture, camera, { raw = false, over = null } = {}) {
+      if (post !== "taa") return null;
       const w = source.width, h = source.height;
       this.setSize(w, h);
       if (!history[0]) {
-        history[0] = halfFloat(w, h);
-        history[1] = halfFloat(w, h);
-        depthHistory = halfFloat(w, h);
-        // A blended distance is not a surface. The colour of the frame before stays filtered.
-        depthHistory.texture.minFilter = THREE.NearestFilter;
-        depthHistory.texture.magFilter = THREE.NearestFilter;
+        history[0] = taaFrame(w, h);
+        history[1] = taaFrame(w, h);
       }
       camera.updateMatrixWorld();
       const pos = camera.getWorldPosition(posePos);
@@ -318,7 +331,10 @@ export function createAntiAlias({ renderer, mode }) {
       u.tCurrent.value = source.texture;
       u.tHistory.value = read.texture;
       u.tDepth.value = depthTexture;
-      u.tHistoryDepth.value = depthHistory.texture;
+      u.uClean.value = raw ? 1 : 0;
+      u.tOver.value = raw ? over : null;
+      u.uOver.value = raw && over ? 1 : 0;
+      u.uProj.value.copy(jitteredProj);
       u.uTexel.value.set(1 / w, 1 / h);
       u.uJitteredInvProj.value.copy(jitteredInvProj);
       u.uJitteredCamWorld.value.copy(jitteredCamWorld);
@@ -328,19 +344,11 @@ export function createAntiAlias({ renderer, mode }) {
       quad.material = taa;
       renderer.setRenderTarget(write);
       quad.render(renderer);
-      copy.uniforms.tDiffuse.value = write.texture;
-      quad.material = copy;
-      renderer.setRenderTarget(source);
-      quad.render(renderer);
-      depthCopy.uniforms.tDepth.value = depthTexture;
-      depthCopy.uniforms.uProj.value.copy(jitteredProj);
-      quad.material = depthCopy;
-      renderer.setRenderTarget(depthHistory);
-      quad.render(renderer);
       slot = 1 - slot;
       prevVP.copy(currentVP);
       prevView.copy(currentView);
       haveHistory = true;
+      return write.textures[0];
     },
     /** The byte picture FXAA and SMAA read, `w` by `h`. */
     encoded(w, h) {
@@ -375,7 +383,14 @@ export function createAntiAlias({ renderer, mode }) {
     renderFlat(scene, camera, { tone = false, over = null } = {}) {
       const buf = renderer.getDrawingBufferSize(drawing);
       this.setSize(width || buf.x || 1, height || buf.y || 1);
-      if (!flat) flat = halfFloat(width, height, { depth: true });
+      // MSAA's samples where MSAA is drawn here (fewer on a very large picture), none for the other choices.
+      const samples = aaSamples(mode, width, height);
+      if (flat && flat.samples !== samples) {
+        flat.depthTexture?.dispose();
+        flat.dispose();
+        flat = null;
+      }
+      if (!flat) flat = halfFloat(width, height, { depth: true, samples });
       const end = this.begin(camera, flat.width, flat.height);
       const before = renderer.getRenderTarget();
       atmosphere.output(true);
@@ -387,9 +402,9 @@ export function createAntiAlias({ renderer, mode }) {
           else over.plain(camera, scene.fog);
         }
         end();
-        if (post === "taa") this.settle(flat, flat.depthTexture, camera);
+        const steady = this.settle(flat, flat.depthTexture, camera);
         const spatial = post === "fxaa" || post === "smaa";
-        grade.uniforms.tDiffuse.value = flat.texture;
+        grade.uniforms.tDiffuse.value = steady ?? flat.texture;
         grade.uniforms.uTone.value = tone ? 1 : 0;
         grade.uniforms.uExposure.value = renderer.toneMappingExposure;
         grade.uniforms.uManual.value = spatial ? 1 : 0;
@@ -409,15 +424,13 @@ export function createAntiAlias({ renderer, mode }) {
     /** The picture `renderFlat` draws the scene into, once it has drawn one, for building its shaders ahead (render/scenery.js `compile`). */
     get flat() { return flat; },
     dispose() {
-      for (const target of [flat, encoded, depthHistory, history[0], history[1]]) {
+      for (const target of [flat, encoded, history[0], history[1]]) {
         target?.depthTexture?.dispose();
         target?.dispose();
       }
       grade.dispose();
-      copy.dispose();
       fxaa?.dispose();
       taa?.dispose();
-      depthCopy?.dispose();
       smaa?.dispose();
       quad.dispose();
     },

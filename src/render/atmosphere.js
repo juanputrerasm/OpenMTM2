@@ -48,7 +48,13 @@ const STATE = new Float32Array(36);
 /** A floor at height nothing, until a track gives the fog its own (`atmosphere.floor`). */
 const NO_FLOOR = new THREE.DataTexture(new Uint16Array([0]), 1, 1, THREE.RedFormat, THREE.HalfFloatType);
 NO_FLOOR.needsUpdate = true;
-const SHARED = { mtmFog: { value: STATE }, mtmCloudNoise: { value: null }, mtmDetailNoise: { value: null }, mtmFogFloor: { value: NO_FLOOR }, mtmFogBillow: { value: null } };
+const SHARED = {
+  mtmFog: { value: STATE }, mtmCloudNoise: { value: null }, mtmDetailNoise: { value: null }, mtmFogFloor: { value: NO_FLOOR }, mtmFogBillow: { value: null },
+  // The fog along every way from the eye, worked out once a frame (render/fog-state.js, `atmosphere.ahead`). Like the state,
+  // these are of kinds three.js copies a material's uniforms without copying (an array, its items kept), so every material
+  // reads the same: the picture is always the one texture, and only what it holds changes.
+  mtmFogState: { value: [null] }, mtmFogStateView: { value: new Float32Array(16) }, mtmFogStateEye: { value: new Float32Array(4) },
+};
 const glsl = (n) => n.toFixed(5);
 /** The most slices a line of sight is cut in, and the most steps through the billows: loops' bounds, which a shader must know as it is compiled. */
 const MOST_SLICES = 6, MOST_STEPS = FOG_TOP.steps;
@@ -67,10 +73,12 @@ ${SHARED_NOISE_GLSL}
 #define MTM_FOG_JITTER 0.5
 #endif
 // How thick the fog is \`h\` feet over its top (under it when negative), against its deck (game/atmosphere.js \`fogProfile\`).
+// A fog without a top (no cap, all wisps: every weather but Foggy) skips the terms it would multiply by nothing.
 float mtmFogShape( float h ) {
   vec4 top = mtmFog[ 8 ];
-  if ( h <= 0.0 ) return 1.0 + top.x * exp( max( h / top.y, - 40.0 ) );
-  return ( 1.0 + top.x ) * ( ( 1.0 - top.w ) * exp( - min( h / top.z, 40.0 ) ) + top.w * exp( - min( h * mtmFog[ 0 ].z, 40.0 ) ) );
+  if ( h <= 0.0 ) return top.x > 0.0 ? 1.0 + top.x * exp( max( h / top.y, - 40.0 ) ) : 1.0;
+  float crisp = top.w < 1.0 ? ( 1.0 - top.w ) * exp( - min( h / top.z, 40.0 ) ) : 0.0;
+  return ( 1.0 + top.x ) * ( crisp + top.w * exp( - min( h * mtmFog[ 0 ].z, 40.0 ) ) );
 }
 // The same, summed from \`a\` to \`b\` feet over the top (a <= b).
 float mtmFogShapeSum( float a, float b ) {
@@ -78,12 +86,13 @@ float mtmFogShapeSum( float a, float b ) {
   float sum = 0.0;
   if ( a < 0.0 ) {
     float upper = min( b, 0.0 );
-    sum += upper - a + top.x * top.y * ( exp( max( upper / top.y, - 40.0 ) ) - exp( max( a / top.y, - 40.0 ) ) );
+    sum += upper - a;
+    if ( top.x > 0.0 ) sum += top.x * top.y * ( exp( max( upper / top.y, - 40.0 ) ) - exp( max( a / top.y, - 40.0 ) ) );
   }
   if ( b > 0.0 ) {
     float lower = max( a, 0.0 ), tall = 1.0 / mtmFog[ 0 ].z;
-    sum += ( 1.0 + top.x ) * ( ( 1.0 - top.w ) * top.z * ( exp( - min( lower / top.z, 40.0 ) ) - exp( - min( b / top.z, 40.0 ) ) )
-      + top.w * tall * ( exp( - min( lower / tall, 40.0 ) ) - exp( - min( b / tall, 40.0 ) ) ) );
+    float crisp = top.w < 1.0 ? ( 1.0 - top.w ) * top.z * ( exp( - min( lower / top.z, 40.0 ) ) - exp( - min( b / top.z, 40.0 ) ) ) : 0.0;
+    sum += ( 1.0 + top.x ) * ( crisp + top.w * tall * ( exp( - min( lower / tall, 40.0 ) ) - exp( - min( b / tall, 40.0 ) ) ) );
   }
   return sum;
 }
@@ -149,68 +158,114 @@ float mtmFogShade( float bank ) {
   reaches it.
 */
 #define MTM_FOG_ADD( depth, light ) { float hides_ = 1.0 - exp( - ( depth ) ); seen += clear * hides_ * ( light ); clear *= 1.0 - hides_; }
+// One slice of the line along \`dir\`, from \`from\` to \`to\` feet from the eye, added to how much of the light still comes
+// through (\`clear\`) and the fog's light seen so far (\`seen\`). \`billowFt\`, \`bandLow\`, \`bandHigh\`, \`sunFlat\` and
+// \`steps\` are the line's, as \`mtmFogAlong\` works them out. (render/fog-state.js takes the whole slices the same way.)
+void mtmFogSlice( vec3 dir, float from, float to, float billowFt, float bandLow, float bandHigh, vec2 sunFlat, int steps,
+    inout float clear, inout float seen ) {
+  float density = mtmFog[ 0 ].y;
+  // The layer and its banks as they are at the slice's middle, a place in the world.
+  vec3 middle = cameraPosition + dir * ( 0.5 * ( from + to ) );
+  float noise = mtmFogNoiseAt( middle );
+  float bank = mtmFogBank( noise ), shade = mtmFogShade( bank );
+  float floorMid = mtmFogFloorAt( middle ), deck = mtmFogDeck( noise ), top = floorMid + deck;
+  float over0 = cameraPosition.y + dir.y * from - top;
+  // Where in the slice the line is among the billows.
+  float ta = from, tb = from;
+  if ( billowFt > 0.0 ) {
+    if ( abs( dir.y ) < 1e-4 ) { if ( over0 > bandLow && over0 < bandHigh ) tb = to; }
+    else {
+      float t1 = from + ( bandLow - over0 ) / dir.y, t2 = from + ( bandHigh - over0 ) / dir.y;
+      ta = clamp( min( t1, t2 ), from, to );
+      tb = clamp( max( t1, t2 ), from, to );
+    }
+  }
+  if ( ta > from ) {
+    float run = ta - from;
+    MTM_FOG_ADD( density * bank * mtmFogColumn( over0, dir.y, run ), shade * mtmFogLight( over0 + dir.y * run * 0.5 ) );
+  }
+  if ( tb > ta ) {
+    float stride = ( tb - ta ) / float( steps );
+    for ( int k = 0; k < ${MOST_STEPS}; k ++ ) {
+      if ( k >= steps ) break;
+      float t = ta + ( float( k ) + MTM_FOG_JITTER ) * stride;
+      vec3 p = cameraPosition + dir * t;
+      float lod = clamp( log2( t / 250.0 ), 0.0, 5.0 );
+      vec2 billow = mtmFogBillowAt( p, lod );
+      // The top here: its floor, the deck as the slice's banks have it, and the billow.
+      float base = mtmFogFloorAt( p ) + deck;
+      float over = p.y - base - billow.x;
+      // Over the top only the wisps, and they lie in patches.
+      float thick = mtmFogShape( over ) * mix( 1.0, 2.0 * billow.y, smoothstep( 0.0, 3.0 * mtmFog[ 8 ].z, over ) );
+      // The day lights the top and reaches some way into it. A billow's face toward the sun takes more of it and one
+      // turned away less: how the top climbs toward the sun against how steeply the light comes down.
+      float slope = ( mtmFogBillowAt( p + vec3( sunFlat.x, 0.0, sunFlat.y ) * 12.0, lod ).x - billow.x ) / 12.0;
+      float facing = clamp( ( 1.0 - slope / mtmFog[ 7 ].z ) * inversesqrt( 1.0 + slope * slope ), 0.0, 2.0 );
+      // A crown stands in the open sky and a hollow between crowns sees less of it.
+      float crown = clamp( billow.x / max( billowFt, 1.0 ) + 0.5, 0.0, 1.0 );
+      float light = 1.0 + mtmFog[ 6 ].z * exp( max( min( over, 0.0 ) / mtmFog[ 6 ].w, - 40.0 ) ) * ( 0.3 + 0.7 * facing ) * ( 0.6 + 0.6 * crown );
+      MTM_FOG_ADD( density * bank * thick * stride, shade * light );
+    }
+  }
+  if ( to > tb ) {
+    float run = to - tb, overB = over0 + dir.y * ( tb - from );
+    MTM_FOG_ADD( density * bank * mtmFogColumn( overB, dir.y, run ), shade * mtmFogLight( overB + dir.y * run * 0.5 ) );
+  }
+}
+#ifdef MTM_FOG_STATE
+// The fog worked out once a frame along every way the eye looks (render/fog-state.js): along each, after each whole
+// slice, how much of the light still comes through and the fog's light seen so far, on a picture of those ways in three
+// bands side by side, after slices one and two, three and four, and five.
+uniform sampler2D mtmFogState[ 1 ];
+// What turns a way in the world into its place on that picture (the eye's turn and lens, unshifted), and where the eye
+// was, w 1 while the picture may be read: only for this eye, and only between those slices it holds.
+uniform mat4 mtmFogStateView;
+uniform vec4 mtmFogStateEye;
+// The line along \`dir\` after \`whole\` slices (1 to 5), \`clear\` and \`seen\`, or nothing (x below 0) where the picture
+// does not hold it.
+vec2 mtmFogStateAfter( vec3 dir, int whole ) {
+  if ( mtmFogStateEye.w < 0.5 || distance( cameraPosition, mtmFogStateEye.xyz ) > 0.01 ) return vec2( - 1.0 );
+  vec4 clip = mtmFogStateView * vec4( dir, 0.0 );
+  if ( clip.w <= 0.0 ) return vec2( - 1.0 );
+  // A way just past the picture's edge (TAA's shift) takes the edge's; a read never takes from the next band.
+  vec2 band = vec2( textureSize( mtmFogState[ 0 ], 0 ) ) / vec2( 3.0, 1.0 );
+  vec2 at = clamp( ( clip.xy / clip.w * 0.5 + 0.5 ) * band, vec2( 0.5 ), band - 0.5 );
+  vec4 kept = textureLod( mtmFogState[ 0 ], ( at + vec2( float( ( whole - 1 ) / 2 ) * band.x, 0.0 ) ) / ( band * vec2( 3.0, 1.0 ) ), 0.0 );
+  return ( whole - 1 ) % 2 == 0 ? kept.xy : kept.zw;
+}
+#endif
 vec2 mtmFogAlong( vec3 dir, float dist ) {
-  float far = mtmFog[ 6 ].x, density = mtmFog[ 0 ].y, billowFt = mtmFog[ 7 ].x;
+  float far = mtmFog[ 6 ].x, billowFt = mtmFog[ 7 ].x;
   int slices = int( mtmFog[ 4 ].w + 0.5 ), steps = int( mtmFog[ 6 ].y + 0.5 );
   // The band the billows lie in, over the top's mean: below it the fog is its deck, above it only wisps.
   float bandLow = - 0.6 * billowFt - mtmFog[ 8 ].y, bandHigh = 0.6 * billowFt + 3.0 * mtmFog[ 8 ].z;
   // The sun's way along the ground and how steeply its light comes down, for the billows' shade.
   vec2 sunFlat = mtmFog[ 2 ].xz / max( length( mtmFog[ 2 ].xz ), 1e-4 );
   float clear = 1.0, seen = 0.0, from = 0.0;
-  for ( int i = 0; i < ${MOST_SLICES}; i ++ ) {
+  int first = 0;
+  #ifdef MTM_FOG_STATE
+    // The whole slices along this way are read from the picture of them, and only the rest is worked out here.
+    if ( mtmFogStateEye.w > 0.5 && far > 0.0 ) {
+      int whole = min( slices, int( float( slices ) * sqrt( max( dist, 0.0 ) / far ) ) );
+      vec2 kept = whole > 0 ? mtmFogStateAfter( dir, whole ) : vec2( - 1.0 );
+      if ( kept.x >= 0.0 ) {
+        clear = kept.x;
+        seen = kept.y;
+        first = whole;
+        float part = float( whole ) / float( slices );
+        from = far * part * part;
+      }
+    }
+  #endif
+  for ( int i = first; i < ${MOST_SLICES}; i ++ ) {
     if ( i >= slices || from >= dist ) break;
     // Slices end by the square of their number: the nearest is the shortest.
     float part = float( i + 1 ) / float( slices );
     float to = min( far * part * part, dist );
-    // The layer and its banks as they are at the slice's middle, a place in the world.
-    vec3 middle = cameraPosition + dir * ( 0.5 * ( from + to ) );
-    float noise = mtmFogNoiseAt( middle );
-    float bank = mtmFogBank( noise ), shade = mtmFogShade( bank );
-    float floorMid = mtmFogFloorAt( middle ), deck = mtmFogDeck( noise ), top = floorMid + deck;
-    float over0 = cameraPosition.y + dir.y * from - top;
-    // Where in the slice the line is among the billows.
-    float ta = from, tb = from;
-    if ( billowFt > 0.0 ) {
-      if ( abs( dir.y ) < 1e-4 ) { if ( over0 > bandLow && over0 < bandHigh ) tb = to; }
-      else {
-        float t1 = from + ( bandLow - over0 ) / dir.y, t2 = from + ( bandHigh - over0 ) / dir.y;
-        ta = clamp( min( t1, t2 ), from, to );
-        tb = clamp( max( t1, t2 ), from, to );
-      }
-    }
-    if ( ta > from ) {
-      float run = ta - from;
-      MTM_FOG_ADD( density * bank * mtmFogColumn( over0, dir.y, run ), shade * mtmFogLight( over0 + dir.y * run * 0.5 ) );
-    }
-    if ( tb > ta ) {
-      float stride = ( tb - ta ) / float( steps );
-      for ( int k = 0; k < ${MOST_STEPS}; k ++ ) {
-        if ( k >= steps ) break;
-        float t = ta + ( float( k ) + MTM_FOG_JITTER ) * stride;
-        vec3 p = cameraPosition + dir * t;
-        float lod = clamp( log2( t / 250.0 ), 0.0, 5.0 );
-        vec2 billow = mtmFogBillowAt( p, lod );
-        // The top here: its floor, the deck as the slice's banks have it, and the billow.
-        float base = mtmFogFloorAt( p ) + deck;
-        float over = p.y - base - billow.x;
-        // Over the top only the wisps, and they lie in patches.
-        float thick = mtmFogShape( over ) * mix( 1.0, 2.0 * billow.y, smoothstep( 0.0, 3.0 * mtmFog[ 8 ].z, over ) );
-        // The day lights the top and reaches some way into it. A billow's face toward the sun takes more of it and one
-        // turned away less: how the top climbs toward the sun against how steeply the light comes down.
-        float slope = ( mtmFogBillowAt( p + vec3( sunFlat.x, 0.0, sunFlat.y ) * 12.0, lod ).x - billow.x ) / 12.0;
-        float facing = clamp( ( 1.0 - slope / mtmFog[ 7 ].z ) * inversesqrt( 1.0 + slope * slope ), 0.0, 2.0 );
-        // A crown stands in the open sky and a hollow between crowns sees less of it.
-        float crown = clamp( billow.x / max( billowFt, 1.0 ) + 0.5, 0.0, 1.0 );
-        float light = 1.0 + mtmFog[ 6 ].z * exp( max( min( over, 0.0 ) / mtmFog[ 6 ].w, - 40.0 ) ) * ( 0.3 + 0.7 * facing ) * ( 0.6 + 0.6 * crown );
-        MTM_FOG_ADD( density * bank * thick * stride, shade * light );
-      }
-    }
-    if ( to > tb ) {
-      float run = to - tb, overB = over0 + dir.y * ( tb - from );
-      MTM_FOG_ADD( density * bank * mtmFogColumn( overB, dir.y, run ), shade * mtmFogLight( overB + dir.y * run * 0.5 ) );
-    }
+    mtmFogSlice( dir, from, to, billowFt, bandLow, bandHigh, sunFlat, steps, clear, seen );
     from = to;
   }
+  float density = mtmFog[ 0 ].y;
   // Beyond where the banks are told apart the fog is even, in two pieces each lying as the floor lies at its middle:
   // what is far off and seen from over the fog lies under its own fog, however clear the air is about the eye.
   for ( int k = 0; k < 2; k ++ ) {
@@ -317,7 +372,7 @@ export function installAtmosphere() {
   stock = { parsVertex: chunks.fog_pars_vertex, vertex: chunks.fog_vertex, parsFragment: chunks.fog_pars_fragment, fragment: chunks.fog_fragment };
   chunks.fog_pars_vertex = `${stock.parsVertex}\n#ifdef USE_FOG\n\tvarying vec3 vFogView;\n#endif`;
   chunks.fog_vertex = `${stock.vertex}\n#ifdef USE_FOG\n\tvFogView = mvPosition.xyz;\n#endif`;
-  chunks.fog_pars_fragment = `${stock.parsFragment}\n#ifdef USE_FOG\n\tvarying vec3 vFogView;\n${JITTER}\n${COMMON}\n#endif`;
+  chunks.fog_pars_fragment = `${stock.parsFragment}\n#ifdef USE_FOG\n\tvarying vec3 vFogView;\n${JITTER}\n#define MTM_FOG_STATE\n${COMMON}\n#endif`;
   // Off, three.js's own lines run as they are. A material that adds its light to the picture (a lamp's lens, a spark)
   // says so with the define \`MTM_FOG_DIMS\`: fog cannot veil it in the fog's colour, which would add the fog's colour to
   // the picture, and dims it instead, with the volume on or off.
@@ -354,6 +409,9 @@ ${stock.fragment.replace(/#ifdef USE_FOG|#endif\s*$/g, "")}
     library.uniforms.mtmDetailNoise = SHARED.mtmDetailNoise;
     library.uniforms.mtmFogFloor = SHARED.mtmFogFloor;
     library.uniforms.mtmFogBillow = SHARED.mtmFogBillow;
+    library.uniforms.mtmFogState = SHARED.mtmFogState;
+    library.uniforms.mtmFogStateView = SHARED.mtmFogStateView;
+    library.uniforms.mtmFogStateEye = SHARED.mtmFogStateEye;
   }
 }
 
@@ -404,11 +462,14 @@ export function classicFogDims(material) {
 }
 
 /** The uniforms a shader of the port's own needs to use `ATMOSPHERE_GLSL`: the same state every other material reads. */
-export const atmosphereUniforms = () => ({ mtmFog: SHARED.mtmFog, mtmCloudNoise: SHARED.mtmCloudNoise, mtmDetailNoise: SHARED.mtmDetailNoise, mtmFogFloor: SHARED.mtmFogFloor, mtmFogBillow: SHARED.mtmFogBillow });
+export const atmosphereUniforms = () => ({
+  mtmFog: SHARED.mtmFog, mtmCloudNoise: SHARED.mtmCloudNoise, mtmDetailNoise: SHARED.mtmDetailNoise, mtmFogFloor: SHARED.mtmFogFloor, mtmFogBillow: SHARED.mtmFogBillow,
+  mtmFogState: SHARED.mtmFogState, mtmFogStateView: SHARED.mtmFogStateView, mtmFogStateEye: SHARED.mtmFogStateEye,
+});
 /** The fog's functions for a shader of the port's own (its uniforms from `atmosphereUniforms`), in a vertex shader. */
 export const ATMOSPHERE_GLSL = COMMON;
-/** The same for a fragment shader, which steps through the billows each point of the picture its own way. */
-export const ATMOSPHERE_FRAGMENT_GLSL = `${JITTER}\n${COMMON}`;
+/** The same for a fragment shader, which steps through the billows each point of the picture its own way and reads the whole slices worked out for the frame (render/fog-state.js). */
+export const ATMOSPHERE_FRAGMENT_GLSL = `${JITTER}\n#define MTM_FOG_STATE\n${COMMON}`;
 
 /**
  * For a shader of the port's own that works its fog out at its points and not at every point of the picture: particles,
@@ -523,7 +584,7 @@ export const atmosphere = {
     writeColors();
   },
   /** Switch the volume off: every material fogs as three.js fogs. */
-  clear() { STATE.fill(0); },
+  clear() { STATE.fill(0); this.ahead(); },
   /**
    * Set the volume from game/atmosphere.js `fogVolume` and the scene: `color` the fog's (a
    * THREE.Color), `sun` the way to the sun (scene axes) and `glowColor` its light's colour.
@@ -547,6 +608,23 @@ export const atmosphere = {
     STATE[28] = volume.billowFt; STATE[29] = 1 / (volume.billowSizeFt * 5); STATE[30] = Math.min(3, Math.max(0.05, sun.y / Math.max(flat, 1e-3)));
     STATE[31] = volume.dissolve ? 1 : 0;
     STATE[32] = volume.shape.cap; STATE[33] = volume.shape.capFt; STATE[34] = volume.shape.crispFt; STATE[35] = volume.shape.wisps;
+  },
+  /** Whether the fog has billows, which a fragment steps through its own way (`MTM_FOG_JITTER`). */
+  get billows() { return STATE[0] > 0.5 && STATE[28] > 0; },
+  /**
+   * The picture of the fog along every way from the eye (render/fog-state.js): set once, before any material that reads
+   * it is built, since each takes its own copy of the list it is in.
+   */
+  aheadPicture(texture) { SHARED.mtmFogState.value[0] = texture; },
+  /**
+   * The picture holds the fog along every way from `eye` for this frame, placed on it by `view` (a Matrix4): a fragment
+   * seen from that eye reads its whole slices there. With no eye, every fragment works its fog out as before.
+   */
+  ahead(eye = null, view = null) {
+    const at = SHARED.mtmFogStateEye.value;
+    if (!eye) { at[3] = 0; return; }
+    SHARED.mtmFogStateView.value.set(view.elements);
+    at[0] = eye.x; at[1] = eye.y; at[2] = eye.z; at[3] = 1;
   },
   /** How finely the line of sight is cut for the banks and stepped through the billows: `lite` (a headset, which draws everything twice) the coarser. */
   detail(lite) {

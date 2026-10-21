@@ -69,6 +69,12 @@ export const FOG_BANKS = Object.freeze({ slices: 5, liteSlices: 2, broadFt: 2600
  */
 export const fogSliceEnd = (index, slices, farFt) => farFt * ((index + 1) / slices) ** 2;
 /**
+ * How many slices a line `distFt` long passes whole: those that end at or before its end (`fogSliceEnd`). The slices end
+ * at the same distances on every line, so what a line has met by the end of them depends on its way alone, and a
+ * fragment reads that from the fog worked out once a frame along every way (render/fog-state.js).
+ */
+export const fogSlicesWhole = (distFt, slices, farFt) => (farFt > 0 ? Math.min(slices, Math.floor(slices * Math.sqrt(Math.max(distFt, 0) / farFt))) : 0);
+/**
  * The fog's thickness where its noise reads `noise` (0 to 1, about a half), against an even
  * fog's, for a weather's `drift`: banks and thin places with soft edges, 1 on the whole.
  */

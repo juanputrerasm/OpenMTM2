@@ -294,6 +294,14 @@ chain, which is the tile run together), fully so under 0.5, and the grain is rea
 side instead of from above and gives the face its structure, half as strong again. Beds of
 rock along the contours are the same grain drawn out level.
 
+The grain is read from above, from the east and from the north, each by how square the ground
+faces it (its normal's part that way to the fourth power, the three summing to one). A face
+the ground turns from so far that it is under 1/256 of the whole is not read and gives its
+mean, which moves the ground's light by under a fifth of a shade of an 8 bit picture: on level
+ground only the top is read, and on a sheer cliff only the sides. Ground that takes none of the
+tile run together (level, under 500 ft) does not read it, and only a cliff reads the beds. On
+an Intel HD 630 at 1920 x 1080 that took the grain from 3.75 ms a frame to 1.9 on Max.
+
 **Patches.** A tile repeated to the horizon shows its repeats. Three fields of broad noise
 (2048, 630 and 174 ft across, repeating with the world) move the ground's brightness by about
 0.15 either way, and between 500 and 2600 ft from the eye a tile gives up three quarters of
@@ -537,7 +545,16 @@ all the field holds, where the water is under 4 ft deep, and less to none by 14 
 cloud stays down by the bed. The ground's reads the field in its puddles, its foam as their silt
 and froth. The field runs only while there is water to run on (the level's, not frozen,
 or puddles with water in them), and is stepped just before each frame is drawn by as much time
-as the frame's wheels were stirred for, so it stands still while a race is paused. A replay
+as the frame's wheels were stirred for, so it stands still while a race is paused. It is not
+stepped until a wheel first stirs it, nor once no wheel has for 112 s (`rippleQuietS`): by then
+its waves are under a thousandth of a foot and its foam and silt under 1/256 of all the field
+holds, a shade of an 8 bit picture, the silt's 14 s half life the slowest of them. Its readers
+are told it is not running, as where there is no water, and a wheel that stirs it again starts
+it afresh, calm. Before, it was stepped at 60 a second from the start whether a wheel had
+touched the water or not: two or three passes of the field a frame at 20 to 30 frames a second.
+A step reads the field point for point (the window moves by whole points, so every read falls on
+one), and its shader is built with the rest before the race starts, not when a wheel first
+stirs the field. A replay
 stirs the water as the race did. In Snow the water is ice, and with no puddles the field is
 calm.
 
@@ -832,6 +849,21 @@ Foggy's top that is its lit top, and the far land, the backdrop and the sky meet
 Every fragment of every material pays for this with ten reads of one noise texture and eight
 of the floor, and a line through Foggy's billows with five reads more for each of its steps. A
 headset cuts the line in two slices.
+
+**Worked out ahead** (`src/render/fog-state.js`). The slices end at the same distances on every
+line, so what a line has met by the end of a slice it passes whole depends on its way alone and
+not on how far it runs (`fogSlicesWhole`). Before the flat screen's scene is drawn, a small
+picture of the ways the eye looks in, a sixteenth of the screen's size each way, is worked out
+with the slices' own code: along each way, after each of the five slices, how much of the light
+still comes through and how much of the fog's light has been seen, in three bands side by side
+(after slices one and two, three and four, and five) of half floats. A fragment reads its whole
+slices there, at its own way, between the picture's points, and works out only the slice it
+ends in and the even fog beyond. The banks change over hundreds of feet, so the picture is far
+finer than they are: against every fragment working out every slice, the screen is within one
+step of an 8 bit picture. Only the eye the picture was worked out from reads it: a mirror's eye,
+the water's mirrored one and a headset's two work their fog out slice by slice, as does a fog
+with billows, which each fragment steps through its own way. On an Intel HD 630 at 1920 x 1080
+on Max, The Graveyard in Rain, the picture costs 0.1 ms a frame and the scene's fog 0.7 ms less.
 
 **The sky.** three.js's fog leaves the sky dome alone, so the game's sky stood clear over the
 thickest fog. The dome is now veiled by the same layer: by its depth overhead divided by the
@@ -1167,6 +1199,44 @@ well as receives, in every copy of the wrapped world: a cliff shades the canyon 
 at Dusk the hills lay their shadows across the track. The ground is one sheet with nothing
 under it and is drawn into the shadow maps from behind, so a slope in the sun never shades
 itself.
+
+What never moves (the ground and the placed objects) is drawn into a copy of each cascade's
+map, kept, and the trucks and keyframed models are drawn over the copy (`src/game/shadow-cache.js`
+has the rules). Before the next redraw only the patches of the map they were drawn in are put
+back from the copy, each the square round a truck's bounding sphere with two texels to spare,
+or the whole map where the patches would cover more than a quarter of it. A placed object a
+truck knocks about is drawn into the copies again, but only into those of the cascades its
+shadow falls in, as it stood or as it stands, in the copy of the world nearest each, and only
+where it is wider than one and a half of that cascade's texels: the last cascade's texel is ten
+feet across, and a tombstone's shadow there is a texel. The copies are drawn again one a frame
+at the most, nearest the eye first; another waits a frame or two with what it has. A cascade not
+yet drawn at all never waits. Before, each redraw copied back the whole map, colour and depth,
+3 ms a cascade on an Intel HD 630, and any knocked object, anywhere, redrew all four copies,
+which on The Graveyard with eight trucks was three to five times a second each. Whether the
+browser takes a copy between two maps is asked of it the first time only: asking waits for the
+graphics card to catch up with everything drawn before it, and held up every frame by as long as
+the card was behind.
+
+How the shadows are read. three.js's soft shadows (PCFSoftShadowMap) test the depth at sixteen
+texels about a point, each unpacked from a colour, and weigh the tests as a box three texels wide
+of bilinear reads. Each cascade's map keeps its depth in a texture the graphics card compares as
+well, with its own bilinear weighing. In the first cascade, out to 150 ft with Natural light and
+500 ft without, where shadows are seen up close, the lit materials read that four times instead:
+two reads along each axis, each placed between a pair of the texels as their weights stand to
+each other, give the same sum (`src/game/shadow-cache.js` `softShadowReads`), to well within a
+step of an 8 bit picture. Further out they read it once, the card weighing the four texels about
+the point, so a shadow's edge there is a texel wide instead of three. In shots over Voodoo Island
+in Clear and at Dusk that changed 0.1 to 1.8 percent of the picture by more than two steps of an
+8 bit picture, all of it at the edges of shadows past the first cascade. Which cascade a
+material reads is known when its shader is built, since three.js writes CSM's loop out once per
+cascade, so no pixel tests it. A surface turned from the sun takes none of its light in the
+port's materials, shadowed or not, so its shadow is not read, nor is a shadow of no strength.
+The packed colour is still drawn, for the water. On an Intel HD 630 at 1920 x 1080, on The
+Graveyard in Rain with seven computer trucks, the four reads took 2.8 ms off a frame on Max and
+2.7 ms on Low (the ground's own shading went from 13.4 ms to 11.3 on Max). The single read
+further out took another 0.16 ms off the ground's draws on Max (10.42 ms to 10.26, timed frame
+by frame against four reads in every cascade), and nothing that shows on Low, whose first
+cascade reaches 500 ft.
 
 **Under a truck** (`src/render/contact-shade.js`). The sky lights the ground from every side,
 and a truck keeps a good part of it off the ground beneath: one soft dark patch a truck, laid
@@ -1748,7 +1818,9 @@ the picture, and that ground is already fogged; a rut that darkened it by its sh
 fog's own colour on it as well, and tracks stood out through fog like ink. A rut now takes its
 share of the ground's light only, and gives back that share of the fog's
 (`ground * (1 - dark) + dark * fog * hidden`, with the fog's colour and how much it hides
-worked out at the rut), so far off in fog it is gone with the ground.
+worked out at the rut), so far off in fog it is gone with the ground. The fog is worked out once
+a point for both the rut's own colour and what it gives back: each working it out for itself, the
+rut's shader held the fog's loops two and three times over and a point worked it out twice.
 Ploughed snow is drawn by one of the scene's own lit materials with lines added, so it takes
 the sun, the sky's light, the hills' shadows, the headlights and the fog as the snow beside it
 does.
@@ -1983,11 +2055,35 @@ or turned more than 0.2 rad. A point whose distance disagrees by more than 0.5 f
 its distance, is drawn from the new frame alone. TAA follows the camera only. A truck can
 leave a short trail, held to the colours around it.
 
+TAA is one pass. It writes the steady picture, kept for the next frame, with each point's
+distance in its fourth number, which nothing that reads the picture for its colour looks at; the
+next frame reads that distance at the point nearest where the surface was, as it is. The glow and
+the screen read the steady picture where it was written. Through the lens it is given the scene's
+picture raw and makes it safe to blur as it reads it, with the dust over it laid on, as the lens's
+own passes do. Before, the steady picture was copied back into the scene's, the distance was a
+pass of its own, and through the lens the scene was cleaned into a picture of its own first and
+the glow added to it in another: passes over the whole picture that cost 4.1 ms a frame through
+the lens on an Intel HD 630 at 1920 x 1080, and 1.8 ms without it, where the one pass now costs
+0.2 to 0.5 ms more than TAA's did. The distance then had a picture of its own beside the steady
+one, written and read again each frame: in the steady one's fourth number the pass costs 0.15 ms
+less. TAA's pass is bound by how much it reads and writes, not by its sums: the nine points of its
+clip fetched without filtering cost it no less.
+
 Without the lens the same methods apply. The curve is applied as the materials would have on
 the way to the screen, and the fog is mixed in the light values the way the lens mixes it,
 then the picture is encoded. That fog order differs from a direct draw to the canvas, which
 mixes the fog after the encoding. The default, MSAA, is unchanged, so that difference is
 only there when another choice is on and the lens is off.
+
+The screen's own picture is made with samples only where MSAA without the lens draws the scene
+straight onto it (`screenSampled`): every other choice, and every choice through the lens,
+draws into pictures of its own and puts the result on the screen in one last pass, where
+samples smooth nothing and the browser resolved them every frame all the same (on an Intel HD
+630 at 1920 x 1080 on Low with TAA, 50 frames a second where it is now 54.5). The renderer is
+made once a session, with the settings as they are then. A race that later wants MSAA without
+the lens on a screen made without samples draws the scene into a picture of its own that has
+MSAA's samples, and so mixes its fog as the other choices do. A headset's pictures keep their
+own samples either way.
 
 ## How far the eye sees
 
@@ -2040,11 +2136,12 @@ the default. Off, FXAA, SMAA and TAA take its place when chosen and were not mea
   cascade a truck's shadow cannot reach skips that truck. Without Natural light the maps are
   drawn in full, as before.
 - **Ground detail.** The stack is the atlas again in memory, with its smaller copies a third
-  more. Up to fourteen texture reads a point of ground, eight in a headset.
+  more. Up to fourteen texture reads a point of ground, eight in a headset; on level ground
+  near by, seven.
 - **Paint.** A few lines in a truck's materials.
 - **Lens.** The scene's picture in half floats, and the glow's ten smaller pictures. The bright
-  pass and the final pass read that picture. A second full-size picture is drawn only with TAA,
-  which keeps the cleaned picture from before the glow.
+  pass and the final pass read that picture, or with TAA its steady picture, which TAA keeps
+  from before the glow; the final pass adds the glow.
 - **Anti-aliasing.** Off, FXAA, SMAA and TAA take MSAA's place when chosen: one sample a
   point, and a pass over the picture for the last three. Not measured. A headset draws none
   of them.
@@ -2072,6 +2169,38 @@ the default. Off, FXAA, SMAA and TAA take its place when chosen and were not mea
   dashboard: asked for and not waited for, since waiting held every other frame 15 to 50 ms
   (a median of 24 ms a frame, 17 ms now); in thick dust the mirror's frames are still the
   slow ones.
+- **A race as a player runs it.** Measured on the same Intel HD Graphics 630 in Chromium, in a
+  window on Wayland at 1920 x 1080 with TAA, on The Graveyard in Rain with seven computer trucks,
+  the truck on autopilot, by the frames drawn and by the graphics card's own clock. Before: on
+  Low 48 frames a second on average and a 1% low of 10 (the FPS counter's least; the slowest
+  frames took 100 to 150 ms), the card at 19 ms a frame; on Max 22 frames a second, the slowest
+  frames 150 to 220 ms, the card at 42 ms. The stops were the browser running down its queue of
+  frames (ARCHITECTURE.md, "Frame pacing"), not any one frame's work. Now: on Low 51 frames a
+  second (the counter's average 57), a 1% low of 29 and none over 36 ms, the card at 16 ms; on
+  Max 33 frames a second, a 1% low of 20 (the counter's 25) and none over 54 ms, the card at
+  28 ms; the picture 26 ms behind on Low and 47 ms on Max where it was 250 and 450. Of the
+  card's time on Max, the shadow cascades went from 7.7 ms a frame to 1.1 ("Light", Shadows),
+  TAA's passes from 6.1 ms to 2.5 ("Anti-aliasing"), the ground's grain from 3.75 to 1.9
+  ("Ground"); the wave field rests where no wheel stirs it ("Ripples and wakes"). On Max the
+  ground was then still 13 ms of it: 3.8 ms its sun's shadows, 3.6 ms the fog, 1.9 ms its grain.
+  Since then the shadows are read with four compared reads that give the same shadow ("Light",
+  Shadows); the ground is drawn after the rest of what is opaque, so it is no longer shaded under
+  the trucks, objects and trees in front of it and then covered (1 ms a frame on Max); the fog's
+  whole slices are worked out once a frame ("Fog", Worked out ahead); and TAA keeps the distance in
+  its steady picture ("Anti-aliasing"). Each leaves the picture as it was, to a step of an 8 bit
+  picture. Past the first cascade the shadows are then read once, which firms their edges a
+  little there and takes 0.16 ms off the ground on Max ("Light", Shadows). By the card's own
+  clock a frame went from 25.5 ms to 21.2 on Max and from 13.9 to 11.0 on Low. In the window,
+  Max went from 36.6 frames a second to 43.7, its 1% low from 23.4 to 27.6, its middle frame
+  from 29 ms to 16.8 (most frames now in time for every refresh of a 60 Hz screen) and its
+  slowest from 50 ms to 40; Low keeps 60 frames a second, with a 1% low of 59.
+  Of the ground's 10.3 ms on Max now, the rain on it (the wet film, the puddles and what they
+  mirror) is 3.3 ms, the fog 2.6 and the grain 1.7; its points and their triangles, under 2 ms,
+  are not where the time goes. Tried and left out, for being slower or saving under 0.1 ms: TAA's
+  clip fetching its points unfiltered, the glow's bright pass taken into its first blur, the
+  shadow maps drawn without their colour, a map of where no puddle can be, and a fragment the fog
+  wholly hides left unshaded (a second copy of the fog took the ground's shader over the card's
+  registers).
 - **The water.** Measured on the same Intel HD Graphics 630 at 1280 x 720 on Voodoo Island, on
   Max, the water's own draws and the pass for the land in it, by the graphics card's own clock,
   the race paused, before the water of "Waves" and "The land in it" and after, with the eye still
@@ -2122,7 +2251,8 @@ the default. Off, FXAA, SMAA and TAA take its place when chosen and were not mea
   the picture the scene is drawn into instead has the screen's samples and a depth: 82 MB.
 - **Each frame.** Fog is five slices in every fragment, ten reads of its noise and eight of
   its floor, and in Foggy, where a line of sight passes through the top's billows, eight steps
-  of five reads more (four steps in a headset). Rain and snow are one draw each field. The
+  of five reads more (four steps in a headset). A fog without a top (every weather but Foggy)
+  skips the terms of its shape that it would multiply by nothing. Rain and snow are one draw each field. The
   water is one pass over itself, and the bed a few lines in the terrain's shader: a point of
   open water reads the waves three times and a fourth near the eye, the gusts, the depth, the
   sky and the land in it once each, and the sun's shadows at four points of one map. The land in
@@ -2141,7 +2271,8 @@ the default. Off, FXAA, SMAA and TAA take its place when chosen and were not mea
   from the same pool of streaks as the rest. The ground's
   weather skips its wet and snow work on dry ground, and the ground-detail grain is read only
   within the distance it shows. Nothing renders the scene twice. The lens's bright pass and its
-  final pass read the finished picture; with TAA the picture is cleaned into its own target first.
+  final pass read the finished picture; with TAA they read TAA's steady picture, and TAA cleans
+  the scene's as it reads it.
 - **Lamps.** A sprite a lens and a box a beam, each beam's points summed in ten steps where it
   covers the picture; a beam is drawn only where there is air to show it. The four lights of
   the pools on the ground are in every lit material's shader while any truck's lamps are lit,

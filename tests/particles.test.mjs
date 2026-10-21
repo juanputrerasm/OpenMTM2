@@ -604,6 +604,31 @@ test("the tracks' shader draws a triangle from the first frame, before any rut i
   assert.match(tracks, /geometry\.addGroup\(0, Math\.max\(1, pieces\) \* 6, 0\);/);
 });
 
+test("the tracks work the fog out once a point, for three.js's fog line and for what they give the picture alike", () => {
+  // docs/VISUALS.md, "Tracks": each working it out for itself held the fog's loops in the shader two and three times over.
+  const tracks = readFileSync(new URL("../src/render/tire-tracks.js", import.meta.url), "utf8");
+  assert.equal((tracks.match(/mtmFogOver\(/g) ?? []).length, 1);
+  assert.match(tracks, /if \( mtmFog\[ 0 \]\.x > 0\.5 \) fog = trackFogged;/);
+  assert.match(tracks, /const ALBEDO = \/\* glsl \*\/ `\n  trackFog\(\);/);
+  assert.match(tracks, /const PATCH_ALBEDO = \/\* glsl \*\/ `\n  trackFog\(\);/);
+  // Both materials lay three.js's fog line on with what was worked out.
+  assert.equal((tracks.match(/\.replace\("#include <fog_fragment>", FOG_ONCE\(\)\)/g) ?? []).length, 2);
+  assert.match(tracks, /fog_fragment\.replace\("mtmFogApply\( gl_FragColor\.rgb, fogColor, vFogView \)", "gl_FragColor\.rgb \* \( 1\.0 - trackFogged\.a \) \+ trackFogged\.rgb"\)/);
+});
+
+test("the ground is drawn after the rest of what is opaque, before the sky and 4x4 Evolution's forest", () => {
+  // docs/VISUALS.md, "Cost": the trucks, objects and trees in front of it write their depth first, and the ground behind
+  // them is not shaded.
+  const scene = readFileSync(new URL("../src/render/track-scene.js", import.meta.url), "utf8");
+  const [, ground, forest] = scene.match(/const GROUND_ORDER = ([\d.]+), FOREST_ORDER = ([\d.]+);/).map(Number);
+  assert.ok(ground > 0 && forest > ground && forest < 1, "after what is drawn at 0, before the sky's cap at 1 and its dome at 2");
+  assert.equal((scene.match(/mesh\.renderOrder = GROUND_ORDER;/g) ?? []).length, 2);
+  assert.ok(scene.includes('mesh.matrixAutoUpdate = false;'), "terrain meshes are static");
+  assert.match(scene, /mesh\.renderOrder = FOREST_ORDER;/);
+  assert.match(scene, /cap\.renderOrder = 1;/);
+  assert.match(scene, /dome\.renderOrder = 2;/);
+});
+
 test("a tire wading in the water flings a rooster tail up behind it, higher the faster its tread runs, most from a tire half under", () => {
   const r = 2.75, none = () => 0, half = () => 0.5;
   // Barely wet, it throws its sheets alone; half under, the most; wholly under, nothing out of the water.

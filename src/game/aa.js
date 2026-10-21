@@ -66,6 +66,18 @@ export function aaSamples(id, width, height) {
   return points > MSAA_MANY_POINTS ? 2 : 4;
 }
 
+/**
+ * Whether the screen's own picture (the canvas) is made with samples, for the settings as they are when the renderer is
+ * made, which is once a session (render/xr/xr-host.js). Only MSAA without the lens draws the scene straight onto it;
+ * every other choice draws into pictures of its own and puts the result on the screen in one last pass, where samples
+ * smooth nothing and the browser resolves them every frame all the same (1.5 to 2 ms a frame on an Intel HD 630 at
+ * 1920 x 1080). A race that later wants MSAA without the lens on a screen made without samples draws it into a picture
+ * of its own that has them (render/scenery.js).
+ */
+export function screenSampled(settings = {}) {
+  return aaChoice(settings.aa) === "msaa" && settings.lensEffects !== true;
+}
+
 /** The van der Corput radical inverse: the fractional part of `index` written in base `base` and mirrored. */
 export function halton(index, base) {
   let f = 1, r = 0, i = Math.max(0, index | 0);

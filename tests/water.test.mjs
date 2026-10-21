@@ -4,9 +4,10 @@
 */
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   SNELL_WINDOW, UNDERWATER, WATER_BED, WATER_GLINT, WATER_INDEX, WATER_REFLECTION, WATER_RIPPLES, WATER_SCATTER, WATER_SILT, WATER_TAKES, WHEEL_CHURN, landingStir, waterHides, waterPasses, waterPathFt,
-  PUDDLE_FILL_DROP_FT, PUDDLE_PARTING, foamAfter, highestGround, landTones, puddleStir, reflectionRow, reflectionSine, waveAfter, waveSpeed, wheelStir,
+  PUDDLE_FILL_DROP_FT, PUDDLE_PARTING, foamAfter, highestGround, landTones, puddleStir, reflectionRow, reflectionSine, rippleQuietS, waveAfter, waveSpeed, wheelStir,
   UNDERWATER_LOOK, lightAtDepth, sunUnderWater,
 } from "../src/game/water.js";
 import { SUBMERGED_FT } from "../src/game/particles.js";
@@ -196,6 +197,26 @@ test("foam fresh and thick collapses within seconds; the thin lace it leaves lin
   // A wake: white for a second or two, then lace for many more.
   assert.ok(foamAfter(1, 3) < foamThick[1], "no longer thick after three seconds");
   assert.ok(foamAfter(1, 10) > 0.05, "still lace after ten");
+});
+
+test("the wave field rests until a wheel stirs it, and again once its waves, foam and silt have run down to nothing", () => {
+  const { calmS, foamLingerS, siltHalfLifeS } = WATER_RIPPLES;
+  const quiet = rippleQuietS();
+  // The slowest to go is the silt, halving every 14 s: eight halvings to under 1/256.
+  assert.equal(quiet, siltHalfLifeS * 8);
+  assert.ok(quiet >= foamLingerS * 8 && quiet >= calmS * Math.log(3 / 0.001));
+  assert.ok(0.5 ** (quiet / siltHalfLifeS) <= 1 / 256, "the silt is under a shade by then");
+  assert.ok(foamAfter(1, quiet) < 1 / 256, "and so is the thickest foam");
+  assert.ok(3 * Math.exp(-quiet / calmS) < 0.001, "and the highest wave the field holds");
+  // A slower silt would rest the field later.
+  assert.equal(rippleQuietS({ ...WATER_RIPPLES, siltHalfLifeS: 20 }), 160);
+  const ripples = readFileSync(new URL("../src/render/water-ripples.js", import.meta.url), "utf8");
+  assert.match(ripples, /let sinceStir = Infinity;/, "none has stirred it at first");
+  assert.match(ripples, /sinceStir = stirs\.length \? 0 : sinceStir \+ dt;/);
+  assert.match(ripples, /if \(!running\(\) \|\| sinceStir > QUIET_S\) \{ corner = null;/);
+  // Its step's shader is built with the rest, ahead of the first wheel that stirs it (render/scenery.js).
+  assert.match(ripples, /warm\(\) \{ if \(!corner\) stepOnce\(\); \}/);
+  assert.match(readFileSync(new URL("../src/render/scenery.js", import.meta.url), "utf8"), /ripples\?\.warm\(\);/);
 });
 
 test("a wheel that comes down into the water throws a ring out from where it struck, the harder the bigger", () => {

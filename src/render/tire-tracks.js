@@ -330,6 +330,7 @@ ${SNOW_TONE_GLSL}
   (`trackDark`, 0 to 1), and it lays its own lit colour over it (`trackTone`, over `trackCover` of it).
 */
 const ALBEDO = /* glsl */ `
+  trackFog();
   float trackU = vTrackUv.x;
   // The floor of the rut, and a rim outside it.
   float trackIn = smoothstep( 0.02, 0.2, trackU ) * smoothstep( 0.98, 0.8, trackU );
@@ -473,6 +474,12 @@ const ALBEDO = /* glsl */ `
     trackDark *= 1.0 - trackUnder;
   #endif
   diffuseColor = vec4( trackTone, 1.0 );
+  // A rut that lays no colour of its own (earth, mud, rubber, thin snow) only darkens what is there: its own light would be
+  // given none of the picture (\`OUTPUT\`), so it is not worked out. The most of the ruts on most ground.
+  if ( trackCover <= 0.0 ) {
+    gl_FragColor = trackOutput( vec3( 0.0 ), 0.0, trackDark );
+    return;
+  }
 `;
 /* What the eye meets in a trench in the snow takes the light as it faces. */
 const NORMAL = "\tif ( trackLid > 1.5 ) normal = normalize( normal + ( viewMatrix * vec4( trackFace, 0.0 ) ).xyz ); else if ( trackLid > 0.5 ) normal = trackFace;";
@@ -485,15 +492,31 @@ const NORMAL = "\tif ( trackLid > 1.5 ) normal = normalize( normal + ( viewMatri
   back. (What is there, darkened, plus the fog's share of the darkening: exactly the darkened ground seen through the
   same fog.) The darkening is taken in the picture's own encoding, so a rut is as dark through the lens as without it.
 */
-const OUTPUT = /* glsl */ `
-  vec4 trackFog = vec4( 0.0 );
+const OUTPUT_GLSL = /* glsl */ `
+// The fog as a volume between the eye and the point (render/atmosphere.js \`mtmFogOver\`), worked out once (\`trackFog\`,
+// first thing) for the two that lay it on: three.js's fog line over the rut's own colour (\`FOG_ONCE\`), and \`trackOutput\`
+// over what is there. Each working it out for itself, a shader held the fog's loops two and three times over, too much
+// for the graphics card to shade sixteen pixels at a time (Intel HD 630), and a pixel worked it out twice.
+vec4 trackFogged = vec4( 0.0 );
+void trackFog() {
   #ifdef USE_FOG
-    if ( mtmFog[ 0 ].x > 0.5 ) trackFog = mtmFogOver( fogColor, vFogView );
-    else trackFog = vec4( fogColor, 1.0 ) * smoothstep( fogNear, fogFar, vFogDepth );
+    if ( mtmFog[ 0 ].x > 0.5 ) trackFogged = mtmFogOver( fogColor, vFogView );
   #endif
-  float trackKeep = linearToOutputTexel( vec4( vec3( 1.0 - trackDark ), 1.0 ) ).r;
-  gl_FragColor = vec4( gl_FragColor.rgb * trackCover + ( 1.0 - trackCover ) * ( 1.0 - trackKeep ) * trackFog.rgb, ( 1.0 - trackCover ) * trackKeep );
+}
+// What is given to the picture: \`lit\` the rut's own lit colour over \`cover\` of the point, and what is there darkened by \`dark\`.
+vec4 trackOutput( vec3 lit, float cover, float dark ) {
+  vec4 fog = vec4( 0.0 );
+  #ifdef USE_FOG
+    if ( mtmFog[ 0 ].x > 0.5 ) fog = trackFogged;
+    else fog = vec4( fogColor, 1.0 ) * smoothstep( fogNear, fogFar, vFogDepth );
+  #endif
+  float keep = linearToOutputTexel( vec4( vec3( 1.0 - dark ), 1.0 ) ).r;
+  return vec4( lit * cover + ( 1.0 - cover ) * ( 1.0 - keep ) * fog.rgb, ( 1.0 - cover ) * keep );
+}
 `;
+const OUTPUT = "\tgl_FragColor = trackOutput( gl_FragColor.rgb, trackCover, trackDark );";
+/** three.js's fog line as render/atmosphere.js has it, laying on the fog `trackFog` worked out instead of working it out again. */
+const FOG_ONCE = () => THREE.ShaderChunk.fog_fragment.replace("mtmFogApply( gl_FragColor.rgb, fogColor, vFogView )", "gl_FragColor.rgb * ( 1.0 - trackFogged.a ) + trackFogged.rgb");
 
 /*
   The ploughed snow's map. Each piece of rut in deep snow is drawn into it flat, from above, and writes two numbers, of
@@ -605,6 +628,7 @@ ${SCOUR_GLSL}
   Beyond the map, the hollow by itself, as it would be seen from straight over it: its own shape, lit as it lies.
 */
 const PATCH_ALBEDO = /* glsl */ `
+  trackFog();
   float scourS = scourEdge( vScourAt, vScourShape.xy, vTrackWorld.xz );
   vec3 scourOwn = scourSurface( scourS, vScourShape.z, vTrackWorld.xz, scourAhead( vScourAt, vScourDrag.zw ) );
   vec3 scourP = vec3( vTrackWorld.x, scourOwn.x, vTrackWorld.z );
@@ -864,8 +888,10 @@ export function createTireTracks({ scene, art = null, ground, snowDepth = () => 
       .replace("#include <project_vertex>", `#include <project_vertex>\n${VERTEX}`);
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>\n${pools ? `#define TRACK_POOLS\n${pools.glsl}` : ""}\n${snowLine ? `#define TRACK_SNOW_LINE\n${snowLine.glsl}` : ""}\n${plough ? "#define TRACK_PLOUGH\n" : ""}${FRAGMENT_PARS}`)
+      .replace("#include <fog_pars_fragment>", `#include <fog_pars_fragment>\n${OUTPUT_GLSL}`)
       .replace("#include <map_fragment>", ALBEDO)
       .replace("#include <normal_fragment_begin>", `#include <normal_fragment_begin>\n${NORMAL}`)
+      .replace("#include <fog_fragment>", FOG_ONCE())
       .replace("#include <dithering_fragment>", `#include <dithering_fragment>\n${OUTPUT}`);
   });
   // Drawn as the geometry's groups (`update`): the ruts laid so far, and their ridges while there are any.
@@ -893,8 +919,10 @@ export function createTireTracks({ scene, art = null, ground, snowDepth = () => 
       .replace("#include <project_vertex>", `#include <project_vertex>\n${PATCH_VERTEX}`);
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>\n${plough ? "#define TRACK_PLOUGH\n" : ""}${PATCH_FRAGMENT_PARS}`)
+      .replace("#include <fog_pars_fragment>", `#include <fog_pars_fragment>\n${OUTPUT_GLSL}`)
       .replace("#include <map_fragment>", PATCH_ALBEDO)
       .replace("#include <normal_fragment_begin>", `#include <normal_fragment_begin>\n${NORMAL}`)
+      .replace("#include <fog_fragment>", FOG_ONCE())
       .replace("#include <dithering_fragment>", `#include <dithering_fragment>\n${OUTPUT}`);
   });
   const patchMesh = new THREE.Mesh(patchGeometry, patchMaterial);

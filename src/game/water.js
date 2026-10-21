@@ -158,6 +158,18 @@ export function waveAfter(heightFt, depthFt, seconds, { stepS, calmS, breaks: [f
   return h;
 }
 
+/**
+ * How long after a wheel last stirred it the field has run down to nothing that shows, seconds: its waves (no higher
+ * than the 3 ft the field holds) under a thousandth of a foot, and its foam and silt under a shade of an 8 bit picture
+ * (1/256 of all the field holds), each by the rules above. The field is not stepped once it has, nor before a wheel
+ * has stirred it at all, until one does (render/water-ripples.js): stepped, it cost a 512 by 512 pass every sixtieth of
+ * a second of the race, wheels in the water or not.
+ */
+export function rippleQuietS({ calmS, foamLingerS, siltHalfLifeS } = WATER_RIPPLES) {
+  const shade = Math.log2(256);
+  return Math.max(calmS * Math.log(3 / 0.001), foamLingerS * shade, siltHalfLifeS * shade);
+}
+
 /** How much foam there is after `seconds`, from `amount` (a share of all the field holds), by the rules above. */
 export function foamAfter(amount, seconds, { foamCollapseS, foamLingerS, foamThick: [thin, thick], stepS } = WATER_RIPPLES) {
   let foam = amount;

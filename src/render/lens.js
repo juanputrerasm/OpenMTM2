@@ -40,36 +40,19 @@ const GLOW_FROM = LENS.glowFrom, GLOW_FULL = LENS.glowFull, CORNERS = LENS.corne
 const GLOW_STRENGTH = 0.42, GLOW_RADIUS = 0.55;
 
 /*
-  The scene's picture made safe to blur. A float picture can hold what is not a number (a
-  shader's arithmetic gone wrong at one point), which a blur would spread over everything
-  around it; and one point a thousand times too bright would glow like a second sun. Both are
-  taken out here, where an 8 bit picture would have hidden them as one dark or white point.
-  TAA draws this pass, because it keeps the picture from before the glow. The other choices do
-  the same cleaning inside the bright pass and the final pass, which read the scene directly.
+  The scene's picture is made safe to blur as it is read. A float picture can hold what is not
+  a number (a shader's arithmetic gone wrong at one point), which a blur would spread over
+  everything around it; and one point a thousand times too bright would glow like a second sun.
+  Both are taken out, where an 8 bit picture would have hidden them as one dark or white point:
+  by the bright pass and the final pass, which read the scene directly, and with TAA, which keeps
+  the picture from before the glow, by TAA as it reads the scene (render/aa.js).
 */
-const CLEAN = {
-  uniforms: { tDiffuse: { value: null }, tOver: { value: null }, uOver: { value: 0 } },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main() { vUv = uv; gl_Position = vec4( position.xy, 0.0, 1.0 ); }`,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse, tOver;
-    uniform float uOver;
-    varying vec2 vUv;
-    void main() {
-      vec3 color = texture2D( tDiffuse, vUv ).rgb;
-      // What is drawn over the scene, its colour already times how much it hides.
-      if ( uOver > 0.5 ) { vec4 over = texture2D( tOver, vUv ); color = color * ( 1.0 - over.a ) + over.rgb; }
-      if ( any( isnan( color ) ) || any( isinf( color ) ) ) color = vec3( 0.0 );
-      gl_FragColor = vec4( clamp( color, 0.0, ${BRIGHTEST.toFixed(1)} ), 1.0 );
-    }`,
-};
 
 const FINAL = {
   uniforms: {
     tDiffuse: { value: null }, tBloom: { value: null }, tOver: { value: null },
     uTone: { value: 0 }, uExposure: { value: 1 }, uCorners: { value: CORNERS }, uUnder: { value: 0 },
-    // 1: this pass reads the scene and cleans it, then adds the glow. 0: `tDiffuse` is already cleaned, and already has the glow.
+    // 1: this pass reads the scene and cleans it. 0: `tDiffuse` is already cleaned (TAA's steady picture). The glow is added either way.
     uClean: { value: 0 }, uOver: { value: 0 },
     // 1: encode here, because the destination is a picture FXAA or SMAA will read. 0: the screen encodes.
     uManual: { value: 0 },
@@ -91,8 +74,9 @@ const FINAL = {
       if ( uClean > 0.5 ) {
         if ( uOver > 0.5 ) { vec4 over = texture2D( tOver, vUv ); color = color * ( 1.0 - over.a ) + over.rgb; }
         if ( any( isnan( color ) ) || any( isinf( color ) ) ) color = vec3( 0.0 );
-        color = clamp( color, 0.0, ${BRIGHTEST.toFixed(1)} ) + texture2D( tBloom, vUv ).rgb;
+        color = clamp( color, 0.0, ${BRIGHTEST.toFixed(1)} );
       }
+      color += texture2D( tBloom, vUv ).rgb;
       color = max( color, 0.0 ) * uExposure;
       // Under water the picture has lost its red (game/water.js).
       color *= mix( vec3( 1.0 ), vec3( ${UNDERWATER.tint.map((v) => v.toFixed(3)).join(", ")} ), uUnder );
@@ -146,11 +130,8 @@ export function createLens({ renderer, aa = null, over = null }) {
       gl_FragColor = mix( outputColor, texel, alpha );
     }`;
   bloom.materialHighPassFilter.needsUpdate = true;
-  /**
-   * The glow's own passes: bright, five blurs, the composite. `blendOnto` is where the glow is added
-   * (TAA's cleaned picture). Without it the composite stays in the first blur target for the final pass to add.
-   */
-  const drawBloom = (readTexture, blendOnto) => {
+  /** The glow's own passes: bright, five blurs, the composite, which stays in the first blur target for the final pass to add. */
+  const drawBloom = (readTexture) => {
     renderer.getClearColor(clearColor);
     const alpha = renderer.getClearAlpha();
     const auto = renderer.autoClear;
@@ -188,21 +169,13 @@ export function createLens({ renderer, aa = null, over = null }) {
       renderer.setRenderTarget(bloom.renderTargetsHorizontal[0]);
       renderer.clear();
       pass.render(renderer);
-      if (blendOnto) {
-        pass.material = bloom.blendMaterial;
-        bloom.copyUniforms.tDiffuse.value = bloom.renderTargetsHorizontal[0].texture;
-        renderer.setRenderTarget(blendOnto);
-        pass.render(renderer);
-      }
     } finally {
       renderer.setClearColor(clearColor, alpha);
       renderer.autoClear = auto;
     }
   };
-  // The scene's picture cleaned (below), which the glow is added to and the screen is drawn from.
-  const clean = new THREE.WebGLRenderTarget(target.width, target.height, { type: THREE.HalfFloatType, depthBuffer: false });
   const pass = (shader) => new THREE.ShaderMaterial({ ...shader, uniforms: THREE.UniformsUtils.clone(shader.uniforms), depthTest: false, depthWrite: false, toneMapped: false });
-  const cleaning = pass(CLEAN), material = pass(FINAL);
+  const material = pass(FINAL);
   const quad = new FullScreenQuad(material);
   const clock = new THREE.Clock();
 
@@ -217,7 +190,6 @@ export function createLens({ renderer, aa = null, over = null }) {
         target.dispose();
         target = sceneTarget(w, h);
       } else target.setSize(w, h);
-      clean.setSize(w, h);
       bloom.setSize(w, h);
     },
     /**
@@ -241,16 +213,6 @@ export function createLens({ renderer, aa = null, over = null }) {
           over.weigh();
           laid = over.draw(camera, scene.fog, target.depthTexture, target.width, target.height);
         }
-        // TAA keeps the picture from before the glow, so it is cleaned into its own target first. Every other
-        // choice cleans inside the bright pass and the final pass, which read the scene directly.
-        if (taa) {
-          cleaning.uniforms.tOver.value = laid;
-          cleaning.uniforms.uOver.value = laid ? 1 : 0;
-          cleaning.uniforms.tDiffuse.value = target.texture;
-          quad.material = cleaning;
-          renderer.setRenderTarget(clean);
-          quad.render(renderer);
-        }
       } finally {
         endJitter();
       }
@@ -258,11 +220,10 @@ export function createLens({ renderer, aa = null, over = null }) {
       bloom.highPassUniforms.tOver.value = laid;
       bloom.highPassUniforms.uOver.value = laid ? 1 : 0;
       bloom.highPassUniforms.uClean.value = taa ? 0 : 1;
-      if (taa) {
-        aa.settle(clean, target.depthTexture, camera);
-        drawBloom(clean.texture, clean);
-      } else drawBloom(target.texture, null);
-      material.uniforms.tDiffuse.value = taa ? clean.texture : target.texture;
+      // TAA's steady picture, which the glow and the screen read where TAA left it. TAA cleans the raw scene as it reads it.
+      const steady = taa ? aa.settle(target, target.depthTexture, camera, { raw: true, over: laid }) : null;
+      drawBloom(steady ?? target.texture);
+      material.uniforms.tDiffuse.value = steady ?? target.texture;
       material.uniforms.tBloom.value = bloom.renderTargetsHorizontal[0].texture;
       material.uniforms.tOver.value = laid;
       material.uniforms.uOver.value = laid ? 1 : 0;
@@ -294,9 +255,7 @@ export function createLens({ renderer, aa = null, over = null }) {
       atmosphere.output(false);
       target.depthTexture.dispose();
       target.dispose();
-      clean.dispose();
       bloom.dispose();
-      cleaning.dispose();
       material.dispose();
       quad.dispose();
     },

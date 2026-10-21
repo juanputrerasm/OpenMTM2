@@ -6,6 +6,7 @@
   and uses `water` in place of the game's water surface (render/water-effects.js) when there is
   one.
 */
+import * as THREE from "three";
 import { aaChoice } from "../game/aa.js";
 import { createDrawnGround } from "../game/drawn-ground.js";
 import { createDecks } from "../game/ground-boxes.js";
@@ -22,6 +23,7 @@ import { createGloss } from "./gloss.js";
 import { createGroundDetail, createGroundTiles } from "./ground-detail.js";
 import { createGroundSurface } from "./ground-surface.js";
 import { createGroundTexture, createPuddleTexture, createShelterTexture } from "./ground-textures.js";
+import { createFogState } from "./fog-state.js";
 import { createLens } from "./lens.js";
 import { createLightRig } from "./light-rig.js";
 import { createOverScene } from "./over-scene.js";
@@ -30,6 +32,15 @@ import { createWaterRipples } from "./water-ripples.js";
 import { createUnderwater } from "./underwater.js";
 import { createWaterSystem } from "./water-surface.js";
 import { createWeatherVolume } from "./weather-volume.js";
+
+/** How many samples a point the screen's own picture has: none where the renderer made it without them. */
+function screenSamples(renderer) {
+  const before = renderer.getRenderTarget(), gl = renderer.getContext();
+  renderer.setRenderTarget(null);
+  const samples = gl.getParameter(gl.SAMPLES);
+  renderer.setRenderTarget(before);
+  return samples > 1 ? samples : 0;
+}
 
 /**
  * @param {{ scene: object, camera: object, world: object, sun: object, build: object, settings: object,
@@ -94,9 +105,12 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
     ? createGroundDetail({ world, atlas: build.terrain.atlas, textureValues: build.terrain.atlas.slotValues ?? build.sim?.textureValues ?? null, renderer, sun, look }) : null;
   // Without the detail the ground is still mipmapped, in either picture: its tiles from a stack, each filtered down by itself.
   const groundTiles = !groundDetail && renderer && build.terrain?.atlas ? createGroundTiles({ world, atlas: build.terrain.atlas, renderer, look }) : null;
-  // MSAA is what the picture already did, so that choice makes nothing more. The others draw one sample and a pass.
+  // MSAA is what the picture already did, so that choice makes nothing more: the scene is drawn straight onto the screen's
+  // own samples, or through the lens into a picture with samples of its own. The others draw one sample and a pass.
+  // Where the screen was made without samples (game/aa.js `screenSampled`, when the renderer was made) MSAA without the
+  // lens draws into a picture of its own that has them, put on the screen as the others' is.
   const mode = aaChoice(settings.aa);
-  const aa = renderer && mode !== "msaa" ? createAntiAlias({ renderer, mode }) : null;
+  const aa = renderer && (mode !== "msaa" || (!on.lens && !screenSamples(renderer))) ? createAntiAlias({ renderer, mode }) : null;
   // What is drawn over the scene, the puffs of "Rich particles" (render/over-scene.js). Without the lens and with MSAA
   // the scene goes straight to the screen, and it is this that puts the frame there.
   const over = on.particles && renderer ? createOverScene({ renderer, plainScreen: !(on.lens || aa), soft: on.lens }) : null;
@@ -114,6 +128,9 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
   }) : null;
   /** How far under water the eye is, 0 to 1 (`underwater`), for the lens. */
   let under = 0;
+  // The fog's whole slices along every way from the eye, worked out once a frame (render/fog-state.js).
+  const fogState = volume && renderer ? createFogState({ renderer }) : null;
+  const drawing = new THREE.Vector2();
   // What fills the water about the eye while it is under it: motes and the sun's shafts (render/underwater.js).
   const underwaterLook = water && hasWater ? createUnderwater({ scene, water, random }) : null;
   // Where the snow has depth (a race that began in Snow), the same depth the terrain's mesh was built with.
@@ -194,16 +211,22 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
       // The waves run on by the time the wheels were stirred for, before the water and the puddles that show them are drawn.
       ripples?.step([view.position.x, view.position.y, -view.position.z]);
       water?.prepare(view);
-      if (lens && !plain) lens.render(scene, view, { tone: !!lightRig, under: water ? under : 0 });
-      else if (aa && !plain) aa.renderFlat(scene, view, { tone: !!lightRig, over });
-      else {
-        lens?.rest();
-        // The plain screen's frame is the over-scene's to put there: thick dust is drawn another way (render/over-scene.js `present`).
-        if (over && !plain && !lens) over.present(scene, view);
+      // The fog along every way from this eye, for the scene's fragments to read their whole slices from (render/fog-state.js).
+      if (fogState && !plain) fogState.prepare(view, ...renderer.getDrawingBufferSize(drawing).toArray());
+      try {
+        if (lens && !plain) lens.render(scene, view, { tone: !!lightRig, under: water ? under : 0 });
+        else if (aa && !plain) aa.renderFlat(scene, view, { tone: !!lightRig, over });
         else {
-          renderer.render(scene, view);
-          over?.plain(view, scene.fog);
+          lens?.rest();
+          // The plain screen's frame is the over-scene's to put there: thick dust is drawn another way (render/over-scene.js `present`).
+          if (over && !plain && !lens) over.present(scene, view);
+          else {
+            renderer.render(scene, view);
+            over?.plain(view, scene.fog);
+          }
         }
+      } finally {
+        fogState?.end();
       }
     },
     /**
@@ -218,12 +241,23 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
      * (render/weather-scene.js `warmPools`).
      */
     compile(view) {
+      // The waves' step, which runs only once a wheel stirs them (render/water-ripples.js).
+      ripples?.warm();
+      // The fog's pass, which a weather without billows runs each frame (render/fog-state.js).
+      fogState?.warm(view, ...renderer.getDrawingBufferSize(drawing).toArray());
       const into = lens ? lens.target : aa ? aa.flat : null;
       // The anti-aliasing's picture is made by its first frame: before that there is nothing to build for.
       if (aa && !lens && !into) return;
       const before = renderer.getRenderTarget();
       renderer.setRenderTarget(into);
       renderer.compile(scene, view);
+      // What is drawn over the scene, in pictures of its own (render/over-scene.js): its puffs, and with the
+      // anti-aliasing and no lens the passes that lay them on its picture. The plain screen builds them with its first
+      // frame; the lens draws them into a picture of their own, as the puffs' shaders are built here.
+      if (over) {
+        if (aa && !lens) over.warm(view, scene.fog, into.depthTexture, into.width, into.height);
+        else renderer.compile(over.scene, view);
+      }
       renderer.setRenderTarget(before);
     },
     /**
@@ -282,6 +316,7 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
     /** The weather scene disposes of `volume` and `groundSurface`; this of the rest. */
     dispose() {
       lens?.dispose();
+      fogState?.dispose();
       over?.dispose();
       aa?.dispose();
       ripples?.dispose();

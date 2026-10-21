@@ -282,6 +282,16 @@ function addRoadMask(material, mask) {
   material.customProgramCacheKey = () => `${key}|road-mask`;
 }
 
+/*
+  The ground is drawn after the rest of what is opaque (three.js draws by renderOrder first, then by material): the
+  trucks, the placed objects and the trees in front of it have written their depth by then, and the ground behind them is
+  not shaded. Its shader is the dearest in the scene; drawn first, as its material's age had it, it was shaded under every
+  truck and tree and then covered (1 ms a frame of 23 on an Intel HD 630 at 1920 x 1080 on Max, The Graveyard in Rain).
+  It still comes before the sky (1 and 2), which is drawn last so that only what shows is shaded, and before 4x4
+  Evolution's forest, whose trees a hill hides by the thousand.
+*/
+const GROUND_ORDER = 0.75, FOREST_ORDER = 0.875;
+
 /**
  * `detail`: whether Community Patch 3's terrain extras are drawn (the enhanced look only): the HD tiles' normal maps
  * and, on a track with a painted mask, the detail normals.
@@ -321,6 +331,7 @@ export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.at
         const mesh = new THREE.Mesh(geometry, material);
         mesh.name = "terrain";
         mesh.matrixAutoUpdate = false;
+        mesh.renderOrder = GROUND_ORDER;
         mesh.userData.chunk = chunk.row * (GRID / CHUNK_CELLS) + chunk.col;
         mesh.userData.detail = detail;
         mesh.visible = detail === "coarse";
@@ -360,6 +371,7 @@ export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.at
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = "terrain";
       mesh.matrixAutoUpdate = false;
+      mesh.renderOrder = GROUND_ORDER;
       group.add(mesh);
     }
   }
@@ -689,9 +701,29 @@ export function placeObjects(library, objects, copies = [[0, 0]], { rounded = fa
   return group;
 }
 
-/** The static shadow copy (render/sun-shadows.js) was drawn from the world as it stood. Something that never moves, until it does, has changed. */
-function bumpShadowStatic(world) {
-  world.userData.shadowStaticSerial = (world.userData.shadowStaticSerial ?? 0) + 1;
+/** How many changes to what never moves are remembered, for the shadow cascades to tell which of them a change reaches. */
+const SHADOW_CHANGES_KEPT = 64;
+
+/**
+ * The static shadow copy (render/sun-shadows.js) was drawn from the world as it stood. Something that never moves, until
+ * it does, has changed: `spheres` say where, `[x, y, z, radius]` in scene feet in the world's first copy, as it stood and
+ * as it stands now. Without them the change is taken to reach everywhere.
+ */
+function bumpShadowStatic(world, spheres = null) {
+  const serial = (world.userData.shadowStaticSerial ?? 0) + 1;
+  world.userData.shadowStaticSerial = serial;
+  const changes = (world.userData.shadowChanges ??= []);
+  changes.push({ serial, spheres });
+  if (changes.length > SHADOW_CHANGES_KEPT) changes.splice(0, changes.length - SHADOW_CHANGES_KEPT);
+}
+
+/** How far a model part reaches from the place `elements` (a column-major matrix) puts it at, feet. */
+function partReach(mesh, elements) {
+  const geometry = mesh.geometry;
+  if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+  const e = elements;
+  const scale = Math.max(Math.hypot(e[0], e[1], e[2]), Math.hypot(e[4], e[5], e[6]), Math.hypot(e[8], e[9], e[10]));
+  return (geometry.boundingSphere.center.length() + geometry.boundingSphere.radius) * scale;
 }
 
 /** Something that casts moved (an object the simulation moves, a falling tree): render/sun-shadows.js `invalidateIfMoved`. */
@@ -870,6 +902,8 @@ export function createForest(library, objects, { rounded = false } = {}) {
       boundInstances(mesh);
       mesh.userData.forestAt = at;
       mesh.userData.forestLod = lod;
+      // After the ground, which hides most of a forest from most places (GROUND_ORDER).
+      mesh.renderOrder = FOREST_ORDER;
       group.add(mesh);
     }
   }
@@ -997,29 +1031,37 @@ export function moveObjects(world, moves) {
   const { slots, offsets, order } = parts.objects.userData;
   const touched = new Set();
   parts.loose ??= new Map();
+  // Where the still objects changed, as each stood and stands now, for the shadows: only the cascades its shadow reaches
+  // are drawn again.
+  const spheres = [];
   for (const { sitIndex, matrix } of moves) {
     const slot = slots[sitIndex];
     if (!slot) continue;
     // A still object that has started to move (a knocked sign, fence or crate) is drawn by itself from then on, its
     // shadow among the moving ones: kept among the instances, each move would make the shadows redraw every still
     // thing in the world, the forest with it, frame after frame (render/sun-shadows.js).
-    const loose = parts.loose.get(sitIndex) ?? (parts.byName.get(slot[0])?.[0]?.userData.facing ? null : loosen(world, parts, sitIndex, slot, touched));
+    const loose = parts.loose.get(sitIndex) ?? (parts.byName.get(slot[0])?.[0]?.userData.facing ? null : loosen(world, parts, sitIndex, slot, touched, spheres));
     if (loose) {
       loose.matrix.copy(placement(matrix, offsets[order[0]], false));
       loose.matrixWorldNeedsUpdate = true;
       continue;
     }
+    let reach = 0, was = null;
     for (const mesh of parts.byName.get(slot[0]) ?? []) {
       const { perCopy, facing, places } = mesh.userData;
+      reach = Math.max(reach, partReach(mesh, matrix));
+      was ??= places[slot[1]] ?? null;
       // Kept, for when a block is written afresh; then every block, the copies not drawn too.
       places[slot[1]] = matrix;
       order.forEach((copy, block) => mesh.setMatrixAt(block * perCopy + slot[1], placement(matrix, offsets[copy], facing)));
       mesh.instanceMatrix.needsUpdate = true;
       touched.add(mesh);
     }
+    if (was) spheres.push([was[12], was[13], was[14], reach]);
+    spheres.push([matrix[12], matrix[13], matrix[14], reach]);
   }
   for (const mesh of touched) boundInstances(mesh);
-  if (touched.size) bumpShadowStatic(world);
+  if (touched.size) bumpShadowStatic(world, spheres);
 }
 
 /** A shrunk matrix: an instance drawn as nothing, its place kept. */
@@ -1028,9 +1070,10 @@ const NOWHERE = Object.freeze(new THREE.Matrix4().makeScale(0, 0, 0).toArray());
 /**
  * Take a SIT box out of the still objects' instances (`moveObjects`): its instances in every block are shrunk to
  * nothing, and a group of its own draws it, flagged `moving`. Its new meshes are handed to the shadows through
- * `world.userData.newDynamicCasters`. The instances it leaves are added to `touched`.
+ * `world.userData.newDynamicCasters`. The instances it leaves are added to `touched`, and where it stood to `spheres`
+ * (`bumpShadowStatic`).
  */
-function loosen(world, parts, sitIndex, slot, touched) {
+function loosen(world, parts, sitIndex, slot, touched, spheres) {
   const meshes = parts.byName.get(slot[0]) ?? [];
   if (!meshes.length) return null;
   const { offsets, order } = parts.objects.userData;
@@ -1039,8 +1082,12 @@ function loosen(world, parts, sitIndex, slot, touched) {
   group.matrixAutoUpdate = false;
   group.userData.sitIndex = sitIndex;
   const added = [];
+  // The model's parts share their places, so where it stood is read before the first part is shrunk.
+  const was = meshes[0].userData.places[slot[1]] ?? null;
+  let reach = 0;
   for (const instanced of meshes) {
     const { perCopy, places } = instanced.userData;
+    if (was) reach = Math.max(reach, partReach(instanced, was));
     places[slot[1]] = NOWHERE;
     order.forEach((copy, block) => instanced.setMatrixAt(block * perCopy + slot[1], placement(NOWHERE, offsets[copy], false)));
     instanced.instanceMatrix.needsUpdate = true;
@@ -1055,6 +1102,7 @@ function loosen(world, parts, sitIndex, slot, touched) {
   parts.objects.parent?.add(group) ?? world.add(group);
   (world.userData.newDynamicCasters ??= []).push(...added);
   parts.loose.set(sitIndex, group);
+  if (was) spheres.push([was[12], was[13], was[14], reach]);
   return group;
 }
 

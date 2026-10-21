@@ -282,6 +282,18 @@ export function createOverScene({ renderer, plainScreen = false, soft = false })
       upsizing.uniforms.tDepth.value = null;
       return full.texture;
     },
+    /**
+     * Build ahead of need what `draw` and `lay` use for a picture `width` by `height` whose depth is `depth`, drawn
+     * with `camera`: the puffs' shaders and the passes that deepen and lay their picture, by drawing it once the heavy
+     * way and laying it on the picture being drawn into (nothing is over the scene yet: it lays nothing). The plain
+     * screen's `present` does the same with its first frame.
+     */
+    warm(camera, fog, depth, width, height) {
+      renderer.compile(scene, camera);
+      const was = heavy;
+      heavy = true;
+      try { this.lay(this.draw(camera, fog, depth, width, height)); } finally { heavy = was; }
+    },
     /** Lay a picture `draw` returned over the picture being drawn into. */
     lay(texture) {
       laying.uniforms.tOver.value = texture;
