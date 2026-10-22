@@ -31,6 +31,8 @@ const BESIDE = /\bnew\s+URL\s*\(\s*(['"])([^'"\n]+)\1\s*,\s*import\.meta\.url\s*
 const CSS_IMPORT = /@import\s+(?:url\(\s*)?(['"]?)([^'")\s;]+)\1/g;
 const CSS_URL = /\burl\(\s*(['"]?)([^'")]+)\1\s*\)/g;
 const LINK_TAG = /<link\b([^>]*)>/gi;
+/** Links that only name a page (for search engines and sharing), not a file the page loads. */
+const NAMING_RELS = new Set(["canonical", "alternate", "author", "license", "help", "search"]);
 const SCRIPT_TAG = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
 
 const all = (pattern, text) => Array.from(text.matchAll(pattern), (match) => match[2]);
@@ -58,7 +60,8 @@ export function scanHtml(text) {
   let importMap = null;
   for (const [, attributes] of text.matchAll(LINK_TAG)) {
     const href = attribute(attributes, "href");
-    if (href) urls.add(href);
+    const rels = (attribute(attributes, "rel") ?? "").toLowerCase().split(/\s+/);
+    if (href && !rels.some((rel) => NAMING_RELS.has(rel))) urls.add(href);
   }
   for (const [, attributes, body] of text.matchAll(SCRIPT_TAG)) {
     const src = attribute(attributes, "src"), type = (attribute(attributes, "type") ?? "").toLowerCase();

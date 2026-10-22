@@ -40,6 +40,7 @@ import { terrainOfBuild } from "../../shared/build-terrain.js";
 import * as mtm2Sim from "../../vendor/openphotex/sim/mtm2/index.js";
 import { CONSOLE_KEYS, createConsole, distanceCommand } from "../console.js";
 import { el } from "../dom.js";
+import { msg } from "../../game/strings.js";
 import { GRASS_RADII, grassLevel } from "../../render/evo-grass.js";
 
 const TERRAIN_CELL_FT = 32;
@@ -55,7 +56,7 @@ export default async function mount(container, context, params) {
   const host = await context.xr.host();
   const { renderer, canvas } = host;
   canvas.className = "race-canvas";
-  const loading = el("div", { class: "race-loading" }, el("p", { class: "race-loading-text" }, `Loading ${track.name}…`));
+  const loading = el("div", { class: "race-loading" }, el("p", { class: "race-loading-text" }, t("Loading <<1>>…", track.name)));
   const pauseMenu = el("div", { class: "race-pause", hidden: true });
   const caption = createCaption(await loadFont(context.assets, "FNT2_480"));
   const view = el("section", { class: "race-view" }, canvas, caption.element, pauseMenu, loading);
@@ -89,7 +90,7 @@ export default async function mount(container, context, params) {
   } catch (error) {
     console.error(error);
     loading.replaceChildren(el("p", { class: "race-loading-text" }, `${track.name} could not be loaded: ${error?.message ?? error}`),
-      el("button", { onclick: leave }, "Back"));
+      el("button", { onclick: leave }, t("Back")));
     return { unmount };
   }
   if (disposed) return { unmount };
@@ -202,14 +203,14 @@ export default async function mount(container, context, params) {
   const first = build.viewpoint?.start ?? [4096, 0, 4096];
   const ahead = build.viewpoint?.end ?? [first[0], first[1], first[2] + 100];
   const yaw = Math.atan2(ahead[0] - first[0], ahead[2] - first[2]);
-  const say = (text, seconds = 5) => caption.show(text, seconds);
+  const say = (text, seconds = 5) => caption.show(t(text), seconds);
   let paused = false;
   let gameConsole = null;
   const flyer = createFlyController({
     canvas, settings: context.settings, save: () => saveSettings(context.settings), course: build.sim.course, courseOpen: !!build.sim.courseOpen,
     groundAt, say, blocked: () => paused || !!gameConsole?.open, baseFov: BASE_FOV,
     // The list of keys in the game's font, as the race's rows are.
-    font: await loadFont(context.assets, "FNT1_480"),
+    font: await loadFont(context.assets, "FNT1_480"), t,
   });
   const fly = flyer.fly;
   const startAt = [first[0] - Math.sin(yaw) * START_BACK_FT, 0, first[2] - Math.cos(yaw) * START_BACK_FT];
@@ -227,8 +228,8 @@ export default async function mount(container, context, params) {
   };
   pauseMenu.append(
     el("p", { class: "race-pause-title" }, t("Pause")),
-    el("button", { class: "primary", onclick: () => setPaused(false) }, "Resume"),
-    el("button", { onclick: () => gameConsole?.setOpen(true) }, "Console"),
+    el("button", { class: "primary", onclick: () => setPaused(false) }, t("Resume")),
+    el("button", { onclick: () => gameConsole?.setOpen(true) }, t("Console")),
     el("button", { onclick: async () => {
       const { openOptionsModal } = await import("./options.js");
       await openOptionsModal(context);
@@ -236,8 +237,8 @@ export default async function mount(container, context, params) {
         audio.setVolumes(context.settings.sound);
         if (context.settings.flyControls !== flyer.scheme) flyer.setScheme(context.settings.flyControls);
       }, { once: true });
-    } }, "Options"),
-    el("button", { "data-menu-sound": "STARTOFF", onclick: leave }, "End fly-by"),
+    } }, t("Options")),
+    el("button", { "data-menu-sound": "STARTOFF", onclick: leave }, t("End fly-by")),
   );
 
   const onKeyDown = (event) => {
@@ -264,105 +265,106 @@ export default async function mount(container, context, params) {
   // The console: only what a fly-by can do. A race's commands (opponents, laps, skill, truck...) are not there.
   const weatherNames = WEATHER_NAMES.map((n) => n.toLowerCase().replace(/\s+/g, ""));
   const onOff = (word) => (/^(1|on)$/i.test(word ?? "") ? true : /^(0|off)$/i.test(word ?? "") ? false : null);
-  const said = (on) => (on ? "on" : "off");
+  const said = (on) => (on ? t("on") : t("off"));
+  const usage = (syntax, now) => t("Usage: <<1>>. Now <<2>>.", syntax, now);
   const again = (changes) => context.router.go("fly-by", { ...params, weather: weatherId, ...changes }, { replace: true });
   const commands = {
     follow: {
-      usage: "follow <0|1>", help: "carries the camera along the track's course (the T key)",
+      usage: "follow <0|1>", help: msg("carries the camera along the track's course (the T key)"),
       run: ([word]) => {
         const on = onOff(word);
-        if (on === null) return `Usage: follow <0|1>. Now ${said(flyer.following)}.`;
-        return flyer.setFollowing(on) === on ? `Follow ${said(on)}.` : "This track has no course to follow.";
+        if (on === null) return usage("follow <0|1>", said(flyer.following));
+        return flyer.setFollowing(on) === on ? t("Follow <<1>>.", said(on)) : t("This track has no course to follow.");
       },
     },
     flycontrols: {
-      usage: `flycontrols <${FLY_SCHEMES.join("|")}>`, help: "how the camera is flown", complete: () => [...FLY_SCHEMES],
+      usage: `flycontrols <${FLY_SCHEMES.join("|")}>`, help: msg("how the camera is flown"), complete: () => [...FLY_SCHEMES],
       run: ([name]) => {
         const next = FLY_SCHEMES.find((s) => s === (name ?? "").toLowerCase());
-        if (!next) return `Usage: flycontrols <${FLY_SCHEMES.join("|")}>. Now ${flyer.scheme}: ${FLY_HELP[flyer.scheme]}.`;
+        if (!next) return usage(`flycontrols <${FLY_SCHEMES.join("|")}>`, `${flyer.scheme}: ${t(FLY_HELP[flyer.scheme])}`);
         flyer.setScheme(next);
-        return `${FLY_SCHEME_NAMES[next]}: ${FLY_HELP[next]}.`;
+        return `${FLY_SCHEME_NAMES[next]}: ${t(FLY_HELP[next])}.`;
       },
     },
     map: {
-      usage: "map <sit>", help: "changes the track, by its SIT's name or its title",
+      usage: "map <sit>", help: msg("changes the track, by its SIT's name or its title"),
       complete: async () => ((await context.assets.call("catalog").catch(() => ({ tracks: [] }))).tracks.map((item) => item.file.replace(/\.SI[T2]$/i, "").toLowerCase())),
       run: async (args, rest) => {
-        if (!rest) return `Usage: map <sit>. Now on ${track.file}.`;
+        if (!rest) return usage("map <sit>", track.file);
         const wanted = rest.trim().toUpperCase().replace(/\.SI[T2]$/, "");
         const catalog = await context.assets.call("catalog").catch(() => ({ tracks: [] }));
         const stem = (item) => item.file.toUpperCase().replace(/\.SI[T2]$/, "");
         const next = catalog.tracks.find((item) => stem(item) === wanted) ?? catalog.tracks.find((item) => item.name.toUpperCase() === wanted)
           ?? catalog.tracks.find((item) => item.name.toUpperCase().includes(wanted));
-        if (!next) return `No track named ${wanted}.`;
+        if (!next) return t("No track named <<1>>.", wanted);
         again({ track: next, weather: undefined });
-        return `Loading ${next.name}.`;
+        return t("Loading <<1>>.", next.name);
       },
     },
     weather: {
-      usage: "weather <n|name>", help: `changes the weather: ${weatherNames.map((n, i) => `${i} ${n}`).join(", ")}`, complete: () => weatherNames,
+      usage: "weather <n|name>", help: t("changes the weather: <<1>>", weatherNames.map((n, i) => `${i} ${n}`).join(", ")), complete: () => weatherNames,
       run: async ([name]) => {
         const index = /^\d+$/.test(name ?? "") ? Number(name) : weatherNames.findIndex((n) => n.startsWith((name ?? "").toLowerCase()));
-        if (!name || index < 0 || index >= WEATHER_NAMES.length) return `Usage: weather <0-${WEATHER_NAMES.length - 1}|${weatherNames.join("|")}>. Now ${weatherId} ${weatherNames[weatherId]}.`;
+        if (!name || index < 0 || index >= WEATHER_NAMES.length) return usage(`weather <0-${WEATHER_NAMES.length - 1}|${weatherNames.join("|")}>`, `${weatherId} ${weatherNames[weatherId]}`);
         await setWeather(index);
-        return `Weather: ${t(WEATHER_NAMES[index])}.`;
+        return t("Weather: <<1>>.", t(WEATHER_NAMES[index]));
       },
     },
     backdrop: {
-      usage: "backdrop <0|1>", help: "the track's backdrop models on or off (loads the track again)",
+      usage: "backdrop <0|1>", help: msg("the track's backdrop models on or off (loads the track again)"),
       run: ([word]) => {
         const on = onOff(word);
-        if (on === null) return `Usage: backdrop <0|1>. Now ${said(!!context.settings.backdrops)}.`;
+        if (on === null) return usage("backdrop <0|1>", said(!!context.settings.backdrops));
         context.settings.backdrops = on;
         saveSettings(context.settings);
         again({});
-        return `Backdrops ${said(on)}.`;
+        return t("Backdrop <<1>>.", said(on));
       },
     },
     overlap: {
-      usage: "overlap <0|1>", help: "the ground tiles' two-pixel overlap on or off, for this visit (loads the track again)",
+      usage: "overlap <0|1>", help: msg("the ground tiles' two-pixel overlap on or off, for this visit (loads the track again)"),
       run: ([word]) => {
         const on = onOff(word);
-        if (on === null) return `Usage: overlap <0|1>. Now ${said(build.tileOverlap !== false)}.`;
+        if (on === null) return usage("overlap <0|1>", said(build.tileOverlap !== false));
         again({ tileOverlap: on });
-        return `Overlap ${said(on)}.`;
+        return t("Overlap <<1>>.", said(on));
       },
     },
     music: {
-      usage: "music <0|1>", help: "the music on or off",
+      usage: "music <0|1>", help: msg("the music on or off"),
       run: ([word]) => {
         const on = onOff(word), sound = context.settings.sound ?? {};
-        if (on === null) return `Usage: music <0|1>. Now ${said((sound.music ?? 0.8) > 0)}.`;
+        if (on === null) return usage("music <0|1>", said((sound.music ?? 0.8) > 0));
         if (!on && (sound.music ?? 0.8) > 0) context.musicLevelBefore = sound.music ?? 0.8;
         context.settings.sound = { ...sound, music: on ? ((sound.music ?? 0) > 0 ? sound.music : context.musicLevelBefore ?? 0.8) : 0 };
         saveSettings(context.settings);
         audio.setVolumes(context.settings.sound);
-        return `Music ${said(on)}.`;
+        return t("Music <<1>>.", said(on));
       },
     },
     sound: {
-      usage: "sound <0|1>", help: "all sound on or off",
+      usage: "sound <0|1>", help: msg("all sound on or off"),
       run: ([word]) => {
         const on = onOff(word), sound = context.settings.sound ?? {};
-        if (on === null) return `Usage: sound <0|1>. Now ${said(!sound.muted)}.`;
+        if (on === null) return usage("sound <0|1>", said(!sound.muted));
         context.settings.sound = { ...sound, muted: !on };
         saveSettings(context.settings);
         audio.setVolumes(context.settings.sound);
-        return `Sound ${said(on)}.`;
+        return t("Sound <<1>>.", said(on));
       },
     },
     distance: distanceCommand(context),
-    quit: { help: "back to the Races screen", run: () => { leave(); } },
+    quit: { help: msg("back to the Races screen"), run: () => { leave(); } },
   };
   context.consoleHistory ??= [];
   gameConsole = createConsole({
-    parent: view, window, commands, history: context.consoleHistory,
-    banner: () => `${WATERMARK}\nFly-by: ${build.title ?? track.name} (${track.file}), ${FLY_SCHEME_NAMES[flyer.scheme]} controls\nType help for commands`,
+    parent: view, window, commands, history: context.consoleHistory, t,
+    banner: () => `${WATERMARK}\n${t("Fly-by: <<1>> (<<2>>), <<3>> controls", build.title ?? track.name, track.file, FLY_SCHEME_NAMES[flyer.scheme])}\n${t("Type help for commands")}`,
   });
   cleanups.push(() => gameConsole.dispose());
 
   loading.hidden = true;
-  say(`${t("Fly-by")}: ${FLY_SCHEME_NAMES[flyer.scheme]}. ${FLY_HELP[flyer.scheme]}. O: keys`, 6);
+  say(`${t("Fly-by")}: ${FLY_SCHEME_NAMES[flyer.scheme]}. ${t(FLY_HELP[flyer.scheme])}. ${t("O: keys")}`, 6);
 
   const target = new THREE.Vector3(), forwardVector = new THREE.Vector3();
   let last = performance.now();

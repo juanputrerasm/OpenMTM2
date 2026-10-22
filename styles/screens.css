@@ -333,13 +333,14 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 .opt-pages { height: min(470px, calc(100vh - 230px)); overflow-y: auto; padding-right: 4px; }
 .opt-page[hidden] { display: none; }
 .opt-page { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 6px 18px; align-content: start; }
-.opt-row { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border: 1px solid var(--panel-edge); border-radius: 6px; background: rgba(255, 255, 255, 0.03); }
+/* The label takes the room it needs (translations run longer than English), the control what is left. */
+.opt-row { display: grid; grid-template-columns: minmax(150px, max-content) minmax(96px, 1fr); align-items: center; gap: 10px; height: 36px; padding: 0 10px; border: 1px solid var(--panel-edge); border-radius: 6px; background: rgba(255, 255, 255, 0.03); }
 .opt-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .opt-control { display: flex; justify-content: flex-end; align-items: center; min-width: 0; }
 .opt-control select { width: 100%; height: 26px; }
 .opt-slider { display: flex; align-items: center; gap: 8px; width: 100%; }
 .opt-slider input { flex: 1; min-width: 0; }
-.opt-value { width: 58px; text-align: right; font-variant-numeric: tabular-nums; }
+.opt-value { min-width: 58px; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
 .opt-switch { width: 18px; height: 18px; }
 .opt-fixed { color: var(--muted, #aab); }
 .opt-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; }
@@ -349,7 +350,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 .opt-page > .opt-switches { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 6px 18px; }
 .opt-page > .opt-switches:empty { display: none; }
 .opt-page > .bindings { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 6px 18px; }
-.opt-page > .bindings .form-row { display: grid; grid-template-columns: 150px 1fr; align-items: center; height: 36px; margin: 0; padding: 0 10px; border: 1px solid var(--panel-edge); border-radius: 6px; }
+.opt-page > .bindings .form-row { display: grid; grid-template-columns: minmax(150px, max-content) minmax(96px, 1fr); align-items: center; height: 36px; margin: 0; padding: 0 10px; border: 1px solid var(--panel-edge); border-radius: 6px; }
 /* On the modern stage the controls that sit in the art's openings have no box of their own either. */
 .stage-modern :is(.stage-panel-name, .stage-panel-skill, .stage-panel-truck, .stage-panel-message, .stage-panel-sonic, .stage-panel-lengthLabel,
   .stage-panel-length, .stage-panel-opponents, .stage-panel-weather, .stage-panel-weatherLabel, .stage-panel-tracks, .stage-panel-list) { background: none; border: 0; }
@@ -461,3 +462,93 @@ input.race-off { background: #777; color: #222; }
 
 /* Tournament: the button that races sits at the far right of its row. */
 .tournament .screen-actions .tournament-race { margin-left: auto; }
+
+/* Multiplayer (src/ui/screens/net-connect.js, multiplayer.js; docs/MULTIPLAYER.md). */
+.net-connect { display: flex; flex-direction: column; gap: 8px; }
+.net-card h2 { margin: 2px 0 4px; }
+.net-card h3 { margin: 6px 0 4px; font-size: 13px; color: #f2c14e; }
+.net-columns { display: grid; grid-template-columns: 1fr 1.3fr; gap: 12px; }
+.net-field { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+.net-field input, .net-field select { flex: 1; min-width: 0; }
+.net-check { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 12px; }
+.net-help { margin: 4px 0; padding: 4px 8px; border-left: 2px solid #f2c14e; font-size: 12px; }
+.net-help[hidden] { display: none; }
+.net-help code { display: inline-block; padding: 2px 6px; background: rgba(255, 255, 255, 0.1); user-select: all; }
+.net-helper-state.ok { color: #7bd88f; }
+.net-helper-state.error { color: #ff8a7a; }
+.net-token { width: 9em; }
+.net-sessions { width: 100%; margin-top: 4px; }
+.net-message { min-height: 1.3em; margin: 0; }
+.muted { color: #aab; }
+/* The lobby on the game's art: the lists and the send line sit in the openings NETWORK.BMP draws. */
+.net-lobby .net-region { padding: 0; border: 0; border-radius: 0; background: transparent; overflow: auto; }
+.net-lobby:not(.stage-modern) .net-region-players, .net-lobby .stage-panel-players, .net-lobby .stage-panel-messages { overflow-y: auto; }
+.net-players, .net-messages { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
+.net-players td, .net-messages td { padding: 1px 4px; border: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.net-lobby:not(.stage-modern) .net-players thead, .net-lobby:not(.stage-modern) .net-messages thead { display: none; }
+.net-players td:nth-child(1) { width: 21%; } .net-players td:nth-child(2) { width: 16%; } .net-players td:nth-child(3) { width: 27%; }
+.net-players td:nth-child(4) { width: 12%; } .net-players td:nth-child(5) { width: 24%; }
+.net-messages td:first-child { width: 27%; color: #f2c14e; }
+.net-messages td:last-child { white-space: normal; }
+.net-messages tr.net-notice td { color: #9fb2ff; font-style: italic; }
+.net-messages tr.net-private-line td:last-child { color: #ffd0a0; }
+.net-players tr.selected td { background: rgba(41, 58, 146, 0.8); }
+.net-region select, .net-region input[type="text"], .net-region button { width: 100%; height: 100%; margin: 0; box-sizing: border-box; font-size: 11px; }
+.net-region input[type="checkbox"] { width: 100%; height: 100%; margin: 0; opacity: 0.01; cursor: pointer; }
+.net-lobby.stage-modern .net-region input[type="checkbox"] { opacity: 1; }
+.net-lobby:not(.stage-modern) .net-region button.net-send,
+.net-lobby:not(.stage-modern) .net-region button.net-disconnect,
+.net-lobby:not(.stage-modern) .net-region button.net-radio,
+.net-lobby:not(.stage-modern) .net-region button.net-connect-button { background: transparent; border: 0; color: transparent; cursor: pointer; }
+.net-lobby:not(.stage-modern) .net-region button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.18); }
+.net-game-info { font-size: 11px; line-height: 1.4; text-shadow: 0 1px 2px #000; }
+.net-lobby .stage-panel-info { background: rgba(0, 0, 0, 0.55); padding: 3px 6px; }
+.net-go { font-weight: 800; }
+.net-go.blocked { opacity: 0.6; }
+.net-lobby:not(.stage-modern) .net-go { background: transparent; border: 0; color: transparent; border-radius: 16px; cursor: pointer; }
+.net-lobby:not(.stage-modern) .net-go.net-go-art { background-repeat: no-repeat; background-position: 2px 2px; background-size: 115px auto; }
+.net-lobby:not(.stage-modern) .net-go:not(.net-go-art):hover { background: rgba(255, 255, 255, 0.18); }
+/* In a race: the line of other players' chat, and the entry for one's own (src/ui/screens/race.js). */
+.race-chat { position: absolute; z-index: 6; left: 12px; bottom: 64px; max-width: min(46em, 70vw); display: flex; flex-direction: column; gap: 2px; pointer-events: none; font: 600 14px/1.3 system-ui, sans-serif; color: #fff; text-shadow: 0 1px 3px #000; }
+.race-chat .net-notice { color: #9fb2ff; }
+.race-chat-entry { position: absolute; z-index: 7; left: 12px; bottom: 30px; width: min(36em, 70vw); padding: 4px 8px; font-size: 14px; background: rgba(0, 0, 0, 0.75); color: #fff; border: 1px solid #f2c14e; }
+.race-chat-entry[hidden] { display: none; }
+.race-waiting { position: absolute; z-index: 9; inset: auto 0 40% 0; text-align: center; font: 800 22px/1.4 system-ui, sans-serif; color: #fff; text-shadow: 0 2px 4px #000; }
+.race-waiting[hidden] { display: none; }
+/* Online rooms (src/ui/screens/rooms.js, multiplayer.js). */
+.net-rooms { width: 100%; margin-top: 4px; }
+.net-rooms td:nth-child(2), .net-rooms td:nth-child(4) { white-space: nowrap; }
+.net-server-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.net-server-line { font-weight: 700; }
+.net-motd { margin: 2px 0 4px; font-size: 12px; color: #f2c14e; }
+.net-motd[hidden] { display: none; }
+.net-code { width: 6.5em; text-transform: uppercase; letter-spacing: 1px; }
+.net-region .net-game-info button.net-small, .net-region .net-game-info select.net-small { width: auto; height: auto; padding: 0 4px; font-size: 10px; }
+.net-region .net-players button.net-kick { width: auto; height: auto; margin-right: 3px; padding: 0 3px; font-size: 9px; line-height: 1.2; }
+.net-check[hidden] { display: none; }
+.net-port { width: 6em; flex: 0 0 auto; }
+.net-card [hidden] { display: none !important; }
+.net-card[hidden] { display: none; }
+.net-card-main h2 { font-size: 1.3em; }
+
+/* Setup (ui/screens/install.js): the first screen of a new player. */
+/* The welcome reads as a sentence, so it keeps its own capitals. */
+.setup-title { text-transform: none; }
+.setup-panel { display: flex; flex-direction: column; gap: 12px; }
+.setup-panel p { margin: 0; }
+.setup-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.setup-choice { display: flex; flex-direction: column; gap: 4px; }
+.setup-choice select { width: 100%; height: 32px; font: inherit; }
+.setup-hint, .setup-note { font-size: 0.85em; }
+.setup-heading { margin: 8px 0 0; font-family: var(--font-heading); font-size: 1.1rem; text-transform: uppercase; }
+.setup-progress { display: flex; flex-direction: column; gap: 6px; }
+.setup-progress > button { align-self: flex-start; }
+.setup-eula { max-height: 240px; overflow: auto; margin: 0; padding: 12px; background: var(--bg); border-radius: var(--radius); font-size: 0.8em; white-space: pre-wrap; }
+.setup-legal { font-size: 0.8em; color: #aab; }
+.setup-legal summary { cursor: pointer; }
+.setup-legal p { margin-top: 8px; }
+.setup-legal a { color: inherit; }
+@media (max-width: 480px) {
+  .setup-choices { grid-template-columns: 1fr; }
+  .setup .screen-actions > button { flex: 1 1 100%; }
+}

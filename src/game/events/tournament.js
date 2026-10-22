@@ -10,6 +10,8 @@
   The file is OpenPhotex's `.TRN` (`parseTrn`, `writeTrn`). The game's limits: 16 events, 1 to 20
   laps for a circuit, and 2, 4 or 8 trucks when an event is a drag race.
 */
+import { msg } from "../strings.js";
+
 export const MAX_EVENTS = 16;
 export const MAX_LAPS = 20;
 export const MAX_TOURNAMENTS = 16;
@@ -57,11 +59,11 @@ export function trnOf(tournament) {
 
 /** Why a tournament cannot start with `fieldSize` drivers, or null when it can. */
 export function startProblem(tournament, fieldSize) {
-  if (!tournament.events.length) return "The tournament has no events.";
+  if (!tournament.events.length) return msg("The tournament has no events.");
   const bad = tournament.events.find((e) => e.problem);
   if (bad) return `${bad.problem}.`;
-  if (tournament.hasDrag && !DRAG_FIELDS.includes(fieldSize)) return "Because of pairing requirements, a tournament with a drag race takes 2, 4 or 8 trucks.";
-  if (fieldSize < 1 || fieldSize > 8) return "A tournament takes 1 to 8 trucks.";
+  if (tournament.hasDrag && !DRAG_FIELDS.includes(fieldSize)) return msg("Because of pairing requirements, a tournament with a drag race takes 2, 4 or 8 trucks.");
+  if (fieldSize < 1 || fieldSize > 8) return msg("A tournament takes 1 to 8 trucks.");
   return null;
 }
 
@@ -93,7 +95,7 @@ const settle = (run) => {
 /** The current event was run: `points[driver]`, in the field's order. The next event becomes the current one. */
 export function recordEvent(run, points) {
   const event = currentEvent(run);
-  if (!event) throw new Error("The tournament is over.");
+  if (!event) throw new Error(msg("The tournament is over."));
   event.points = run.drivers.map((_, i) => Math.max(0, Math.trunc(points[i] ?? 0)));
   run.current += 1;
   return settle(run);

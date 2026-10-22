@@ -78,7 +78,7 @@ test("the choice is a setting, MSAA until the player picks, and Options lists ev
   delete globalThis.localStorage;
   const panel = readFileSync(new URL("../src/ui/options-panel.js", import.meta.url), "utf8");
   assert.match(panel, /AA_MODES\.map\(\(mode\) => el\("option"/);
-  assert.match(panel, /title: AA_HINT/);
+  assert.match(panel, /title: t\(AA_HINT\)/);
 });
 
 test("the race and the replay take the choice, and the lens draws as many samples as it asks", () => {

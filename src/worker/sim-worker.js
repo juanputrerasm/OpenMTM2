@@ -217,6 +217,9 @@ function soundOf(t, ground) {
 /** A computer truck that stays within this many feet for this long is stuck. */
 const NO_HEADWAY_FT = 12, NO_HEADWAY_S = 6;
 
+/** A smoothed remote truck eases out its error over this many seconds, and is snapped past this many feet (Evo's rule). */
+export const REMOTE_BLEND_S = 0.5, REMOTE_SNAP_FT = 100;
+
 /**
  * The index of the course straight a truck at `pos` heading `heading` is on: the nearest one that runs its way.
  * For a grid that stands part way round the course (CART Precision Racing); 0 without one.
@@ -389,17 +392,19 @@ export function createSession(init) {
     }
     if (init.startOnNearestSegment) state.ap.segment = nearestStraight(course, spec.start.pos, spec.start.heading ?? 0);
     // A Rumble needs no course: its computer trucks drive to the zone (rumble-ai.js).
-    const autopilot = !!spec.autopilot && (course.length > 0 || init.race?.mode === "summit" || !!extensionPayload);
+    // A remote truck (multiplayer, docs/MULTIPLAYER.md) is driven by another machine's updates, never by this one.
+    const remote = !!spec.remote;
+    const autopilot = !remote && !!spec.autopilot && (course.length > 0 || init.race?.mode === "summit" || !!extensionPayload);
     // Without a course the reset keeps the heading and the helicopter sets the truck down in place.
     // `proLift`: a computer truck that misses a checkpoint or comes to rest is always fetched by the helicopter, never
     // set back on the course at once as the game does on Professional (the port's choice).
     const recovery = {
-      racing: true, player: i === 0 && !autopilot, autopilot, difficulty, summit: false, segment: null, previous: null, proLift: true,
+      racing: true, player: i === 0 && !autopilot && !remote, autopilot, difficulty, summit: false, segment: null, previous: null, proLift: true,
     };
     // A foot under the body's origin: a step up to about a wheel's height is climbed, a taller face is not ground.
     const ownGround = meshGround ? meshGround.below(() => state.pos[1] - 1) : extensionGround;
-    const ctx = { ground: ownGround, human: i === 0 && !autopilot, difficulty, sonicTrack, recovery };
-    return { state, params, autopilot, recovery, ctx, evoVehicle: !!spec.truck.evo, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
+    const ctx = { ground: ownGround, human: i === 0 && !autopilot && !remote, difficulty, sonicTrack, recovery };
+    return { state, params, autopilot, remote, recovery, ctx, evoVehicle: !!spec.truck.evo, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
   });
   const player = trucks[0];
   // Traffic (MTM2_PHYSICS.md 14.25): every truck sees the others' last values.
@@ -409,7 +414,7 @@ export function createSession(init) {
   const dragMode = init.race?.mode === "drag" && (init.race.checkpoints?.length ?? 0) >= 4;
   const drag = dragMode ? createDrag(init.race.checkpoints, [0, 1].map((lane) => specs.some((spec, i) => (spec.lane ?? i) === lane)), rules.id === "mtm1" ? "mtm1" : "cp3") : null;
   const race = init.race
-    ? S.createRace(trucks.map((t, i) => ({ s: t.state, p: t.params, player: i === 0 && !t.autopilot })),
+    ? S.createRace(trucks.map((t, i) => ({ s: t.state, p: t.params, player: (i === 0 && !t.autopilot) || t.remote })),
       S.raceCheckpoints(dragMode ? [] : init.race.checkpoints), dragMode ? [] : course,
       dragMode ? 1 : init.race.laps ?? 3, difficulty, dragMode ? "circuit" : init.race.mode ?? "circuit")
     : null;
@@ -570,9 +575,11 @@ export function createSession(init) {
   let started = false;
   const keys = { accelerate: false, brake: false, left: false, right: false };
 
+  /** An online room's extension race: "owner" decides the mode's state, "follower" takes it (game/extensions/session-loader.js). */
+  const netRole = { authority: init.net?.authority ?? null };
   const extensionSession = createExtensionSession(extensionPayload, {
     step: STEP, trucks, race, levelBoxes, dirty, wallsAround, walls: init.walls,
-    ground, course, specs, ramps: allRamps, weather: () => weather, watchHeadway,
+    ground, course, specs, ramps: allRamps, weather: () => weather, watchHeadway, net: netRole,
   });
 
   /**
@@ -736,8 +743,147 @@ export function createSession(init) {
     s.bvel.fill(0);
     s.rates.fill(0);
   }
+  // ---- Multiplayer (docs/MULTIPLAYER.md, MONSTER_EXE_ANALYSIS.md 14.4) ----
+  /**
+   * How remote trucks follow their updates: "legacy" as the game (controls, velocity and angles from every update, the
+   * position snapped at most once a second), or "smooth" (the error eased out over REMOTE_BLEND_S, snapped past
+   * REMOTE_SNAP_FT, stale updates dropped).
+   */
+  const remotePolicy = init.net?.policy === "smooth" ? "smooth" : "legacy";
+  /** Put a truck where it is said to be, at rest in its angles; the picture does not slide there. */
+  function placeTruck(t, pos, euler) {
+    const s = t.state;
+    s.pos[0] = pos[0]; s.pos[1] = pos[1]; s.pos[2] = pos[2];
+    if (euler) { s.euler[0] = euler[0]; s.euler[1] = euler[1]; s.euler[2] = euler[2]; }
+    S.eulerToMatrix(s.euler[0], s.euler[1], s.euler[2], s.matrix);
+    s.prevPos.set(s.pos);
+  }
+  const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  /**
+   * One update for a remote truck: `{ truck, pos, bvel, euler, steer, throttle, brakeRear, brakeFront?, gear, autoShift?,
+   * score?, seq? }`, game units (feet, ft/s, radians, controls 0 to 1).
+   */
+  function applyRemote(u) {
+    const t = trucks[u.truck];
+    if (!t?.remote) return false;
+    if (remotePolicy === "smooth" && Number.isFinite(u.seq)) {
+      // Sequence numbers are 16-bit and wrap: older means up to half the range behind.
+      if (t.lastSeq !== undefined) { const d = (u.seq - t.lastSeq) & 0xffff; if (d === 0 || d >= 0x8000) return false; }
+      t.lastSeq = u.seq;
+    }
+    const s = t.state, c = s.controls;
+    c.throttle = u.throttle ?? 0;
+    c.brakeRear = u.brakeRear ?? 0;
+    // The game sets both brakes from the rear one it sends.
+    c.brakeFront = u.brakeFront ?? c.brakeRear;
+    c.steer = u.steer ?? 0;
+    c.rearSteer = S.rearSteer(c.steer, !!drag);
+    if (Number.isFinite(u.gear)) c.gear = u.gear;
+    if (u.autoShift !== undefined) t.params.autoShift = !!u.autoShift;
+    if (u.bvel) s.bvel.set(u.bvel);
+    if (race?.summit && Number.isFinite(u.score)) race.summit.trucks[u.truck].score = u.score;
+    if (remotePolicy === "legacy") {
+      if (u.euler) {
+        for (let k = 0; k < 3; k++) s.euler[k] = wrapPi(u.euler[k]);
+        S.eulerToMatrix(s.euler[0], s.euler[1], s.euler[2], s.matrix);
+      }
+      // 0x58e1f0: the position only when a second has passed since that truck's last snap.
+      if (u.pos && (t.lastSnap === undefined || time - t.lastSnap > 1)) {
+        placeTruck(t, u.pos, null);
+        t.lastSnap = time;
+      }
+      return true;
+    }
+    if (!u.pos) return true;
+    const dp = [u.pos[0] - s.pos[0], u.pos[1] - s.pos[1], u.pos[2] - s.pos[2]];
+    if (Math.hypot(dp[0], dp[1], dp[2]) > REMOTE_SNAP_FT || !u.euler) {
+      placeTruck(t, u.pos, u.euler);
+      t.blend = null;
+      return true;
+    }
+    t.blend = { dp, de: u.euler.map((a, k) => wrapPi(a - s.euler[k])), left: REMOTE_BLEND_S };
+    return true;
+  }
+  /** A smoothed remote truck's step share of its error. */
+  function easeRemote(t) {
+    const b = t.blend;
+    if (!b || b.left <= 0) return;
+    const share = Math.min(STEP, b.left) / REMOTE_BLEND_S;
+    b.left -= STEP;
+    const s = t.state;
+    for (let k = 0; k < 3; k++) { s.pos[k] += b.dp[k] * share; s.euler[k] += b.de[k] * share; }
+    S.eulerToMatrix(s.euler[0], s.euler[1], s.euler[2], s.matrix);
+  }
+  /** What a truck this machine owns sends (the 0x02 fields, game units). */
+  function netState(i) {
+    const t = trucks[i], s = t.state, c = s.controls;
+    return {
+      truck: i, pos: Array.from(s.pos), bvel: Array.from(s.bvel), euler: Array.from(s.euler), steer: c.steer, throttle: c.throttle,
+      brakeRear: c.brakeRear, brakeFront: c.brakeFront, gear: c.gear, autoShift: !!t.params.autoShift,
+      score: race?.summit ? race.summit.trucks[i].score : 0,
+    };
+  }
+  /**
+   * A remote truck's checkpoint report (packet 0x0b): `next`, its next checkpoint after the pass, and the split. A pass
+   * this machine saw already is left alone; one it missed (the truck was snapped past the gate) is counted now.
+   */
+  function remoteSplit({ truck, next, split }) {
+    const rt = race?.trucks[truck];
+    if (!rt || rt.finished || !trucks[truck]?.remote || race.summit) return false;
+    const n = race.checkpoints.length;
+    if (!n || ((rt.checkpoint + 1) % n) !== ((next % n) + n) % n) return false;
+    rt.splits.push(Number.isFinite(split) ? split : 0);
+    rt.checkpoint++;
+    rt.passed = rt.laps * n + rt.checkpoint;
+    if (rt.checkpoint >= n) {
+      const lap = rt.splits.reduce((a, x) => a + x, 0);
+      rt.raceTime += lap;
+      rt.lapTimes.push(lap);
+      if (!rt.fastestLap || lap < rt.fastestLap) rt.fastestLap = lap;
+      rt.laps++;
+      rt.checkpoint = 0;
+      rt.splits = [];
+      if (rt.laps >= rt.finishLap) rt.finished = true;
+    }
+    return true;
+  }
+  /** A network command; returns what it changed. */
+  function netCommand(name, value) {
+    if (name === "remote") return (value ?? []).map(applyRemote);
+    if (name === "split") return remoteSplit(value);
+    if (name === "startPositions") {
+      // 0x17: every truck's start position from the host, headings kept.
+      (value ?? []).forEach((pos, i) => { if (pos && trucks[i]) placeTruck(trucks[i], pos, null); });
+      return true;
+    }
+    if (name === "raceStart") {
+      // 0x19: the first machine to finish the countdown starts everyone's race.
+      if (!race || S.raceStarted(race)) return false;
+      race.clock = race.startTime;
+      return true;
+    }
+    if (name === "handOver") {
+      // A player left: their truck goes to the autopilot on every machine (not in a Summit Rumble).
+      const t = trucks[value];
+      if (!t?.remote) return false;
+      t.remote = false;
+      // An extension drives its own computer trucks without a course (Hockey, Tag).
+      if ((!course.length && !extensionPayload) || race?.summit) return true;
+      t.autopilot = true;
+      t.recovery.autopilot = true;
+      if (race) race.trucks[value].player = false;
+      return true;
+    }
+    // An online room's extension race: the owner's mode state, and taking over when the owner left.
+    if (name === "mode") return extensionSession?.applyNet ? (extensionSession.applyNet(value), true) : false;
+    if (name === "modeAuthority") { netRole.authority = value ? "owner" : "follower"; return true; }
+    return undefined;
+  }
+
   /** A debug command from the page; returns the new state of what it changed. */
   function command(name, value) {
+    const net = netCommand(name, value);
+    if (net !== undefined) return net;
     if (name === "weather") {
       // The grip changes at once (A section 2.3); snow's frozen water stays as it was set up.
       ground.weather = value;
@@ -865,8 +1011,14 @@ export function createSession(init) {
     }
     const go = !race || S.raceStarted(race);
     // The at-rest reset and lift-off run only in the race state, not through the countdown (10.3).
-    for (const t of trucks) t.recovery.racing = go;
+    // A remote truck's resets and helicopter are its owner's; they arrive as position snaps.
+    for (const t of trucks) t.recovery.racing = go && !t.remote;
     for (const [i, t] of trucks.entries()) {
+      if (t.remote) {
+        // Its controls are the last ones it sent (applyRemote); a smoothed truck eases out its error.
+        easeRemote(t);
+        continue;
+      }
       if (t.autopilot) {
         if (!race || drag) S.advanceAutopilotSegment(t.state, apOf(t));
         recoveryOf(t);
@@ -1086,7 +1238,7 @@ export function createSession(init) {
   function handOverFinished() {
     race.trucks.forEach((rt, i) => {
       const t = trucks[i];
-      if (!rt.finished || t.autopilot || !course.length) return;
+      if (!rt.finished || t.autopilot || t.remote || !course.length) return;
       t.autopilot = true;
       t.ctx.human = false;
       t.recovery.player = false;
@@ -1185,13 +1337,16 @@ export function createSession(init) {
       gold: { reversed: !!apCtx.reversed, apLevel: player.apLevel, slew: gold.slew, weather },
       // The track script's Message() lines since the last reply (4x4 Evolution 2).
       messages: messages.length ? messages : null,
+      // Multiplayer: the state of each truck this machine owns (the player's, and the computer trucks' on the host).
+      net: init.net ? trucks.flatMap((t, i) => (t.remote ? [] : [netState(i)])) : null,
+      modeNet: netRole.authority === "owner" ? extensionSession?.netState?.() ?? null : null,
     };
   }
 
   return {
     state: player.state, params: player.params, trucks, race, ground, levelBoxes, course, rumbleField, crushCars,
     extension: extensionSession?.debug ?? null,
-    step, advance, raceView, finishRace, command, gold, now: () => time, snapshot: () => snapshot(player.state),
+    step, advance, raceView, finishRace, command, gold, now: () => time, snapshot: () => snapshot(player.state), netState,
   };
 }
 
@@ -1204,8 +1359,10 @@ if (typeof self !== "undefined" && typeof self.postMessage === "function" && typ
       origin = null;
       return session.snapshot();
     },
-    tick({ tMs, input }) {
+    tick({ tMs, input, net }) {
       if (!session) throw new Error("No session.");
+      // Multiplayer: what arrived since the last tick (`[{ name, value }]`, the network commands), before the steps.
+      for (const { name, value } of net ?? []) session.command(name, value);
       // The simulated time carries on from where it stopped (a new session, or after a pause).
       if (origin === null) origin = tMs - session.now() * 1000;
       origin = catchUpOrigin(origin, tMs, session.now());

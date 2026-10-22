@@ -33,6 +33,17 @@ export function loadFont(assets, stem) {
   return loaded.get(stem);
 }
 
+/**
+ * A character's glyph: its own, else its letter without the accent (a translation's á where a font has no á), else
+ * the box the font draws for a missing one.
+ */
+function glyphFor(font, ch) {
+  const own = font.glyphs.get(ch.codePointAt(0));
+  if (own) return own;
+  const bare = ch.normalize("NFD")[0];
+  return (bare !== ch && font.glyphs.get(bare.codePointAt(0))) || font.glyphs.get(0x7f);
+}
+
 function tintedSheet(font, color) {
   if (!font.tinted.has(color)) {
     const c = document.createElement("canvas");
@@ -57,7 +68,7 @@ export function drawText(ctx, font, text, x, y, { color = "#fff", scale = 1 } = 
   for (const ch of String(text)) {
     const code = ch.codePointAt(0);
     if (code === 0x20) { cx += space * scale; continue; }
-    const g = font.glyphs.get(code) ?? font.glyphs.get(0x7f);
+    const g = glyphFor(font, ch);
     if (!g) continue;
     ctx.drawImage(sheet, g.x, g.y, g.w, g.h, cx, y, g.w * scale, g.h * scale);
     cx += (g.w + gap) * scale;
@@ -71,7 +82,7 @@ export function textWidth(font, text, scale = 1) {
   for (const ch of String(text)) {
     const code = ch.codePointAt(0);
     if (code === 0x20) { w += space; continue; }
-    const g = font.glyphs.get(code) ?? font.glyphs.get(0x7f);
+    const g = glyphFor(font, ch);
     if (g) w += g.w + gap;
   }
   return Math.max(0, w - gap) * scale;

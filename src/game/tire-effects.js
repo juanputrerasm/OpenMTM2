@@ -4,6 +4,8 @@
   tracks and the sparks are the port's additions (the game reads `tireTrackFlag` but never uses it, and its
   `0x531e40` only throws sparks from a hull contact that the port draws). Pure, so it runs under Node.
 */
+import { msg } from "./strings.js";
+
 export const MPH_PER_FTS = 0.681818;
 /** The game puffs only within 512 ft of the camera (squared distance 262144); the port puffs for every truck. */
 export const DUST_RANGE_FT = Infinity;
@@ -208,7 +210,7 @@ export const manySparksForHit = (force) => (force < 600 ? 0 : Math.min(28, Math.
   streak a spark with the enhanced picture too; Few has half its chances; Many is the rate before 0.5.0 (two sparks every
   scrape interval and the large bursts), and with the enhanced picture each spark a shower of flecks.
 */
-export const SPARK_LEVEL_NAMES = Object.freeze(["None", "Few", "Normal", "Many"]);
+export const SPARK_LEVEL_NAMES = Object.freeze([msg("None"), msg("Few"), msg("Normal"), msg("Many")]);
 export const DEFAULT_SPARK_LEVEL = 2;
 
 /** The level the settings ask for: `sparkAmount` 0..3, or 0 when the older Sparks switch is off. */
@@ -226,7 +228,7 @@ export const sparkRules = (level) => ({ share: level <= 0 ? 0 : level === 1 ? 0.
   game's own puffs (MONSTER_EXE_ANALYSIS.md "Dust puffs": their size, a foot of growth, 1.5 to 3.5 s, a pool of 96); Normal
   the port's larger, longer dust as it has been; Many larger and longer still. A collision's smoke follows the same steps.
 */
-export const DUST_LEVEL_NAMES = Object.freeze(["None", "Few", "Normal", "Many"]);
+export const DUST_LEVEL_NAMES = Object.freeze([msg("None"), msg("Few"), msg("Normal"), msg("Many")]);
 export const DEFAULT_DUST_LEVEL = 2;
 
 /** The level the settings ask for: `dustAmount` 0..3, or 0 when the Dust switch of before is off. */

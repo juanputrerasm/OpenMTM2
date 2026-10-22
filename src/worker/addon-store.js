@@ -230,7 +230,7 @@ export async function mountAll(installManifest) {
         learned ||= !!a.game;
       }
       return {
-        key: a.key, name: a.name, archive, readEntry: (entry) => readPodEntryBytes(file, entry),
+        key: a.key, name: a.name, archive, readEntry: (entry) => readPodEntryBytes(file, entry), blob: () => file,
         family: gameFamily(a.game), game: a.game, source: a.source === "folder" ? `${a.label} folder` : "Added by hand", size: a.size, removable: true,
       };
     } catch { return null; /* an archive that no longer opens is left out */ }

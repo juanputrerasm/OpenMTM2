@@ -9,14 +9,15 @@
   Pure: no three.js, so the tests and the options screen use it, and the renderer
   (render/aa.js, render/lens.js) takes its numbers from here.
 */
+import { msg } from "./strings.js";
 
 /** The choices, in the order Options lists them. `post` is the pass over the picture, or null. */
 export const AA_MODES = Object.freeze([
-  Object.freeze({ id: "off", label: "Off", post: null }),
-  Object.freeze({ id: "msaa", label: "MSAA", post: null }),
-  Object.freeze({ id: "fxaa", label: "FXAA", post: "fxaa" }),
-  Object.freeze({ id: "smaa", label: "SMAA", post: "smaa" }),
-  Object.freeze({ id: "taa", label: "TAA", post: "taa" }),
+  Object.freeze({ id: "off", label: msg("Off"), post: null }),
+  Object.freeze({ id: "msaa", label: msg("MSAA"), post: null }),
+  Object.freeze({ id: "fxaa", label: msg("FXAA"), post: "fxaa" }),
+  Object.freeze({ id: "smaa", label: msg("SMAA"), post: "smaa" }),
+  Object.freeze({ id: "taa", label: msg("TAA"), post: "taa" }),
 ]);
 
 /** What a race draws until the player picks otherwise: the hardware samples it already had. */
@@ -43,7 +44,7 @@ export const TAA_DEPTH_FT = 0.5;
 export const TAA_DEPTH_SHARE = 0.02;
 
 /** Shown on the Options screen's Display page. */
-export const AA_HINT = "Off draws each point once and is the fastest. MSAA is the hardware default: four samples a point, two when the picture is very large. FXAA, SMAA and TAA are optional passes over the picture, left off unless chosen. FXAA is the cheapest, SMAA keeps edges sharper, and TAA also steadies shimmer. A headset keeps its own sampling. Takes effect from the next race.";
+export const AA_HINT = msg("Off draws each point once and is the fastest. MSAA is the hardware default: four samples a point, two when the picture is very large. FXAA, SMAA and TAA are optional passes over the picture, left off unless chosen. FXAA is the cheapest, SMAA keeps edges sharper, and TAA also steadies shimmer. A headset keeps its own sampling. Takes effect from the next race.");
 
 /** A known choice, or the default when `id` is missing or not one of them. */
 export function aaChoice(id) {

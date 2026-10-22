@@ -4,6 +4,7 @@
 */
 import { HOCKEY_EXTENSION } from "./hockey.js";
 import { TAG_EXTENSION } from "./tag.js";
+import { msg } from "../strings.js";
 
 /** Shipped extensions. A new extension is registered in this one place. */
 export const EXTENSIONS = Object.freeze([HOCKEY_EXTENSION, TAG_EXTENSION]);
@@ -88,5 +89,5 @@ export function extensionLength(settings, extension) {
 
 /** A generic race length label, delegated to an extension when one is selected. */
 export function lengthLabel(type, mode) {
-  return extensionById(mode)?.length.label ?? (type === "summit" ? "Minutes" : "Laps");
+  return extensionById(mode)?.length.label ?? (type === "summit" ? msg("Minutes") : msg("Laps"));
 }

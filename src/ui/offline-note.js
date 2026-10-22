@@ -44,8 +44,8 @@ export function offlineNote(context, storage = globalThis.localStorage) {
 
   function show() {
     const note = el("div", { class: "offline-note", role: "status" },
-      el("strong", {}, "Saved in this browser."),
-      " The game now starts at this address with no server and no network.");
+      el("strong", {}, context.t("Saved in this browser.")),
+      ` ${context.t("The game now starts at this address with no server and no network.")}`);
     note.addEventListener("click", () => note.remove());
     document.body.append(note);
     setTimeout(() => note.remove(), SHOWN_MS);

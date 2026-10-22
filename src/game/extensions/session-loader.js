@@ -1,6 +1,12 @@
 /*
   Simulation-side extension registry. The worker offers lifecycle hooks and collision events;
   extension runtimes own their state, driving, scoring and public view.
+
+  In an online room (docs/EXTENSIONS.md, "Over the network") one machine decides: `env.net.authority`
+  is "owner" on the room owner's machine, which runs the rules and offers `netState()`, and
+  "follower" on the others, which skip the rules' decisions and take the owner's state through
+  `applyNet(state)`, in their own truck order. A follower becomes the owner when the room's owner
+  leaves; it carries on from the last state it was given.
 */
 import * as S from "../../vendor/openphotex/sim/mtm2/index.js";
 import { createRumbleDriver, driveToPoint } from "../rumble-ai.js";
@@ -9,7 +15,7 @@ import {
   hockeyHeliSpot, hockeyPlaces, hockeyRoles, hockeySpot, hockeyStep, outsideRink, rinkGround,
 } from "./hockey.js";
 import {
-  TAG_SPEED, coverOf, createTag, createTagDriver, roamRect, tagDrivePoint, tagHeld,
+  TAG_SPEED, coverOf, createTag, createTagDriver, roamRect, tagAdopt, tagDrivePoint, tagHeld,
   tagPlaces, tagRanks, tagSafe, tagStep,
 } from "./tag.js";
 
@@ -57,10 +63,14 @@ function commonRuntime(payload, env) {
   return { payload, trucks, race, step, sinceStart, driveByPoint, resetDriver, placeTruck, end: () => endRace(race) };
 }
 
+const following = (env) => env.net?.authority === "follower";
+
 function createHockeyRuntime(payload, env) {
   const base = commonRuntime(payload, env);
   const { trucks, race, step, levelBoxes, dirty, wallsAround } = env;
   const game = createHockey(payload.rink, payload.teams, payload.goals);
+  /** Face-offs so far (the owner counts them; a follower places its own trucks when the count moves on). */
+  let resets = 0, seenResets = -1;
   const puck = levelBoxes.find((box) => box.sitIndex === payload.rink.puck.sitIndex) ?? null;
   let roles = null;
   const setPuck = () => {
@@ -83,8 +93,9 @@ function createHockeyRuntime(payload, env) {
     /** The Helicopter key sets a truck down at the rink's centre, where the puck faces off. */
     heliSpot: (index) => hockeyHeliSpot(payload.rink, game.teams, index, puck ? puck.pos : null),
     tick() {
-      const action = hockeyStep(game, puck ? puck.pos : [...payload.rink.puck.start], step);
+      const action = following(env) ? null : hockeyStep(game, puck ? puck.pos : [...payload.rink.puck.start], step);
       if (action === "reset") {
+        resets++;
         trucks.forEach((truck, index) => base.placeTruck(truck, hockeySpot(payload.rink, game.teams, index)));
         setPuck();
       } else if (action === "over") base.end();
@@ -126,6 +137,27 @@ function createHockeyRuntime(payload, env) {
     },
     score: (index) => game.goals[index],
     finish: base.end,
+    netState: () => ({
+      teams: game.teams, goals: game.goals, score: game.score, phase: game.phase, timer: game.timer, lastTouch: game.lastTouch,
+      event: game.event, events: game.events, resets, over: !!race.over,
+      puck: puck ? { pos: [...puck.pos], vel: [...puck.vel], bvel: [...puck.bvel], rates: [...puck.rates], euler: [...puck.euler] } : null,
+    }),
+    applyNet(d) {
+      Object.assign(game, { teams: d.teams, goals: d.goals, score: d.score, phase: d.phase, timer: d.timer, lastTouch: d.lastTouch, event: d.event, events: d.events });
+      game.prev = null;
+      resets = d.resets;
+      // The first state, and every face-off after: this machine's own trucks go to their spots (the others follow their owners).
+      if (d.resets !== seenResets) {
+        seenResets = d.resets;
+        trucks.forEach((truck, index) => { if (!truck.remote) base.placeTruck(truck, hockeySpot(payload.rink, game.teams, index)); });
+      }
+      if (puck && d.puck) {
+        for (const key of ["pos", "vel", "bvel", "rates", "euler"]) if (Array.isArray(d.puck[key])) puck[key].set(d.puck[key]);
+        S.eulerToMatrix(puck.euler[0], puck.euler[1], puck.euler[2], puck.matrix);
+        dirty.add(puck);
+      }
+      if (d.over) base.end();
+    },
   };
 }
 
@@ -149,9 +181,9 @@ function createTagRuntime(payload, env) {
     id: payload.mode,
     debug: { game },
     held: (index) => tagHeld(game, index, base.sinceStart()),
-    touch: (a, b) => touches.push([a, b]),
+    touch: (a, b) => { if (!following(env)) touches.push([a, b]); },
     tick() {
-      tagStep(game, base.sinceStart(), step, touches);
+      if (!following(env)) tagStep(game, base.sinceStart(), step, touches);
       touches.length = 0;
       if (base.sinceStart() >= race.roundSeconds) base.end();
       tagPlaces(game).forEach((place, index) => { race.trucks[index].place = place; });
@@ -183,6 +215,14 @@ function createTagRuntime(payload, env) {
     },
     score: (index) => game.points[index],
     finish: base.end,
+    netState: () => ({
+      it: game.it, itTime: game.itTime, points: game.points, holdUntil: game.holdUntil, safe: game.safe, safeUntil: game.safeUntil,
+      event: game.event, events: game.events, over: !!race.over,
+    }),
+    applyNet(d) {
+      tagAdopt(game, d);
+      if (d.over) base.end();
+    },
   };
 }
 

@@ -9,9 +9,11 @@
 **A clean-room, open-source implementation of Monster Truck Madness 2 for the web.**
 
 OpenMTM2 recreates the original game in a modern browser using your own Monster Truck Madness 2
-installation. It supports game data from **Beta 10**, retail **2.00.41**, the official patched
-**2.00.42**, and community patches through **Community Patch 3**. Everything runs locally: no game
-files are included in this repository or uploaded by the application.
+installation, or Microsoft's free MTM2 trial without one. It supports game data from **Beta 10**,
+retail **2.00.41**, the official patched **2.00.42**, and community patches through **Community
+Patch 3**. Everything runs locally and nothing is uploaded. The only game files in this repository
+are the unmodified trial and its license (`assets/trial/`), which the license allows to be passed on
+free of charge.
 
 **Live application:** [Play OpenMTM2 on GitHub Pages](https://juanputrerasm.github.io/OpenMTM2/)
 
@@ -68,7 +70,11 @@ normal and occlusion maps, enhanced materials and glass, track lights and moving
 ### Use the hosted application
 
 1. Open [OpenMTM2 on GitHub Pages](https://juanputrerasm.github.io/OpenMTM2/).
-2. Choose **Choose game folder** and select the folder containing `POD.INI`.
+2. Pick a language and the graphics (Enhanced or Standard), then get the game's files:
+   - **Choose MTM2 folder:** the folder containing `POD.INI`;
+   - **Choose ISO or ZIP file:** a disc image or a zip made from your own copy;
+   - **Play the free trial:** Microsoft's 1998 trial (Farm Road 29 and four trucks), installed with
+     one click after you accept its license.
 3. Check in, choose a track and truck, and race.
 
 The archives are copied once to the browser's private storage and remain there until you use

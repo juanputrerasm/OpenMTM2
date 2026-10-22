@@ -10,6 +10,7 @@
   be read the screen falls back to the modern skin.
 */
 import { el } from "./dom.js";
+import { msg } from "../game/strings.js";
 import { goRace, goDemo } from "../app/flow.js";
 import { resolveSkin } from "../install/exe-version.js";
 import { vrButton } from "./vr-button.js";
@@ -28,14 +29,19 @@ const BUTTONS = {
  * button the art does not paint (modern only) is left out on the classic stage.
  */
 const BARS = {
-  main: [["driver", "Driver Check-in", "drivers"], ["races", "Races", "races"], ["garage", "Garage", "garage"], ["multi", "Multiplayer", null], ["go", "GO", "go"]],
-  hall: [["continue", "Continue", "back"]],
+  main: [["driver", msg("Driver Check-in"), "drivers"], ["races", msg("Races"), "races"], ["garage", msg("Garage"), "garage"], ["multi", msg("Multiplayer"), "multi"], ["go", msg("GO"), "go"]],
+  // The Multiplayer Screen: its GO (or Ready) is the screen's own button.
+  net: [["driver", msg("Driver Check-in"), "drivers"], ["races", msg("Races"), "races"], ["garage", msg("Garage"), "garage"], ["multi", msg("Multiplayer"), "multi"]],
+  hall: [["continue", msg("Continue"), "back"]],
   // The Winner's Circle after a tournament's race: Continue goes back to the tournament.
-  tournament: [["hall", "Hall of Fame", "hall"], ["replay", "Instant Replay", "replay"], ["continue", "Continue", "tournament"]],
-  results: [["hall", "Hall of Fame", "hall"], ["replay", "Instant Replay", "replay"], ["again", "Race Again", "again", true], ["continue", "Continue", "races"]],
-  start: [["startWeb", "Web Page", "web"], ["startDemo", "Monster Demo", "demo"], ["startManual", "Monster Manual", null], ["startDriver", "Driver Check-in", "drivers"]],
+  tournament: [["hall", msg("Hall of Fame"), "hall"], ["replay", msg("Instant Replay"), "replay"], ["continue", msg("Continue"), "tournament"]],
+  results: [["hall", msg("Hall of Fame"), "hall"], ["replay", msg("Instant Replay"), "replay"], ["again", msg("Race Again"), "again", true], ["continue", msg("Continue"), "continue"]],
+  start: [["startWeb", msg("Web Page"), "web"], ["startDemo", msg("Monster Demo"), "demo"], ["startManual", msg("Monster Manual"), null], ["startDriver", msg("Driver Check-in"), "drivers"]],
   none: [],
 };
+
+/** The Status column's location for each menu screen, by its backdrop (legacy-session.js LOCATION). */
+const NET_LOCATIONS = { START: 1, DRIVER: 2, RACES: 3, GARAGE: 4, NETWORK: 5, HALLFAME: 6, RESULTS: 7 };
 
 const images = new Map();
 
@@ -68,16 +74,19 @@ export function clearUiImageCache() {
  * @returns {Promise<{ classic: true, art: boolean, regions: Record<string, HTMLElement>, unmount?: () => void }>}
  */
 export async function frame(container, context, { title, backdrop, bar = "main", regions = { main: [24, 120, 592, 280] }, options = true, labels = [], modernRegions = {}, current = null, plainTitle = false, scene = null }) {
+  // In a network game the others see where this player is (the Status column, MONSTER_EXE_ANALYSIS.md 14.3).
+  if (context.net && NET_LOCATIONS[backdrop]) context.net.session.setLocation(NET_LOCATIONS[backdrop]);
   const url = resolveSkin(context.settings.skin, context.exeVersion) === "classic" && backdrop ? await uiImageUrl(context.assets, backdrop) : null;
   const art = !!url;
   // Every menu screen can put the game in a headset, where the browser has one (docs/VR.md).
   const enterVr = context.xr ? vrButton(context, url ? "stage-vr" : "screen-vr") : null;
-  const stage = el("div", { class: `stage${art ? "" : ` stage-modern${scene ? ` stage-scene-${scene}` : ""}`}`, role: "group", "aria-label": title });
+  const t = (text) => context.t?.(text) ?? text;
+  const stage = el("div", { class: `stage${art ? "" : ` stage-modern${scene ? ` stage-scene-${scene}` : ""}`}`, role: "group", "aria-label": t(title) });
   if (art) stage.append(el("img", { class: "stage-backdrop", src: url, alt: "", draggable: "false" }));
   else {
-    stage.append(el("h1", { class: plainTitle ? "stage-title stage-title-plain" : "stage-title" }, context.t?.(title) ?? title));
+    stage.append(el("h1", { class: plainTitle ? "stage-title stage-title-plain" : "stage-title" }, t(title)));
     for (const [text, rect] of labels) {
-      const label = el("div", { class: "stage-label" }, context.t?.(text) ?? text);
+      const label = el("div", { class: "stage-label" }, t(text));
       place(label, rect);
       stage.append(label);
     }
@@ -93,17 +102,17 @@ export async function frame(container, context, { title, backdrop, bar = "main",
     if (art && modernOnly) continue;
     const hotspot = el("button", {
       class: art ? "stage-hotspot" : `stage-button${action === current ? " current" : ""}${button === "go" ? " go" : ""}`,
-      "aria-label": label, title: label, disabled: action === null,
+      "aria-label": t(label), title: t(label), disabled: action === null,
       "data-menu-sound": action === "go" || action === "again" ? "GOOFF" : action && action !== "web" ? "STARTOFF" : null,
       onclick: () => navigate(context, action),
-    }, art ? "" : context.t?.(label) ?? label);
+    }, art ? "" : t(label));
     place(hotspot, BUTTONS[button]);
     stage.append(hotspot);
   }
   if (options) stage.append(optionsButton(context, "stage-utility"));
   // The modern skin also has a way back from a screen with no bottom bar to leave by.
   if (!art && bar === "none") {
-    stage.append(el("button", { class: "stage-back", "data-menu-sound": "STARTOFF", onclick: () => context.router.back() }, "Back"));
+    stage.append(el("button", { class: "stage-back", "data-menu-sound": "STARTOFF", onclick: () => context.router.back() }, t("Back")));
   }
   if (enterVr) stage.append(enterVr.element);
   const view = el("section", { class: `stage-view${art ? "" : " stage-view-modern"}` }, stage);
@@ -116,10 +125,11 @@ export async function frame(container, context, { title, backdrop, bar = "main",
 }
 
 function optionsButton(context, className) {
+  const label = context.t?.("Options") ?? "Options";
   return el("button", {
-    class: className, "aria-label": "Options",
+    class: className, "aria-label": label,
     onclick: async () => (await import("./screens/options.js")).openOptionsModal(context),
-  }, "Options");
+  }, label);
 }
 
 function place(node, [x, y, w, h]) {
@@ -129,7 +139,12 @@ function place(node, [x, y, w, h]) {
 async function navigate(context, action) {
   const { router } = context;
   if (action === "back") return router.back();
+  // In a network game the race is the host's to start, from the Multiplayer Screen.
+  if ((action === "go" || action === "again") && context.net) return router.go("multiplayer", {}, { replace: true });
   if (action === "go" || action === "again") return goRace(context);
+  if (action === "multi") return router.go(context.net ? "multiplayer" : "net-connect", {}, { replace: true });
+  // The results' Continue: back to the Races screen, or to the Multiplayer Screen after a network race.
+  if (action === "continue") return context.net ? router.go("multiplayer", {}, { replace: true }) : navigate(context, "races");
   if (action === "demo") return goDemo(context);
   if (action === "web") return window.open("https://mtm2.com/", "_blank", "noopener");
   if (action === "replay") return context.lastReplay ? router.go("replay", { replay: context.lastReplay }) : undefined;

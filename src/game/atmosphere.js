@@ -16,6 +16,7 @@
   Pure, so it runs under Node.
 */
 import { WEATHER_LOOK } from "./weather.js";
+import { msg } from "./strings.js";
 
 /**
  * A fog closes fully at `FOG_REACH` times the distance the game's fog ends at, and is faded in
@@ -153,7 +154,7 @@ export const fogTopLit = (volume, sun) => (volume?.lit ?? 0) * (0.4 + 0.6 * Math
  * of the fog's thickness.
  */
 export const FOG_AMOUNTS = Object.freeze([0, 0.3, 0.55, 1]);
-export const WEATHER_LEVEL_NAMES = Object.freeze(["None", "Few", "Default", "Max"]);
+export const WEATHER_LEVEL_NAMES = Object.freeze([msg("None"), msg("Few"), msg("Default"), msg("Max")]);
 export const DEFAULT_WEATHER_LEVEL = 2;
 /** The level the settings ask for: `weatherAmount` 1..3 while Volumetric weather is on, else 0. */
 export function weatherLevel(settings) {

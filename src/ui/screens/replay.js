@@ -42,6 +42,7 @@ import { createExtensionScene } from "../../render/extensions/loader.js";
 import { GRASS_RADII, grassLevel } from "../../render/evo-grass.js";
 import { createGpuPacer } from "../../render/gpu-pacer.js";
 import { screenSampled } from "../../game/aa.js";
+import { msg } from "../../game/strings.js";
 
 /** A terrain cell's side: the draw distance is set in cells. */
 const TERRAIN_CELL_FT = 32;
@@ -55,10 +56,10 @@ export default async function mount(container, context, { replay }) {
   const cleanups = [];
   const unmount = () => { disposed = true; for (const f of cleanups.reverse()) f(); };
   if (!replay?.records?.length) {
-    view.append(el("p", { class: "race-loading-text" }, "There is no replay to show."), el("button", { onclick: back }, "Back"));
+    view.append(el("p", { class: "race-loading-text" }, t("There is no replay to show.")), el("button", { onclick: back }, t("Back")));
     return { unmount };
   }
-  const loading = el("div", { class: "race-loading" }, el("p", { class: "race-loading-text" }, "Loading the replay…"));
+  const loading = el("div", { class: "race-loading" }, el("p", { class: "race-loading-text" }, t("Loading the replay…")));
   view.append(loading);
 
   const catalog = await context.assets.call("catalog").catch(() => ({ tracks: [], trucks: [] }));
@@ -80,7 +81,7 @@ export default async function mount(container, context, { replay }) {
     smoothTiles: context.settings.look === "enhanced",
     // Sun shadows are drawn: a 4x4 Evolution level's painted ones are left off (worker/evo-track-build.js).
     sunShadows: context.settings.look === "enhanced" && replayFx,
-  }).catch((err) => { loading.textContent = `The replay's track could not be built: ${err.message}`; return null; });
+  }).catch((err) => { loading.textContent = t("The replay's track could not be built: <<1>>", err.message); return null; });
   if (disposed || !build) return { unmount };
   loading.hidden = true;
 
@@ -229,15 +230,15 @@ export default async function mount(container, context, { replay }) {
   }
 
   const say = (text, seconds = 2) => caption.show(text, seconds);
-  const announceView = () => say(`${t(CAMERA_MODES[viewMode].name)} of ${names[focus] ?? ""}`);
+  const announceView = () => say(t("<<1>> of <<2>>", t(CAMERA_MODES[viewMode].name), names[focus] ?? ""));
 
   // The VCR controls.
   const time = el("span", { class: "replay-time" }, "00:00.00");
   const speed = el("span", { class: "replay-speed" }, "");
-  const scrub = el("input", { type: "range", min: 0, max: 1000, value: 0, "aria-label": "Position", class: "replay-scrub" });
+  const scrub = el("input", { type: "range", min: 0, max: 1000, value: 0, "aria-label": t("Position"), class: "replay-scrub" });
   scrub.addEventListener("input", () => { clock = (Number(scrub.value) / 1000) * playback.duration; playing = false; refreshButtons(); });
-  const button = (label, title, onclick) => el("button", { type: "button", title, "aria-label": title, onclick }, label);
-  const playButton = button("⏸", "Play or pause (Space)", () => toggle());
+  const button = (label, title, onclick) => el("button", { type: "button", title: t(title), "aria-label": t(title), onclick }, label);
+  const playButton = button("⏸", msg("Play or pause (Space)"), () => toggle());
   const toggle = () => { playing = !playing; if (playing && clock >= playback.duration) clock = 0; refreshButtons(); };
   const setRate = (step) => {
     const index = RATES.indexOf(Math.abs(rate)) + step;
@@ -249,11 +250,11 @@ export default async function mount(container, context, { replay }) {
   const stepFrame = (n) => { playing = false; clock = Math.max(0, Math.min(playback.duration, (Math.round(clock / FRAME_SECONDS) + n) * FRAME_SECONDS)); refreshButtons(); };
   function refreshButtons() {
     playButton.textContent = playing ? "⏸" : "▶";
-    speed.textContent = playing ? `${rate < 0 ? "◀" : "▶"} ${Math.abs(rate)}x` : "paused";
+    speed.textContent = playing ? `${rate < 0 ? "◀" : "▶"} ${Math.abs(rate)}x` : t("paused");
   }
-  const truckSelect = el("select", { "aria-label": "Truck", onchange: (e) => { focus = Number(e.target.value); chase.reset(); announceView(); } },
+  const truckSelect = el("select", { "aria-label": t("Truck"), onchange: (e) => { focus = Number(e.target.value); chase.reset(); announceView(); } },
     ...names.map((n, i) => el("option", { value: i }, `${i + 1}. ${n}, ${truckTitle(replay.vehicles[i].truck)}`)));
-  const viewSelect = el("select", { "aria-label": "Camera", onchange: (e) => { viewMode = Number(e.target.value); announceView(); } },
+  const viewSelect = el("select", { "aria-label": t("Camera"), onchange: (e) => { viewMode = Number(e.target.value); announceView(); } },
     ...CAMERA_MODES.map((m) => el("option", { value: m.id, selected: m.id === viewMode }, t(m.name))));
   const save = () => {
     const link = el("a", { href: URL.createObjectURL(new Blob([writeMtmReplay(replay)], { type: "text/plain" })), download: `${replay.level.replace(/\.sit$/i, "")}.rpl` });
@@ -261,17 +262,17 @@ export default async function mount(container, context, { replay }) {
     say(t("Replay saved"));
   };
   const controls = el("div", { class: "replay-controls" },
-    button("⏮", "To the start (Home)", () => { clock = 0; }),
-    button("⏪", "Rewind (R)", rewind),
-    button("◀|", "Frame back (,)", () => stepFrame(-1)),
+    button("⏮", msg("To the start (Home)"), () => { clock = 0; }),
+    button("⏪", msg("Rewind (R)"), rewind),
+    button("◀|", msg("Frame back (,)"), () => stepFrame(-1)),
     playButton,
-    button("|▶", "Frame forward (.)", () => stepFrame(1)),
-    button("⏩", "Fast forward (F)", forward),
-    button("⏭", "To the end (End)", () => { clock = playback.duration; }),
-    button("−", "Slower ([)", () => setRate(-1)), button("+", "Faster (])", () => setRate(1)),
+    button("|▶", msg("Frame forward (.)"), () => stepFrame(1)),
+    button("⏩", msg("Fast forward (F)"), forward),
+    button("⏭", msg("To the end (End)"), () => { clock = playback.duration; }),
+    button("−", msg("Slower ([)"), () => setRate(-1)), button("+", msg("Faster (])"), () => setRate(1)),
     scrub, time, speed, truckSelect, viewSelect,
-    button("Save", "Save the replay as a .rpl file", save),
-    button("Close", "Back (Esc)", back));
+    button(t("Save"), msg("Save the replay as a .rpl file"), save),
+    button(t("Close"), msg("Back (Esc)"), back));
   view.append(controls);
   refreshButtons();
 

@@ -3,14 +3,15 @@
   omit a preview, in which case the Races screen shows the track's facts in the preview opening.
 */
 import { WEATHER_NAMES, allowedWeathers } from "./weather.js";
+import { msg } from "./strings.js";
 
 export const RACE_TYPE_NAMES = Object.freeze({
-  circuit: "Circuit Race",
-  rally: "Rally Race",
-  summit: "Summit Rumble",
-  drag: "Drag Race",
-  freeroam: "Free Roam",
-  unsupported: "Unsupported",
+  circuit: msg("Circuit Race"),
+  rally: msg("Rally Race"),
+  summit: msg("Summit Rumble"),
+  drag: msg("Drag Race"),
+  freeroam: msg("Free Roam"),
+  unsupported: msg("Unsupported"),
 });
 
 export function raceTypeName(type) {
@@ -25,34 +26,35 @@ export const TRACK_GAME_NAMES = Object.freeze({
 
 /**
  * What the Races screen shows of a track that has no preview picture: what its SIT (or level) says of it, as
- * [label, value] rows, the ones it does not say left out. `type` is the type as the track list shows it.
+ * [label, value] rows, the ones it does not say left out. `type` is the type as the track list shows it. The labels
+ * are tags for the caller to translate; `t` translates the values that are words (Yes, the weathers).
  */
-export function trackInfoRows(track, { type = raceTypeName(track?.raceType), units = "mph" } = {}) {
+export function trackInfoRows(track, { type = raceTypeName(track?.raceType), units = "mph", t = (text) => text } = {}) {
   if (!track) return [];
-  const rows = [["Type", type], ["Game", TRACK_GAME_NAMES[track.game] ?? track.game], ["Location", (track.locale ?? "").trim()], ["Author", track.author]];
+  const rows = [[msg("Type"), type], [msg("Game"), TRACK_GAME_NAMES[track.game] ?? track.game], [msg("Location"), (track.locale ?? "").trim()], [msg("Author"), track.author]];
   if (track.trackLength > 0) {
     const miles = track.trackLength / 5280;
-    rows.push(["Length", `${Math.round(track.trackLength).toLocaleString("en-US")} ft (${units === "kph" ? `${(miles * 1.609344).toFixed(2)} km` : `${miles.toFixed(2)} mi`})`]);
+    rows.push([msg("Length"), `${Math.round(track.trackLength).toLocaleString("en-US")} ft (${units === "kph" ? `${(miles * 1.609344).toFixed(2)} km` : `${miles.toFixed(2)} mi`})`]);
   }
-  if (track.checkpoints > 0) rows.push(["Checkpoints", String(track.checkpoints)]);
-  if (track.raceType === "circuit" && !track.freeRoamOnly && track.defaultLaps > 0) rows.push(["Laps", String(track.defaultLaps)]);
-  if (track.dragParTime > 0) rows.push(["Par time", `${track.dragParTime.toFixed(2)} s`]);
-  if (track.sonic) rows.push(["Sonic", "Yes"]);
-  if (Number.isInteger(track.weatherMask)) rows.push(["Weather", allowedWeathers(track.weatherMask).map((w) => WEATHER_NAMES[w]).join(", ")]);
-  rows.push(["Level", track.level], ["File", track.pod ? `${track.file} (${track.pod})` : track.file]);
+  if (track.checkpoints > 0) rows.push([msg("Checkpoints"), String(track.checkpoints)]);
+  if (track.raceType === "circuit" && !track.freeRoamOnly && track.defaultLaps > 0) rows.push([msg("Laps"), String(track.defaultLaps)]);
+  if (track.dragParTime > 0) rows.push([msg("Par time"), `${track.dragParTime.toFixed(2)} s`]);
+  if (track.sonic) rows.push([msg("Sonic"), t("Yes")]);
+  if (Number.isInteger(track.weatherMask)) rows.push([msg("Weather"), allowedWeathers(track.weatherMask).map((w) => t(WEATHER_NAMES[w])).join(", ")]);
+  rows.push([msg("Level"), track.level], [msg("File"), track.pod ? `${track.file} (${track.pod})` : track.file]);
   return rows.filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== "");
 }
 
 /** The Races screen's core modes. Optional modes are supplied by the extension loader. */
 export const GAME_MODES = Object.freeze([
-  Object.freeze({ id: "default", name: "Default" }),
-  Object.freeze({ id: "freeroam", name: "Free Roam" }),
-  Object.freeze({ id: "flyby", name: "Fly-by" }),
+  Object.freeze({ id: "default", name: msg("Default") }),
+  Object.freeze({ id: "freeroam", name: msg("Free Roam") }),
+  Object.freeze({ id: "flyby", name: msg("Fly-by") }),
 ]);
 
 /** What the core length box counts: a Rumble's minutes or a race's laps. */
 export function raceLengthLabel(type) {
-  return type === "summit" ? "Minutes" : "Laps";
+  return type === "summit" ? msg("Minutes") : msg("Laps");
 }
 
 /**

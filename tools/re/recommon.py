@@ -5,7 +5,8 @@ executable: mtm2 (the default; output in re/out, game folder ~/games/mtm2 or MTM
 (output in re/mtm1/out, game folder ~/games/mtm1 or MTM1_DIR) or evo2 (4x4 Evolution 2,
 4x42.exe; output in re/evo2/out, game folder ~/games/evo2 or EVO2_DIR) or evo1 (4x4 Evolution,
 4x4LE.exe; output in re/evo1/out) or cpr (CART Precision Racing, CART.EXE; output in
-re/cpr/out, game folder ~/games/cpr or CPR_DIR).
+re/cpr/out, game folder ~/games/cpr or CPR_DIR) or cp3 (Community Patch 3's 64-bit monster.exe; output
+in re/cp3/out, game folder ~/games/mtm2 or CP3_DIR).
 """
 import bisect
 import json
@@ -17,10 +18,24 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 RE_DIR = os.path.join(REPO, "re")
 TARGET = os.environ.get("RE_TARGET", "mtm2")
 OUT = os.path.join(RE_DIR, "out") if TARGET == "mtm2" else os.path.join(RE_DIR, TARGET, "out")
-GAME_DIR = os.path.expanduser(os.environ.get(TARGET.upper() + "_DIR", "~/games/" + TARGET))
+GAME_DIR = os.path.expanduser(os.environ.get(TARGET.upper() + "_DIR", "~/games/" + ("mtm2" if TARGET == "cp3" else TARGET)))
 MTM2_DIR = GAME_DIR
-EXE = os.path.join(GAME_DIR, {"evo2": "4x42.exe", "evo1": "4x4LE.exe", "cpr": "CART.EXE"}.get(TARGET, "MONSTER.EXE"))
-IMAGE_BASE = 0x400000
+EXE = os.path.join(GAME_DIR, {"evo2": "4x42.exe", "evo1": "4x4LE.exe", "cpr": "CART.EXE", "cp3": "monster.exe"}.get(TARGET, "MONSTER.EXE"))
+
+
+def _image_base():
+    """The PE header's ImageBase (0x400000 for the 32-bit games, 0x140000000 for most 64-bit builds)."""
+    try:
+        with open(EXE, "rb") as f:
+            head = f.read(4096)
+        pe_at = struct.unpack_from("<I", head, 0x3C)[0]
+        magic = struct.unpack_from("<H", head, pe_at + 24)[0]
+        return struct.unpack_from("<Q" if magic == 0x20B else "<I", head, pe_at + 24 + (24 if magic == 0x20B else 28))[0]
+    except OSError:
+        return 0x400000
+
+
+IMAGE_BASE = _image_base() if TARGET == "cp3" else 0x400000
 
 _pe = None
 

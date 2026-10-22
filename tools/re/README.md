@@ -20,7 +20,9 @@ leaves the MTM2 workspace alone. For 4x4 Evolution 2 (`docs/EVO2_EXE_ANALYSIS.md
 `EVO2_DIR=~/games/evo2 tools/re/decompile.sh evo2`, into `re/evo2/`, and 4x4 Evolution
 (`docs/EVO2_PHYSICS.md` 10, `docs/EVO_MULTIPLAYER.md`): `tools/re/decompile.sh evo1`, into
 `re/evo1/`. CART Precision Racing (`docs/CPR_PHYSICS.md`): `CPR_DIR=~/games/cpr tools/re/decompile.sh cpr`,
-into `re/cpr/`. Every helper below reads MTM2 unless `RE_TARGET` is `mtm1`, `evo1`, `evo2` or `cpr`;
+into `re/cpr/`. Community Patch 3's 64-bit `monster.exe` (`docs/MONSTER_EXE_ANALYSIS.md` 14.5):
+`tools/re/decompile.sh cp3`, into `re/cp3/` (game folder `CP3_DIR`, default `~/games/mtm2`); `disasm.py`
+reads it as 64-bit code. Its author published no source code. Every helper below reads MTM2 unless `RE_TARGET` is `mtm1`, `evo1`, `evo2`, `cpr` or `cp3`;
 `fdiff.py` takes `FDIFF=evo1:evo2` and `match.py` `MATCH=cpr:mtm1` (any two targets).
 
 This analyses `MONSTER.EXE` from the install, exports every function decompiled to

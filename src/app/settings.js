@@ -10,6 +10,7 @@ import { AA_MODES } from "../game/aa.js";
 import { GRAPHICS_FLAGS, GRAPHICS_PRESETS } from "../game/graphics.js";
 import { VISUAL_OPTIONS } from "../game/visuals.js";
 import { extensionSettingDefaults, migrateExtensionSettings } from "../game/extensions/loader.js";
+import { createStrings, msg } from "../game/strings.js";
 
 const KEY = "openmtm2.settings";
 /** The settings' format, stored with them and with an export (Options, Data). */
@@ -24,12 +25,12 @@ export const SETTINGS_VERSION = 11;
  * vehicle. "auto" picks one by the player's vehicle, "track" by the track's game (`resolvePhysics`).
  */
 export const PHYSICS_MODELS = Object.freeze([
-  Object.freeze({ id: "auto", label: "Auto (by vehicle)", note: "The model of the player's vehicle's game: 4x4 Evolution 2 or 4x4 Evolution for their vehicles, Monster Truck Madness for MTM1 trucks, Monster Truck Madness 2 for the rest" }),
-  Object.freeze({ id: "track", label: "Auto (by track)", note: "The model of the track's game: 4x4 Evolution 2 or 4x4 Evolution on their tracks, Monster Truck Madness on MTM1 tracks, Monster Truck Madness 2 on the rest" }),
-  Object.freeze({ id: "mtm2", label: "Monster Truck Madness 2", note: "The 1998 game's" }),
-  Object.freeze({ id: "mtm1", label: "Monster Truck Madness", note: "The 1996 game's: tires that touch throw trucks twice as hard, water stops a truck, no deep water, weather does not change the grip, no crash damage, and its own drag rules" }),
-  Object.freeze({ id: "evo2", label: "4x4 Evolution 2", note: "The 2001 game's vehicle model: each Evo vehicle on its own engine, gears, springs and tires; others on MTM2's figures. Airborne vehicles fall at 1.75 g, the centre of gravity sits 2 ft forward, hard steering at speed loosens the rear" }),
-  Object.freeze({ id: "evo1", label: "4x4 Evolution", note: "The 2000 game's vehicle model, as Evo 2's but floatier in the air, with the centre of gravity at the middle and bodies that slide further on the ground" }),
+  Object.freeze({ id: "auto", label: msg("Auto (by vehicle)"), note: msg("The model of the player's vehicle's game: 4x4 Evolution 2 or 4x4 Evolution for their vehicles, Monster Truck Madness for MTM1 trucks, Monster Truck Madness 2 for the rest") }),
+  Object.freeze({ id: "track", label: msg("Auto (by track)"), note: msg("The model of the track's game: 4x4 Evolution 2 or 4x4 Evolution on their tracks, Monster Truck Madness on MTM1 tracks, Monster Truck Madness 2 on the rest") }),
+  Object.freeze({ id: "mtm2", label: msg("Monster Truck Madness 2"), note: msg("The 1998 game's") }),
+  Object.freeze({ id: "mtm1", label: msg("Monster Truck Madness"), note: msg("The 1996 game's: tires that touch throw trucks twice as hard, water stops a truck, no deep water, weather does not change the grip, no crash damage, and its own drag rules") }),
+  Object.freeze({ id: "evo2", label: msg("4x4 Evolution 2"), note: msg("The 2001 game's vehicle model: each Evo vehicle on its own engine, gears, springs and tires; others on MTM2's figures. Airborne vehicles fall at 1.75 g, the centre of gravity sits 2 ft forward, hard steering at speed loosens the rear") }),
+  Object.freeze({ id: "evo1", label: msg("4x4 Evolution"), note: msg("The 2000 game's vehicle model, as Evo 2's but floatier in the air, with the centre of gravity at the middle and bodies that slide further on the ground") }),
 ]);
 /** A physics model by id; an unknown id is MTM2's. */
 export const physicsModel = (id) => PHYSICS_MODELS.find((m) => m.id === id) ?? PHYSICS_MODELS.find((m) => m.id === "mtm2");
@@ -58,6 +59,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   laps: 3,
   weather: 0,                 // 0 Clear ... 8 Pitch Black, or "random" (a track may not allow it)
   opponents: 3,               // MONSTER.INI defaultOpponents (built-in default 3)
+  // Multiplayer (docs/MULTIPLAYER.md): the classic helper's port and pairing token, the last host typed, the room server.
+  net: Object.freeze({ helperPort: 47650, helperToken: "", lastHost: "", serverUrl: "", latencyDisplay: true, chat: true, classicKind: "dplay", cp3Port: 2350 }),
   opponentTrucks: Object.freeze([]), // explicitly selected CPU truck files from the Races dialog
   gameMode: "default",        // a core mode id, or an id registered by the extension loader
   extensions: Object.freeze(extensionSettingDefaults()), // settings owned by shipped extensions
@@ -132,7 +135,27 @@ export const DEFAULT_SETTINGS = Object.freeze({
   offline: true,              // keep a copy of the app in the browser, to start without a server (app/offline.js)
   physics: "mtm2",            // the physics model, one of PHYSICS_MODELS
   flyControls: "traxx",       // how the fly-by camera is flown: "traxx" (JSTrackViewer's), "tv" (Terminal Velocity) or "hb" (Hellbender)
+  language: null,             // the app's language, one of LANGUAGES by id; null until Setup picks it from the browser's (detectLanguage)
 });
+
+/** The languages the app's own wording comes in (assets/lang/), in the order Setup lists them. */
+export const LANGUAGES = Object.freeze([
+  Object.freeze({ id: "en", label: "English" }),
+  Object.freeze({ id: "es", label: "Español" }),
+]);
+
+/** The app language for the browser's preferred ones (`navigator.languages`): the first one listed that the app has, else English. */
+export function detectLanguage(preferred = []) {
+  for (const tag of preferred ?? []) {
+    const id = String(tag).toLowerCase().split("-")[0];
+    if (LANGUAGES.some((language) => language.id === id)) return id;
+  }
+  return "en";
+}
+
+/** The language in force: the saved one, or the browser's. */
+export const languageOf = (settings, preferred = globalThis.navigator?.languages) =>
+  (LANGUAGES.some((language) => language.id === settings?.language) ? settings.language : detectLanguage(preferred));
 
 export function loadSettings() {
   try {
@@ -195,14 +218,14 @@ export function optionsFile(settings, now = new Date()) {
  * The settings in an exported options file (its text), brought up to this version: `{ settings }`, or `{ error }` for
  * a file that is not one, or is from a newer version of the app than this one.
  */
-export function readOptionsFile(text) {
+export function readOptionsFile(text, t = createStrings()) {
   let data;
-  try { data = JSON.parse(text); } catch { return { error: "That file is not a settings file (it is not JSON)." }; }
+  try { data = JSON.parse(text); } catch { return { error: t("That file is not a settings file (it is not JSON).") }; }
   if (data?.format !== OPTIONS_FILE_FORMAT || !data.settings || typeof data.settings !== "object" || Array.isArray(data.settings)) {
-    return { error: "That file is not an OpenMTM2 settings file." };
+    return { error: t("That file is not an OpenMTM2 settings file.") };
   }
   const version = Number.isInteger(data.version) ? data.version : 0;
-  if (version > SETTINGS_VERSION) return { error: `Those settings are from a newer OpenMTM2 (version ${version}; this one reads up to ${SETTINGS_VERSION}).` };
+  if (version > SETTINGS_VERSION) return { error: t("Those settings are from a newer OpenMTM2 (version <<1>>; this one reads up to <<2>>).", version, SETTINGS_VERSION) };
   return { settings: migrateSettings({ ...data.settings, version }) };
 }
 
@@ -268,4 +291,41 @@ export function applyOpenMtm2(settings) {
     terrainDetail: true, hdWeather: true, reflections: true, cameraClearance: true,
   });
   return settings;
+}
+
+/** The settings the OpenMTM2 preset writes, recorded by running it on a scratch copy of the defaults. */
+const ENHANCED_KEYS = (() => {
+  const written = new Set();
+  applyOpenMtm2(new Proxy({ ...DEFAULT_SETTINGS }, { set(target, key, value) { written.add(key); target[key] = value; return true; } }));
+  return Object.freeze([...written]);
+})();
+
+/**
+ * Setup's "Standard" graphics: every setting the OpenMTM2 preset writes back to its default, so the picture is the one a
+ * new player had before Setup offered the choice. Changes `settings` in place.
+ */
+export function applyStandardGraphics(settings) {
+  for (const key of ENHANCED_KEYS) settings[key] = DEFAULT_SETTINGS[key];
+  return settings;
+}
+
+/** Setup's two graphics choices: "enhanced" (the OpenMTM2 preset) and "standard" (the defaults). */
+export const SETUP_GRAPHICS = Object.freeze(["standard", "enhanced"]);
+
+/** Apply one of Setup's graphics choices to `settings`. */
+export const applySetupGraphics = (settings, choice) => (choice === "standard" ? applyStandardGraphics(settings) : applyOpenMtm2(settings));
+
+/** Which of Setup's choices `settings` match: "enhanced" when every OpenMTM2 preset setting is in place, else "standard". */
+export function setupGraphicsOf(settings) {
+  const enhanced = applyOpenMtm2({ ...DEFAULT_SETTINGS });
+  return ENHANCED_KEYS.every((key) => JSON.stringify(settings?.[key]) === JSON.stringify(enhanced[key])) ? "enhanced" : "standard";
+}
+
+/** Whether settings were ever saved in this browser (a first start has none). */
+export function hasSavedSettings(storage = globalThis.localStorage) {
+  try {
+    return storage?.getItem(KEY) != null;
+  } catch {
+    return false;
+  }
 }

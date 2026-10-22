@@ -4,6 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { REQUIRED_PODS, isRequiredPod, missingRequiredPods } from "../src/install/required-pods.js";
 import { inspectSource } from "../src/install/inspect-source.js";
+import { createStrings } from "../src/game/strings.js";
 
 test("the required archives: STARTUP, MUSIC, SOUND, COCKPIT, TRUCK2 and UI, found by file name in any folder and case", () => {
   assert.deepEqual([...REQUIRED_PODS], ["STARTUP.POD", "MUSIC.POD", "SOUND.POD", "COCKPIT.POD", "TRUCK2.POD", "UI.POD"]);
@@ -28,5 +29,6 @@ test("a folder whose POD.INI lacks a required archive is refused, one with them 
   assert.equal(lacking.ok, false);
   assert.equal(lacking.files, undefined);
   assert.deepEqual(lacking.required, ["SOUND.POD"]);
-  assert.match(lacking.message, /SOUND\.POD/);
+  // The message is a tag with its figures, shown through the message table (game/strings.js).
+  assert.match(createStrings()(lacking.message, ...lacking.messageArgs), /SOUND\.POD/);
 });

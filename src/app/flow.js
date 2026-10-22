@@ -5,6 +5,7 @@
 */
 import { currentDriver, getProfiles } from "./profile-store.js";
 import { entrantsShortfall, extensionById } from "../game/extensions/loader.js";
+import { createStrings, msg } from "../game/strings.js";
 
 /**
  * Remember what the Races screen chose.
@@ -38,7 +39,7 @@ export function resolveGameMode(gameMode, track) {
   return extension?.acceptsTrack(track) ? extension.id : null;
 }
 
-export const SPECTATOR_WARNING = "Spectator mode is on: the computer trucks race and you watch. You will not drive.\n\nStart the race?";
+export const SPECTATOR_WARNING = msg("Spectator mode is on: the computer trucks race and you watch. You will not drive.\n\nStart the race?");
 
 /**
  * The trucks of a race to be watched, or null when the race is one to drive: spectator mode is asked for, the track has
@@ -72,13 +73,14 @@ export async function goRace(context) {
   const watching = spectatorField(config, track, trucks);
   const short = entrantsShortfall(extension, watching ?? (Array.isArray(config.opponents) ? config.opponents : []), !!watching);
   if (short !== null) {
-    window.alert(`${extension.name} needs ${short} trucks at least. Pick computer opponents on the Races screen.`);
+    const t = context.t ?? createStrings();
+    window.alert(t("<<1>> needs <<2>> trucks at least. Pick computer opponents on the Races screen.", t(extension.name), short));
     return context.router.go("race-select", { mode: config.mode }, { replace: true });
   }
   // Spectator mode: the computer's trucks alone, watched. Not in free roam, which has no race to watch.
   const watched = spectatorField(config, track, trucks);
   if (watched) {
-    if (!window.confirm(SPECTATOR_WARNING)) return undefined;
+    if (!window.confirm((context.t ?? createStrings())(SPECTATOR_WARNING))) return undefined;
     return context.router.go("race", {
       track, mode: config.mode, laps: config.laps, difficulty: config.difficulty, opponents: watched.slice(1), weather: config.weather,
       gameMode, freeRoam: false, truck: watched[0], trucks, setup: undefined, spectator: true,

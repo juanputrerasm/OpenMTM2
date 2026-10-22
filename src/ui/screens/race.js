@@ -86,13 +86,15 @@ import { graphicsHardware } from "../../app/graphics-hardware.js";
 import { createScenery } from "../../render/scenery.js";
 import { setLightsInFog } from "../../render/atmosphere.js";
 import { createMenu, cycle } from "../../game/vr/menu.js";
+import { msg } from "../../game/strings.js";
 import { SEAT_STEP_FT } from "../../game/vr/seat.js";
 import { CAB_STYLES, VIEW_DISTANCES, VR_VIEWS } from "../../game/vr/settings.js";
 import { createRaceVr } from "../../render/xr/race-vr.js";
 import { vrButton } from "../vr-button.js";
-import { extensionHud, extensionMarkerTarget, extensionResultTime, extensionTruckLabels, extensionTruckMarks, prepareExtensionRace, resolveRaceExtension } from "../../game/extensions/race-loader.js";
+import { extensionHud, extensionMarkerTarget, extensionNetFromWire, extensionNetToWire, extensionResultTime, extensionTruckLabels, extensionTruckMarks, prepareExtensionRace, resolveRaceExtension } from "../../game/extensions/race-loader.js";
 import { createExtensionScene } from "../../render/extensions/loader.js";
 import { GRASS_RADII, grassLevel } from "../../render/evo-grass.js";
+import { createNetRace } from "../../net/net-race.js";
 
 /** The race HUD text is a light grey with a one-pixel black shadow (the game's own look). */
 const HUD_GREY = "#cfcfcf";
@@ -101,7 +103,7 @@ const HEADSET_FINE_RANGE_FT = 800;
 /** About how tall a headset's picture is for one eye, pixels: rain and snow are kept no thinner than one of them. */
 const HEADSET_VIEW_HEIGHT = 1800;
 
-const DEMO_CAPTION = "Demo mode. Press any key to begin", DEMO_CAMERA_S = 8;
+const DEMO_CAPTION = msg("Demo mode. Press any key to begin"), DEMO_CAMERA_S = 8;
 /** Before the race's clock starts, this many frames in a row must each take less than `WARM_FRAME_S`; `WARM_LIMIT_MS` at most. */
 const WARM_FRAMES = 6, WARM_FRAME_S = 0.08, WARM_LIMIT_MS = 15000;
 
@@ -119,13 +121,14 @@ const TERRAIN_CELL_FT = 32;
 function loadReport(container, context, track, { heading, lines, fatal }) {
   return new Promise((resolve) => {
     const shown = lines.slice(0, 14);
-    const dialog = el("dialog", { class: "load-report", "aria-label": heading },
-      el("h1", {}, heading),
+    const { t } = context;
+    const dialog = el("dialog", { class: "load-report", "aria-label": t(heading) },
+      el("h1", {}, t(heading)),
       el("p", { class: "muted" }, track?.name ?? ""),
-      el("ul", {}, ...shown.map((line) => el("li", {}, line)), ...(lines.length > shown.length ? [el("li", {}, `and ${lines.length - shown.length} more`)] : [])),
+      el("ul", {}, ...shown.map((line) => el("li", {}, line)), ...(lines.length > shown.length ? [el("li", {}, t("and <<1>> more", lines.length - shown.length))] : [])),
       el("div", { class: "screen-actions" },
-        ...(fatal ? [] : [el("button", { onclick: () => { dialog.close("go"); } }, "Race anyway")]),
-        el("button", { class: "primary", onclick: () => dialog.close("close") }, "Close")));
+        ...(fatal ? [] : [el("button", { onclick: () => { dialog.close("go"); } }, t("Race anyway"))]),
+        el("button", { class: "primary", onclick: () => dialog.close("close") }, t("Close"))));
     dialog.addEventListener("close", () => {
       dialog.remove();
       if (dialog.returnValue === "go") { resolve(true); return; }
@@ -150,7 +153,7 @@ export function zPhysicsLine(sound, physics) {
 
 /** The key that switches a watched race's free camera on and off. */
 export const SPECTATOR_FLY_KEY = "KeyB";
-export const SPECTATOR_CAPTION = "Spectator mode. Left, Right: another truck. V: view. B: free camera";
+export const SPECTATOR_CAPTION = msg("Spectator mode. Left, Right: another truck. V: view. B: free camera");
 
 /** Compile what `scene` draws for `camera` and upload its textures; a failure leaves it to the first frames. */
 async function warmScene(renderer, scene, camera) {
@@ -178,13 +181,18 @@ export default async function mount(container, context, params) {
     console.error(error);
     for (const stop of owned) { try { stop(); } catch { /* already gone */ } }
     container.replaceChildren();
-    await loadReport(container, context, params.track, { heading: "This track could not be loaded", lines: [String(error?.message ?? error)], fatal: true });
+    await loadReport(container, context, params.track, { heading: msg("This track could not be loaded"), lines: [String(error?.message ?? error)], fatal: true });
     return {};
   }
 }
 
 async function mountRace(container, context, params, owned = []) {
   const { track, laps, difficulty, truck: playerTruck, trucks: catalogTrucks, setup, weather: chosenWeather } = params;
+  /**
+   * A network race (docs/MULTIPLAYER.md, app/net.js): `{ link, entrants, host, policy, rateHz }`. Every machine drives its
+   * own truck and the host the computer trucks; the others' come over the network.
+   */
+  const net = params.net ?? null;
   /** Optional race behavior supplied by the extension loader, or null for the track's own race. */
   const extension = !params.demo ? resolveRaceExtension(params.gameMode, track) : null;
   const gameMode = extension?.id ?? null;
@@ -201,7 +209,8 @@ async function mountRace(container, context, params, owned = []) {
    */
   const eventPass = params.drag ?? null;
   /** Where leaving the race goes: back to the weekend, or the Races screen. */
-  const leave = () => (params.tournament ? context.router.go("tournament", {}, { replace: true }) : eventPass
+  const leave = () => (net ? (net.link.leave(), net.link.finish(), context.router.go("multiplayer", {}, { replace: true }))
+    : params.tournament ? context.router.go("tournament", {}, { replace: true }) : eventPass
     ? context.router.go("drag-event", {}, { replace: true })
     : context.router.go("race-select", { mode: track?.raceType }, { replace: true }));
   const t = context.t;
@@ -212,12 +221,12 @@ async function mountRace(container, context, params, owned = []) {
   // The toggleable FPS counter, in the top right (below the drag tree on a drag strip).
   const fpsCounter = createFpsCounter({ visible: !!context.settings.fpsCounter });
   // The app's one renderer and its canvas (render/xr/xr-host.js); a headset shows this note meanwhile.
-  context.xr.setBoard(createMenu({ title: "Loading", lines: [track.name] }));
+  context.xr.setBoard(createMenu({ title: t("Loading"), lines: [track.name] }));
   const host = await context.xr.host();
   const { renderer, canvas } = host;
   canvas.className = "race-canvas";
   const loading = el("div", { class: "race-loading" });
-  const loadingText = el("p", { class: "race-loading-text" }, `Loading ${track.name}…`);
+  const loadingText = el("p", { class: "race-loading-text" }, t("Loading <<1>>…", track.name));
   loading.append(loadingText);
   const truckName = (file) => catalogTrucks.find((t) => t.file === file)?.name ?? file;
   const mtm1Options = { sky: context.settings.mtm1EarthSky === true };
@@ -235,7 +244,11 @@ async function mountRace(container, context, params, owned = []) {
   // The track is asked for first, so the worker builds it while the fonts and the cockpit's art come in. Who races is
   // drawn before it is built, for a full grid (game/race-setup.js `raceDrivers`), so the worker builds those trucks only
   // and not the whole catalogue; the grid's size trims the field once the track is in.
+  // A network race's drivers are the session's, this player first, each with the network's vehicle number.
   const drivers = eventPass ? null
+    : net ? [...net.entrants].sort((a, b) => Number(b.local) - Number(a.local)).map((e) => ({
+      name: e.name, file: e.file, player: e.local, vehicle: e.vehicle, remote: !e.owned, computer: e.computer,
+    }))
     : raceDrivers({ playerTruck, trucks: catalogTrucks, opponents, playerName: driver.name, spectator, names: cpuNames(context.settings.aiNames) });
   const raceTruckFiles = [...new Set([playerTruck, ...(eventPass ? eventPass.entrants : drivers).map((e) => e.file)])];
   const buildRequest = context.assets.call("trackRender", {
@@ -320,7 +333,7 @@ async function mountRace(container, context, params, owned = []) {
   const build = await buildRequest;
   if (disposed) return { unmount };
   if (build.problems?.length && !demo) {
-    const go = await loadReport(view, context, track, { heading: "Files this track names are missing", lines: build.problems, fatal: false });
+    const go = await loadReport(view, context, track, { heading: msg("Files this track names are missing"), lines: build.problems, fatal: false });
     if (!go || disposed) return { unmount };
   }
   // The course map (Map key), from the SIT's primary course.
@@ -338,6 +351,8 @@ async function mountRace(container, context, params, owned = []) {
   const grid = build.sim.grid;
   const entrants = eventPass
     ? eventPass.entrants.filter((e) => build.truckModels[e.file] && e.slot < grid.length)
+    // A network race's slot is its vehicle number's grid place (the host's 0x87).
+    : net ? drivers.filter((d) => build.truckModels[d.file] && d.vehicle - 1 < grid.length).map((d) => ({ ...d, slot: d.vehicle - 1 }))
     : seatDrivers(drivers.filter((d) => build.truckModels[d.file]), grid.length);
   const extensionTerrain = extension ? terrainOfBuild(build) : null;
   const extensionRace = prepareExtensionRace(extension, {
@@ -351,7 +366,7 @@ async function mountRace(container, context, params, owned = []) {
   view.append(nameTags.element);
   if (!grid.length || !build.truckModels[playerTruck]) {
     loadingText.textContent = `${track.name} has no start grid, or ${truckName(playerTruck)} could not be built.`;
-    loading.append(el("button", { "data-menu-sound": "STARTOFF", onclick: () => context.router.back() }, "Back"));
+    loading.append(el("button", { "data-menu-sound": "STARTOFF", onclick: () => context.router.back() }, t("Back")));
     return { unmount };
   }
 
@@ -543,7 +558,9 @@ async function mountRace(container, context, params, owned = []) {
         truck: { anchors: model.anchors, scrapePoints: model.scrapePoints, tire: model.tire ?? null, evo: model.evoSpec ?? null },
         start: extensionRace?.start(entrants.indexOf(e), { pos: grid[e.slot].pos, heading: grid[e.slot].heading })
           ?? { pos: grid[e.slot].pos, heading: grid[e.slot].heading },
-        autopilot: !e.player || !!context.settings.fullAutopilot || demo,
+        autopilot: !e.remote && (!e.player || !!context.settings.fullAutopilot || demo),
+        // Driven by another machine's updates (worker/sim-worker.js `applyRemote`).
+        remote: !!e.remote,
         // A drag strip's grid slot is the lane.
         lane: e.slot,
         // A drag weekend's computer driver: its launch and how deep it stages.
@@ -560,18 +577,48 @@ async function mountRace(container, context, params, owned = []) {
       },
     // The simulation worker reaches this payload through its extension runtime loader.
     extension: extensionRace?.simulation ?? null,
+    // A network race: how remote trucks follow their updates.
+    // In a room an extension's state is decided on the owner's machine and followed elsewhere (docs/EXTENSIONS.md).
+    net: net ? { policy: net.policy, authority: extensionRace && net.policy !== "legacy" ? (net.host ? "owner" : "follower") : null } : null,
   };
   // Where the player's truck starts, for the frames before the simulation's first reply.
   // The terrain's buffers are the payload's own copies (shared/build-terrain.js): handed over, not copied again.
   const startPose = await sim.call("init", init, [init.heights, init.heightsFt, init.fineFt].filter(Boolean));
   const vrCockpit = await context.assets.call("cockpitPanel").catch(() => null);
   if (disposed) return { unmount };
-  if (spectator) caption.show(SPECTATOR_CAPTION, 8);
+  if (spectator) caption.show(t(SPECTATOR_CAPTION), 8);
   // The scene's shaders are built and its textures sent to the graphics card now, behind the loading screen, the
   // shaders side by side where the browser can (three.js `compileAsync`); not one at a time inside the first frames.
   shadows?.setupMaterials();
   await warmScene(renderer, scene, camera);
   if (disposed) return { unmount };
+  // A network race waits for every machine to have loaded (the `sync` barrier), then the host gives the start positions.
+  let netRace = null, netHostEnded = false, netDecides = false;
+  if (net) {
+    const modeWire = extensionRace && net.policy !== "legacy" ? {
+      toWire: (state, vehicleOf) => extensionNetToWire(gameMode, state, vehicleOf),
+      fromWire: (data, localOf, count) => extensionNetFromWire(gameMode, data, localOf, count),
+    } : null;
+    netRace = createNetRace({ entrants: entrants.map((e) => ({ vehicle: e.vehicle, owned: !e.remote })), rateHz: net.rateHz, mode: modeWire });
+    netDecides = !!modeWire && net.host;
+    cleanups.push(net.link.on("event", (e) => netRace.receive(e)));
+    cleanups.push(net.link.on("waiting", ({ left }) => {
+      loadingText.textContent = left.length ? `${t("Waiting for other players")} (${left.join(", ")})…` : `${t("Getting ready")}…`;
+    }));
+    // The host ended the race (0x0e): the results come with the next frame.
+    cleanups.push(net.link.on("hostEnded", () => { netHostEnded = true; }));
+    loadingText.textContent = `${t("Waiting for other players")}…`;
+    await net.link.sync();
+    if (disposed) return { unmount };
+    if (net.host) {
+      // Indexed by vehicle number, index 0 unused: 9 entries as the classic packet has them, more in a big room.
+      const count = net.policy === "legacy" ? 9 : Math.max(9, ...entrants.map((e) => e.vehicle + 1));
+      const positions = Array.from({ length: count }, () => [0, 0, 0]);
+      for (const e of entrants) if (e.vehicle < count) positions[e.vehicle] = [...grid[e.slot].pos];
+      net.link.sendPositions(positions);
+    }
+    loadingText.textContent = `${t("Getting ready")}…`;
+  }
   // The loading screen stays until the first frames have been drawn at an even pace (`ready` in the frame loop below):
   // the race's clock starts only then, so the countdown is not spent while shaders compile and textures go up.
   loadingText.textContent = `${t("Getting ready")}…`;
@@ -611,7 +658,11 @@ async function mountRace(container, context, params, owned = []) {
   // Each truck's lamp switch (game/truck-lights.js) and the clock the blinking lamps and beacons run on.
   const lamps = entrants.map(() => lampsAtStart(WEATHER_LOOK[weatherId]?.headlights));
   let lampClockMs = 0;
+  /** A network race's menu, open over the running race (Esc). */
+  let netMenuOpen = false;
   const setPaused = async (on) => {
+    // A network race does not stop for anyone: the menu opens over the running race.
+    if (net) { if (!finishing) { pauseMenu.hidden = !on; netMenuOpen = on; showVrMenu(); } return; }
     if (finishing || paused === on) return;
     paused = on;
     pauseMenu.hidden = !on;
@@ -621,32 +672,33 @@ async function mountRace(container, context, params, owned = []) {
     if (!on) await sim.call("resume");
   };
   // Spectator mode: once the race is over, the way on to its results (`watchedOver`).
-  const resultsButton = el("button", { class: "primary", hidden: true, "data-menu-sound": "STARTOFF", onclick: async () => { if (finishing) return; await setPaused(false); finish(); } }, "Results");
+  const resultsButton = el("button", { class: "primary", hidden: true, "data-menu-sound": "STARTOFF", onclick: async () => { if (finishing) return; await setPaused(false); finish(); } }, t("Results"));
   let overShown = false;
   const watchedOver = () => {
     if (overShown) return;
     overShown = true;
     resultsButton.hidden = false;
-    caption.show("The race is over. Esc: the pause menu, and Results", 8);
+    caption.show(t("The race is over. Esc: the pause menu, and Results"), 8);
   };
   pauseMenu.append(
     el("p", { class: "race-pause-title" }, t("Pause")),
-    el("button", { class: "primary", onclick: () => setPaused(false) }, "Resume"),
-    el("button", { "data-menu-sound": "STARTOFF", onclick: () => context.router.go("race", params, { replace: true }) }, "Restart race"),
-    el("button", { onclick: () => showInstantReplay() }, "Instant replay"),
+    el("button", { class: "primary", onclick: () => setPaused(false) }, t("Resume")),
+    el("button", { hidden: !!net, "data-menu-sound": "STARTOFF", onclick: () => context.router.go("race", params, { replace: true }) }, t("Restart race")),
+    // The game has no instant replay with more than one networked player (MONSTER_EXE_ANALYSIS.md 14.4).
+    el("button", { hidden: !!net, onclick: () => showInstantReplay() }, t("Instant replay")),
     // The console, for a keyboard whose key for it is hard to find; the race stays paused under it.
-    el("button", { hidden: demo, onclick: () => gameConsole?.setOpen(true) }, "Console"),
+    el("button", { hidden: demo, onclick: () => gameConsole?.setOpen(true) }, t("Console")),
     el("button", { onclick: async () => {
       const { openOptionsModal } = await import("./options.js");
       await openOptionsModal(context);
       // The sound sliders take effect at once; the rest applies to the next race.
       context.optionsDialog?.addEventListener("close", () => audio.setVolumes(context.settings.sound), { once: true });
-    } }, "Options"),
+    } }, t("Options")),
     resultsButton,
     el("button", {
       "data-menu-sound": "STARTOFF",
       onclick: leave,
-    }, "End race"),
+    }, t("End race")),
   );
   /**
    * The pause menu's instant replay: the last minute of the race, played over the paused race in the replay screen's own
@@ -680,46 +732,46 @@ async function mountRace(container, context, params, owned = []) {
     one, and the headset's own (docs/VR.md, "Options"). Values change at once, so the seat can be
     set by eye.
   */
-  const onOff = (on) => (on ? "On" : "Off");
+  const onOff = (on) => (on ? t("On") : t("Off"));
   const feet = (v) => `${v > 0 ? "+" : ""}${v.toFixed(2)} ft`;
-  const toggle = (label, key) => ({ label, value: () => onOff(vr.prefs[key]), change: () => vr.set(key, !vr.prefs[key]) });
+  const toggle = (label, key) => ({ label: t(label), value: () => onOff(vr.prefs[key]), change: () => vr.set(key, !vr.prefs[key]) });
   const seatRow = (label, axis) => ({
-    label, value: () => feet(vr.seatOffset[axis]),
+    label: t(label), value: () => feet(vr.seatOffset[axis]),
     change: (d) => vr.moveSeat([0, 0, 0].map((_, i) => (i === axis ? d * SEAT_STEP_FT : 0))),
   });
   const viewIds = VR_VIEWS.map((v) => v.id), distanceIds = VIEW_DISTANCES.map((v) => v.id), cabIds = CAB_STYLES.map((v) => v.id);
   const vrOptionsMenu = () => createMenu({
-    title: "VR options",
+    title: t("VR options"),
     items: [
-      toggle("Horizon lock", "horizonLock"),
-      seatRow("Seat forward", 2), seatRow("Seat height", 1), seatRow("Seat sideways", 0),
-      { label: "Reset seat", action: () => vr.moveSeat(null) },
-      toggle("Cab", "cab"), toggle("HUD", "hud"),
+      toggle(msg("Horizon lock"), "horizonLock"),
+      seatRow(msg("Seat forward"), 2), seatRow(msg("Seat height"), 1), seatRow(msg("Seat sideways"), 0),
+      { label: t("Reset seat"), action: () => vr.moveSeat(null) },
+      toggle(msg("Cab"), "cab"), toggle(msg("HUD"), "hud"),
       {
-        label: "Cab style", value: () => CAB_STYLES.find((v) => v.id === vr.prefs.cabStyle).name,
+        label: t("Cab style"), value: () => t(CAB_STYLES.find((v) => v.id === vr.prefs.cabStyle).name),
         change: (d) => vr.set("cabStyle", cycle(cabIds, vr.prefs.cabStyle, d)),
       },
       {
-        label: "Steering", value: () => (vr.prefs.steering === "wheel" ? "Hands as a wheel" : "Thumbstick"),
+        label: t("Steering"), value: () => (vr.prefs.steering === "wheel" ? t("Hands as a wheel") : t("Thumbstick")),
         change: () => vr.set("steering", vr.prefs.steering === "wheel" ? "stick" : "wheel"),
       },
       {
-        label: "View distance", value: () => VIEW_DISTANCES.find((v) => v.id === vr.prefs.viewDistance).name,
+        label: t("View distance"), value: () => t(VIEW_DISTANCES.find((v) => v.id === vr.prefs.viewDistance).name),
         change: (d) => vr.set("viewDistance", cycle(distanceIds, vr.prefs.viewDistance, d)),
       },
-      { label: "Back", action: () => host.menu.open(vrPauseMenu()) },
+      { label: t("Back"), action: () => host.menu.open(vrPauseMenu()) },
     ],
     back: () => host.menu.open(vrPauseMenu()),
   });
   const vrPauseMenu = () => createMenu({
     title: t("Pause"),
     items: [
-      { label: "Resume", action: () => setPaused(false) },
-      { label: "Recentre view", action: () => host.recenter() },
-      { label: "View", value: () => vr.view.name, change: (d) => vr.set("view", cycle(viewIds, vr.prefs.view, d)) },
-      { label: "VR options", action: () => host.menu.open(vrOptionsMenu()) },
-      { label: "End race", action: leave },
-      { label: "Leave VR", action: () => host.exit() },
+      { label: t("Resume"), action: () => setPaused(false) },
+      { label: t("Recentre view"), action: () => host.recenter() },
+      { label: t("View"), value: () => t(vr.view.name), change: (d) => vr.set("view", cycle(viewIds, vr.prefs.view, d)) },
+      { label: t("VR options"), action: () => host.menu.open(vrOptionsMenu()) },
+      { label: t("End race"), action: leave },
+      { label: t("Leave VR"), action: () => host.exit() },
     ],
     back: () => setPaused(false),
   });
@@ -747,7 +799,7 @@ async function mountRace(container, context, params, owned = []) {
       context.settings.view = viewMode;
       saveSettings(context.settings);
       // "Chase Far of Bear Foot": the view's name and the truck being watched (0x52d180).
-      flash(`${t(cameraMode(viewMode).name)} of ${truckName(spectator ? entrants[cameraTarget].file : playerTruck)}`, performance.now(), 2);
+      flash(t("<<1>> of <<2>>", t(cameraMode(viewMode).name), truckName(spectator ? entrants[cameraTarget].file : playerTruck)), performance.now(), 2);
     }
   };
   const onKey = (e) => {
@@ -759,8 +811,10 @@ async function mountRace(container, context, params, owned = []) {
       if (e.code === SPECTATOR_FLY_KEY) { setFlying(!flyer.enabled); return; }
       if (e.code === "ArrowRight" || e.code === "ArrowLeft") { watch(cameraTarget + (e.code === "ArrowRight" ? 1 : -1)); return; }
     }
-    if (keyMap.horn.includes(e.code) && !e.repeat) truckAudio.horn(0, playerPosition());
-    if (keyMap.yeehaw.includes(e.code) && !e.repeat) truckAudio.yeehaw(0, playerPosition());
+    if (netChat?.typing) return;
+    if (net && e.key === "Enter" && !e.repeat) { e.preventDefault(); netChat.open(); return; }
+    if (keyMap.horn.includes(e.code) && !e.repeat) { truckAudio.horn(0, playerPosition()); netSend("horn"); }
+    if (keyMap.yeehaw.includes(e.code) && !e.repeat) { truckAudio.yeehaw(0, playerPosition()); netSend("yeehaw"); }
     const shortcut = modeForShortcut(e);
     if (shortcut !== null) e.preventDefault();
     if ((keyMap.camera.includes(e.code) || shortcut !== null) && !e.repeat) nextView(shortcut, e.shiftKey);
@@ -785,8 +839,8 @@ async function mountRace(container, context, params, owned = []) {
       saveSettings(context.settings);
     }
     // The Headlights key (L) switches the player's lamps; every other truck keeps what the weather gave it.
-    if (keyMap.headlights.includes(e.code) && !e.repeat && !e.ctrlKey) lamps[0] = toggleLamps(lamps[0]);
-    if (keyMap.crashDamage.includes(e.code) && !e.repeat && physics === "mtm1") flash("No crash damage in Monster Truck Madness physics", performance.now(), 3);
+    if (keyMap.headlights.includes(e.code) && !e.repeat && !e.ctrlKey) { lamps[0] = toggleLamps(lamps[0]); netSend("lights", { lamps: lamps[0] }); }
+    if (keyMap.crashDamage.includes(e.code) && !e.repeat && physics === "mtm1") flash(t("No crash damage in Monster Truck Madness 1 physics"), performance.now(), 3);
     else if (keyMap.crashDamage.includes(e.code) && !e.repeat) {
       const on = crash.toggle((i) => drawn[i].repair());
       context.settings.crashDamage = on;
@@ -825,8 +879,8 @@ async function mountRace(container, context, params, owned = []) {
     handPresses.shiftUp ||= !!joystick?.shiftUp;
     handPresses.shiftDown ||= !!joystick?.shiftDown;
     handPresses.helicopter ||= actions.helicopter;
-    if (actions.horn) truckAudio.horn(0, playerPosition());
-    if (actions.yeehaw) truckAudio.yeehaw(0, playerPosition());
+    if (actions.horn) { truckAudio.horn(0, playerPosition()); netSend("horn"); }
+    if (actions.yeehaw) { truckAudio.yeehaw(0, playerPosition()); netSend("yeehaw"); }
     if (actions.camera) nextView();
     if (actions.recenter) host.recenter();
   };
@@ -1011,14 +1065,14 @@ async function mountRace(container, context, params, owned = []) {
   // (ui/fly-controller.js, the fly-by's own).
   const flyer = spectator ? createFlyController({
     canvas, settings: context.settings, save: () => saveSettings(context.settings), course: build.sim.course, courseOpen: !!build.sim.courseOpen,
-    groundAt: groundHeightFn(terrain), say: (text, seconds) => caption.show(text, seconds ?? 4), baseFov: fovFor(1), font: hudFont,
+    groundAt: groundHeightFn(terrain), say: (text, seconds) => caption.show(text, seconds ?? 4), baseFov: fovFor(1), font: hudFont, t,
     blocked: () => paused || finishing || !!gameConsole?.open || !!replaying || !!context.optionsDialog?.isConnected,
   }) : null;
   if (flyer) { view.append(flyer.element); cleanups.push(() => flyer.dispose()); }
   const flyTarget = new THREE.Vector3();
   const watch = (index) => {
     cameraTarget = ((index % entrants.length) + entrants.length) % entrants.length;
-    caption.show(`Watching ${truckName(entrants[cameraTarget].file)} (${entrants[cameraTarget].name})`, 2);
+    caption.show(t("Watching <<1>> (<<2>>)", truckName(entrants[cameraTarget].file), entrants[cameraTarget].name), 2);
   };
   /** The free camera on or off, in a watched race: it starts where the race's camera is, looking the same way. */
   const setFlying = (on) => {
@@ -1032,7 +1086,7 @@ async function mountRace(container, context, params, owned = []) {
       flyer.setEnabled(false);
       // The race's camera takes its own lens back.
       lastView = -1;
-      caption.show(`${t(cameraMode(viewMode).name)} of ${truckName(entrants[cameraTarget].file)}`, 2);
+      caption.show(t("<<1>> of <<2>>", t(cameraMode(viewMode).name), truckName(entrants[cameraTarget].file)), 2);
     }
     return flyer.enabled;
   };
@@ -1104,7 +1158,7 @@ async function mountRace(container, context, params, owned = []) {
   // A function declaration: the key handler above may call it before this line runs.
   function leaveDemo() { if (!leaveDemo.done) { leaveDemo.done = true; context.router.go("start", {}, { replace: true }); } }
   if (demo) {
-    showMessage(DEMO_CAPTION);
+    showMessage(t(DEMO_CAPTION));
     window.addEventListener("pointerdown", leaveDemo);
     cleanups.push(() => window.removeEventListener("pointerdown", leaveDemo));
   }
@@ -1112,8 +1166,8 @@ async function mountRace(container, context, params, owned = []) {
   let wasMissed = false, finalLapShown = false, lightsOn = null, dragNoted = false, extensionEvents = 0, extensionPhase = null;
   /** What the player is told when a drag pass puts them out (game/drag-race.js `DQ_CODE`). */
   const DRAG_OUT = {
-    "red light": "Red light! Disqualified.", "out of lane": "Out of your lane! Disqualified.", "reversing": "Backing up! Disqualified.",
-    "not staged": "Not staged in time! Disqualified.", "timeout": "Out of time! Disqualified.",
+    "red light": msg("Red light! Disqualified."), "out of lane": msg("Out of your lane! Disqualified."), "reversing": msg("Backing up! Disqualified."),
+    "not staged": msg("Not staged in time! Disqualified."), "timeout": msg("Out of time! Disqualified."),
   };
   const showExtension = (race, state, now) => {
     const view = extensionHud(state, race, entrants, { t, formatRaceTime, summitBoard }, { events: extensionEvents, phase: extensionPhase });
@@ -1140,7 +1194,7 @@ async function mountRace(container, context, params, owned = []) {
       const leader = race.trucks.find((x) => x.place === 1) ?? race.trucks[0];
       flyHud.set(summit
         ? [[t("Time Remaining:"), formatRaceTime(race.summit?.left ?? 0)]]
-        : [[t("Lap:"), `${Math.min(leader.lap, race.laps)}/${race.laps}`], [t("Clock:"), formatRaceTime(race.clock)]]);
+        : [[t("[lap count]Lap:"), `${Math.min(leader.lap, race.laps)}/${race.laps}`], [t("Clock:"), formatRaceTime(race.clock)]]);
     }
     if (race.extension) { showExtension(race, race.extension, now); return; }
     // A watched race shows the watched truck's times.
@@ -1161,12 +1215,12 @@ async function mountRace(container, context, params, owned = []) {
       dragTree.set(byLane, entrants[0].player ? race.drag.lane[0] : null, slip);
       setHud([
         [t("Clock:"), formatRaceTime(me.finished && !me.dq ? me.raceTime : race.clock)],
-        ["Reaction:", me.reaction === null ? "--.--" : me.reaction.toFixed(2)],
+        [t("Reaction:"), me.reaction === null ? "--.--" : me.reaction.toFixed(2)],
         ["", ""], [t("Place:"), `${me.place}/${race.trucks.length}`],
       ]);
-      if (me.dq && !dragNoted) flash(DRAG_OUT[me.dq] ?? "Disqualified.", now);
-      else if (me.rerun && !dragNoted) flash("Hit by a disqualified truck: the pass will be run again.", now);
-      else if (me.finished && !dragNoted) flash(`Elapsed time ${me.raceTime.toFixed(2)} s`, now);
+      if (me.dq && !dragNoted) flash(t(DRAG_OUT[me.dq] ?? "Disqualified."), now);
+      else if (me.rerun && !dragNoted) flash(t("Hit by a disqualified truck: the pass will be run again."), now);
+      else if (me.finished && !dragNoted) flash(t("Elapsed time <<1>> s", me.raceTime.toFixed(2)), now);
       if (me.finished || me.dq) dragNoted = true;
       return;
     }
@@ -1177,7 +1231,7 @@ async function mountRace(container, context, params, owned = []) {
       // Under them every driver with their score, the leader first, as the game lists them (from play; its drawing
       // code was not traced).
       setHud([
-        [t("Time Remaining:"), formatRaceTime(race.summit?.left ?? 0)], ["Score:", String(Math.round(me.score))], [t("Place:"), `${me.place}/${race.trucks.length}`], ["", ""],
+        [t("Time Remaining:"), formatRaceTime(race.summit?.left ?? 0)], [t("Score:"), String(Math.round(me.score))], [t("Place:"), `${me.place}/${race.trucks.length}`], ["", ""],
         ...summitBoard(race.trucks, entrants.map((e) => e.name)),
       ]);
       return;
@@ -1185,13 +1239,13 @@ async function mountRace(container, context, params, owned = []) {
     setHud([
       [t("Lap:"), formatRaceTime(me.lapTime)], [t("Best:"), formatRaceTime(me.best)], [t("Clock:"), formatRaceTime(race.clock)],
       ["", ""], [race.gap?.kind === "lead" ? t("Lead:") : t("Back:"), formatRaceTime(race.gap?.seconds ?? 0)],
-      [t("Place:"), `${t("Lap:")} ${me.lap}/${race.laps}`, `${me.place}/${race.trucks.length}`],
+      [t("Place:"), `${t("[lap count]Lap:")} ${me.lap}/${race.laps}`, `${me.place}/${race.trucks.length}`],
     ]);
-    if (me.missed && !wasMissed) flash("Missed checkpoint! Turn around.", now);
+    if (me.missed && !wasMissed) flash(t("Missed checkpoint! Turn around."), now);
     wasMissed = me.missed;
     if (!finalLapShown && race.laps > 1 && me.lap === race.laps && race.started && !me.finished) {
       finalLapShown = true;
-      flash("Final lap!", now);
+      flash(t("Final lap!"), now);
     }
   };
 
@@ -1206,6 +1260,23 @@ async function mountRace(container, context, params, owned = []) {
     const race = await sim.call("finish");
     if (disposed) return;
     context.lastReplay = Object.assign(recorder.build(), { extension: extensionDress });
+    if (net) {
+      // The results barrier: every machine's own times for its players (0x18); the instant replay is off (14.4).
+      context.lastReplay = entrants.filter((e) => !e.computer).length > 1 ? null : context.lastReplay;
+      const syncing = t("Synchronizing scores");
+      loadingText.textContent = `${syncing}…`;
+      vrMessage.set([syncing]);
+      const me = race.trucks[0];
+      const reported = await net.link.exchangeResults({ lapsLed: me.led ?? 0, laps: me.laps ?? 0, total: me.raceTime ?? 0, best: summit ? me.score ?? 0 : me.best ?? 0 });
+      if (disposed) return;
+      race.trucks.forEach((rt, i) => {
+        // An extension's places and points came from the room owner's machine already (docs/EXTENSIONS.md).
+        const r = !gameMode && entrants[i].remote && reported.get(entrants[i].vehicle);
+        if (!r) return;
+        Object.assign(rt, { raceTime: r.total, laps: r.laps, led: r.lapsLed, finished: r.laps > 0 || summit, ...(summit ? { score: r.best } : { best: r.best }) });
+      });
+      net.link.finish();
+    }
     const rows = race.trucks.map((t, i) => ({
       ...t, name: entrants[i].name, file: entrants[i].file, truckName: truckName(entrants[i].file), player: entrants[i].player,
       // An extension supplies the result time shown in the Winner's Circle.
@@ -1223,6 +1294,51 @@ async function mountRace(container, context, params, owned = []) {
     }
     context.router.go("results", { track, laps: gameMode ? laps : race.laps ?? laps, difficulty, rows, mode: gameMode ?? track.raceType, truck: playerTruck, tournament: !!params.tournament }, { replace: true });
   };
+
+  /** Send our truck's horn, YeeHaw or headlights to the others at once. */
+  const netSend = (kind, extra = {}) => { if (netRace && !finishing) net.link.outgoing(netRace.local(kind, extra)); };
+  /** After each tick of a network race: what this machine sends, and what the others' packets do here. */
+  const netTick = (r, now) => {
+    if (netHostEnded && !finishing) { finish(); return; }
+    // The room's owner left during an extension race and this machine owns the room now: it decides from here on.
+    if (!netDecides && extensionRace && net.policy !== "legacy" && context.net?.session.isHost()) { netDecides = true; netRace.authority(true); }
+    for (const e of netRace.collect(r, now, (i) => crash.code(i))) net.link.outgoing(e);
+    for (const fx of netRace.effects()) {
+      const pos = r.poses[fx.truck]?.current?.pos;
+      if (fx.kind === "horn") truckAudio.horn(fx.truck, pos);
+      else if (fx.kind === "yeehaw") truckAudio.yeehaw(fx.truck, pos);
+      else if (fx.kind === "lights") lamps[fx.truck] = fx.lamps;
+      else if (fx.kind === "damage") crash.adopt(fx.truck, fx.code, { dent: (zone, level) => drawn[fx.truck].dent(zone, level), repair: () => drawn[fx.truck].repair() });
+      else if (fx.kind === "gone") flash(`${entrants[fx.truck].name} ${t("has left the race")}.`, now, 3);
+    }
+  };
+  /** Chat in a network race: the others' lines over the race, Enter to type one's own. */
+  const netChat = net ? (() => {
+    const lines = el("div", { class: "race-chat", "aria-live": "polite" });
+    const input = el("input", { class: "race-chat-entry", type: "text", maxlength: 81, hidden: true, "aria-label": t("Message") });
+    view.append(lines, input);
+    const show = (line) => {
+      const row = el("div", { class: line.notice ? "net-notice" : null }, line.notice ? line.text : `${line.name}: ${line.text}`);
+      lines.append(row);
+      while (lines.childElementCount > 5) lines.firstElementChild.remove();
+      setTimeout(() => row.remove(), 10000);
+    };
+    const appNet = context.net;
+    if (appNet) { appNet.onLine = show; cleanups.push(() => { if (appNet.onLine === show) appNet.onLine = null; }); }
+    // The keys typed go to the message, not to the truck.
+    for (const type of ["keydown", "keyup"]) input.addEventListener(type, (e) => e.stopPropagation());
+    const chat = {
+      typing: false,
+      open() { chat.typing = true; input.hidden = false; input.value = ""; input.focus(); },
+      close() { chat.typing = false; input.hidden = true; input.blur(); },
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { const text = input.value.trim(); if (text) context.net?.session.chat(text); chat.close(); }
+      else if (e.key === "Escape") chat.close();
+    });
+    input.addEventListener("blur", () => { chat.typing = false; input.hidden = true; });
+    return chat;
+  })() : null;
 
   let busy = false, latest = null, drawnAt = performance.now(), poolsWarmed = false;
   // Held until the frames come steadily: `WARM_FRAMES` in a row each shorter than `WARM_FRAME_S`, or `WARM_LIMIT_MS` at most.
@@ -1268,9 +1384,10 @@ async function mountRace(container, context, params, owned = []) {
     if (ready && !busy && !paused && !finishing) {
       busy = true;
       const sentAt = performance.now();
-      sim.call("tick", { tMs: now, input: sampleInput() })
+      sim.call("tick", { tMs: now, input: sampleInput(), net: netRace?.commands() })
         .then((r) => {
           latest = r;
+          if (netRace && !disposed) netTick(r, now);
           if (fpsCounter.visible) fpsCounter.noteSim(performance.now(), r.steps ?? 0, performance.now() - sentAt);
           if ((r.race || freeRoam) && r.time !== undefined) recorder.update(r.time, r.poses.map((p) => p.current), r.boxes ?? [], (i) => crash.code(i));
           // 4x4 Evolution trees a truck knocked over start to fall (game/falling-trees.js).
@@ -1362,7 +1479,8 @@ async function mountRace(container, context, params, owned = []) {
       if (!latest.damageHandled) {
         latest.damageHandled = true;
         latest.poses.forEach((p, i) => {
-          crash.contacts(i, p.damage, (zone, level) => drawn[i].dent(zone, level));
+          // A remote truck's damage is its owner's (packet 0x20); its contacts here only make sparks.
+          if (!entrants[i].remote) crash.contacts(i, p.damage, (zone, level) => drawn[i].dent(zone, level));
           if (p.touch) tireFx.touch(i, p.touch.pos, p.touch.steps, p.touch.force, p.current.speed ?? 0, effectFlags(), p.touch.hull !== false);
           for (const d of p.damage ?? []) tireFx.hit(i, drawn[i], d.zone, d.steps, d.force, p.current.speed ?? 0, effectFlags());
         });
@@ -1528,7 +1646,7 @@ async function mountRace(container, context, params, owned = []) {
   let rex = null, rexClock = 0;
   const becomeRex = () => {
     if (rex) return null;
-    if (!build.rex) return "TREX: REX.BIN is not in any mounted archive (it is in Monster Truck Madness 1's GAME.POD).";
+    if (!build.rex) return msg("TREX: REX.BIN is not in any mounted archive (it is in Monster Truck Madness 1's GAME.POD).");
     const library = createModelLibrary({ [build.rex.model.name]: build.rex.model }, build.rex.textures, look);
     const group = new THREE.Group(), meshes = [];
     for (const { geometry, material } of library.get(build.rex.model.name) ?? []) { const mesh = new THREE.Mesh(geometry, material); group.add(mesh); meshes.push(mesh); }
@@ -1547,7 +1665,7 @@ async function mountRace(container, context, params, owned = []) {
   };
   host.start(scene, loop);
   showVrMenu();
-  gold = createGoldMode({
+  if (!net) gold = createGoldMode({
     window, sim, scene, camera, renderer, canvas, view, build, font: hudFont, scale, t, track, setWeather, audio, trex: becomeRex,
     getWeather: () => weatherScene.weather,
     flash: (text) => flash(text, performance.now()),
@@ -1555,13 +1673,13 @@ async function mountRace(container, context, params, owned = []) {
     physicsLine: () => zPhysicsLine(latest?.poses[0]?.sound, physics),
     // Ctrl+L (Z mode): another track by its SIT's name, with the same trucks and settings.
     loadSit: async () => {
-      const name = window.prompt("Load a track by its .SIT name:", track.file);
+      const name = window.prompt(t("Load a track by its .SIT name:"), track.file);
       if (!name) return;
       const said = await loadTrackByName(name);
       if (said) flash(said, performance.now());
     },
   });
-  cleanups.push(() => gold.dispose());
+  cleanups.push(() => gold?.dispose());
 
   /** Another track by its SIT's name (or its title), with the same trucks and settings. Returns what went wrong, or null. */
   async function loadTrackByName(name) {
@@ -1570,7 +1688,7 @@ async function mountRace(container, context, params, owned = []) {
     const stem = (item) => item.file.toUpperCase().replace(/\.SI[T2]$/, "");
     const next = catalog.tracks.find((item) => stem(item) === wanted) ?? catalog.tracks.find((item) => item.name.toUpperCase() === wanted)
       ?? catalog.tracks.find((item) => item.name.toUpperCase().includes(wanted));
-    if (!next) return `No track named ${wanted}.`;
+    if (!next) return t("No track named <<1>>.", wanted);
     context.router.go("race", { ...params, track: next, mode: next.raceType, laps: next.defaultLaps, freeRoam: !!params.freeRoam || !!next.freeRoamOnly }, { replace: true });
     return null;
   }
@@ -1587,234 +1705,235 @@ async function mountRace(container, context, params, owned = []) {
     const truckNames = () => catalogTrucks.map((item) => bare(item.file).toLowerCase());
     const bots = () => entrants.filter((e) => !e.player);
     const onOff = (word) => (/^(1|on)$/i.test(word ?? "") ? true : /^(0|off)$/i.test(word ?? "") ? false : null);
-    const said = (on) => (on ? "on" : "off");
+    const said = (on) => (on ? t("on") : t("off"));
+    const usage = (syntax, now) => t("Usage: <<1>>. Now <<2>>.", syntax, now);
     const weatherNow = () => weatherScene.weather ?? weatherId;
     /** The lines the console opens with, and `info`'s first ones. */
     const summary = () => {
       const pos = latest?.poses[0]?.current.pos ?? [0, 0, 0];
       const me = latest?.race?.trucks[0];
-      const lap = freeRoam || !latest?.race ? "free roam" : extension?.name ?? (summit ? "Rumble" : `Lap ${me?.lap ?? 1}/${latest.race.laps}`);
+      const lap = freeRoam || !latest?.race ? t("free roam") : extension ? t(extension.name) : (summit ? "Rumble" : t("Lap <<1>>/<<2>>", me?.lap ?? 1, latest.race.laps));
       return [
-        `Track: ${track.name} (${track.file}), Truck: ${truckName(playerTruck)} (${playerTruck})`,
-        `Position X:${Math.round(pos[0])} Y:${Math.round(pos[1])} Z:${Math.round(pos[2])}, ${lap}, Weather: ${t(WEATHER_NAMES[weatherNow()])}, Backdrop: ${said(!!context.settings.backdrops)}, Bots: ${bots().length}`,
+        t("Track: <<1>> (<<2>>), Truck: <<3>> (<<4>>)", track.name, track.file, truckName(playerTruck), playerTruck),
+        t("Position X:<<1>> Y:<<2>> Z:<<3>>, <<4>>, Weather: <<5>>, Backdrop: <<6>>, Bots: <<7>>", Math.round(pos[0]), Math.round(pos[1]), Math.round(pos[2]), lap, t(WEATHER_NAMES[weatherNow()]), said(!!context.settings.backdrops), bots().length),
       ].join("\n");
     };
     const SKILLS = ["rookie", "intermediate", "professional", "sonic"];
     const weatherNames = WEATHER_NAMES.map((n) => n.toLowerCase().replace(/\s+/g, ""));
     const commands = {
       info: {
-        help: "the track, the truck and the simulation, as they are now",
+        help: msg("the track, the truck and the simulation, as they are now"),
         run: () => {
           const now = latest?.poses[0]?.current, me = latest?.race?.trucks[0];
           const sound = context.settings.sound ?? {};
           return [
             WATERMARK, summary(),
-            `Game: ${build.game ?? track.game ?? "MTM2"}, Type: ${track.typeLabel ?? track.raceType}, Skill: ${SKILLS[Math.min(2, Number(difficulty))]}${Number(difficulty) === 2 && context.settings.sonicTrucks ? " (sonic)" : ""}, Look: ${look}`,
-            `Speed: ${Math.round((now?.speed ?? 0) * 0.6818)} mph, Gear: ${now?.gear ?? "-"}, RPM: ${Math.round(now?.rpm ?? 0)}, Heading: ${Math.round((((shownPoses?.[0]?.euler[2] ?? 0) * 180) / Math.PI + 360) % 360)} deg`,
-            `Clock: ${formatRaceTime(latest?.race?.clock ?? latest?.time ?? 0)}, Place: ${me ? `${me.place}/${latest.race.trucks.length}` : "-"}, Checkpoint: ${me ? `${me.checkpoint + 1}/${build.sim.checkpoints.length}` : "-"}`,
-            `Overlap: ${said(build.tileOverlap !== false)}, Music: ${said((sound.music ?? 0.8) > 0)}, Sound: ${said(!sound.muted)}, Trucks: ${entrants.length}, Objects: ${build.objects?.length ?? 0}`,
+            t("Game: <<1>>, Type: <<2>>, Skill: <<3>>, Look: <<4>>", build.game ?? track.game ?? "MTM2", track.typeLabel ?? track.raceType, `${SKILLS[Math.min(2, Number(difficulty))]}${Number(difficulty) === 2 && context.settings.sonicTrucks ? " (sonic)" : ""}`, look),
+            t("Speed: <<1>> mph, Gear: <<2>>, RPM: <<3>>, Heading: <<4>> deg", Math.round((now?.speed ?? 0) * 0.6818), now?.gear ?? "-", Math.round(now?.rpm ?? 0), Math.round((((shownPoses?.[0]?.euler[2] ?? 0) * 180) / Math.PI + 360) % 360)),
+            t("Clock: <<1>>, Place: <<2>>, Checkpoint: <<3>>", formatRaceTime(latest?.race?.clock ?? latest?.time ?? 0), me ? `${me.place}/${latest.race.trucks.length}` : "-", me ? `${me.checkpoint + 1}/${build.sim.checkpoints.length}` : "-"),
+            t("Overlap: <<1>>, Music: <<2>>, Sound: <<3>>, Trucks: <<4>>, Objects: <<5>>", said(build.tileOverlap !== false), said((sound.music ?? 0.8) > 0), said(!sound.muted), entrants.length, build.objects?.length ?? 0),
           ].join("\n");
         },
       },
       bots: {
-        help: "lists the computer opponents: number, driver, truck",
-        run: () => (bots().length ? bots().map((e, i) => `${i + 1}  ${e.name.padEnd(10)} ${truckName(e.file)} (${e.file})`).join("\n") : "There are no computer opponents."),
+        help: msg("lists the computer opponents: number, driver, truck"),
+        run: () => (bots().length ? bots().map((e, i) => `${i + 1}  ${e.name.padEnd(10)} ${truckName(e.file)} (${e.file})`).join("\n") : t("There are no computer opponents.")),
       },
       ...(spectator ? {
         fly: {
-          usage: "fly <0|1>", help: "the free camera in a watched race (the B key)",
+          usage: "fly <0|1>", help: msg("the free camera in a watched race (the B key)"),
           run: ([word]) => {
             const on = onOff(word);
-            if (on === null) return `Usage: fly <0|1>. Now ${said(!!flyer.enabled)}.`;
-            return `Free camera ${said(setFlying(on))}.`;
+            if (on === null) return usage("fly <0|1>", said(!!flyer.enabled));
+            return t("Free camera <<1>>.", said(setFlying(on)));
           },
         },
         watch: {
-          usage: "watch <n>", help: `the truck the camera is on, 1 to ${entrants.length}`,
+          usage: "watch <n>", help: t("the truck the camera is on, 1 to <<1>>", entrants.length),
           run: ([word]) => {
             const n = Math.trunc(Number(word));
-            if (!(n >= 1 && n <= entrants.length)) return `Usage: watch <1-${entrants.length}>. Now ${cameraTarget + 1}, ${truckName(entrants[cameraTarget].file)}.`;
+            if (!(n >= 1 && n <= entrants.length)) return usage(`watch <1-${entrants.length}>`, `${cameraTarget + 1}, ${truckName(entrants[cameraTarget].file)}`);
             watch(n - 1);
-            return `Watching ${truckName(entrants[cameraTarget].file)}.`;
+            return t("Watching <<1>>.", truckName(entrants[cameraTarget].file));
           },
         },
       } : {}),
       physics: {
-        usage: "physics <model>", help: `the physics model: ${PHYSICS_MODELS.map((m) => `${m.id} ${m.label}`).join(", ")} (restarts the race)`,
+        usage: "physics <model>", help: t("the physics model: <<1>> (restarts the race)", PHYSICS_MODELS.map((m) => `${m.id} ${t(m.label)}`).join(", ")),
         complete: () => PHYSICS_MODELS.map((m) => m.id),
         run: ([word]) => {
           const model = PHYSICS_MODELS.find((m) => m.id === (word ?? "").toLowerCase());
-          if (!model) return `Usage: physics <${PHYSICS_MODELS.map((m) => m.id).join("|")}>. Now ${physicsSetting === "auto" ? `auto: ${physics}` : physics} (${physicsModel(physics).label}).`;
+          if (!model) return usage(`physics <${PHYSICS_MODELS.map((m) => m.id).join("|")}>`, `${physicsSetting === "auto" ? `auto: ${physics}` : physics} (${t(physicsModel(physics).label)})`);
           context.settings.physics = model.id;
           saveSettings(context.settings);
           restart({ physics: model.id });
-          return `Physics: ${model.label}.`;
+          return t("Physics: <<1>>.", t(model.label));
         },
       },
       backdrop: {
-        usage: "backdrop <0|1>", help: "the track's backdrop models on or off (restarts the race)",
+        usage: "backdrop <0|1>", help: msg("the track's backdrop models on or off (restarts the race)"),
         run: ([word]) => {
           const on = onOff(word);
-          if (on === null) return `Usage: backdrop <0|1>. Now ${said(!!context.settings.backdrops)}.`;
+          if (on === null) return usage("backdrop <0|1>", said(!!context.settings.backdrops));
           context.settings.backdrops = on;
           saveSettings(context.settings);
           restart({});
-          return `Backdrop ${said(on)}.`;
+          return t("Backdrop <<1>>.", said(on));
         },
       },
       overlap: {
-        usage: "overlap <0|1>", help: "the ground tiles' two-pixel overlap on or off, for this race (restarts it)",
+        usage: "overlap <0|1>", help: msg("the ground tiles' two-pixel overlap on or off, for this race (restarts it)"),
         run: ([word]) => {
           const on = onOff(word);
-          if (on === null) return `Usage: overlap <0|1>. Now ${said(build.tileOverlap !== false)}.`;
+          if (on === null) return usage("overlap <0|1>", said(build.tileOverlap !== false));
           restart({ tileOverlap: on });
-          return `Overlap ${said(on)}.`;
+          return t("Overlap <<1>>.", said(on));
         },
       },
       music: {
-        usage: "music <0|1>", help: "the music on or off",
+        usage: "music <0|1>", help: msg("the music on or off"),
         run: ([word]) => {
           const on = onOff(word);
           const sound = context.settings.sound ?? {};
-          if (on === null) return `Usage: music <0|1>. Now ${said((sound.music ?? 0.8) > 0)}.`;
+          if (on === null) return usage("music <0|1>", said((sound.music ?? 0.8) > 0));
           if (!on && (sound.music ?? 0.8) > 0) context.musicLevelBefore = sound.music ?? 0.8;
           context.settings.sound = { ...sound, music: on ? ((sound.music ?? 0) > 0 ? sound.music : context.musicLevelBefore ?? 0.8) : 0 };
           saveSettings(context.settings);
           audio.setVolumes(context.settings.sound);
-          return `Music ${said(on)}.`;
+          return t("Music <<1>>.", said(on));
         },
       },
       sound: {
-        usage: "sound <0|1>", help: "all sound on or off",
+        usage: "sound <0|1>", help: msg("all sound on or off"),
         run: ([word]) => {
           const on = onOff(word);
-          if (on === null) return `Usage: sound <0|1>. Now ${said(!context.settings.sound?.muted)}.`;
+          if (on === null) return usage("sound <0|1>", said(!context.settings.sound?.muted));
           context.settings.sound = { ...context.settings.sound, muted: !on };
           saveSettings(context.settings);
           audio.setVolumes(context.settings.sound);
-          return `Sound ${said(on)}.`;
+          return t("Sound <<1>>.", said(on));
         },
       },
       fps: {
-        usage: "fps <0|1>", help: "the FPS counter on or off",
+        usage: "fps <0|1>", help: msg("the FPS counter on or off"),
         run: ([word]) => {
           const on = onOff(word);
-          if (on === null) return `Usage: fps <0|1>. Now ${said(!!context.settings.fpsCounter)}.`;
+          if (on === null) return usage("fps <0|1>", said(!!context.settings.fpsCounter));
           context.settings.fpsCounter = on;
           fpsCounter.setVisible(on);
           saveSettings(context.settings);
-          return `FPS counter ${said(on)}.`;
+          return t("FPS counter <<1>>.", said(on));
         },
       },
       addbot: {
-        usage: "addbot [truck]", help: "adds a computer opponent (restarts the race)", complete: truckNames,
+        usage: "addbot [truck]", help: msg("adds a computer opponent (restarts the race)"), complete: truckNames,
         run: (args, rest) => {
-          if (freeRoam) return "Free roam has no opponents (freeroam 0 first).";
-          if (entrants.length >= Math.min(8, grid.length)) return "The grid is full.";
+          if (freeRoam) return t("Free roam has no opponents (freeroam 0 first).");
+          if (entrants.length >= Math.min(8, grid.length)) return t("The grid is full.");
           const racing = new Set(entrants.map((e) => e.file));
           const pick = rest ? findTruck(rest) : catalogTrucks.find((item) => !racing.has(item.file)) ?? catalogTrucks[0];
-          if (!pick) return `No truck named ${rest}.`;
-          if (racing.has(pick.file)) return `${pick.name} is already racing.`;
+          if (!pick) return t("No truck named <<1>>.", rest);
+          if (racing.has(pick.file)) return t("<<1>> is already racing.", pick.name);
           restart({ opponents: [...bots().map((e) => e.file), pick.file] });
-          return `Adding ${pick.name}.`;
+          return t("Adding <<1>>.", pick.name);
         },
       },
       kickbot: {
-        usage: "kickbot [n|name]", help: "removes a computer opponent by its number in `bots` or its name, the last one by default (restarts the race)",
+        usage: "kickbot [n|name]", help: msg("removes a computer opponent by its number in `bots` or its name, the last one by default (restarts the race)"),
         complete: () => bots().map((e) => e.name.toLowerCase()),
         run: (args, rest) => {
           const list = bots();
-          if (!list.length) return "There are no computer opponents.";
+          if (!list.length) return t("There are no computer opponents.");
           const w = rest.trim().toUpperCase();
           const out = /^\d+$/.test(w) ? list[Number(w) - 1]
             : w ? list.find((e) => e.name.toUpperCase() === w || bare(e.file) === bare(w) || truckName(e.file).toUpperCase().includes(w)) : list[list.length - 1];
-          if (!out) return `No opponent named ${rest}.`;
+          if (!out) return t("No opponent named <<1>>.", rest);
           restart({ opponents: list.filter((e) => e !== out).map((e) => e.file) });
-          return `Removing ${out.name}.`;
+          return t("Removing <<1>>.", out.name);
         },
       },
       laps: {
-        usage: "laps <n>", help: "sets the race's laps, from now on",
+        usage: "laps <n>", help: msg("sets the race's laps, from now on"),
         run: async ([n]) => {
           const value = Math.trunc(Number(n));
-          if (!(value >= 1)) return "Usage: laps <n>";
+          if (!(value >= 1)) return t("Usage: <<1>>", "laps <n>");
           const set = await sim.call("command", { name: "laps", value });
-          return set ? `${set} laps.` : "This race has no laps.";
+          return set ? t("<<1>> laps.", set) : t("This race has no laps.");
         },
       },
       finish: {
-        help: "ends the race now: the times of the trucks still racing are worked out",
-        run: () => { if (freeRoam) return "Free roam has no race to finish."; if (finishing) return "The race is finishing."; finish(); return "Finishing."; },
+        help: msg("ends the race now: the times of the trucks still racing are worked out"),
+        run: () => { if (freeRoam) return t("Free roam has no race to finish."); if (finishing) return t("The race is finishing."); finish(); return t("Finishing."); },
       },
       map: {
-        usage: "map <sit>", help: "changes the track, by its SIT's name or its title",
+        usage: "map <sit>", help: msg("changes the track, by its SIT's name or its title"),
         complete: async () => ((await context.assets.call("catalog").catch(() => ({ tracks: [] }))).tracks.map((item) => item.file.replace(/\.SI[T2]$/i, "").toLowerCase())),
-        run: async (args, rest) => (rest ? (await loadTrackByName(rest)) ?? `Loading ${rest}.` : `Usage: map <sit>. Now on ${track.file}.`),
+        run: async (args, rest) => (rest ? (await loadTrackByName(rest)) ?? t("Loading <<1>>.", rest) : usage("map <sit>", track.file)),
       },
       weather: {
-        usage: "weather <n|name>", help: `changes the weather: ${weatherNames.map((n, i) => `${i} ${n}`).join(", ")}`, complete: () => weatherNames,
+        usage: "weather <n|name>", help: t("changes the weather: <<1>>", weatherNames.map((n, i) => `${i} ${n}`).join(", ")), complete: () => weatherNames,
         run: async ([name]) => {
           const index = /^\d+$/.test(name ?? "") ? Number(name) : weatherNames.findIndex((n) => n.startsWith((name ?? "").toLowerCase()));
-          if (!name || index < 0 || index >= WEATHER_NAMES.length) return `Usage: weather <0-${WEATHER_NAMES.length - 1}|${weatherNames.join("|")}>. Now ${weatherNow()} ${weatherNames[weatherNow()]}.`;
+          if (!name || index < 0 || index >= WEATHER_NAMES.length) return usage(`weather <0-${WEATHER_NAMES.length - 1}|${weatherNames.join("|")}>`, `${weatherNow()} ${weatherNames[weatherNow()]}`);
           await setWeather(index);
-          return `Weather: ${t(WEATHER_NAMES[index])}.`;
+          return t("Weather: <<1>>.", t(WEATHER_NAMES[index]));
         },
       },
       skill: {
-        usage: "skill <n|level>", help: `the opponents' difficulty: ${SKILLS.map((n, i) => `${i} ${n}`).join(", ")} (restarts the race)`, complete: () => SKILLS,
+        usage: "skill <n|level>", help: t("the opponents' difficulty: <<1>> (restarts the race)", SKILLS.map((n, i) => `${i} ${n}`).join(", ")), complete: () => SKILLS,
         run: ([name]) => {
           const index = /^[0-3]$/.test(name ?? "") ? Number(name) : SKILLS.findIndex((n) => n.startsWith((name ?? "").toLowerCase()));
-          if (!name || index < 0) return `Usage: skill <0-3|${SKILLS.join("|")}>`;
+          if (!name || index < 0) return t("Usage: <<1>>", `skill <0-3|${SKILLS.join("|")}>`);
           // Sonic is Professional with the computer trucks driving as on a Sonic track (Options, Advanced).
           if (index >= 2) { context.settings.sonicTrucks = index === 3; saveSettings(context.settings); }
           restart({ difficulty: Math.min(2, index) });
-          return `Skill: ${SKILLS[index]}.`;
+          return t("Skill: <<1>>.", SKILLS[index]);
         },
       },
       truck: {
-        usage: "truck <name>", help: "changes your truck (restarts the race)", complete: truckNames,
+        usage: "truck <name>", help: msg("changes your truck (restarts the race)"), complete: truckNames,
         run: (args, rest) => {
           const pick = rest ? findTruck(rest) : null;
-          if (!pick) return rest ? `No truck named ${rest}.` : `Usage: truck <name>. Now in ${truckName(playerTruck)}.`;
+          if (!pick) return rest ? t("No truck named <<1>>.", rest) : usage("truck <name>", truckName(playerTruck));
           restart({ truck: pick.file, opponents: bots().map((e) => e.file).filter((file) => file !== pick.file) });
-          return `Truck: ${pick.name}.`;
+          return t("Truck: <<1>>.", pick.name);
         },
       },
       freeroam: {
-        usage: "freeroam <0|1>", help: "free roam on or off (restarts the race)",
+        usage: "freeroam <0|1>", help: msg("free roam on or off (restarts the race)"),
         run: ([on]) => {
-          if (on !== "0" && on !== "1") return `Usage: freeroam <0|1>. Now ${freeRoam ? 1 : 0}.`;
-          if (on === "0" && track.freeRoamOnly) return "This track has no checkpoints: free roam only.";
+          if (on !== "0" && on !== "1") return usage("freeroam <0|1>", freeRoam ? 1 : 0);
+          if (on === "0" && track.freeRoamOnly) return t("This track has no checkpoints: free roam only.");
           restart({ freeRoam: on === "1" });
-          return `Free roam ${on === "1" ? "on" : "off"}.`;
+          return t("Free roam <<1>>.", said(on === "1"));
         },
       },
-      exit: { help: "closes the console", run: () => { gameConsole?.setOpen(false); } },
-      restart: { help: "starts the race again", run: () => { restart({}); } },
-      quit: { help: "leaves the race for the Races screen", run: () => { leave(); } },
+      exit: { help: msg("closes the console"), run: () => { gameConsole?.setOpen(false); } },
+      restart: { help: msg("starts the race again"), run: () => { restart({}); } },
+      quit: { help: msg("leaves the race for the Races screen"), run: () => { leave(); } },
     };
     context.consoleHistory ??= [];
     commands.distance = distanceCommand(context);
     // A tournament under way (app/tournament.js): where it stands, and moving between its events.
     commands.tourney = {
-      usage: "tourney [next|prev|goto <n>]", help: "the tournament's events: the status, or another event (one passed over scores nothing)",
+      usage: "tourney [next|prev|goto <n>]", help: msg("the tournament's events: the status, or another event (one passed over scores nothing)"),
       complete: () => ["next", "prev", "goto"],
       run: async ([word, number]) => {
         const tournament = context.tournament;
-        if (!tournament) return "No tournament is under way. Start one from the Races screen.";
-        const { run } = tournament, list = () => run.events.map((e, i) => `${i === run.current ? ">" : " "} ${i + 1}. ${e.name}${e.points ? " (run)" : e.skipped ? " (passed over)" : ""}`).join("\n");
+        if (!tournament) return t("No tournament is under way. Start one from the Races screen.");
+        const { run } = tournament, list = () => run.events.map((e, i) => `${i === run.current ? ">" : " "} ${i + 1}. ${e.name}${e.points ? ` (${t("run")})` : e.skipped ? ` (${t("passed over")})` : ""}`).join("\n");
         const to = word === "next" ? run.current + 1 : word === "prev" ? run.current - 1 : word === "goto" ? Number(number) - 1 : null;
-        if (to === null || !Number.isInteger(to)) return `${run.name}\n${list()}\nUsage: tourney [next|prev|goto <n>]`;
-        if (to < 0 || to > run.events.length) return `The tournament has events 1 to ${run.events.length}.`;
+        if (to === null || !Number.isInteger(to)) return `${run.name}\n${list()}\n${t("Usage: <<1>>", "tourney [next|prev|goto <n>]")}`;
+        if (to < 0 || to > run.events.length) return t("The tournament has events 1 to <<1>>.", run.events.length);
         const event = await moveToEvent(context, to);
-        if (!event) { context.router.go("tournament", {}, { replace: true }); return "The tournament is over."; }
+        if (!event) { context.router.go("tournament", {}, { replace: true }); return t("The tournament is over."); }
         await runEvent(context);
-        return `Event ${to + 1}: ${event.name}.`;
+        return t("Event <<1>>: <<2>>.", to + 1, event.name);
       },
     };
     gameConsole = createConsole({
-      parent: view, window, commands, history: context.consoleHistory,
-      banner: () => `${WATERMARK}\n${summary()}\nType help for commands`,
+      parent: view, window, commands, history: context.consoleHistory, t,
+      banner: () => `${WATERMARK}\n${summary()}\n${t("Type help for commands")}`,
     });
     cleanups.push(() => gameConsole.dispose());
   }

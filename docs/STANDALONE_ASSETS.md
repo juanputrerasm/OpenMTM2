@@ -39,6 +39,47 @@ is included in a standalone package, it still needs a replacement or suitable li
 | Tracks and trucks | Discovered from `.SIT`/`.SI2` and `.TRK`, then followed transitively | Ship wholly original track and truck content graphs |
 | Tournaments and wording | `.TRN`, description text and optional `.LOC` tables | Create original tournaments, descriptions and localization data |
 
+## The trial
+
+OpenMTM2 ships one original game package: Microsoft's free Monster Truck Madness 2 trial, unmodified, in
+`assets/trial/`. Setup installs it with one click (`src/install/trial.js`, `src/ui/screens/install.js`).
+
+**License.** The trial's own EULA (`assets/trial/EULA.txt`, the `eula.txt` inside the installer) grants, in section 1:
+
+> Reproduction and Distribution. You may reproduce and distribute copies of the SOFTWARE PRODUCT; provided that a)
+> each copy shall be a true and complete copy, including all copyright and trademark notices; b) each copy shall be
+> accompanied by a copy of this EULA; and c) such distribution shall not be for commercial purposes.
+
+So the app carries the zip exactly as published, with the EULA beside it, and is not distributed commercially.
+Setup shows the EULA and installs only after the player accepts it. Files taken out of the trial are never committed
+or served separately: that would not be a true and complete copy.
+
+**The package.**
+- **Source:** the Internet Archive item `MonsterTruckMadness2_1020`.
+- **The zip:** `MtM2trial.zip`, 18,433,184 bytes, SHA-1 `d12c783aab1f9b88834c43879560c5d08eee8966`.
+- **The installer:** the zip holds one file, `MtM2trial.EXE` (18,491,952 bytes), a Windows program carrying one
+  cabinet at offset 68,352. The cabinet has one folder in MSZIP, 1,281 blocks and 41,967,338 bytes unpacked. The stub
+  also contains a stray `MSCF` at 0x2024 that is not a cabinet header.
+- **Files:** the cabinet's 25 files are:
+  - the archives `Startup.pod`, `Musicx.pod`, `Soundx.pod`, `Cockpit.pod`, `Truck2x.pod`, `Uix.pod` and `Tpark.pod`;
+  - `Monsterx.exe` (version 2.00.41, a retail build) and `Monsterx.ini`;
+  - the renderer DLLs;
+  - the help files, `readme.txt`, `faq.txt` and `eula.txt`;
+  - Microsoft's setup and DirectX setup files, and a font.
+- **No POD.INI:** the trial's setup writes it, so OpenMTM2 writes one from the archives it finds, in the full game's
+  mount order (`src/install/inspect-source.js` `listedArchives`).
+- **Archive names:** `MUSICX`, `SOUNDX`, `TRUCK2X` and `UIX` stand for MUSIC, SOUND, TRUCK2 and UI in the
+  required-archive check (`src/install/required-pods.js` `TRIAL_POD_NAMES`).
+- **Content:** Farm Road 29 (`WORLD/TPARK.SIT`) and four trucks (`EXECUTE`, `FIRESTN`, `SNAKEBIT`, `STINGER`).
+- **Fixed files:** every fixed file this document lists for the menus, HUD, cockpit, effects, sky and shared models
+  is present.
+
+**Download.** Setup fetches the app's own copy first. If that fails, it fetches the Internet Archive's copy through
+`https://cors.archive.org/cors/MonsterTruckMadness2_1020/MtM2trial.zip`. The Archive's plain download address sends
+no CORS header, so another site cannot read it; the CORS address is the one the Archive's own in-browser players use.
+A download that is not exactly the published zip (size and SHA-1) is refused. Measured on 2026-10-21, the Archive
+gave between 25 KB/s and 1.5 MB/s, so the app's own copy is the one to rely on.
+
 ## Bootstrap dependencies
 
 The current installer requires `POD.INI` and refuses an install that does not contain all six of

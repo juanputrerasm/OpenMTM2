@@ -20,6 +20,7 @@
   carried over.
 */
 import { crawl, kindOf } from "../shared/app-files.js";
+import { createStrings } from "../game/strings.js";
 
 /** The header on the requests that make the copy; sw.js leaves those alone. */
 export const COPYING = "x-openmtm2-offline";
@@ -227,19 +228,19 @@ function whenIdle() {
 }
 
 /**
- * What a player is told about the copy, in a line.
+ * What a player is told about the copy, in a line, in the words of `t` (game/strings.js).
  * @param {{ supported: boolean, enabled: boolean, saving: boolean, copy: object|null, error: string|null }} status
  */
-export function offlineStatusText(status) {
-  if (!status.supported) return status.error ? `Not possible here: ${status.error}` : "Not possible here: the page has to come from localhost, or over HTTPS with a certificate the browser trusts.";
-  if (!status.enabled) return "Off: the game needs its server at every start.";
+export function offlineStatusText(status, t = createStrings()) {
+  if (!status.supported) return status.error ? t("Not possible here: <<1>>", status.error) : t("Not possible here: the page has to come from localhost, or over HTTPS with a certificate the browser trusts.");
+  if (!status.enabled) return t("Off: the game needs its server at every start.");
   if (status.copy) {
     const when = new Date(status.copy.savedAt);
     const time = Number.isNaN(when.getTime()) ? "" : ` ${when.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`;
-    return `Saved${time}, ${status.copy.files} files${status.saving ? "; checking for a newer one..." : "."}`;
+    return status.saving ? t("Saved<<1>>, <<2>> files; checking for a newer one...", time, status.copy.files) : t("Saved<<1>>, <<2>> files.", time, status.copy.files);
   }
-  if (status.saving) return "Saving...";
-  return status.error ? `Not saved: ${status.error}` : "Not saved yet.";
+  if (status.saving) return t("Saving...");
+  return status.error ? t("Not saved: <<1>>", status.error) : t("Not saved yet.");
 }
 
 /**

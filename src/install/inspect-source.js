@@ -4,7 +4,8 @@
 */
 import { parsePodIni, installPathKey } from "./pod-ini.js";
 import { readExeVersion } from "./exe-version.js";
-import { missingRequiredPods, requiredPodsMessage } from "./required-pods.js";
+import { msg } from "../game/strings.js";
+import { isTrialPodSet, missingRequiredPods, podFileName, podRole, REQUIRED_PODS, requiredPodsParts } from "./required-pods.js";
 
 /**
  * An archive POD.INI lists. Installs differ in how the list is written (a drive letter, a
@@ -59,7 +60,7 @@ export async function findWeatherArt(source) {
 export async function inspectSource(source) {
   let exeVersion = null;
   try {
-    const exe = (await source.getFile("MONSTER.EXE")) ?? (await source.getFile("SYSTEM/MONSTER.EXE"));
+    const exe = await findExe(source);
     if (exe) exeVersion = readExeVersion(new Uint8Array(await exe.arrayBuffer()));
   } catch { /* no version: the modern skin */ }
 
@@ -74,34 +75,77 @@ export async function inspectSource(source) {
     if (found) files.push({ name: installPathKey(found.path), file: found.file });
     else missing.push(path);
   }
-  if (!iniFile) {
-    return { ok: false, message: "This folder has no POD.INI, which lists the game's archives. "
-      + "Pick the folder Monster Truck Madness 2 is installed in." };
+  // A disc image or the trial has no POD.INI (the game's setup writes it): its archives are found by name instead.
+  if (!iniFile) files.push(...await listedArchives(source));
+  if (!iniFile && !files.length) {
+    return { ok: false, message: msg("This folder has no POD.INI, which lists the game's archives. Pick the folder Monster Truck Madness 2 is installed in.") };
   }
   // The copy keeps the paths where the archives were found, so the mount matches them.
   const podIni = `${files.length}\r\n${files.map((f) => f.name.toLowerCase()).join("\r\n")}\r\n`;
   if (files.length === 0) {
-    return { ok: false, message: "None of the archives POD.INI lists are in this folder." };
+    return { ok: false, message: msg("None of the archives POD.INI lists are in this folder.") };
   }
   // Without the archives OpenMTM2 needs (install/required-pods.js) there is nothing to install.
   const required = missingRequiredPods(files.map((f) => f.name));
-  if (required.length) return { ok: false, message: requiredPodsMessage(required), required };
+  if (required.length) {
+    const [message, ...messageArgs] = requiredPodsParts(required);
+    return { ok: false, message, messageArgs, required };
+  }
   const totalBytes = files.reduce((sum, f) => sum + f.file.size, 0);
   const warnings = [...ini.warnings];
   const weatherArt = await findWeatherArt(source).catch(() => []);
   return {
     exeVersion,
     weatherArt,
+    edition: isTrialPodSet(files.map((f) => f.name)) ? "trial" : "full",
     ok: missing.length === 0,
     message: missing.length === 0
-      ? "Monster Truck Madness 2 found."
-      : `Monster Truck Madness 2 found. Missing archives: ${missing.join(", ")}.`,
+      ? (isTrialPodSet(files.map((f) => f.name)) ? msg("Monster Truck Madness 2 Trial found.") : msg("Monster Truck Madness 2 found."))
+      : msg("Monster Truck Madness 2 found. Missing archives: <<1>>."),
+    // The figures the message's <<1>> stands for: it is shown as `t(message, ...messageArgs)` (game/strings.js).
+    messageArgs: missing.length === 0 ? [] : [missing.join(", ")],
     podIni,
     files,
     missing,
     totalBytes,
     warnings,
   };
+}
+
+/** MONSTER.EXE where the folder or image has it (the trial's is MONSTERX.EXE), or null. */
+async function findExe(source) {
+  for (const path of ["MONSTER.EXE", "SYSTEM/MONSTER.EXE", "MONSTERX.EXE"]) {
+    const file = await source.getFile(path);
+    if (file) return file;
+  }
+  const listed = source.list ? await source.list() : [];
+  const path = listed.find((p) => /(^|\/)MONSTERX?\.EXE$/i.test(p));
+  return path ? source.getFile(path) : null;
+}
+
+/**
+ * Every archive a source without POD.INI lists, each file name once (the shallowest path wins), in the order the game's
+ * own POD.INI mounts the archives OpenMTM2 needs, then the rest by name. Each is `{ name, file }` with `name` the
+ * upper-case file name, which is what the copy and the POD.INI written for it use.
+ */
+export async function listedArchives(source) {
+  const listed = source.list ? await source.list() : [];
+  const byName = new Map();
+  for (const path of listed.filter((p) => /\.POD$/i.test(p)).sort((a, b) => a.split("/").length - b.split("/").length)) {
+    const name = podFileName(path);
+    if (!byName.has(name)) byName.set(name, path);
+  }
+  const rank = (name) => {
+    const at = REQUIRED_PODS.indexOf(podRole(name));
+    return at < 0 ? REQUIRED_PODS.length : at;
+  };
+  const names = [...byName.keys()].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  const out = [];
+  for (const name of names) {
+    const file = await source.getFile(byName.get(name));
+    if (file) out.push({ name, file });
+  }
+  return out;
 }
 
 /**
@@ -114,8 +158,7 @@ export async function inspectSource(source) {
 export async function inspectGameFolder(source) {
   const iniFile = (await source.getFile("POD.INI")) ?? (await source.getFile("SYSTEM/POD.INI"));
   if (!iniFile) {
-    return { ok: false, message: "This folder has no POD.INI, which lists the game's archives. "
-      + "To add single POD files, use the POD manager." };
+    return { ok: false, message: msg("This folder has no POD.INI, which lists the game's archives. To add single POD files, use the POD manager.") };
   }
   const ini = parsePodIni(await iniFile.text());
   const files = [];
@@ -125,6 +168,6 @@ export async function inspectGameFolder(source) {
     if (found) files.push({ name: installPathKey(found.path), file: found.file });
     else missing.push(path);
   }
-  if (files.length === 0) return { ok: false, message: "None of the archives POD.INI lists are in this folder." };
+  if (files.length === 0) return { ok: false, message: msg("None of the archives POD.INI lists are in this folder.") };
   return { ok: true, message: "", label: source.name || "Game", files, missing };
 }

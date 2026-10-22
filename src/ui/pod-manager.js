@@ -27,24 +27,25 @@ function pickPodFiles() {
 }
 
 export async function openPodManager(context) {
+  const { t } = context;
   let pods = [];
   let changed = false;
   let busy = false;
   const body = el("tbody");
   const status = el("span", { class: "muted options-status" });
-  const addButton = el("button", { "data-menu-sound": "STARTOFF", onclick: add, title: "Add POD files, or ZIP files: every POD a ZIP holds is added" }, "Add PODs");
-  const dialog = el("dialog", { class: "options-modal pod-manager", "aria-label": "POD manager" },
-    el("div", { class: "options-modal-title" }, el("h1", {}, "POD manager")),
+  const addButton = el("button", { "data-menu-sound": "STARTOFF", onclick: add, title: t("Add POD files, or ZIP files: every POD a ZIP holds is added") }, t("Add PODs"));
+  const dialog = el("dialog", { class: "options-modal pod-manager", "aria-label": t("POD manager") },
+    el("div", { class: "options-modal-title" }, el("h1", {}, t("POD manager"))),
     el("div", { class: "options-modal-panel" },
-      el("p", { class: "muted" }, "Mounted archives, first mounted first: among archives of one game, a file is taken from the first that has it."),
+      el("p", { class: "muted" }, t("Mounted archives, first mounted first: among archives of one game, a file is taken from the first that has it.")),
       el("div", { class: "pod-manager-list" }, el("table", {},
         el("thead", {}, el("tr", {},
-          el("th", { class: "num" }, "#"), el("th", {}, "Archive"), el("th", {}, "Game"), el("th", {}, "From"), el("th", {}, "Format"),
-          el("th", { class: "num" }, "Files"), el("th", { class: "num" }, "Tracks"), el("th", { class: "num" }, "Trucks"),
-          el("th", { class: "num" }, "Size"), el("th", {}))),
+          el("th", { class: "num" }, "#"), el("th", {}, t("Archive")), el("th", {}, t("Game")), el("th", {}, t("From")), el("th", {}, t("Format")),
+          el("th", { class: "num" }, t("Files")), el("th", { class: "num" }, t("Tracks")), el("th", { class: "num" }, t("Trucks")),
+          el("th", { class: "num" }, t("Size")), el("th", {}))),
         body)),
       el("div", { class: "options-footer" }, status, addButton,
-        el("button", { class: "primary", onclick: () => dialog.close() }, "Close"))));
+        el("button", { class: "primary", onclick: () => dialog.close() }, t("Close")))));
 
   /** Run one change against the asset worker, then list again. */
   async function run(text, work) {
@@ -71,7 +72,7 @@ export async function openPodManager(context) {
       status.textContent = error.message;
       return;
     }
-    const move = (i, by) => run("Moving...", async () => {
+    const move = (i, by) => run(t("Moving..."), async () => {
       const keys = pods.map((p) => p.key);
       [keys[i], keys[i + by]] = [keys[i + by], keys[i]];
       await context.assets.call("setMountOrder", { keys });
@@ -81,16 +82,16 @@ export async function openPodManager(context) {
       el("td", {}, pod.format.toUpperCase()), el("td", { class: "num" }, String(pod.entries)), el("td", { class: "num" }, String(pod.tracks)),
       el("td", { class: "num" }, String(pod.trucks ?? 0)), el("td", { class: "num" }, megabytes(pod.size)),
       el("td", { class: "pod-actions" },
-        el("button", { title: "Mount earlier", disabled: i === 0, onclick: () => move(i, -1) }, "Up"),
-        el("button", { title: "Mount later", disabled: i === pods.length - 1, onclick: () => move(i, 1) }, "Down"),
+        el("button", { title: t("Mount earlier"), disabled: i === 0, onclick: () => move(i, -1) }, t("Up")),
+        el("button", { title: t("Mount later"), disabled: i === pods.length - 1, onclick: () => move(i, 1) }, t("Down")),
         pod.removable && el("button", {
-          class: "danger", title: pod.install ? "Unmount it: it stays copied, and Reload POD.INI (Options, Data) mounts it again" : "Delete it from this browser",
-          onclick: () => run(`Removing ${pod.name}...`, async () => {
+          class: "danger", title: pod.install ? t("Unmount it: it stays copied, and Reload POD.INI (Options, Data) mounts it again") : t("Delete it from this browser"),
+          onclick: () => run(t("Removing <<1>>...", pod.name), async () => {
             await context.assets.call("removePod", { key: pod.key });
-            return pod.install ? `${pod.name} removed until Reload POD.INI.` : `${pod.name} removed.`;
+            return pod.install ? t("<<1>> removed until Reload POD.INI.", pod.name) : t("<<1>> removed.", pod.name);
           }),
-        }, "Remove"),
-        pod.install && !pod.removable && el("span", { class: "muted", title: "OpenMTM2 needs this archive to run" }, "Required")))));
+        }, t("Remove")),
+        pod.install && !pod.removable && el("span", { class: "muted", title: t("OpenMTM2 needs this archive to run") }, t("Required"))))));
   }
 
   /** The picked files with each ZIP opened: every POD it holds is added in its place (shared/zip.js). */
@@ -100,7 +101,7 @@ export async function openPodManager(context) {
       if (!isZipName(file.name)) { out.push(file); continue; }
       try {
         const pods = await podsInZip(new Uint8Array(await file.arrayBuffer()));
-        if (!pods.length) problems.push(`${file.name} holds no POD.`);
+        if (!pods.length) problems.push(t("<<1>> holds no POD.", file.name));
         for (const pod of pods) out.push(new File([pod.bytes], pod.name, { lastModified: file.lastModified }));
       } catch (error) {
         problems.push(`${file.name}: ${error.message}.`);
@@ -112,16 +113,16 @@ export async function openPodManager(context) {
   async function add() {
     const picked = await pickPodFiles();
     if (!picked) return;
-    status.textContent = picked.some((file) => isZipName(file.name)) ? "Opening the ZIP files..." : status.textContent;
+    status.textContent = picked.some((file) => isZipName(file.name)) ? t("Opening the ZIP files...") : status.textContent;
     const { files, problems } = await expandZips(picked);
-    if (!files.length) { status.textContent = problems.join(" ") || "Nothing to add."; return; }
+    if (!files.length) { status.textContent = problems.join(" ") || t("Nothing to add."); return; }
     const off = context.assets.on("install-progress", ({ copied, total, name }) => {
-      status.textContent = `Copying ${name} ${total ? Math.round((copied / total) * 100) : 100}%`;
+      status.textContent = t("Copying <<1>> <<2>>%", name, total ? Math.round((copied / total) * 100) : 100);
     });
-    await run("Copying...", async () => {
+    await run(t("Copying..."), async () => {
       const done = await context.assets.call("addPods", { files });
-      const said = [`${done.added.length - (done.replaced?.length ?? 0)} added`];
-      if (done.replaced?.length) said.push(`${done.replaced.length} read again (${done.replaced.join(", ")})`);
+      const said = [t("<<1>> added", done.added.length - (done.replaced?.length ?? 0))];
+      if (done.replaced?.length) said.push(t("<<1>> read again (<<2>>)", done.replaced.length, done.replaced.join(", ")));
       if (done.failed.length) said.push(done.failed.join(" "));
       if (problems.length) said.push(problems.join(" "));
       return `${said.join(", ")}.`;

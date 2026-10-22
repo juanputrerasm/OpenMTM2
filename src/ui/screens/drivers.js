@@ -5,11 +5,12 @@ import { saveSettings } from "../../app/settings.js";
 import { MAX_NAME_LENGTH, selectOrAddDriver } from "../../game/profile.js";
 import { frame } from "../frame.js";
 import { createTruckPreview } from "../../render/truck-preview.js";
+import { msg } from "../../game/strings.js";
 
-const DIFFICULTIES = ["Rookie", "Intermediate", "Professional"];
+const DIFFICULTIES = [msg("Rookie"), msg("Intermediate"), msg("Professional")];
 
 export default async function mount(container, context) {
-  const { settings } = context;
+  const { settings, t } = context;
   const profiles = await getProfiles(context);
   const catalog = await context.assets.call("catalog");
   const trucks = catalog.trucks.filter((truck) => !truck.hidden);
@@ -17,11 +18,11 @@ export default async function mount(container, context) {
   const message = el("p", { class: "driver-message error", "aria-live": "polite" });
   const name = el("input", {
     type: "text", list: "driver-names", maxlength: MAX_NAME_LENGTH,
-    autocomplete: "off", "aria-label": "Player name", class: "driver-combo",
+    autocomplete: "off", "aria-label": t("Player name"), class: "driver-combo",
   });
-  const skill = el("select", { "aria-label": "Skill level", class: "driver-skill" },
+  const skill = el("select", { "aria-label": t("Skill level"), class: "driver-skill" },
     ...DIFFICULTIES.map((label, index) => el("option", { value: index }, context.t(label))));
-  const truck = el("select", { "aria-label": "Select truck", class: "driver-truck" });
+  const truck = el("select", { "aria-label": t("Select truck"), class: "driver-truck" });
 
   const show = () => {
     const driver = currentDriver(profiles);
@@ -35,7 +36,7 @@ export default async function mount(container, context) {
   };
   const commitName = () => {
     const error = selectOrAddDriver(profiles, name.value);
-    message.textContent = error ?? "";
+    message.textContent = error ? t(error) : "";
     if (!error) saveProfiles(context);
     show();
   };
@@ -46,6 +47,8 @@ export default async function mount(container, context) {
   skill.addEventListener("change", () => {
     settings.difficulty = Number(skill.value);
     saveSettings(settings);
+    // In a network game the others see the new level (0x10).
+    context.net?.session.setSkill(settings.difficulty);
   });
   // The truck turning in the mini garage (render/truck-preview.js).
   const look = context.settings.look === "enhanced" ? "enhanced" : "classic";
@@ -64,14 +67,15 @@ export default async function mount(container, context) {
   truck.addEventListener("change", () => {
     currentDriver(profiles).lastTruck = truck.value;
     saveProfiles(context);
+    context.net?.session.setTruck(truck.value);
     showPreview();
   });
   show();
   showPreview();
 
   const ui = await frame(container, context, {
-    title: "Driver Check-in", backdrop: "DRIVER", current: "drivers",
-    labels: [["Player Name", [35, 134, 184, 18]], ["Skill Level", [35, 195, 184, 18]], ["Select Truck", [354, 134, 242, 18]]],
+    title: msg("Driver Check-in"), backdrop: "DRIVER", current: "drivers",
+    labels: [[msg("Player Name"), [35, 134, 184, 18]], [msg("Skill Level"), [35, 195, 184, 18]], [msg("Select Truck"), [354, 134, 242, 18]]],
     regions: {
       name: [35, 154, 184, 32], skill: [35, 215, 184, 32], message: [35, 280, 184, 52],
       truck: [354, 154, 242, 32], preview: [354, 199, 242, 184],
@@ -85,13 +89,13 @@ export default async function mount(container, context) {
     if (preview) ui.regions.preview.append(preview.canvas);
   } else {
     ui.regions.name.append(
-      el("label", {}, "Player name ", name, names), message,
-      el("label", {}, "Skill level ", skill),
-      el("label", {}, "Select truck ", truck),
-      preview ? el("div", { class: "truck-preview" }, preview.canvas) : el("div", { class: "truck-preview-placeholder" }, "The truck preview needs WebGL."),
+      el("label", {}, `${t("Player name")} `, name, names), message,
+      el("label", {}, `${t("Skill level")} `, skill),
+      el("label", {}, `${t("Select truck")} `, truck),
+      preview ? el("div", { class: "truck-preview" }, preview.canvas) : el("div", { class: "truck-preview-placeholder" }, t("The truck preview needs WebGL.")),
       el("div", { class: "screen-actions" }, el("button", {
         class: "primary", "data-menu-sound": "STARTOFF", onclick: () => context.router.go("race-select"),
-      }, "Races")),
+      }, t("Races"))),
     );
   }
   return { unmount() { previewRequest++; preview?.dispose(); ui.unmount?.(); } };

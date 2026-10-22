@@ -16,18 +16,20 @@
   side of an object, and they do that instead of wandering while It is close. Pure, so it runs under
   Node.
 */
+import { byVehicle, fromVehicles, localIndex, vehicleIndex } from "./net-wire.js";
 import { WORLD_FT } from "../../shared/scene-frame.js";
+import { msg } from "../strings.js";
 
 export const DEFAULT_TAG_MINUTES = 5;
 
 /** Public metadata consumed by the extension loader. */
 export const TAG_EXTENSION = Object.freeze({
   id: "tag",
-  name: "Tag",
-  description: "One truck is It and passes that role by touching another truck.",
-  length: Object.freeze({ key: "minutes", label: "Minutes", default: DEFAULT_TAG_MINUTES, min: 1, max: 99 }),
+  name: msg("Tag"),
+  description: msg("One truck is It and passes that role by touching another truck."),
+  length: Object.freeze({ key: "minutes", label: msg("Minutes"), default: DEFAULT_TAG_MINUTES, min: 1, max: 99 }),
   settings: Object.freeze([
-    Object.freeze({ key: "minutes", legacyKey: "tagMinutes", label: "Round length", type: "number", min: 1, max: 99, default: DEFAULT_TAG_MINUTES, suffix: "minutes" }),
+    Object.freeze({ key: "minutes", legacyKey: "tagMinutes", label: msg("Round length"), type: "number", min: 1, max: 99, default: DEFAULT_TAG_MINUTES, suffix: msg("minutes") }),
   ]),
   acceptsTrack: () => true,
   trackLocked: false,
@@ -527,4 +529,31 @@ export function tagDrivePoint(driver, role, ctx) {
     pickFree(driver, ctx, pressed);
   }
   return routePoint(ctx.pos, driver.point, covers, heightAt);
+}
+
+// ---- Over the network (docs/EXTENSIONS.md) ----
+
+/** Tag's state as the room owner's machine sends it: truck indexes as vehicle numbers. */
+export function tagToWire(s, vehicleOf) {
+  const v = (i) => vehicleIndex(i, vehicleOf);
+  return {
+    it: v(s.it), itTime: byVehicle(s.itTime, vehicleOf), points: byVehicle(s.points, vehicleOf), holdUntil: s.holdUntil,
+    safe: v(s.safe), safeUntil: s.safeUntil, events: s.events, over: !!s.over,
+    event: s.event ? { ...s.event, from: v(s.event.from), to: v(s.event.to) } : null,
+  };
+}
+
+/** The owner's Tag state in this machine's truck order (`count` trucks). */
+export function tagFromWire(d, localOf, count) {
+  const i = (vehicle) => localIndex(vehicle, localOf);
+  return {
+    it: Math.max(0, i(d.it)), itTime: fromVehicles(d.itTime, localOf, count, 0), points: fromVehicles(d.points, localOf, count, TAG_START_POINTS),
+    holdUntil: Number(d.holdUntil) || 0, safe: i(d.safe), safeUntil: Number(d.safeUntil) || 0, events: d.events | 0, over: !!d.over,
+    event: d.event ? { ...d.event, from: i(d.event.from), to: i(d.event.to) } : null,
+  };
+}
+
+/** Take the owner's state into a game of this machine (its `second` accumulator stays its own). */
+export function tagAdopt(tag, state) {
+  Object.assign(tag, { it: state.it, itTime: state.itTime, points: state.points, holdUntil: state.holdUntil, safe: state.safe, safeUntil: state.safeUntil, event: state.event, events: state.events });
 }

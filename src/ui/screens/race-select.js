@@ -14,6 +14,7 @@ import { WEATHER_NAMES, allowedWeathers, resolveWeather } from "../../game/weath
 import { availableExtensions, entrantsShortfall, extensionById, extensionLength, lengthLabel as extensionLengthLabel, setExtensionSetting, trackForExtension } from "../../game/extensions/loader.js";
 import { playMenuSound } from "../../audio/menu-sounds.js";
 import { frame, uiImageUrl } from "../frame.js";
+import { msg } from "../../game/strings.js";
 
 const SUPPORTED = new Set(["circuit", "rally", "summit", "drag", "freeroam"]);
 
@@ -25,14 +26,14 @@ function prefetchRace() {
 
 export default async function mount(container, context) {
   prefetchRace();
-  const { settings } = context;
+  const { settings, t } = context;
   const catalog = await context.assets.call("catalog");
   const tracks = catalog.tracks.filter((item) => settings.showHiddenTracks || !item.hidden);
   const trucks = catalog.trucks.filter((item) => !item.hidden);
   const driver = currentDriver(await getProfiles(context));
   let track = tracks.find((item) => item.file === settings.lastTrack) ?? tracks[0];
   if (!track) {
-    container.append(el("section", { class: "screen" }, el("p", { class: "error" }, "The install has no tracks.")));
+    container.append(el("section", { class: "screen" }, el("p", { class: "error" }, t("The install has no tracks."))));
     return;
   }
   const extensions = availableExtensions(tracks);
@@ -52,7 +53,7 @@ export default async function mount(container, context) {
   if (track.freeRoamOnly && gameMode === "default") gameMode = "freeroam";
   /** The length box's value in a mode: an extension's declared setting, else the track's laps. */
   const lengthFor = (mode, item) => extensionLength(settings, extensionById(mode)) ?? item.defaultLaps;
-  const lengthLabelFor = (type, mode) => extensionLengthLabel(type, mode);
+  const lengthLabelFor = (type, mode) => t(extensionLengthLabel(type, mode));
 
   const validOpponentFiles = new Set(trucks.filter((item) => item.file !== driver.lastTruck).map((item) => item.file));
   // The player's own list (which may be empty: no opponents), or without one the default number (Options, Game).
@@ -80,18 +81,18 @@ export default async function mount(container, context) {
     return dragOpponents;
   };
 
-  const laps = el("input", { type: "number", min: 1, max: 99, value: lengthFor(gameMode, track), class: "race-length", "aria-label": "Laps or minutes" });
-  const modeSelect = el("select", { "aria-label": "Mode", class: "race-mode" },
+  const laps = el("input", { type: "number", min: 1, max: 99, value: lengthFor(gameMode, track), class: "race-length", "aria-label": t("Laps or minutes") });
+  const modeSelect = el("select", { "aria-label": t("Mode"), class: "race-mode" },
     ...modes.map((m) => el("option", { value: m.id, selected: m.id === gameMode }, context.t(m.name))));
   const modeLabel = el("span", { class: "race-length-label race-mode-label" }, context.t("Mode"));
   const lengthLabel = el("span", { class: "race-length-label" });
-  const weather = el("select", { "aria-label": "Weather", class: "race-weather" });
+  const weather = el("select", { "aria-label": t("Weather"), class: "race-weather" });
   const tableBody = el("tbody");
-  const table = el("table", { class: "race-track-table", role: "listbox", "aria-label": "Tracks" }, tableBody);
+  const table = el("table", { class: "race-track-table", role: "listbox", "aria-label": t("Tracks") }, tableBody);
   const preview = el("img", { class: "track-preview", alt: "" });
   // In the picture's place, for a track whose SIT names none: its name and what its SIT says of it.
   const info = el("div", { class: "track-info", hidden: true });
-  const opponentsButton = el("button", { class: "opponents-button" }, "Computer Opponents");
+  const opponentsButton = el("button", { class: "opponents-button" }, t("Computer Opponents"));
   // Free Roam driving: the mode, or a track with no race on it in the Race mode. No opponents, no laps.
   // Fly-by (ui/screens/fly-by.js): the track with no truck on it and a camera to fly through it.
   const isFreeRoam = () => gameMode === "freeroam" || (gameMode === "default" && !!track.freeRoamOnly);
@@ -102,19 +103,19 @@ export default async function mount(container, context) {
     laps.classList.toggle("race-off", laps.disabled);
     lengthLabel.classList.toggle("race-off", laps.disabled);
   };
-  const goButton = el("button", { class: "primary", "data-menu-sound": "STARTOFF" }, "Race");
+  const goButton = el("button", { class: "primary", "data-menu-sound": "STARTOFF" }, t("Race"));
   // On a drag strip: a drag weekend (ui/screens/drag-event.js), a new one or the one in progress.
   const weekendButton = el("button", { class: "stage-event", "data-menu-sound": "STARTOFF", hidden: true });
   const showWeekend = () => {
     weekendButton.hidden = !onDragStrip() && !context.dragWeekend;
-    weekendButton.textContent = context.dragWeekend ? "Resume drag weekend" : "Drag weekend";
+    weekendButton.textContent = context.dragWeekend ? t("Resume drag weekend") : t("Drag weekend");
   };
   // Tournaments (ui/screens/tournament.js), beside Options: the list, or the one under way.
   const tourneyButton = el("button", { class: "stage-event stage-tourney", "data-menu-sound": "STARTOFF", onclick: () => { remember(); context.router.go("tournament"); } },
-    context.tournament ? "Resume tournament" : "Tournament");
+    context.tournament ? t("Resume tournament") : t("Tournament"));
   weekendButton.addEventListener("click", async () => {
     if (!context.dragWeekend) {
-      const size = await chooseField();
+      const size = await chooseField(t);
       if (!size) return;
       const chosen = remember();
       startDragWeekend(context, {
@@ -139,7 +140,7 @@ export default async function mount(container, context) {
       ...allowed.map((value) => el("option", {
         value, selected: settings.weather !== "random" && value === chosen,
       }, context.t(WEATHER_NAMES[value]))),
-      allowed.length > 1 ? el("option", { value: "random", selected: settings.weather === "random" }, "Random") : null,
+      allowed.length > 1 ? el("option", { value: "random", selected: settings.weather === "random" }, t("Random")) : null,
     );
   };
   const showPreview = async () => {
@@ -150,17 +151,17 @@ export default async function mount(container, context) {
     if (request !== previewRequest) return;
     preview.hidden = !url;
     info.hidden = !!url;
-    if (url) { preview.src = url; preview.alt = `${track.name} preview`; }
+    if (url) { preview.src = url; preview.alt = t("<<1>> preview", track.name); }
     else {
       preview.removeAttribute("src");
       info.replaceChildren(el("div", { class: "track-info-name" }, track.name),
-        el("dl", {}, ...trackInfoRows(track, { type: typeLabel(track), units: settings.units }).flatMap(([label, value]) => [el("dt", {}, context.t(label)), el("dd", { title: value }, value)])));
+        el("dl", {}, ...trackInfoRows(track, { type: typeLabel(track), units: settings.units, t }).flatMap(([label, value]) => [el("dt", {}, context.t(label)), el("dd", { title: value }, value)])));
     }
     // The location is in the facts already.
     localeLabel.hidden = !url || !(track.locale ?? "").trim();
   };
   // An MTM1 track's zoom map (MTM1_MONSTER_EXE_ANALYSIS.md 2.10): the button is there when the map the SIT names is.
-  const zoomButton = el("button", { class: "race-zoom", hidden: true, title: "The track's map and description" }, context.t("Zoom"));
+  const zoomButton = el("button", { class: "race-zoom", hidden: true, title: t("The track's map and description") }, t("Zoom"));
   // The track's place (the SIT's Race Track Locale), left of Zoom in the picture's bottom corner.
   const localeLabel = el("span", { class: "race-locale", hidden: true });
   const previewFoot = el("div", { class: "race-preview-foot" }, localeLabel, zoomButton);
@@ -181,17 +182,17 @@ export default async function mount(container, context) {
     const item = track, url = await uiImageUrl(context.assets, item.mapBmp);
     if (!url) return;
     const text = item.descriptionTxt ? await context.assets.call("trackText", { name: item.descriptionTxt }).catch(() => null) : null;
-    openZoomMap(item, url, text);
+    openZoomMap(item, url, text, t);
   });
   /** Whether the chosen track can be played in the chosen mode: everything but a race runs anywhere; else the race types the port runs. */
   const playable = (item) => extensionById(gameMode)?.acceptsTrack(item) ?? (gameMode !== "default" || SUPPORTED.has(item.raceType));
   /** The Race button reads Fly-by in the Fly-by mode, where it starts a visit and not a race. */
   const updateGoButton = () => {
-    goButton.textContent = isFlyBy() ? context.t("Fly-by") : "Race";
+    goButton.textContent = isFlyBy() ? t("Fly-by") : t("Race");
     // A mode that needs more trucks (Tag, Hockey: two at least) waits for the opponents.
     const short = entrantsShortfall(extensionById(gameMode), opponentsNow(), spectator);
     goButton.disabled = !playable(track) || short !== null;
-    goButton.title = short !== null ? `${extensionById(gameMode).name} needs ${short} trucks at least: pick computer opponents.` : "";
+    goButton.title = short !== null ? t("<<1>> needs <<2>> trucks at least: pick computer opponents.", t(extensionById(gameMode).name), short) : "";
   };
   const remember = () => {
     const value = Math.max(1, Math.min(99, Math.trunc(Number(laps.value)) || lengthFor(gameMode, track)));
@@ -248,7 +249,7 @@ export default async function mount(container, context) {
     remember();
   };
   // The filter above the list: tracks whose name, type or file holds what is typed.
-  const filter = el("input", { type: "search", class: "race-track-filter", placeholder: context.t("Filter tracks"), "aria-label": "Filter tracks", value: context.trackFilter ?? "" });
+  const filter = el("input", { type: "search", class: "race-track-filter", placeholder: context.t("Filter tracks"), "aria-label": t("Filter tracks"), value: context.trackFilter ?? "" });
   const typeLabel = (item) => item.typeLabel ?? `${context.t(raceTypeName(item.raceType))}${item.game === "MTM1" ? " (MTM1)" : ""}`;
   const listed = () => {
     const words = filter.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -284,7 +285,7 @@ export default async function mount(container, context) {
 
   opponentsButton.addEventListener("click", async () => {
     // A drag strip has two lanes, the other tracks a grid of eight.
-    const picked = await chooseOpponents(trucks, driver.lastTruck, opponentsNow(), onDragStrip() ? 2 : 8, spectator, settings);
+    const picked = await chooseOpponents(trucks, driver.lastTruck, opponentsNow(), onDragStrip() ? 2 : 8, spectator, settings, t);
     if (onDragStrip()) dragOpponents = picked.files; else selectedOpponents = picked.files;
     spectator = picked.spectator;
     remember();
@@ -338,7 +339,7 @@ export default async function mount(container, context) {
   remember();
 
   const ui = await frame(container, context, {
-    title: "Races", backdrop: "RACES", current: "races",
+    title: msg("Races"), backdrop: "RACES", current: "races",
     regions: {
       list: [42, 141, 274, 189], lengthLabel: [48, 350, 58, 24], length: [106, 350, 38, 24],
       opponents: [343, 81, 132, 38], preview: [342, 124, 258, 210], weather: [300, 349, 109, 27], weatherLabel: [237, 349, 58, 24],
@@ -350,7 +351,7 @@ export default async function mount(container, context) {
   });
   ui.regions.list.parentElement.append(weekendButton, tourneyButton);
   if (ui.classic) {
-    if (ui.art) { opponentsButton.textContent = ""; opponentsButton.title = "Computer Opponents"; }
+    if (ui.art) { opponentsButton.textContent = ""; opponentsButton.title = t("Computer Opponents"); }
     ui.regions.list.append(listHead, table);
     ui.regions.lengthLabel.append(lengthLabel);
     ui.regions.length.append(laps);
@@ -367,7 +368,7 @@ export default async function mount(container, context) {
   } else {
     ui.regions.list.append(selectedLabel, listHead, table,
       el("div", { class: "form-row" },
-        el("label", {}, lengthLabel, " ", laps), el("label", {}, "Weather ", weather), el("label", {}, modeLabel, " ", modeSelect), opponentsButton),
+        el("label", {}, lengthLabel, " ", laps), el("label", {}, `${t("Weather")} `, weather), el("label", {}, modeLabel, " ", modeSelect), opponentsButton),
       el("div", { class: "track-preview-modern" }, preview, info, previewFoot),
       el("div", { class: "screen-actions" }, goButton));
   }
@@ -378,12 +379,12 @@ export default async function mount(container, context) {
  * MTM1's zoom map as a dialog: the track's map bitmap filling a 640 x 480 stage with its description over it, in the
  * rectangle the game draws it in (344, 26 to 624, 440), and OK.
  */
-function openZoomMap(track, url, text) {
-  const dialog = el("dialog", { class: "zoom-map-modal", "aria-label": `${track.name} map` },
+function openZoomMap(track, url, text, t) {
+  const dialog = el("dialog", { class: "zoom-map-modal", "aria-label": t("<<1>> map", track.name) },
     el("div", { class: "zoom-map-stage" },
-      el("img", { src: url, alt: `${track.name} map`, draggable: "false" }),
+      el("img", { src: url, alt: t("<<1>> map", track.name), draggable: "false" }),
       text ? el("div", { class: "zoom-map-text" }, ...text.split(/\n/).map((line) => el("p", {}, line))) : null,
-      el("button", { class: "primary zoom-map-ok", onclick: () => dialog.close() }, "OK")));
+      el("button", { class: "primary zoom-map-ok", onclick: () => dialog.close() }, t("OK"))));
   // A click outside the stage closes it, as Escape does.
   dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
   dialog.addEventListener("close", () => dialog.remove(), { once: true });
@@ -392,16 +393,16 @@ function openZoomMap(track, url, text) {
 }
 
 /** The Drag weekend dialog: how many drivers, 2 to 16. Returns the number, or null when cancelled. */
-async function chooseField() {
+async function chooseField(t) {
   return new Promise((resolve) => {
-    const size = el("select", { "aria-label": "Drivers" }, ...Array.from({ length: MAX_FIELD - MIN_FIELD + 1 }, (_, k) => k + MIN_FIELD).map((n) => el("option", { value: n, selected: n === 8 }, `${n} drivers`)));
-    const dialog = el("dialog", { class: "opponents-modal", "aria-label": "Drag weekend" },
-      el("h1", {}, "Drag weekend"),
-      el("p", {}, "Qualifying, then an elimination bracket on this strip. You qualify alone; the order seeds the bracket, and a field short of 2, 4, 8 or 16 gives the best seeds a bye."),
-      el("div", { class: "form-row" }, el("label", {}, "Field ", size)),
+    const size = el("select", { "aria-label": t("Drivers") }, ...Array.from({ length: MAX_FIELD - MIN_FIELD + 1 }, (_, k) => k + MIN_FIELD).map((n) => el("option", { value: n, selected: n === 8 }, t("<<1>> drivers", n))));
+    const dialog = el("dialog", { class: "opponents-modal", "aria-label": t("Drag weekend") },
+      el("h1", {}, t("Drag weekend")),
+      el("p", {}, t("Qualifying, then an elimination bracket on this strip. You qualify alone; the order seeds the bracket, and a field short of 2, 4, 8 or 16 gives the best seeds a bye.")),
+      el("div", { class: "form-row" }, el("label", {}, `${t("Field")} `, size)),
       el("div", { class: "screen-actions" },
-        el("button", { onclick: () => dialog.close() }, "Cancel"),
-        el("button", { class: "primary", onclick: () => dialog.close("start") }, "Start")));
+        el("button", { onclick: () => dialog.close() }, t("Cancel")),
+        el("button", { class: "primary", onclick: () => dialog.close("start") }, t("Start"))));
     dialog.addEventListener("close", () => { dialog.remove(); resolve(dialog.returnValue === "start" ? Number(size.value) : null); }, { once: true });
     document.body.append(dialog);
     dialog.showModal();
@@ -414,30 +415,30 @@ async function chooseField() {
  * Filling the grid ticks Spectator mode by itself. The default number of opponents (Options, Game) is set here too, and
  * Fill tops the list up to it with trucks at random. Returns `{ files, spectator }`.
  */
-async function chooseOpponents(trucks, playerTruck, initial, full = 8, watching = false, settings = {}) {
+async function chooseOpponents(trucks, playerTruck, initial, full = 8, watching = false, settings = {}, t = (text) => text) {
   return new Promise((resolve) => {
     let selected = [...initial], spectator = !!watching;
     const before = { selected: [...initial], spectator };
     const spectatorBox = el("input", { type: "checkbox", checked: spectator });
     const note = el("p", { class: "muted" });
     const limit = () => (spectator ? full : full - 1);
-    const availableList = el("select", { multiple: true, size: 10, "aria-label": "Available trucks" });
-    const selectedList = el("select", { multiple: true, size: 10, "aria-label": "Selected opponents" });
+    const availableList = el("select", { multiple: true, size: 10, "aria-label": t("Available trucks") });
+    const selectedList = el("select", { multiple: true, size: 10, "aria-label": t("Selected opponents") });
     const availableHead = el("span", {}), selectedHead = el("span", {});
     const draw = () => {
       const picked = new Set(selected);
       spectatorBox.checked = spectator;
       note.textContent = spectator
-        ? `Spectator mode: these ${selected.length === 1 ? "truck races" : "trucks race"} and you watch. Up to ${full}.`
-        : `You race against up to ${full - 1}. Pick ${full} to watch them race instead.`;
+        ? (selected.length === 1 ? t("Spectator mode: this truck races and you watch. Up to <<1>>.", full) : t("Spectator mode: these trucks race and you watch. Up to <<1>>.", full))
+        : t("You race against up to <<1>>. Pick <<2>> to watch them race instead.", full - 1, full);
       availableList.replaceChildren(...trucks.filter((item) => (spectator || item.file !== playerTruck) && !picked.has(item.file))
         .map((item) => el("option", { value: item.file }, item.name)));
       selectedList.replaceChildren(...selected.map((file) => {
         const item = trucks.find((truck) => truck.file === file);
         return el("option", { value: file }, item?.name ?? file);
       }));
-      availableHead.textContent = `Available trucks: ${availableList.options.length}`;
-      selectedHead.textContent = `Selected opponents: ${selected.length}/${full}`;
+      availableHead.textContent = t("Available trucks: <<1>>", availableList.options.length);
+      selectedHead.textContent = t("Selected opponents: <<1>>/<<2>>", selected.length, full);
     };
     const add = () => {
       for (const option of availableList.selectedOptions) {
@@ -453,7 +454,7 @@ async function chooseOpponents(trucks, playerTruck, initial, full = 8, watching 
       draw();
     };
     // The default number of computer opponents, as on the Options' Game page.
-    const defaultCount = el("select", { "aria-label": "Default computer opponents", onchange: () => {
+    const defaultCount = el("select", { "aria-label": t("Default computer opponents"), onchange: () => {
       settings.defaultOpponents = Number(defaultCount.value);
       saveSettings(settings);
     } }, ...[0, 1, 2, 3, 4, 5, 6, 7].map((n) => el("option", { value: n, selected: n === (settings.defaultOpponents ?? 3) }, String(n))));
@@ -464,24 +465,24 @@ async function chooseOpponents(trucks, playerTruck, initial, full = 8, watching 
       while (selected.length < want && pool.length) selected.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
       draw();
     };
-    const dialog = el("dialog", { class: "opponents-modal", "aria-label": "Computer Opponents" },
-      el("h1", {}, "Computer Opponents"),
+    const dialog = el("dialog", { class: "opponents-modal", "aria-label": t("Computer Opponents") },
+      el("h1", {}, t("Computer Opponents")),
       el("div", { class: "opponent-lists" },
         el("label", {}, availableHead, availableList),
         el("div", { class: "opponent-moves" },
-          el("div", { class: "opponent-moves-group" }, el("button", { onclick: add }, "Add >"), el("button", { onclick: remove }, "< Remove"),
-            el("button", { onclick: () => { selected = []; draw(); } }, "Remove all")),
+          el("div", { class: "opponent-moves-group" }, el("button", { onclick: add }, t("Add >")), el("button", { onclick: remove }, t("< Remove")),
+            el("button", { onclick: () => { selected = []; draw(); } }, t("Remove all"))),
           el("button", {
             class: "opponent-fill", onclick: fill,
-            title: "Add trucks at random, keeping the ones already picked, until the list holds the default number of computer opponents",
-          }, "Fill")),
+            title: t("Add trucks at random, keeping the ones already picked, until the list holds the default number of computer opponents"),
+          }, t("Fill"))),
         el("label", {}, selectedHead, selectedList)),
-      el("label", { class: "form-row" }, "Default computer opponents ", defaultCount),
-      el("label", { class: "form-row opponent-spectator" }, spectatorBox, " Spectator mode"),
+      el("label", { class: "form-row" }, `${t("Default computer opponents")} `, defaultCount),
+      el("label", { class: "form-row opponent-spectator" }, spectatorBox, ` ${t("Spectator mode")}`),
       note,
       el("div", { class: "screen-actions" },
-        el("button", { onclick: () => { selected = before.selected; spectator = before.spectator; dialog.close(); } }, "Cancel"),
-        el("button", { class: "primary", onclick: () => dialog.close() }, "Done")));
+        el("button", { onclick: () => { selected = before.selected; spectator = before.spectator; dialog.close(); } }, t("Cancel")),
+        el("button", { class: "primary", onclick: () => dialog.close() }, t("Done"))));
     availableList.addEventListener("dblclick", add);
     selectedList.addEventListener("dblclick", remove);
     spectatorBox.addEventListener("change", () => {

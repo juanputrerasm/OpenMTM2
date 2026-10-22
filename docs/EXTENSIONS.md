@@ -105,6 +105,45 @@ session through the generic `extension` payload, checks the public `race.extensi
 the finish condition. Also test selection availability, settings defaults and migration when changing a
 stored setting shape.
 
+## Over the network
+
+Extension modes run in online rooms (`docs/MULTIPLAYER.md`), not in classic games. The room's owner
+picks the mode on the Races screen, like the track; every machine then runs the same extension.
+
+Each machine still simulates its own truck, but a mode's decisions need one judge, since every
+machine sees slightly different copies of the other trucks. **The room owner's machine decides**:
+
+- Its runtime runs as usual (`env.net.authority` is "owner") and offers `netState()`: the mode's
+  state in plain data. The worker returns it with each tick (`modeNet`).
+- `src/net/net-race.js` sends that state to the room 5 times a second, and at once when something
+  happened (the event count, a face-off, a new It, the end).
+- Every other machine's runtime is a **follower** (`env.net.authority` is "follower"). It skips
+  the rules' decisions (Tag's touches and scoring, Hockey's goals and face-offs) and takes the
+  owner's state with `applyNet(state)`. It still drives its own truck and its own escape and
+  recovery.
+- **Truck order.** Each machine numbers its trucks itself, its own player being truck 0. So
+  per-truck values travel keyed by vehicle number, through `extensionNetToWire` and
+  `extensionNetFromWire` in `race-loader.js` (helpers in `net-wire.js`).
+- **The owner leaving.** If the owner leaves during the race, the new owner's machine becomes the
+  judge and carries on from the last state it was given.
+
+What each shipped mode sends:
+
+- **Tag:** It, the points, the time as It, the opening hold, who may not be tagged back and until
+  when, the last tag, the end.
+- **Hockey:**
+  - the teams, the score, each truck's goals, the phase and its timer, the last touch, the last
+    event, the number of face-offs and the end;
+  - the puck's position, velocity, rates and angles. A follower snaps its own puck to them, and
+    its local physics moves the puck in between.
+  - On the first state and at every face-off, a follower puts its own trucks on their spots for
+    the owner's teams.
+
+A new mode that should play online implements `netState` and `applyNet`, makes its runtime's
+decisions depend on `env.net.authority`, and adds its wire mapping to `race-loader.js`. The places and
+scores of an extension race come from the owner's state on every machine, so they are not taken from
+the results exchange.
+
 ## Shipped extension: Hockey
 
 Hockey runs only on the MTM2 Breakneck Ridge track (`ROCKQRY.SIT`) in Snow. Both track and weather are

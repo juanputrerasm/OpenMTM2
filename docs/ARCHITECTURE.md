@@ -17,6 +17,7 @@ the game did not (smoothed ground, its own water and weather) is specified in `V
 | Headset mode | rules in `src/game/vr/`, drawing in `src/render/xr/`, the app's side in `src/app/xr.js` | the main thread; the rules also Node in tests |
 | The port's own scenery (`VISUALS.md`) | rules in `src/game/` (`terrain-relief.js`, `drawn-ground.js`, `ground-maps.js`, `snow-cover.js`, `atmosphere.js`, `fog-floor.js`, `water.js`, `ice.js`, `lighting.js`, `ground-detail.js`, `particles.js`, `truck-lights.js`, `replay-effects.js`, `visuals.js`), the mesh in `src/worker/relief-mesh.js`, drawing in `src/render/` (`scenery.js` and what it makes) | the asset worker and the main thread; the rules also Node in tests |
 | Screens | `src/ui/` (HTML), `src/app/` (boot, router, settings) | the main thread |
+| Multiplayer (`MULTIPLAYER.md`) | `src/net/` (transports, sessions, race glue; no DOM); the protocol modules come from the OpenMTM2 Server project, vendored into `src/net/vendor/mtmnet/` | the main thread; also Node in tests |
 
 ## Extension boundary
 

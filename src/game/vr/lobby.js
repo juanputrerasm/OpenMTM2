@@ -64,11 +64,11 @@ export function createLobby({ tracks, trucks, choices = {}, onStart, onLeave, tr
   const lines = [translate(RACE_TYPE_NAMES[track.raceType])];
 
   return createMenu({
-    title: "Race",
+    title: translate("Race"),
     lines,
     items: [
       {
-        label: "Track", value: () => track.name,
+        label: translate("Track"), value: () => track.name,
         change(direction) {
           track = cycle(raceable, track, direction);
           // As on the Races screen: a track brings its own length, and only the weather it allows.
@@ -78,21 +78,21 @@ export function createLobby({ tracks, trucks, choices = {}, onStart, onLeave, tr
         },
       },
       {
-        get label() { return raceLengthLabel(track.raceType); },
+        get label() { return translate(raceLengthLabel(track.raceType)); },
         value: () => laps,
         change(direction) { laps = clampInt(laps + direction, 1, MAX_LENGTH, track.defaultLaps); },
       },
-      { label: "Truck", value: () => truck.name, change(direction) { truck = cycle(trucks, truck, direction); } },
-      { label: "Opponents", value: () => opponents, change(direction) { opponents = clampInt(opponents + direction, 0, most, opponents); }, disabled: most === 0 },
+      { label: translate("Truck"), value: () => truck.name, change(direction) { truck = cycle(trucks, truck, direction); } },
+      { label: translate("Opponents"), value: () => opponents, change(direction) { opponents = clampInt(opponents + direction, 0, most, opponents); }, disabled: most === 0 },
       {
-        label: "Weather", value: () => (weather === "random" ? "Random" : translate(WEATHER_NAMES[weather])),
+        label: translate("Weather"), value: () => (weather === "random" ? translate("Random") : translate(WEATHER_NAMES[weather])),
         change(direction) { weather = cycle(weathers(), weather, direction); },
       },
       {
-        label: "Start race",
+        label: translate("Start race"),
         action: () => onStart({ track, truck, laps, opponents: opponentFiles(trucks, truck.file, choices.opponents, opponents), weather }),
       },
-      ...(onLeave ? [{ label: "Leave VR", action: onLeave }] : []),
+      ...(onLeave ? [{ label: translate("Leave VR"), action: onLeave }] : []),
     ],
     back: onLeave,
   });

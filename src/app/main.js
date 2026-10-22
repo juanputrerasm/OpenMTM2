@@ -7,6 +7,7 @@ import { applyGraphics } from "../game/graphics.js";
 import { graphicsHardware } from "./graphics-hardware.js";
 import { createStrings } from "../game/strings.js";
 import { loadStrings } from "./strings-store.js";
+import { msg } from "../game/strings.js";
 import { startMenuAudio } from "./menu-audio.js";
 import { createXr } from "./xr.js";
 import { lobbyMenu } from "./vr-lobby.js";
@@ -30,6 +31,9 @@ const screens = {
   "fly-by": () => import("../ui/screens/fly-by.js"),
   "tournament": () => import("../ui/screens/tournament.js"),
   replay: () => import("../ui/screens/replay.js"),
+  "net-connect": () => import("../ui/screens/net-connect.js"),
+  multiplayer: () => import("../ui/screens/multiplayer.js"),
+  rooms: () => import("../ui/screens/rooms.js"),
   unsupported: () => import("../ui/screens/unsupported.js"),
   "dev-track": () => import("../ui/screens/dev-track.js"),
   "dev-drive": () => import("../ui/screens/dev-drive.js"),
@@ -38,11 +42,11 @@ const screens = {
 /** What the game cannot run without. An empty list means the browser is fine. */
 export function missingFeatures(env = globalThis) {
   const missing = [];
-  if (typeof env.Worker !== "function") missing.push("Web Workers");
+  if (typeof env.Worker !== "function") missing.push(msg("Web Workers"));
   if (typeof env.navigator?.storage?.getDirectory !== "function") {
-    missing.push("the Origin Private File System (navigator.storage.getDirectory)");
+    missing.push(msg("the Origin Private File System (navigator.storage.getDirectory)"));
   }
-  if (typeof env.WebGL2RenderingContext !== "function") missing.push("WebGL 2");
+  if (typeof env.WebGL2RenderingContext !== "function") missing.push(msg("WebGL 2"));
   return missing;
 }
 
@@ -54,6 +58,8 @@ async function boot() {
   const router = new Router(container, context, screens);
   context.router = router;
 
+  // The player's language comes first, so even this page is in it; the install's own wording is laid over it below.
+  await loadStrings(context);
   const missing = missingFeatures();
   if (missing.length) {
     await router.go("unsupported", { missing });
@@ -89,8 +95,22 @@ async function boot() {
   context.offlineNote = offlineNote(context);
   // An install without the archives OpenMTM2 needs (install/required-pods.js) cannot run: the folder is picked again.
   const requiredMissing = installed ? missingRequiredPods(manifest.archives.map((a) => a.name)) : [];
-  await router.go(installed && !requiredMissing.length ? "start" : "install", requiredMissing.length ? { requiredMissing } : {});
+  // An invite link (`?room=CODE&server=address`, app/net.js `inviteLink`) goes straight to that room.
+  const invite = installed && !requiredMissing.length ? takeInvite() : null;
+  await router.go(invite ? "rooms" : installed && !requiredMissing.length ? "start" : "install", invite ? { invite } : requiredMissing.length ? { requiredMissing } : {});
   context.offline.start();
+}
+
+/** The room invite in the page's address, if any, taken out of it so a reload does not join again. */
+function takeInvite() {
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get("room");
+  if (!code) return null;
+  const server = url.searchParams.get("server") ?? "";
+  url.searchParams.delete("room");
+  url.searchParams.delete("server");
+  window.history.replaceState(null, "", url.href);
+  return /^[A-Za-z0-9]{6}$/.test(code) ? { code: code.toUpperCase(), server } : null;
 }
 
 if (typeof document !== "undefined") {

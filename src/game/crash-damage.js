@@ -6,6 +6,7 @@
   the body's vertices (`dent`). Pure, so it runs under Node.
 */
 import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
+import { damageZones, DENT_STEPS } from "./replay.js";
 
 /** Steps handled for one zone in one frame, so a long stall cannot flatten a model. */
 export const MAX_STEPS_PER_FRAME = 6;
@@ -31,6 +32,26 @@ export function createCrashDamage(count, { enabled = true } = {}) {
         for (let n = 0; n < Math.min(steps, MAX_STEPS_PER_FRAME); n++) { dent(zone, hit.level); made++; }
       }
       return made;
+    },
+    /**
+     * A remote truck's code from its owner (network packet 0x20, MONSTER_EXE_ANALYSIS.md 14.4): it replaces this
+     * machine's. A zone that appears or worsens is pushed in, as a replay does; a lighter code repairs the body first.
+     */
+    adopt(i, code, { dent, repair }) {
+      const now = codes[i];
+      if (code === now) return false;
+      const worse = damageZones(code).some(([zone, level]) => level > mtm2Sim.zoneLevel(now, zone));
+      const better = damageZones(now).some(([zone, level]) => level > mtm2Sim.zoneLevel(code, zone));
+      let from = now;
+      if (better) { repair(); from = 0; }
+      if (worse || better) {
+        for (const [zone, level] of damageZones(code)) {
+          if (level <= mtm2Sim.zoneLevel(from, zone)) continue;
+          for (let n = 0; n < DENT_STEPS; n++) dent(zone, level);
+        }
+      }
+      codes[i] = code >>> 0;
+      return true;
     },
     /** The Crash Damage key: flips the switch; switching off repairs every truck (`repair(i)` for each). Returns the new state. */
     toggle(repair) {

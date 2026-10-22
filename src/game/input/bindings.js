@@ -2,36 +2,37 @@
   Keyboard bindings: each action maps to the key codes (KeyboardEvent.code) that trigger it.
   The options screen stores only what the player changed, in `settings.bindings`.
 */
+import { msg } from "../strings.js";
 /** `label` is the game's own tag for the action (the options screen shows it through `context.t`). */
 export const ACTIONS = Object.freeze([
-  { id: "accelerate", label: "Accelerate" },
-  { id: "brake", label: "Brake" },
-  { id: "left", label: "Turn Left" },
-  { id: "right", label: "Turn Right" },
-  { id: "shiftUp", label: "Shift Up" },
-  { id: "shiftDown", label: "Shift Down" },
+  { id: "accelerate", label: msg("Accelerate") },
+  { id: "brake", label: msg("Brake") },
+  { id: "left", label: msg("Turn Left") },
+  { id: "right", label: msg("Turn Right") },
+  { id: "shiftUp", label: msg("Shift Up") },
+  { id: "shiftDown", label: msg("Shift Down") },
   // 4x4 Evolution's own (its "Emergency Brake"): held, the rear brakes lock; only an Evolution truck has one.
-  { id: "handbrake", label: "Emergency Brake" },
+  { id: "handbrake", label: msg("Emergency Brake") },
   // 4x4 Evolution's own: the transfer case, 2WD, 4WD High, 4WD Low, round again (Evo physics, a four-wheel-drive vehicle).
-  { id: "driveMode", label: "Drive Mode" },
-  { id: "helicopter", label: "Helicopter" },
-  { id: "autoStage", label: "Auto Stage" },
-  { id: "horn", label: "Horn" },
-  { id: "yeehaw", label: "YeeHaw" },
-  { id: "camera", label: "Camera" },
-  { id: "dashboard", label: "Dashboard" },
-  { id: "hud", label: "Timing display" },
-  { id: "fps", label: "FPS counter" },
-  { id: "cameraUp", label: "Camera up" },
-  { id: "cameraDown", label: "Camera down" },
-  { id: "map", label: "Map" },
-  { id: "names", label: "Names" },
-  { id: "finder", label: "Finder" },
-  { id: "headlights", label: "Headlights" },
-  { id: "crashDamage", label: "Crash Damage" },
-  { id: "pause", label: "Pause" },
+  { id: "driveMode", label: msg("Drive Mode") },
+  { id: "helicopter", label: msg("Helicopter") },
+  { id: "autoStage", label: msg("Auto Stage") },
+  { id: "horn", label: msg("Horn") },
+  { id: "yeehaw", label: msg("YeeHaw") },
+  { id: "camera", label: msg("Camera") },
+  { id: "dashboard", label: msg("Dashboard") },
+  { id: "hud", label: msg("Timing display") },
+  { id: "fps", label: msg("FPS counter") },
+  { id: "cameraUp", label: msg("Camera up") },
+  { id: "cameraDown", label: msg("Camera down") },
+  { id: "map", label: msg("Map") },
+  { id: "names", label: msg("Names") },
+  { id: "finder", label: msg("Finder") },
+  { id: "headlights", label: msg("Headlights") },
+  { id: "crashDamage", label: msg("Crash Damage") },
+  { id: "pause", label: msg("Pause") },
   // Not one of the game's: in a headset, makes where the head is the driving position (docs/VR.md).
-  { id: "recenter", label: "Recentre VR view" },
+  { id: "recenter", label: msg("Recentre VR view") },
 ]);
 
 export const DEFAULT_BINDINGS = Object.freeze({

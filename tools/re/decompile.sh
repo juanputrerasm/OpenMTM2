@@ -6,6 +6,7 @@
 #   EVO2_DIR=~/games/evo2 tools/re/decompile.sh evo2       (4x4 Evo 2, into re/evo2/)
 #   EVO1_DIR=~/games/evo1 tools/re/decompile.sh evo1       (4x4 Evo 1, into re/evo1/)
 #   CPR_DIR=~/games/cpr tools/re/decompile.sh cpr          (CART Precision Racing, into re/cpr/)
+#   CP3_DIR=~/games/mtm2 tools/re/decompile.sh cp3         (Community Patch 3's monster.exe, x64, into re/cp3/)
 # Needs Ghidra (brew install ghidra) and Python 3. Takes a few minutes.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -36,6 +37,13 @@ elif [ "$TARGET" = cpr ]; then
   GAME_DIR=${CPR_DIR:-$HOME/games/cpr}
   WORK="$REPO/re/cpr"
   EXE=CART.EXE
+  SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
+elif [ "$TARGET" = cp3 ]; then
+  # Community Patch 3 (monster.exe 2.0.52, a 64-bit MSVC rebuild with MFC), for its UDP direct connect
+  # (docs/MONSTER_EXE_ANALYSIS.md 14.5). Its author published no source code.
+  GAME_DIR=${CP3_DIR:-$HOME/games/mtm2}
+  WORK="$REPO/re/cp3"
+  EXE=monster.exe
   SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
 else
   GAME_DIR=${MTM2_DIR:-$HOME/games/mtm2}

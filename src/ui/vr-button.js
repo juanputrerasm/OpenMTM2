@@ -11,9 +11,10 @@ import { el } from "./dom.js";
  */
 export function vrButton(context, className = "") {
   const { xr } = context;
-  const button = el("button", { class: `vr-button ${className}`.trim(), hidden: true, "data-menu-sound": "none" }, "Enter VR");
+  const t = (text) => context.t?.(text) ?? text;
+  const button = el("button", { class: `vr-button ${className}`.trim(), hidden: true, "data-menu-sound": "none" }, t("Enter VR"));
   const show = () => {
-    button.textContent = xr.presenting ? "Leave VR" : "Enter VR";
+    button.textContent = xr.presenting ? t("Leave VR") : t("Enter VR");
     button.title = "";
   };
   xr.supported.then((yes) => { button.hidden = !yes; });
@@ -24,7 +25,7 @@ export function vrButton(context, className = "") {
       if (xr.presenting) await xr.exit(); else await xr.enter();
       show();
     } catch (err) {
-      button.textContent = "VR did not start";
+      button.textContent = t("VR did not start");
       button.title = err?.message ?? String(err);
     } finally {
       button.disabled = false;

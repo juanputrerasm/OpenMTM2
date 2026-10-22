@@ -12,15 +12,16 @@
   (app/graphics-hardware.js).
 */
 import { VISUAL_OPTIONS } from "./visuals.js";
+import { msg } from "./strings.js";
 
 /** The choices, in the order Options lists them. */
 export const GRAPHICS_PRESETS = Object.freeze([
-  Object.freeze({ id: "auto", label: "Auto" }),
-  Object.freeze({ id: "off", label: "Off" }),
-  Object.freeze({ id: "low", label: "Low" }),
-  Object.freeze({ id: "high", label: "High" }),
-  Object.freeze({ id: "max", label: "Max" }),
-  Object.freeze({ id: "custom", label: "Custom" }),
+  Object.freeze({ id: "auto", label: msg("Auto") }),
+  Object.freeze({ id: "off", label: msg("Off") }),
+  Object.freeze({ id: "low", label: msg("Low") }),
+  Object.freeze({ id: "high", label: msg("High") }),
+  Object.freeze({ id: "max", label: msg("Max") }),
+  Object.freeze({ id: "custom", label: msg("Custom") }),
 ]);
 
 /**
@@ -55,17 +56,17 @@ export const GRAPHICS_FLAGS = Object.freeze({
 
 /** The line under the preset. A change still waits for the next race, which the screen adds. */
 export const GRAPHICS_NOTES = Object.freeze({
-  auto: "Picks Low, High or Max for this machine.",
-  off: "The game's own picture, the default. None of the port's scenery.",
-  low: "The water, puddles, snow, paint, lamps and rich dust. No smoothed ground, volumetric weather, ground detail, natural light or lens.",
-  high: "Every part but the lens, the pass the picture can spare first.",
-  max: "Every part, including the lens.",
+  auto: msg("Picks Low, High or Max for this machine."),
+  off: msg("The game's own picture, the default. None of the port's scenery."),
+  low: msg("The water, puddles, snow, paint, lamps and rich dust. No smoothed ground, volumetric weather, ground detail, natural light or lens."),
+  high: msg("Every part but the lens, the pass the picture can spare first."),
+  max: msg("Every part, including the lens."),
   // Custom shows each part's switch under it, which says as much.
   custom: "",
 });
 
 /** Shown on the Options screen's Display page, on the Enhanced graphics preset row. */
-export const GRAPHICS_HINT = "Off, the default, is the game's own picture. Auto picks Low, High or Max for this machine. Low keeps the water, puddles, snow, paint, lamps and rich dust, and drops the smoothed ground, volumetric weather, ground detail, natural light and the lens. High drops only the lens. Max is every part. Custom sets each part on its own. Takes effect from the next race.";
+export const GRAPHICS_HINT = msg("Off, the default, is the game's own picture. Auto picks Low, High or Max for this machine. Low keeps the water, puddles, snow, paint, lamps and rich dust, and drops the smoothed ground, volumetric weather, ground detail, natural light and the lens. High drops only the lens. Max is every part. Custom sets each part on its own. Takes effect from the next race.");
 
 /** A known choice, or Off when `id` is missing or not one of them. */
 export function graphicsChoice(id) {

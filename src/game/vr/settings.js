@@ -3,12 +3,13 @@
   (app/settings.js). Pure, so it runs under Node.
 */
 import { cleanSeatOffset } from "./seat.js";
+import { msg } from "../strings.js";
 
 /** The views the camera key cycles through in a headset, with the chase seats' places, feet. */
 export const VR_VIEWS = Object.freeze([
-  Object.freeze({ id: "cab", name: "Cab" }),
-  Object.freeze({ id: "chaseNear", name: "Chase Near", back: 28, up: 8 }),
-  Object.freeze({ id: "chaseFar", name: "Chase Far", back: 50, up: 14 }),
+  Object.freeze({ id: "cab", name: msg("Cab") }),
+  Object.freeze({ id: "chaseNear", name: msg("Chase Near"), back: 28, up: 8 }),
+  Object.freeze({ id: "chaseFar", name: msg("Chase Far"), back: 50, up: 14 }),
 ]);
 
 /**
@@ -16,15 +17,15 @@ export const VR_VIEWS = Object.freeze([
  * headset that cannot keep its frame rate (docs/VR.md, "What it costs"). Feet.
  */
 export const VIEW_DISTANCES = Object.freeze([
-  Object.freeze({ id: "full", name: "Full", feet: Infinity }),
-  Object.freeze({ id: "medium", name: "Medium", feet: 4000 }),
-  Object.freeze({ id: "short", name: "Short", feet: 2500 }),
+  Object.freeze({ id: "full", name: msg("Full"), feet: Infinity }),
+  Object.freeze({ id: "medium", name: msg("Medium"), feet: 4000 }),
+  Object.freeze({ id: "short", name: msg("Short"), feet: 2500 }),
 ]);
 
 /** What the cab view shows around the driver: the modelled cage, or the stock panels. */
 export const CAB_STYLES = Object.freeze([
-  Object.freeze({ id: "model", name: "Modelled" }),
-  Object.freeze({ id: "panels", name: "Stock panels" }),
+  Object.freeze({ id: "model", name: msg("Modelled") }),
+  Object.freeze({ id: "panels", name: msg("Stock panels") }),
 ]);
 
 export const DEFAULT_VR = Object.freeze({

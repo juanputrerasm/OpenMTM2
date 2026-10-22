@@ -18,11 +18,12 @@
 */
 import * as THREE from "three";
 import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
+import { msg } from "../game/strings.js";
 
 const CELL_FT = 32;
 /** The Evo grass slider: how many cells each way around the camera, by level; 0 draws none. */
 export const GRASS_RADII = Object.freeze([0, 8, 16, 24, 32]);
-export const GRASS_LEVEL_NAMES = Object.freeze(["None", "Near", "Medium", "Far", "Very far"]);
+export const GRASS_LEVEL_NAMES = Object.freeze([msg("None"), msg("Near"), msg("Medium"), msg("Far"), msg("Very far")]);
 export const DEFAULT_GRASS_LEVEL = 2;
 
 /** The level the settings ask for: `evoGrassRange` 0..4, or 0 when the Evo grass switch of before is off. */

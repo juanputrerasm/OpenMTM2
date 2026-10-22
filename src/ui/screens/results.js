@@ -14,8 +14,9 @@ import { racePoints } from "../../game/race-points.js";
 import { frame, uiImageUrl } from "../frame.js";
 import { takeRace } from "../../app/tournament.js";
 import { isExtensionMode } from "../../game/extensions/loader.js";
+import { msg } from "../../game/strings.js";
 
-const DIFFICULTIES = ["Rookie", "Intermediate", "Professional"];
+const DIFFICULTIES = [msg("Rookie"), msg("Intermediate"), msg("Professional")];
 
 /**
  * The seven cells under the headings already painted into RESULTS.BMP. An extension shows its score
@@ -25,7 +26,7 @@ export function winnerCells(row, { summit = false, extension = false, laps = 1, 
   return [
     ordinal(row.place), row.name, row.truckName, DIFFICULTIES[difficulty] ?? DIFFICULTIES[1],
     summit || extension ? String(Math.round(row.score)) : points === null ? "" : String(points),
-    extension ? formatRaceTime(row.raceTime) : summit ? formatRaceTime(laps * 60) : row.rerun ? "Rerun" : row.dq ? "DQ" : (row.finished ? formatRaceTime(row.raceTime) : `${row.laps}/${laps}`),
+    extension ? formatRaceTime(row.raceTime) : summit ? formatRaceTime(laps * 60) : row.rerun ? msg("Rerun") : row.dq ? msg("DQ") : (row.finished ? formatRaceTime(row.raceTime) : `${row.laps}/${laps}`),
     row.best && !extension ? formatRaceTime(row.best) : "",
   ];
 }
@@ -42,18 +43,18 @@ export function crowdCheers(me, summit = false) {
  * The headset's Winner's Circle: place, driver, truck, the score (a Rumble) or the time, and
  * the best lap, the player's row marked. `rows` are in finishing order.
  */
-export function winnerBoard(rows, { summit = false, extension = false, laps = 1, difficulty = 1, note = null, onAgain, onNew, onLeave }) {
+export function winnerBoard(rows, { summit = false, extension = false, laps = 1, difficulty = 1, note = null, onAgain, onNew, onLeave, t = (text) => text }) {
   return createMenu({
-    title: "Winner's Circle",
+    title: t("Winner's Circle"),
     lines: note ? [note] : [],
     table: rows.map((row) => {
       const cells = winnerCells(row, { summit, extension, laps, difficulty });
-      return Object.assign([cells[0], cells[1], cells[2], summit || extension ? cells[4] : cells[5], cells[6]], { highlight: !!row.player });
+      return Object.assign([t(cells[0]), cells[1], cells[2], summit || extension ? cells[4] : t(cells[5]), cells[6]], { highlight: !!row.player });
     }),
     items: [
-      { label: "Race again", action: onAgain },
-      { label: "New race", action: onNew },
-      { label: "Leave VR", action: onLeave },
+      { label: t("Race again"), action: onAgain },
+      { label: t("New race"), action: onNew },
+      { label: t("Leave VR"), action: onLeave },
     ],
   });
 }
@@ -89,7 +90,7 @@ export default async function mount(container, context, { track, laps, difficult
     });
     if (rank) {
       saveHall(context);
-      hallNote = `Hall of Fame: ${ordinal(rank)} on ${track.name}.`;
+      hallNote = context.t("Hall of Fame: <<1>> on <<2>>.", context.t(ordinal(rank)), track.name);
     }
   }
   const sorted = ordered;
@@ -98,15 +99,15 @@ export default async function mount(container, context, { track, laps, difficult
   const lit = me && me.place === 2 ? "RESWIN2" : "RESWIN1";
   const toStart = () => context.router.go("start", {}, { replace: false });
   context.xr?.setBoard(winnerBoard(sorted, {
-    summit, extension, laps, difficulty, note: hallNote,
+    summit, extension, laps, difficulty, note: hallNote, t: context.t,
     onAgain: () => raceFromBoard(context),
     // Back among the menus the headset shows the race setup.
     onNew: toStart,
     onLeave: () => context.xr.exit(),
   }));
   const ui = await frame(container, context, {
-    title: "Winner's Circle", backdrop: "RESULTS", bar: tournament && context.tournament ? "tournament" : "results",
-    labels: [["First", [24, 62, 140, 16]], ["Second", [328, 62, 140, 16]]],
+    title: msg("Winner's Circle"), backdrop: "RESULTS", bar: tournament && context.tournament ? "tournament" : "results",
+    labels: [[msg("First"), [24, 62, 140, 16]], [msg("Second"), [328, 62, 140, 16]]],
     // Without the art's frames: first on the left and second on the right, each a label over its preview with the
     // names and the figures beside it, and the whole list under both.
     modernRegions: {
@@ -131,7 +132,7 @@ export default async function mount(container, context, { track, laps, difficult
     const stat = (label, value) => el("div", { class: "winner-line" }, el("span", { class: "winner-label" }, `${label}: `), value);
     return [
       [line(row.name), line(row.truckName), line(context.t(cells[3]))],
-      [stat(context.t("Points"), cells[4] || String(pointsOf.get(row) ?? 0)), stat(context.t("Lap"), cells[6] || "-"), stat(context.t("Time"), cells[5] || "-")],
+      [stat(context.t("Points"), cells[4] || String(pointsOf.get(row) ?? 0)), stat(context.t("Lap"), cells[6] || "-"), stat(context.t("Time"), context.t(cells[5]) || "-")],
     ];
   };
   {
@@ -149,10 +150,12 @@ export default async function mount(container, context, { track, laps, difficult
   ui.regions.table.append(
     el("table", { class: "results winners-table", title: hallNote ?? "" },
       // The art paints the column headings; the modern stage writes them.
-      ...(ui.art ? [] : [el("thead", {}, el("tr", {}, ...["Place", "Player Name", "Truck", "Skill Level", "Points", "Time", "Fast Lap"].map((h) => el("th", {}, context.t(h)))))]),
+      ...(ui.art ? [] : [el("thead", {}, el("tr", {}, ...[msg("Place"), msg("Player Name"), msg("Truck"), msg("Skill Level"), msg("Points"), msg("Time"), msg("Fast Lap")].map((h) => el("th", {}, context.t(h)))))]),
       el("tbody", {}, ...sorted.map((r) => {
         const cells = winnerCells(r, { summit, extension, laps, difficulty, points: pointsOf.get(r) });
+        cells[0] = context.t(cells[0]);
         cells[3] = context.t(cells[3]);
+        cells[5] = context.t(cells[5]);
         const placeCell = el("td", {}, cells[0]);
         if (ui.classic) uiImageUrl(context.assets, `RESULT${r.place}`).then((url) => {
           if (url) placeCell.replaceChildren(el("img", { class: "place-icon", src: url, alt: cells[0] }));

@@ -25,8 +25,10 @@ import { createCollisionOverlay } from "../render/collision-overlay.js";
 import { createTextPanel } from "../render/bitmap-text.js";
 import { cheatTyped, typeKey } from "../game/cheats.js";
 import { nextWeather, weatherName } from "../game/weather.js";
+import { createStrings, msg } from "../game/strings.js";
 
-const AUTOPILOT_NAMES = ["off", "auto throttle", "full autopilot"];
+const AUTOPILOT_NAMES = [msg("off"), msg("auto throttle"), msg("full autopilot")];
+const OVERLAY_NAMES = { off: msg("off"), wireframe: msg("wireframe"), solid: msg("solid") };
 /** How fast Insert and Delete swing the camera. */
 const ORBIT_RAD_PER_S = 1.2;
 
@@ -38,6 +40,9 @@ const ORBIT_RAD_PER_S = 1.2;
  */
 export function createGoldMode(env) {
   const { window: win, sim, scene, camera, renderer, canvas, view, build, font, scale, flash } = env;
+  // The codes typed (GOLD, FRAME, DANCE, TREX) are the game's and stay; what they say is translated.
+  const t = env.t ?? createStrings();
+  const onOff = (on) => (on ? t("on") : t("off"));
   const totalTriangles = countTriangles(scene);
   const overlay = createCollisionOverlay(build.sim.boxes, build.sim.ramps);
   scene.add(overlay.object);
@@ -92,39 +97,39 @@ export function createGoldMode(env) {
     if (!e.ctrlKey && !e.altKey) {
       typed = typeKey(typed, e.code);
       const code = cheatTyped(typed);
-      if (code === "GOLD") { state.gold = !state.gold; typed = ""; flash(`GOLD ${state.gold ? "on" : "off"}`); }
+      if (code === "GOLD") { state.gold = !state.gold; typed = ""; flash(`GOLD ${onOff(state.gold)}`); }
       if (code === "FRAME") { state.fps = !state.fps; typed = ""; fpsPanel.element.hidden = !state.fps; }
       // Monster Truck Madness 1's two (MTM1_MONSTER_EXE_ANALYSIS.md 3).
       if (code === "DANCE") { state.dance = !state.dance; typed = ""; scope.hidden = !state.dance; }
-      if (code === "TREX") { typed = ""; const said = env.trex?.(); if (said) flash(said); }
+      if (code === "TREX") { typed = ""; const said = env.trex?.(); if (said) flash(t(said)); }
     }
     const chord = e.ctrlKey || e.altKey;
     if (zKeys()) {
       // In Z mode - and + zoom, as in the game. With only the Z-mode cameras option they zoom with Shift: alone they
       // tilt the chase camera (the Camera up and down keys).
       const zoomKey = !chord && (state.zMode || e.shiftKey);
-      if (zoomKey && (e.code === "Minus" || e.code === "NumpadSubtract")) { setZoom(state.zoom / 2); flash(`Zoom ${state.zoom}x`); return true; }
-      if (zoomKey && (e.code === "Equal" || e.code === "NumpadAdd")) { setZoom(state.zoom * 2); flash(`Zoom ${state.zoom}x`); return true; }
+      if (zoomKey && (e.code === "Minus" || e.code === "NumpadSubtract")) { setZoom(state.zoom / 2); flash(t("Zoom <<1>>x", state.zoom)); return true; }
+      if (zoomKey && (e.code === "Equal" || e.code === "NumpadAdd")) { setZoom(state.zoom * 2); flash(t("Zoom <<1>>x", state.zoom)); return true; }
       if (chord && e.code === "KeyL" && env.loadSit) { e.preventDefault(); env.loadSit(); return true; }
     }
     if (!state.gold) return false;
     const done = (promise) => { e.preventDefault(); return promise; };
     if (e.code === "KeyR" && !chord) {
-      done(command("reverse").then((on) => flash(`Reverse course: ${on ? "on" : "off"}`)));
+      done(command("reverse").then((on) => flash(t("Reverse course: <<1>>", onOff(on)))));
       return false;
     }
-    if (chord && e.code === "KeyT") { done(command("autopilot").then((n) => flash(`Autopilot: ${AUTOPILOT_NAMES[n]}`))); return true; }
-    if (chord && e.code === "KeyB") { done(Promise.resolve(overlay.cycle()).then((m) => flash(`Collision boxes: ${m}`))); return true; }
+    if (chord && e.code === "KeyT") { done(command("autopilot").then((n) => flash(t("Autopilot: <<1>>", t(AUTOPILOT_NAMES[n]))))); return true; }
+    if (chord && e.code === "KeyB") { done(Promise.resolve(overlay.cycle()).then((m) => flash(t("Collision boxes: <<1>>", t(OVERLAY_NAMES[m] ?? m))))); return true; }
     if (chord && e.code === "KeyW") {
       const next = nextWeather(env.getWeather(), env.track.weatherMask);
-      done(env.setWeather(next).then(() => flash(`Weather: ${env.t(weatherName(next))}`)));
+      done(env.setWeather(next).then(() => flash(t("Weather: <<1>>.", t(weatherName(next))))));
       return true;
     }
     if (chord && e.code === "KeyY") {
       done(command("slew").then((on) => {
         state.slew = on;
         // Z mode outlives slew mode, as in the game: its zoom and camera go on while driving.
-        flash(`Slew mode: ${on ? "on" : "off"}`);
+        flash(t("Slew mode: <<1>>", onOff(on)));
       }));
       return true;
     }
@@ -134,7 +139,7 @@ export function createGoldMode(env) {
       zPanel.element.hidden = !state.zMode;
       // Leaving Z mode puts the view back, unless the option keeps its keys.
       if (!state.zMode && !env.zCameras?.()) { setZoom(1); state.turn = 0; }
-      flash(`Z mode: ${state.zMode ? "on" : "off"}`);
+      flash(t("Z mode: <<1>>", onOff(state.zMode)));
       return true;
     }
     return false;
@@ -163,7 +168,7 @@ export function createGoldMode(env) {
     if (state.zMode) {
       // MTM1's Z mode adds a physics line under the overlay (0x44a1b0); `env.physicsLine` gives what the page knows of it.
       const physics = env.physicsLine?.();
-      zPanel.set([`Zoom ${state.zoom}x`, `Level ${levelName}`, `Polygons ${renderer.info.render.triangles}/${totalTriangles}`, `Models ${build.objects?.length ?? 0}`, ...(physics ? [physics] : [])]);
+      zPanel.set([t("Zoom <<1>>x", state.zoom), t("Level <<1>>", levelName), t("Polygons <<1>>/<<2>>", renderer.info.render.triangles, totalTriangles), t("Models <<1>>", build.objects?.length ?? 0), ...(physics ? [physics] : [])]);
     }
     if (state.screenshot) {
       state.screenshot = false;
@@ -174,7 +179,7 @@ export function createGoldMode(env) {
         link.download = `vel${String(++shots).padStart(4, "0")}.png`;
         link.click();
         setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-        flash(`Saved ${link.download}`);
+        flash(t("Saved <<1>>", link.download));
       }, "image/png");
     }
   }

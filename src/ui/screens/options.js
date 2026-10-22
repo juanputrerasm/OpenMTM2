@@ -2,12 +2,13 @@
 import { el } from "../dom.js";
 import { frame } from "../frame.js";
 import { mountOptionsPanel } from "../options-panel.js";
+import { msg } from "../../game/strings.js";
 
 export async function openOptionsModal(context) {
   if (context.optionsDialog?.isConnected) return;
   const panel = el("div", { class: "options-modal-panel" });
-  const dialog = el("dialog", { class: "options-modal", "aria-label": "Options" },
-    el("div", { class: "options-modal-title" }, el("h1", {}, "Options")), panel);
+  const dialog = el("dialog", { class: "options-modal", "aria-label": context.t("Options") },
+    el("div", { class: "options-modal-title" }, el("h1", {}, context.t("Options"))), panel);
   context.optionsDialog = dialog;
   document.body.append(dialog);
   const close = () => dialog.close();
@@ -25,7 +26,7 @@ export async function openOptionsModal(context) {
 
 export default async function mount(container, context) {
   const ui = await frame(container, context, {
-    title: "Options", backdrop: "BLANK", bar: "none", options: false,
+    title: msg("Options"), backdrop: "BLANK", bar: "none", options: false,
     regions: { main: [20, 16, 600, 448] },
   });
   const cleanup = await mountOptionsPanel(ui.regions.main, context, { close: () => context.router.back() });

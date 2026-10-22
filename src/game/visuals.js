@@ -8,22 +8,23 @@
 */
 import { DEFAULT_WEATHER_LEVEL, WEATHER_LEVEL_NAMES, weatherLevel } from "./atmosphere.js";
 import { allowedWeathers } from "./weather.js";
+import { msg } from "./strings.js";
 
 /** The switches as the Options screen lists them: the setting's key, its name and what it does. */
 export const VISUAL_OPTIONS = Object.freeze([
-  Object.freeze({ key: "terrainSmoothing", label: "Smooth terrain", hint: "Rounds the ground's 32 ft facets and gives steep slopes and cliffs relief. Trucks drive on the same ground as before, but on a 4x4 Evolution 2 track, which is smoothed as that game smooths it and driven on so." }),
-  Object.freeze({ key: "enhancedWater", label: "Reflective water", hint: "Wind waves that gust, the sky and the hills mirrored in it, the sun's glint, a shore that shallows, wakes and rings where the trucks stir it, and solid ice in Snow." }),
+  Object.freeze({ key: "terrainSmoothing", label: msg("Smooth terrain"), hint: msg("Rounds the ground's 32 ft facets and gives steep slopes and cliffs relief. Trucks drive on the same ground as before, but on a 4x4 Evolution 2 track, which is smoothed as that game smooths it and driven on so.") }),
+  Object.freeze({ key: "enhancedWater", label: msg("Reflective water"), hint: msg("Wind waves that gust, the sky and the hills mirrored in it, the sun's glint, a shore that shallows, wakes and rings where the trucks stir it, and solid ice in Snow.") }),
   // A slider, not a switch: None (off), Few, Default or Max, how thick the fog is (game/atmosphere.js `FOG_AMOUNTS`).
-  Object.freeze({ key: "volumetricWeather", label: "Volumetric weather", hint: "Fog that lies in layers and drifts, a sea of cloud in the valleys with a lit top, and rain and snow that fall through the air around you. The slider sets how thick the fog is: None is the game's own fog, Max the thickest.", amountKey: "weatherAmount", levels: WEATHER_LEVEL_NAMES, defaultLevel: DEFAULT_WEATHER_LEVEL, level: weatherLevel }),
-  Object.freeze({ key: "rainPuddles", label: "Rain puddles", hint: "In Rain the ground is wet, and water stands where the ground has a low point, which the trucks splash through and stir." }),
-  Object.freeze({ key: "snowCover", label: "Snow cover", hint: "In Snow the ground lies under snow that deepens as it settles: deep on level ground, thin on slopes and along the track." }),
-  Object.freeze({ key: "groundDetail", label: "Ground detail", hint: "Ground that stays sharp close up and steady far off: fine grain over the game's textures, cliffs without smeared texels, and no shimmer in the distance." }),
-  Object.freeze({ key: "naturalLight", label: "Natural light", hint: "Sunlight in the colour of its hour, light from the sky and off the ground, shadows cast by the hills, and bright light that rolls off instead of clipping. Needs the enhanced look." }),
-  Object.freeze({ key: "glossyPaint", label: "Glossy paint", hint: "Trucks mirror the sky and throw the sun back as a glint, more so when wet." }),
-  Object.freeze({ key: "lensEffects", label: "Lens effects", hint: "Bright lights glow: the sun, its glints on water and paint, headlights, lightning. On the flat screen only; a headset draws without it." }),
-  Object.freeze({ key: "truckLamps", label: "Truck lamps", hint: "Lamps that glow in their own colour, headlight beams as light in the air (plain in fog and at night, faint by day), tail lamps that run dim and brake bright, headlights that light the ground whenever they are on, and a start gantry of real lamps." }),
-  Object.freeze({ key: "richParticles", label: "Rich particles", hint: "Dust that billows along behind a truck as thick as the ground there is dry and bare, and takes the light, powder and chips off snow and ice, sheets of spray out of water and puddles, sparks that glow and cool as they fly, and tracks pressed into the ground, ploughed through deep snow where ruts that cross make one snow, and gone under standing water. Which of them are thrown at all is under Effects." }),
-  Object.freeze({ key: "replayEffects", label: "Replay effects", hint: "Dust, tire tracks and sparks in replays, as in the race, read off the recorded film, and the enhanced look's sun shadows. Which of them are thrown at all is under Effects." }),
+  Object.freeze({ key: "volumetricWeather", label: msg("Volumetric weather"), hint: msg("Fog that lies in layers and drifts, a sea of cloud in the valleys with a lit top, and rain and snow that fall through the air around you. The slider sets how thick the fog is: None is the game's own fog, Max the thickest."), amountKey: "weatherAmount", levels: WEATHER_LEVEL_NAMES, defaultLevel: DEFAULT_WEATHER_LEVEL, level: weatherLevel }),
+  Object.freeze({ key: "rainPuddles", label: msg("Rain puddles"), hint: msg("In Rain the ground is wet, and water stands where the ground has a low point, which the trucks splash through and stir.") }),
+  Object.freeze({ key: "snowCover", label: msg("Snow cover"), hint: msg("In Snow the ground lies under snow that deepens as it settles: deep on level ground, thin on slopes and along the track.") }),
+  Object.freeze({ key: "groundDetail", label: msg("Ground detail"), hint: msg("Ground that stays sharp close up and steady far off: fine grain over the game's textures, cliffs without smeared texels, and no shimmer in the distance.") }),
+  Object.freeze({ key: "naturalLight", label: msg("Natural light"), hint: msg("Sunlight in the colour of its hour, light from the sky and off the ground, shadows cast by the hills, and bright light that rolls off instead of clipping. Needs the enhanced look.") }),
+  Object.freeze({ key: "glossyPaint", label: msg("Glossy paint"), hint: msg("Trucks mirror the sky and throw the sun back as a glint, more so when wet.") }),
+  Object.freeze({ key: "lensEffects", label: msg("Lens effects"), hint: msg("Bright lights glow: the sun, its glints on water and paint, headlights, lightning. On the flat screen only; a headset draws without it.") }),
+  Object.freeze({ key: "truckLamps", label: msg("Truck lamps"), hint: msg("Lamps that glow in their own colour, headlight beams as light in the air (plain in fog and at night, faint by day), tail lamps that run dim and brake bright, headlights that light the ground whenever they are on, and a start gantry of real lamps.") }),
+  Object.freeze({ key: "richParticles", label: msg("Rich particles"), hint: msg("Dust that billows along behind a truck as thick as the ground there is dry and bare, and takes the light, powder and chips off snow and ice, sheets of spray out of water and puddles, sparks that glow and cool as they fly, and tracks pressed into the ground, ploughed through deep snow where ruts that cross make one snow, and gone under standing water. Which of them are thrown at all is under Effects.") }),
+  Object.freeze({ key: "replayEffects", label: msg("Replay effects"), hint: msg("Dust, tire tracks and sparks in replays, as in the race, read off the recorded film, and the enhanced look's sun shadows. Which of them are thrown at all is under Effects.") }),
 ]);
 
 const RAIN = 4, SNOW = 5;

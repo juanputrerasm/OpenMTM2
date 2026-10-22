@@ -26,6 +26,7 @@ import { parseTrn } from "../vendor/openphotex/mtm/trn.js";
 import { decodeModel } from "./models.js";
 import { FONT_SHEETS, parseBitmapFont } from "./bitmap-font.js";
 import { readUserData, removeUserData, writeUserData } from "./user-data.js";
+import { crcStart, crcUpdate } from "../net/vendor/mtmnet/track-crc.js";
 
 /** A reply whose buffers move to the main thread instead of being copied. */
 const TRANSFER = Symbol("transfer");
@@ -39,6 +40,8 @@ const ownBytes = (bytes) => (bytes.byteOffset === 0 && bytes.byteLength === byte
 // Promises, so requests that arrive together share one mount and one catalogue; a reset sets them to null.
 let vfs = null;
 let catalog = null;
+/** Track checksums by archive key (trackChecksum); forgotten when the mounts change. */
+const trackChecksums = new Map();
 
 /** `pending`, forgotten if it fails while still current, so the next request tries again. */
 async function settle(pending, forget) {
@@ -70,6 +73,7 @@ const handlers = {
   async install(request) {
     vfs = null;
     catalog = null;
+    trackChecksums.clear();
     return copyInstall(request, (progress) => self.postMessage({ event: "install-progress", payload: progress }));
   },
 
@@ -77,6 +81,7 @@ const handlers = {
   async reloadPodIni() {
     vfs = null;
     catalog = null;
+    trackChecksums.clear();
     return reloadPodIni();
   },
 
@@ -84,6 +89,7 @@ const handlers = {
   async reloadInstall(request) {
     vfs = null;
     catalog = null;
+    trackChecksums.clear();
     const done = await syncInstall(request, (progress) => self.postMessage({ event: "install-progress", payload: progress }));
     // The new POD.INI's order for the install's archives, ahead of the added ones.
     await reloadPodIni();
@@ -93,6 +99,7 @@ const handlers = {
   async uninstall() {
     vfs = null;
     catalog = null;
+    trackChecksums.clear();
     await removeInstall();
     return true;
   },
@@ -101,6 +108,7 @@ const handlers = {
   async clearGameData() {
     vfs = null;
     catalog = null;
+    trackChecksums.clear();
     await Promise.all([removeInstall(), removeAddons(), removeUserData()]);
     return true;
   },
@@ -109,6 +117,7 @@ const handlers = {
   async addGameFolder(request) {
     vfs = null;
     catalog = null;
+    trackChecksums.clear();
     return addGameFolder(request, (progress) => self.postMessage({ event: "install-progress", payload: progress }));
   },
 
@@ -116,12 +125,14 @@ const handlers = {
   async addPods(request) {
     vfs = null;
     catalog = null;
+    trackChecksums.clear();
     return addPods(request, (progress) => self.postMessage({ event: "install-progress", payload: progress }));
   },
 
   async removePod({ key }) {
     vfs = null;
     catalog = null;
+    trackChecksums.clear();
     return removePod(key);
   },
 
@@ -129,6 +140,7 @@ const handlers = {
   async setMountOrder({ keys }) {
     vfs = null;
     catalog = null;
+    trackChecksums.clear();
     return setMountOrder(keys);
   },
 
@@ -174,6 +186,26 @@ const handlers = {
     if (!bytes) return null;
     const own = ownBytes(bytes);
     return withTransfer(own, [own.buffer]);
+  },
+
+  /**
+   * A track's network checksum (MONSTER_EXE_ANALYSIS.md 14.2, packet 0x25): CRC-32/MPEG-2 over the whole POD that holds
+   * `WORLD\\<sit>`, -1 when none does. Kept per archive, as the game keeps it.
+   */
+  async trackChecksum({ sit }) {
+    const hit = (await mounted()).find(`WORLD\\${String(sit).toUpperCase()}`);
+    if (!hit?.mount.blob) return -1;
+    const key = hit.mount.key ?? hit.mount.name;
+    if (!trackChecksums.has(key)) {
+      trackChecksums.set(key, (async () => {
+        const blob = await hit.mount.blob();
+        let crc = crcStart();
+        const CHUNK = 4 << 20;
+        for (let at = 0; at < blob.size; at += CHUNK) crc = crcUpdate(crc, new Uint8Array(await blob.slice(at, at + CHUNK).arrayBuffer()));
+        return crc;
+      })().catch((err) => { trackChecksums.delete(key); throw err; }));
+    }
+    return trackChecksums.get(key);
   },
 
   /** The mounted tournaments (`TOURNEY\\*.TRN`): `[{ path, trn, description }]`, the description from the text file the TRN names. */

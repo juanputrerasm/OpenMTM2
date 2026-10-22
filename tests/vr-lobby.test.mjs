@@ -106,7 +106,7 @@ test("starting hands over the whole choice; leaving and backing out both leave",
 test("names are put through the game's message table where it has them", () => {
   const menu = createLobby({ tracks: TRACKS, trucks: TRUCKS, onStart() {}, translate: (text) => `<${text}>` });
   assert.deepEqual(menu.lines, ["<Circuit Race>"]);
-  assert.equal(itemValue(menu.items.find((i) => i.label === "Weather")), "<Clear>");
+  assert.equal(itemValue(menu.items.find((i) => i.label === "<Weather>")), "<Clear>");
 });
 
 test("nothing to race on, or nothing to race in: no lobby", () => {

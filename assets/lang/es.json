@@ -1,0 +1,3802 @@
+[
+ {
+  "tag": "Welcome to OpenMTM2",
+  "text": "Bienvenido a OpenMTM2"
+ },
+ {
+  "tag": "A fan remake of Monster Truck Madness 2 that runs in your browser.",
+  "text": "Una versión mejorada de Monster Truck Madness 2 que funciona en tu navegador."
+ },
+ {
+  "tag": "Language",
+  "text": "Idioma"
+ },
+ {
+  "tag": "Graphics",
+  "text": "Gráficos"
+ },
+ {
+  "tag": "Enhanced",
+  "text": "Mejorados"
+ },
+ {
+  "tag": "Standard",
+  "text": "Estándar"
+ },
+ {
+  "tag": "Enhanced uses every visual improvement. Standard keeps the game's own look and runs on any computer. Both can be fine-tuned later in Options.",
+  "text": "Los graficos mejorados usan todas las mejoras visuales. Estándar mantiene el aspecto original del juego. Ambos se pueden ajustar después en Opciones."
+ },
+ {
+  "tag": "Have the game?",
+  "text": "¿Ya tienes el juego?"
+ },
+ {
+  "tag": "Install from this server",
+  "text": "Instalar desde este servidor"
+ },
+ {
+  "tag": "Choose MTM2 folder",
+  "text": "Elegir carpeta de MTM2"
+ },
+ {
+  "tag": "Choose ISO or ZIP file",
+  "text": "Elegir archivo ISO o ZIP"
+ },
+ {
+  "tag": "Use only files from a copy of the game you own. Your use stays subject to the game's End User License Agreement. Nothing is uploaded: the files are copied into this browser only.",
+  "text": "Usa solo archivos de una copia del juego del cual eres dueño. Su uso sigue sujeto al Contrato de Licencia de Usuario Final del juego. No se sube nada: los archivos solo se copian a este navegador."
+ },
+ {
+  "tag": "Don't have it?",
+  "text": "¿No lo tienes?"
+ },
+ {
+  "tag": "Play the free trial (18 MB)",
+  "text": "Jugar la versión de prueba gratuita (18 MB)"
+ },
+ {
+  "tag": "Downloads Microsoft's free 1998 trial (Includes the track 'Farm Road 29' and four trucks) into this browser. It is provided as-is under its original license, which is shown before it installs.",
+  "text": "Se descarga la versión de prueba gratuita de Microsoft (Incluye la pista 'Farm Road 29' y 4 monster trucks). Se ofrece tal cual, bajo su licencia original, la cual se debe aceptar antes de instalarla."
+ },
+ {
+  "tag": "Legal notice",
+  "text": "Aviso legal"
+ },
+ {
+  "tag": "OpenMTM2 is an unofficial fan project, not affiliated with or endorsed by Microsoft, Terminal Reality or any truck owner. It includes no game files other than the unmodified Monster Truck Madness 2 trial, which its license allows to be passed on free of charge.",
+  "text": "OpenMTM2 es un proyecto no oficial hecho por fans, sin relación con Microsoft, Terminal Reality ni ningún dueño de monster trucks, ni respaldado por ellos. No incluye archivos del juego, salvo la versión de prueba de Monster Truck Madness 2 sin modificar, que su licencia permite distribuir gratuitamente."
+ },
+ {
+  "tag": "Monster Truck Madness 2 is © 1998 Microsoft Corporation and Terminal Reality. Truck names and logos are trademarks of their owners.",
+  "text": "Monster Truck Madness 2 es © 1998 Microsoft Corporation y Terminal Reality. Los nombres y logotipos de los camiones son marcas registradas de sus dueños."
+ },
+ {
+  "tag": "If you are a rights holder and object to anything here, <<1>> and it will be changed or removed.",
+  "text": "Si eres titular de derechos y te opones a algo de lo que hay aquí, <<1>> y se cambiará o eliminará."
+ },
+ {
+  "tag": "open an issue on GitHub",
+  "text": "abre un reporte en GitHub"
+ },
+ {
+  "tag": "The trial also comes from the Internet Archive: <<1>>.",
+  "text": "La versión de prueba también está en el Internet Archive: <<1>>."
+ },
+ {
+  "tag": "its page",
+  "text": "su página"
+ },
+ {
+  "tag": "Cancel",
+  "text": "Cancelar"
+ },
+ {
+  "tag": "Connecting…",
+  "text": "Conectando…"
+ },
+ {
+  "tag": "Downloading from <<1>>: <<2>> of <<3>> MB",
+  "text": "Descargando desde <<1>>: <<2>> de <<3>> MB"
+ },
+ {
+  "tag": "OpenMTM2",
+  "text": "OpenMTM2"
+ },
+ {
+  "tag": "the Internet Archive",
+  "text": "el Internet Archive"
+ },
+ {
+  "tag": "about <<1>> min left",
+  "text": "faltan unos <<1>> min"
+ },
+ {
+  "tag": "about <<1>> s left",
+  "text": "faltan unos <<1>> s"
+ },
+ {
+  "tag": "Download cancelled.",
+  "text": "Descarga cancelada."
+ },
+ {
+  "tag": "Opening <<1>>…",
+  "text": "Abriendo <<1>>…"
+ },
+ {
+  "tag": "Unpacking… <<1>>%",
+  "text": "Descomprimiendo… <<1>>%"
+ },
+ {
+  "tag": "Checking <<1>>…",
+  "text": "Revisando <<1>>…"
+ },
+ {
+  "tag": "the folder",
+  "text": "la carpeta"
+ },
+ {
+  "tag": "Microsoft's license for the trial. Read it, then accept it to install.",
+  "text": "La licencia de Microsoft para la versión de prueba. Léela y acéptala para instalar."
+ },
+ {
+  "tag": "I accept",
+  "text": "Acepto"
+ },
+ {
+  "tag": "Decline",
+  "text": "No acepto"
+ },
+ {
+  "tag": "The trial was not installed: its license was not accepted.",
+  "text": "La versión de prueba no se instaló: no se aceptó su licencia."
+ },
+ {
+  "tag": "The browser offers <<1>> MB of storage, not enough for the game's <<2>> MB.",
+  "text": "El navegador ofrece <<1>> MB de almacenamiento, no alcanza para los <<2>> MB del juego."
+ },
+ {
+  "tag": "Copying…",
+  "text": "Copiando…"
+ },
+ {
+  "tag": "Copying <<1>>: <<2>> of <<3>> MB",
+  "text": "Copiando <<1>>: <<2>> de <<3>> MB"
+ },
+ {
+  "tag": "To use a folder, click 'Choose MTM2 folder'.",
+  "text": "Para usar una carpeta, haz clic en 'Elegir carpeta de MTM2'."
+ },
+ {
+  "tag": "Spectator mode is on: the computer trucks race and you watch. You will not drive.\n\nStart the race?",
+  "text": "El modo espectador está activado: los camiones de la computadora corren y tú miras. No conduces.\n\n¿Comenzar la carrera?"
+ },
+ {
+  "tag": "<<1>> needs <<2>> trucks at least. Pick computer opponents on the Races screen.",
+  "text": "<<1>> necesita al menos <<2>> camiones. Elige oponentes (bots) en la pantalla Carreras."
+ },
+ {
+  "tag": "Web Workers",
+  "text": "Web Workers"
+ },
+ {
+  "tag": "the Origin Private File System (navigator.storage.getDirectory)",
+  "text": "el Origin Private File System (navigator.storage.getDirectory)"
+ },
+ {
+  "tag": "WebGL 2",
+  "text": "WebGL 2"
+ },
+ {
+  "tag": "Not possible here: <<1>>",
+  "text": "No es posible aquí: <<1>>"
+ },
+ {
+  "tag": "Not possible here: the page has to come from localhost, or over HTTPS with a certificate the browser trusts.",
+  "text": "No es posible aquí: la página debe venir de localhost, o por HTTPS con un certificado en el que confíe el navegador."
+ },
+ {
+  "tag": "Off: the game needs its server at every start.",
+  "text": "Desactivado: el juego necesita su servidor cada vez que se inicia."
+ },
+ {
+  "tag": "Saved<<1>>, <<2>> files; checking for a newer one...",
+  "text": "Guardado<<1>>, <<2>> archivos; buscando una versión más reciente..."
+ },
+ {
+  "tag": "Saved<<1>>, <<2>> files.",
+  "text": "Guardado<<1>>, <<2>> archivos."
+ },
+ {
+  "tag": "Saving...",
+  "text": "Guardando..."
+ },
+ {
+  "tag": "Not saved: <<1>>",
+  "text": "No guardado: <<1>>"
+ },
+ {
+  "tag": "Not saved yet.",
+  "text": "Aún no guardado."
+ },
+ {
+  "tag": "Auto (by vehicle)",
+  "text": "Automático (según el vehículo)"
+ },
+ {
+  "tag": "The model of the player's vehicle's game: 4x4 Evolution 2 or 4x4 Evolution for their vehicles, Monster Truck Madness for MTM1 trucks, Monster Truck Madness 2 for the rest",
+  "text": "El modelo del juego del vehículo del jugador: 4x4 Evolution 2 o 4x4 Evolution para sus vehículos, Monster Truck Madness para los camiones de MTM1 y Monster Truck Madness 2 para el resto"
+ },
+ {
+  "tag": "Auto (by track)",
+  "text": "Automático (según la pista)"
+ },
+ {
+  "tag": "The model of the track's game: 4x4 Evolution 2 or 4x4 Evolution on their tracks, Monster Truck Madness on MTM1 tracks, Monster Truck Madness 2 on the rest",
+  "text": "El modelo del juego de la pista: 4x4 Evolution 2 o 4x4 Evolution en sus pistas, Monster Truck Madness en las pistas de MTM1 y Monster Truck Madness 2 en el resto"
+ },
+ {
+  "tag": "Monster Truck Madness 2",
+  "text": "Monster Truck Madness 2"
+ },
+ {
+  "tag": "The 1998 game's",
+  "text": "El del juego de 1998"
+ },
+ {
+  "tag": "Monster Truck Madness",
+  "text": "Monster Truck Madness"
+ },
+ {
+  "tag": "The 1996 game's: tires that touch throw trucks twice as hard, water stops a truck, no deep water, weather does not change the grip, no crash damage, and its own drag rules",
+  "text": "El del juego de 1996: las ruedas que se tocan lanzan a los camiones con el doble de fuerza, el agua detiene al camión, no hay agua profunda, el clima no cambia el agarre, no hay daño por choques y tiene sus propias reglas de aceleración"
+ },
+ {
+  "tag": "4x4 Evolution 2",
+  "text": "4x4 Evolution 2"
+ },
+ {
+  "tag": "The 2001 game's vehicle model: each Evo vehicle on its own engine, gears, springs and tires; others on MTM2's figures. Airborne vehicles fall at 1.75 g, the centre of gravity sits 2 ft forward, hard steering at speed loosens the rear",
+  "text": "El modelo de vehículos del juego de 2001: cada vehículo de Evo con su propio motor, cambios, resortes y neumáticos; los demás con los valores de MTM2. Los vehículos en el aire caen a 1,75 g, el centro de gravedad está 2 pies hacia adelante y girar fuerte a alta velocidad suelta la parte trasera"
+ },
+ {
+  "tag": "4x4 Evolution",
+  "text": "4x4 Evolution"
+ },
+ {
+  "tag": "The 2000 game's vehicle model, as Evo 2's but floatier in the air, with the centre of gravity at the middle and bodies that slide further on the ground",
+  "text": "El modelo de vehículos del juego de 2000, como el de Evo 2 pero más flotante en el aire, con el centro de gravedad al medio y carrocerías que se deslizan más por el suelo"
+ },
+ {
+  "tag": "That file is not a settings file (it is not JSON).",
+  "text": "Ese archivo no es un archivo de configuración (no es JSON)."
+ },
+ {
+  "tag": "That file is not an OpenMTM2 settings file.",
+  "text": "Ese archivo no es un archivo de configuración de OpenMTM2."
+ },
+ {
+  "tag": "Those settings are from a newer OpenMTM2 (version <<1>>; this one reads up to <<2>>).",
+  "text": "Esa configuración es de un OpenMTM2 más reciente (versión <<1>>; este lee hasta la <<2>>)."
+ },
+ {
+  "tag": "The race did not start",
+  "text": "La carrera no comenzó"
+ },
+ {
+  "tag": "Back",
+  "text": "Volver"
+ },
+ {
+  "tag": "Leave VR",
+  "text": "Salir de VR"
+ },
+ {
+  "tag": "Off",
+  "text": "Desactivado"
+ },
+ {
+  "tag": "MSAA",
+  "text": "MSAA"
+ },
+ {
+  "tag": "FXAA",
+  "text": "FXAA"
+ },
+ {
+  "tag": "SMAA",
+  "text": "SMAA"
+ },
+ {
+  "tag": "TAA",
+  "text": "TAA"
+ },
+ {
+  "tag": "Off draws each point once and is the fastest. MSAA is the hardware default: four samples a point, two when the picture is very large. FXAA, SMAA and TAA are optional passes over the picture, left off unless chosen. FXAA is the cheapest, SMAA keeps edges sharper, and TAA also steadies shimmer. A headset keeps its own sampling. Takes effect from the next race.",
+  "text": "Desactivado dibuja cada punto una vez y es lo más rápido. MSAA es el predeterminado del hardware: cuatro muestras por punto, dos cuando la imagen es muy grande. FXAA, SMAA y TAA son pasadas opcionales sobre la imagen, desactivadas salvo que las elijas. FXAA es la más liviana, SMAA mantiene los bordes más nítidos y TAA además reduce el parpadeo. Un visor de VR usa su propio muestreo. Se aplica desde la próxima carrera."
+ },
+ {
+  "tag": "None",
+  "text": "Ninguno"
+ },
+ {
+  "tag": "Few",
+  "text": "Pocos"
+ },
+ {
+  "tag": "Default",
+  "text": "Default"
+ },
+ {
+  "tag": "Max",
+  "text": "Máximo"
+ },
+ {
+  "tag": "Cockpit",
+  "text": "Cabina"
+ },
+ {
+  "tag": "Chase Near",
+  "text": "Cámara cercana"
+ },
+ {
+  "tag": "Chase Far",
+  "text": "Cámara lejana"
+ },
+ {
+  "tag": "BlimpCam",
+  "text": "Cámara del dirigible"
+ },
+ {
+  "tag": "RaceCam",
+  "text": "Cámara de carrera"
+ },
+ {
+  "tag": "Chase Front",
+  "text": "Cámara frontal"
+ },
+ {
+  "tag": "Chase Left",
+  "text": "Cámara izquierda"
+ },
+ {
+  "tag": "Chase Right",
+  "text": "Cámara derecha"
+ },
+ {
+  "tag": "Chase Big Rear",
+  "text": "Cámara trasera amplia"
+ },
+ {
+  "tag": "Chase Big Front",
+  "text": "Cámara frontal amplia"
+ },
+ {
+  "tag": "Inertia",
+  "text": "Inercia"
+ },
+ {
+  "tag": "Final",
+  "text": "Final"
+ },
+ {
+  "tag": "Semi-final",
+  "text": "Semifinal"
+ },
+ {
+  "tag": "Round of <<1>>",
+  "text": "Ronda de <<1>>"
+ },
+ {
+  "tag": "The tournament has no events.",
+  "text": "El torneo no tiene eventos."
+ },
+ {
+  "tag": "Because of pairing requirements, a tournament with a drag race takes 2, 4 or 8 trucks.",
+  "text": "Por los emparejamientos, un torneo con una carrera de aceleración admite 2, 4 u 8 camiones."
+ },
+ {
+  "tag": "A tournament takes 1 to 8 trucks.",
+  "text": "Un torneo admite de 1 a 8 camiones."
+ },
+ {
+  "tag": "The tournament is over.",
+  "text": "El torneo terminó."
+ },
+ {
+  "tag": "Red",
+  "text": "Rojo"
+ },
+ {
+  "tag": "Blue",
+  "text": "Azul"
+ },
+ {
+  "tag": "Hockey",
+  "text": "Hockey"
+ },
+ {
+  "tag": "Two teams play for goals on Breakneck Ridge's frozen lake.",
+  "text": "Dos equipos juegan por goles en el lago congelado de Breakneck Ridge."
+ },
+ {
+  "tag": "Goals",
+  "text": "Goles"
+ },
+ {
+  "tag": "Goals to win",
+  "text": "Goles para ganar"
+ },
+ {
+  "tag": "Minutes",
+  "text": "Minutos"
+ },
+ {
+  "tag": "Laps",
+  "text": "Vueltas"
+ },
+ {
+  "tag": "You",
+  "text": "Tú"
+ },
+ {
+  "tag": "Clock:",
+  "text": "Reloj:"
+ },
+ {
+  "tag": "Team:",
+  "text": "Equipo:"
+ },
+ {
+  "tag": "Goals:",
+  "text": "Goles:"
+ },
+ {
+  "tag": "own goal, <<1>>",
+  "text": "autogol, <<1>>"
+ },
+ {
+  "tag": "<<1>> scores!",
+  "text": "¡<<1>> anota!"
+ },
+ {
+  "tag": "Puck out of the rink. Face-off!",
+  "text": "El disco salió de la pista. ¡Saque neutral!"
+ },
+ {
+  "tag": "Face-off! First to <<1>>",
+  "text": "¡Saque neutral! Gana el primero en llegar a <<1>>"
+ },
+ {
+  "tag": "<<1>> wins!",
+  "text": "¡<<1>> gana!"
+ },
+ {
+  "tag": "Time Remaining:",
+  "text": "Tiempo restante:"
+ },
+ {
+  "tag": "Points:",
+  "text": "Puntos:"
+ },
+ {
+  "tag": "It:",
+  "text": "La lleva:"
+ },
+ {
+  "tag": "It time:",
+  "text": "Tiempo llevándola:"
+ },
+ {
+  "tag": "Place:",
+  "text": "Posicion:"
+ },
+ {
+  "tag": "<<1>> tagged you. You're It!",
+  "text": "<<1>> te tocó. ¡Tú la llevas!"
+ },
+ {
+  "tag": "You tagged <<1>>!",
+  "text": "¡Tocaste a <<1>>!"
+ },
+ {
+  "tag": "<<1>> tagged <<2>>!",
+  "text": "¡<<1>> tocó a <<2>>!"
+ },
+ {
+  "tag": "You're It! Wait for it...",
+  "text": "¡Tú la llevas! Espera..."
+ },
+ {
+  "tag": "<<1>> is It! Run!",
+  "text": "¡<<1>> la lleva! ¡Corre!"
+ },
+ {
+  "tag": "Tag",
+  "text": "La lleva"
+ },
+ {
+  "tag": "One truck is It and passes that role by touching another truck.",
+  "text": "Un camión la lleva y la pasa al tocar a otro camión."
+ },
+ {
+  "tag": "Round length",
+  "text": "Duración de la ronda"
+ },
+ {
+  "tag": "minutes",
+  "text": "minutos"
+ },
+ {
+  "tag": "Auto",
+  "text": "Automático"
+ },
+ {
+  "tag": "Low",
+  "text": "Bajo"
+ },
+ {
+  "tag": "High",
+  "text": "Alto"
+ },
+ {
+  "tag": "Custom",
+  "text": "Personalizado"
+ },
+ {
+  "tag": "Picks Low, High or Max for this machine.",
+  "text": "Elige Bajo, Alto o Máximo para este computador."
+ },
+ {
+  "tag": "The game's own picture, the default. None of the port's scenery.",
+  "text": "La imagen original del juego, la predeterminada. Nada del paisaje de OpenMTM2."
+ },
+ {
+  "tag": "The water, puddles, snow, paint, lamps and rich dust. No smoothed ground, volumetric weather, ground detail, natural light or lens.",
+  "text": "El agua, los charcos, la nieve, la pintura, las luces y el polvo detallado. Sin terreno suavizado, clima volumétrico, detalle del suelo, luz natural ni efectos de lente."
+ },
+ {
+  "tag": "Every part but the lens, the pass the picture can spare first.",
+  "text": "Todo menos los efectos de lente, la pasada que la imagen puede omitir primero."
+ },
+ {
+  "tag": "Every part, including the lens.",
+  "text": "Todo, incluidos los efectos de lente."
+ },
+ {
+  "tag": "Off, the default, is the game's own picture. Auto picks Low, High or Max for this machine. Low keeps the water, puddles, snow, paint, lamps and rich dust, and drops the smoothed ground, volumetric weather, ground detail, natural light and the lens. High drops only the lens. Max is every part. Custom sets each part on its own. Takes effect from the next race.",
+  "text": "Desactivado, el predeterminado, es la imagen original del juego. Automático elige Bajo, Alto o Máximo para este equipo. Bajo conserva el agua, los charcos, la nieve, la pintura, las luces y el polvo detallado, y quita el terreno suavizado, el clima volumétrico, el detalle del suelo, la luz natural y los efectos de lente. Alto quita solo los efectos de lente. Máximo lo incluye todo. Personalizado ajusta cada parte por separado. Se aplica desde la próxima carrera."
+ },
+ {
+  "tag": "Accelerate",
+  "text": "Acelerar"
+ },
+ {
+  "tag": "Brake",
+  "text": "Frenar"
+ },
+ {
+  "tag": "Turn Left",
+  "text": "Girar a la izquierda"
+ },
+ {
+  "tag": "Turn Right",
+  "text": "Girar a la derecha"
+ },
+ {
+  "tag": "Shift Up",
+  "text": "Subir marcha"
+ },
+ {
+  "tag": "Shift Down",
+  "text": "Bajar marcha"
+ },
+ {
+  "tag": "Emergency Brake",
+  "text": "Freno de emergencia"
+ },
+ {
+  "tag": "Drive Mode",
+  "text": "Modo de conducción"
+ },
+ {
+  "tag": "Helicopter",
+  "text": "Helicóptero"
+ },
+ {
+  "tag": "Auto Stage",
+  "text": "Posicionamiento automático"
+ },
+ {
+  "tag": "Horn",
+  "text": "Bocina"
+ },
+ {
+  "tag": "YeeHaw",
+  "text": "¡Yiijaa!"
+ },
+ {
+  "tag": "Camera",
+  "text": "Cámara"
+ },
+ {
+  "tag": "Dashboard",
+  "text": "Tablero"
+ },
+ {
+  "tag": "Timing display",
+  "text": "Pantalla de tiempos"
+ },
+ {
+  "tag": "FPS counter",
+  "text": "Contador de FPS"
+ },
+ {
+  "tag": "Camera up",
+  "text": "Subir cámara"
+ },
+ {
+  "tag": "Camera down",
+  "text": "Bajar cámara"
+ },
+ {
+  "tag": "Map",
+  "text": "Mapa"
+ },
+ {
+  "tag": "Names",
+  "text": "Nombres"
+ },
+ {
+  "tag": "Finder",
+  "text": "Localizador"
+ },
+ {
+  "tag": "Headlights",
+  "text": "Focos"
+ },
+ {
+  "tag": "Crash Damage",
+  "text": "Daño por choques"
+ },
+ {
+  "tag": "Pause",
+  "text": "Pausa"
+ },
+ {
+  "tag": "Recentre VR view",
+  "text": "Recentrar la vista de VR"
+ },
+ {
+  "tag": "Circuit Race",
+  "text": "Carrera en circuito"
+ },
+ {
+  "tag": "Rally Race",
+  "text": "Carrera de rally"
+ },
+ {
+  "tag": "Summit Rumble",
+  "text": "Summit Rumble"
+ },
+ {
+  "tag": "Drag Race",
+  "text": "Carrera de aceleración"
+ },
+ {
+  "tag": "Free Roam",
+  "text": "Recorrido libre"
+ },
+ {
+  "tag": "Unsupported",
+  "text": "No compatible"
+ },
+ {
+  "tag": "Type",
+  "text": "Tipo"
+ },
+ {
+  "tag": "Game",
+  "text": "Juego"
+ },
+ {
+  "tag": "Location",
+  "text": "Ubicación"
+ },
+ {
+  "tag": "Author",
+  "text": "Autor"
+ },
+ {
+  "tag": "Length",
+  "text": "Longitud"
+ },
+ {
+  "tag": "Checkpoints",
+  "text": "Puntos de control"
+ },
+ {
+  "tag": "Par time",
+  "text": "Tiempo de referencia"
+ },
+ {
+  "tag": "Sonic",
+  "text": "Sonic"
+ },
+ {
+  "tag": "Yes",
+  "text": "Sí"
+ },
+ {
+  "tag": "Weather",
+  "text": "Clima"
+ },
+ {
+  "tag": "Level",
+  "text": "Nivel"
+ },
+ {
+  "tag": "File",
+  "text": "Archivo"
+ },
+ {
+  "tag": "Fly-by",
+  "text": "Sobrevuelo"
+ },
+ {
+  "tag": "Enter a name.",
+  "text": "Escribe un nombre."
+ },
+ {
+  "tag": "At least one driver is needed.",
+  "text": "Se necesita al menos un piloto."
+ },
+ {
+  "tag": "1st",
+  "text": "1.º"
+ },
+ {
+  "tag": "2nd",
+  "text": "2.º"
+ },
+ {
+  "tag": "3rd",
+  "text": "3.º"
+ },
+ {
+  "tag": "4th",
+  "text": "4.º"
+ },
+ {
+  "tag": "5th",
+  "text": "5.º"
+ },
+ {
+  "tag": "6th",
+  "text": "6.º"
+ },
+ {
+  "tag": "7th",
+  "text": "7.º"
+ },
+ {
+  "tag": "8th",
+  "text": "8.º"
+ },
+ {
+  "tag": "Normal",
+  "text": "Normal"
+ },
+ {
+  "tag": "Many",
+  "text": "Muchos"
+ },
+ {
+  "tag": "Smooth terrain",
+  "text": "Terreno suavizado"
+ },
+ {
+  "tag": "Rounds the ground's 32 ft facets and gives steep slopes and cliffs relief. Trucks drive on the same ground as before, but on a 4x4 Evolution 2 track, which is smoothed as that game smooths it and driven on so.",
+  "text": "Redondea las caras de 32 pies del suelo y da relieve a las pendientes y los acantilados. Los camiones conducen sobre el mismo suelo de antes, salvo en una pista de 4x4 Evolution 2, que se suaviza como lo hace ese juego y se conduce sobre ella así."
+ },
+ {
+  "tag": "Reflective water",
+  "text": "Agua reflectante"
+ },
+ {
+  "tag": "Wind waves that gust, the sky and the hills mirrored in it, the sun's glint, a shore that shallows, wakes and rings where the trucks stir it, and solid ice in Snow.",
+  "text": "Olas que se agitan con el viento, el cielo y los cerros reflejados, el brillo del sol, una orilla que se vuelve poco profunda, estelas y ondas donde los camiones la agitan, y hielo sólido con Nieve."
+ },
+ {
+  "tag": "Volumetric weather",
+  "text": "Clima volumétrico"
+ },
+ {
+  "tag": "Fog that lies in layers and drifts, a sea of cloud in the valleys with a lit top, and rain and snow that fall through the air around you. The slider sets how thick the fog is: None is the game's own fog, Max the thickest.",
+  "text": "Niebla en capas que se desplaza, un mar de nubes en los valles con la parte superior iluminada, y lluvia y nieve que caen por el aire a tu alrededor. El control ajusta qué tan densa es la niebla: Ninguno es la niebla original del juego y Máximo la más densa."
+ },
+ {
+  "tag": "Rain puddles",
+  "text": "Charcos de lluvia"
+ },
+ {
+  "tag": "In Rain the ground is wet, and water stands where the ground has a low point, which the trucks splash through and stir.",
+  "text": "Con Lluvia el suelo está mojado y el agua se acumula en las partes bajas, donde los camiones salpican y la agitan."
+ },
+ {
+  "tag": "Snow cover",
+  "text": "Capa de nieve"
+ },
+ {
+  "tag": "In Snow the ground lies under snow that deepens as it settles: deep on level ground, thin on slopes and along the track.",
+  "text": "Con Nieve el suelo queda bajo una nieve que se acumula al asentarse: profunda en terreno plano y delgada en las pendientes y a lo largo de la pista."
+ },
+ {
+  "tag": "Ground detail",
+  "text": "Detalle del suelo"
+ },
+ {
+  "tag": "Ground that stays sharp close up and steady far off: fine grain over the game's textures, cliffs without smeared texels, and no shimmer in the distance.",
+  "text": "Un suelo nítido de cerca y estable a lo lejos: grano fino sobre las texturas del juego, acantilados sin texeles estirados y sin parpadeo en la distancia."
+ },
+ {
+  "tag": "Natural light",
+  "text": "Luz natural"
+ },
+ {
+  "tag": "Sunlight in the colour of its hour, light from the sky and off the ground, shadows cast by the hills, and bright light that rolls off instead of clipping. Needs the enhanced look.",
+  "text": "Luz del sol con el color de su hora, luz del cielo y reflejada por el suelo, sombras de los cerros y luces intensas que se suavizan en vez de saturarse. Requiere el aspecto mejorado."
+ },
+ {
+  "tag": "Glossy paint",
+  "text": "Pintura brillante"
+ },
+ {
+  "tag": "Trucks mirror the sky and throw the sun back as a glint, more so when wet.",
+  "text": "Los camiones reflejan el cielo y devuelven el sol como un destello, más aún cuando están mojados."
+ },
+ {
+  "tag": "Lens effects",
+  "text": "Efectos de lente"
+ },
+ {
+  "tag": "Bright lights glow: the sun, its glints on water and paint, headlights, lightning. On the flat screen only; a headset draws without it.",
+  "text": "Las luces intensas brillan: el sol, sus destellos en el agua y la pintura, los focos, los relámpagos. Solo en la pantalla; un visor de VR dibuja sin esto."
+ },
+ {
+  "tag": "Truck lamps",
+  "text": "Luces de los camiones"
+ },
+ {
+  "tag": "Lamps that glow in their own colour, headlight beams as light in the air (plain in fog and at night, faint by day), tail lamps that run dim and brake bright, headlights that light the ground whenever they are on, and a start gantry of real lamps.",
+  "text": "Luces que brillan con su propio color, haces de los focos visibles en el aire (claros con niebla y de noche, tenues de día), luces traseras tenues que se intensifican al frenar, focos que iluminan el suelo cuando están encendidos y un pórtico de partida con luces reales."
+ },
+ {
+  "tag": "Rich particles",
+  "text": "Partículas detalladas"
+ },
+ {
+  "tag": "Dust that billows along behind a truck as thick as the ground there is dry and bare, and takes the light, powder and chips off snow and ice, sheets of spray out of water and puddles, sparks that glow and cool as they fly, and tracks pressed into the ground, ploughed through deep snow where ruts that cross make one snow, and gone under standing water. Which of them are thrown at all is under Effects.",
+  "text": "Polvo que se levanta detrás del camión tan espeso como seco y pelado esté el suelo, y que recibe la luz; polvo de nieve y trozos de hielo; cortinas de agua desde el agua y los charcos; chispas que brillan y se enfrían al volar; y huellas marcadas en el suelo, abiertas en la nieve profunda, donde las huellas que se cruzan se funden, y que desaparecen bajo el agua estancada. Cuáles se generan se ajusta en Efectos."
+ },
+ {
+  "tag": "Replay effects",
+  "text": "Efectos en repeticiones"
+ },
+ {
+  "tag": "Dust, tire tracks and sparks in replays, as in the race, read off the recorded film, and the enhanced look's sun shadows. Which of them are thrown at all is under Effects.",
+  "text": "Polvo, huellas de neumáticos y chispas en las repeticiones, como en la carrera, a partir de la grabación, y las sombras del sol del aspecto mejorado. Cuáles se generan se ajusta en Efectos."
+ },
+ {
+  "tag": "Race",
+  "text": "Carrera"
+ },
+ {
+  "tag": "Track",
+  "text": "Pista"
+ },
+ {
+  "tag": "Truck",
+  "text": "Camión"
+ },
+ {
+  "tag": "Opponents",
+  "text": "Oponentes"
+ },
+ {
+  "tag": "Random",
+  "text": "Aleatorio"
+ },
+ {
+  "tag": "Start race",
+  "text": "Comenzar carrera"
+ },
+ {
+  "tag": "Cab",
+  "text": "Cabina"
+ },
+ {
+  "tag": "Full",
+  "text": "Completa"
+ },
+ {
+  "tag": "Medium",
+  "text": "Medio"
+ },
+ {
+  "tag": "Short",
+  "text": "Corta"
+ },
+ {
+  "tag": "Modelled",
+  "text": "Modelada"
+ },
+ {
+  "tag": "Stock panels",
+  "text": "Paneles originales"
+ },
+ {
+  "tag": "Clear",
+  "text": "Despejado"
+ },
+ {
+  "tag": "Cloudy",
+  "text": "Nublado"
+ },
+ {
+  "tag": "Foggy",
+  "text": "Neblina"
+ },
+ {
+  "tag": "Dense Fog",
+  "text": "Niebla densa"
+ },
+ {
+  "tag": "Rain",
+  "text": "Lluvia"
+ },
+ {
+  "tag": "Snow",
+  "text": "Nieve"
+ },
+ {
+  "tag": "Dusk",
+  "text": "Atardecer"
+ },
+ {
+  "tag": "Night",
+  "text": "Noche"
+ },
+ {
+  "tag": "Pitch Black",
+  "text": "Oscuridad total"
+ },
+ {
+  "tag": "This folder has no POD.INI, which lists the game's archives. Pick the folder Monster Truck Madness 2 is installed in.",
+  "text": "Esta carpeta no tiene POD.INI, el archivo que lista los archivos POD del juego. Elige la carpeta donde está instalado Monster Truck Madness 2."
+ },
+ {
+  "tag": "None of the archives POD.INI lists are in this folder.",
+  "text": "Ninguno de los archivos que lista POD.INI está en esta carpeta."
+ },
+ {
+  "tag": "Monster Truck Madness 2 Trial found.",
+  "text": "Se encontró la versión de prueba de Monster Truck Madness 2."
+ },
+ {
+  "tag": "Monster Truck Madness 2 found.",
+  "text": "Se encontró Monster Truck Madness 2."
+ },
+ {
+  "tag": "Monster Truck Madness 2 found. Missing archives: <<1>>.",
+  "text": "Se encontró Monster Truck Madness 2. Faltan archivos: <<1>>."
+ },
+ {
+  "tag": "This folder has no POD.INI, which lists the game's archives. To add single POD files, use the POD manager.",
+  "text": "Esta carpeta no tiene POD.INI, el archivo que lista los archivos POD del juego. Para agregar archivos POD sueltos, usa el administrador de POD."
+ },
+ {
+  "tag": "OpenMTM2 needs <<1>> to run, and <<2>> is not there. Pick a Monster Truck Madness 2 folder whose POD.INI lists them all.",
+  "text": "OpenMTM2 necesita <<1>> para funcionar, y falta <<2>>. Elige una carpeta de Monster Truck Madness 2 cuyo POD.INI los incluya todos."
+ },
+ {
+  "tag": "OpenMTM2 needs <<1>> to run, and <<2>> are not there. Pick a Monster Truck Madness 2 folder whose POD.INI lists them all.",
+  "text": "OpenMTM2 necesita <<1>> para funcionar, y faltan <<2>>. Elige una carpeta de Monster Truck Madness 2 cuyo POD.INI los incluya todos."
+ },
+ {
+  "tag": "Near",
+  "text": "Cerca"
+ },
+ {
+  "tag": "Far",
+  "text": "Lejos"
+ },
+ {
+  "tag": "Very far",
+  "text": "Muy lejos"
+ },
+ {
+  "tag": "This track has no course to follow",
+  "text": "Esta pista no tiene un recorrido que seguir"
+ },
+ {
+  "tag": "Following the course. Up and Down change the speed, T stops",
+  "text": "Siguiendo el recorrido. Arriba y Abajo cambian la velocidad, T lo detiene"
+ },
+ {
+  "tag": "Flying free",
+  "text": "Vuelo libre"
+ },
+ {
+  "tag": "Driver Check-in",
+  "text": "Registro de conductor"
+ },
+ {
+  "tag": "Races",
+  "text": "Carreras"
+ },
+ {
+  "tag": "Garage",
+  "text": "Garaje"
+ },
+ {
+  "tag": "Multiplayer",
+  "text": "Multijugador"
+ },
+ {
+  "tag": "GO",
+  "text": "¡YA!"
+ },
+ {
+  "tag": "Continue",
+  "text": "Continuar"
+ },
+ {
+  "tag": "Hall of Fame",
+  "text": "Salón de la Fama"
+ },
+ {
+  "tag": "Instant Replay",
+  "text": "Repetición instantánea"
+ },
+ {
+  "tag": "Race Again",
+  "text": "Correr de nuevo"
+ },
+ {
+  "tag": "Web Page",
+  "text": "Página web"
+ },
+ {
+  "tag": "Monster Demo",
+  "text": "Demo Monster"
+ },
+ {
+  "tag": "Monster Manual",
+  "text": "Manual Monster"
+ },
+ {
+  "tag": "Options",
+  "text": "Opciones"
+ },
+ {
+  "tag": "Saved in this browser.",
+  "text": "Guardado en este navegador."
+ },
+ {
+  "tag": "The game now starts at this address with no server and no network.",
+  "text": "Ahora el juego se inicia en esta dirección sin servidor y sin red."
+ },
+ {
+  "tag": "Use the changes and store them",
+  "text": "Aplicar los cambios y guardarlos"
+ },
+ {
+  "tag": "Save",
+  "text": "Guardar"
+ },
+ {
+  "tag": "The changes to the options are not saved.\n\nOK closes without them. Cancel goes back to save them.",
+  "text": "Los cambios en las opciones no están guardados.\n\nAceptar cierra sin ellos. Cancelar vuelve para guardarlos."
+ },
+ {
+  "tag": "Pick an action, then press the key to use for it. Escape cancels.",
+  "text": "Elige una acción y luego presiona la tecla que quieres usar para ella. Escape cancela."
+ },
+ {
+  "tag": "Press a key for \"<<1>>\"...",
+  "text": "Presiona una tecla para \"<<1>>\"..."
+ },
+ {
+  "tag": "Cancelled.",
+  "text": "Cancelado."
+ },
+ {
+  "tag": "Headset",
+  "text": "Visor de VR"
+ },
+ {
+  "tag": "View",
+  "text": "Vista"
+ },
+ {
+  "tag": "Steering",
+  "text": "Dirección"
+ },
+ {
+  "tag": "Thumbstick",
+  "text": "Palanca"
+ },
+ {
+  "tag": "Hands as a wheel",
+  "text": "Manos como volante"
+ },
+ {
+  "tag": "Keep the horizon level",
+  "text": "Mantener el horizonte nivelado"
+ },
+ {
+  "tag": "Cab around the driver",
+  "text": "Cabina alrededor del piloto"
+ },
+ {
+  "tag": "Timing and gauges",
+  "text": "Tiempos e indicadores"
+ },
+ {
+  "tag": "Cab style",
+  "text": "Estilo de cabina"
+ },
+ {
+  "tag": "Sharpness and Edge detail take effect the next time the headset is entered.",
+  "text": "Nitidez y Detalle de bordes se aplican la próxima vez que entres al visor de VR."
+ },
+ {
+  "tag": "Sharpness",
+  "text": "Nitidez"
+ },
+ {
+  "tag": "Edge detail",
+  "text": "Detalle de bordes"
+ },
+ {
+  "tag": "View distance",
+  "text": "Distancia de visión"
+ },
+ {
+  "tag": "Keeps a copy of the game's own code in this browser, beside the installed game. With a server in reach the server's files are always the ones used.",
+  "text": "Guarda una copia del código del juego en este navegador, junto al juego instalado. Cuando el servidor está disponible, siempre se usan sus archivos."
+ },
+ {
+  "tag": "Start without the server",
+  "text": "Iniciar sin el servidor"
+ },
+ {
+  "tag": "This machine: <<1>>.",
+  "text": "Este equipo: <<1>>."
+ },
+ {
+  "tag": "Takes effect from the next race.",
+  "text": "Se aplica desde la próxima carrera."
+ },
+ {
+  "tag": "Localization",
+  "text": "Localización"
+ },
+ {
+  "tag": "Wording",
+  "text": "Textos"
+ },
+ {
+  "tag": "retail",
+  "text": "versión comercial"
+ },
+ {
+  "tag": "beta",
+  "text": "beta"
+ },
+ {
+  "tag": "community patch",
+  "text": "parche de la comunidad"
+ },
+ {
+  "tag": "build not read",
+  "text": "versión no leída"
+ },
+ {
+  "tag": "UI",
+  "text": "Interfaz"
+ },
+ {
+  "tag": "Menus",
+  "text": "Menús"
+ },
+ {
+  "tag": "Automatic (classic)",
+  "text": "Automática (clásica)"
+ },
+ {
+  "tag": "Automatic (modern)",
+  "text": "Automática (moderna)"
+ },
+ {
+  "tag": "Classic (game art)",
+  "text": "Clásica (arte del juego)"
+ },
+ {
+  "tag": "Modern",
+  "text": "Moderna"
+ },
+ {
+  "tag": "(not found)",
+  "text": "(no encontrado)"
+ },
+ {
+  "tag": "OK",
+  "text": "Aceptar"
+ },
+ {
+  "tag": "Computer driver <<1>>",
+  "text": "Piloto de la computadora <<1>>"
+ },
+ {
+  "tag": "Computer drivers",
+  "text": "Pilotos de la computadora"
+ },
+ {
+  "tag": "The computer drivers by the order they are given out. A blank name is the game's own.",
+  "text": "Los pilotos de la computadora en el orden en que se asignan. Un nombre en blanco es el original del juego."
+ },
+ {
+  "tag": "Driver <<1>>",
+  "text": "Piloto <<1>>"
+ },
+ {
+  "tag": "Game's names",
+  "text": "Nombres del juego"
+ },
+ {
+  "tag": "The Camera key steps through the views ticked here, in this order.",
+  "text": "La tecla Cámara recorre las vistas marcadas aquí, en este orden."
+ },
+ {
+  "tag": "Short camera cycle",
+  "text": "Ciclo corto de cámaras"
+ },
+ {
+  "tag": "Replace the settings with those in <<1>>?",
+  "text": "¿Reemplazar la configuración con la de <<1>>?"
+ },
+ {
+  "tag": "The changes not saved here are lost.",
+  "text": "Se perderán los cambios que no hayas guardado aquí."
+ },
+ {
+  "tag": "Settings imported.",
+  "text": "Configuración importada."
+ },
+ {
+  "tag": "That file is not a Monster Truck Madness 2 replay.",
+  "text": "Ese archivo no es una repetición de Monster Truck Madness 2."
+ },
+ {
+  "tag": "Start screen",
+  "text": "Pantalla de inicio"
+ },
+ {
+  "tag": "Copying <<1>> <<2>>%",
+  "text": "Copiando <<1>> <<2>>%"
+ },
+ {
+  "tag": "<<1>> archives mounted, in POD.INI order.",
+  "text": "<<1>> archivos montados, en el orden de POD.INI."
+ },
+ {
+  "tag": "Read again: <<1>>.",
+  "text": "Leídos de nuevo: <<1>>."
+ },
+ {
+  "tag": "Removed: <<1>>.",
+  "text": "Quitados: <<1>>."
+ },
+ {
+  "tag": "Listed but not in the folder: <<1>>.",
+  "text": "Listados pero ausentes en la carpeta: <<1>>."
+ },
+ {
+  "tag": "Could not reload POD.INI: <<1>>",
+  "text": "No se pudo volver a cargar POD.INI: <<1>>"
+ },
+ {
+  "tag": "Physics",
+  "text": "Física"
+ },
+ {
+  "tag": "The rules the trucks are driven by, from the next race on. Monster Truck Madness is the 1996 game: tires that touch throw trucks twice as hard, water stops a truck, weather does not change the grip, no crash damage, and its drag rules",
+  "text": "Las reglas con las que se conducen los camiones, desde la próxima carrera. Monster Truck Madness es el juego de 1996: las ruedas que se tocan lanzan a los camiones con el doble de fuerza, el agua detiene al camión, el clima no cambia el agarre, no hay daño por choques y tiene sus reglas de aceleración"
+ },
+ {
+  "tag": "Automatic gears",
+  "text": "Cambios automáticos"
+ },
+ {
+  "tag": "Crash damage",
+  "text": "Daño por choques"
+ },
+ {
+  "tag": "Trucks dent where they are hit",
+  "text": "Los camiones se abollan donde reciben los golpes"
+ },
+ {
+  "tag": "Terrain overlap",
+  "text": "Superposición del terreno"
+ },
+ {
+  "tag": "The ground tiles overlap by two pixels, as Monster Truck Madness 2 draws them. Off, they meet edge to edge, as MTM1 draws them. Some HD texture packs need it on. From the next race",
+  "text": "Las baldosas del suelo se superponen dos píxeles, como las dibuja Monster Truck Madness 2. Desactivado, se juntan borde con borde, como en MTM1. Algunos paquetes de texturas HD lo necesitan activado. Desde la próxima carrera"
+ },
+ {
+  "tag": "Drag auto stage",
+  "text": "Posicionamiento automático en aceleración"
+ },
+ {
+  "tag": "Drag races: the truck drives itself to the staging beams. Off, you stage it yourself; the Auto Stage key (T) then does it for one pass",
+  "text": "Carreras de aceleración: el camión avanza solo hasta los haces de partida. Desactivado, lo posicionas tú; la tecla Posicionamiento automático (T) lo hace por una pasada"
+ },
+ {
+  "tag": "Speed",
+  "text": "Velocidad"
+ },
+ {
+  "tag": "Computer opponents",
+  "text": "Oponentes (Bots)"
+ },
+ {
+  "tag": "How many computer trucks race by default; the Races screen picks which",
+  "text": "Cuántos camiones de la computadora corren por defecto; la pantalla Carreras elige cuáles"
+ },
+ {
+  "tag": "Display",
+  "text": "Pantalla"
+ },
+ {
+  "tag": "Smooth textures",
+  "text": "Texturas suavizadas"
+ },
+ {
+  "tag": "Textures filtered smooth and the world lit by the sun (the enhanced look). Off: the game's own sharp texels and baked light",
+  "text": "Texturas filtradas y el mundo iluminado por el sol (el aspecto mejorado). Desactivado: los texeles nítidos y la luz precalculada del juego original"
+ },
+ {
+  "tag": "Lens flare",
+  "text": "Destello de lente"
+ },
+ {
+  "tag": "With Smooth textures: the sun's flare across the screen. Off keeps the sun and moon",
+  "text": "Con Texturas suavizadas: el destello del sol en la pantalla. Desactivado mantiene el sol y la luna"
+ },
+ {
+  "tag": "Detail",
+  "text": "Detalle"
+ },
+ {
+  "tag": "Anti-aliasing",
+  "text": "Antialiasing"
+ },
+ {
+  "tag": "Draw distance",
+  "text": "Distancia de dibujado"
+ },
+ {
+  "tag": "<<1>> cells",
+  "text": "<<1>> celdas"
+ },
+ {
+  "tag": "V-sync",
+  "text": "V-sync"
+ },
+ {
+  "tag": "Draw with the display's refresh. Off draws as fast as the browser allows; a browser still shows no more frames than the display has",
+  "text": "Dibuja al ritmo de actualización de la pantalla. Desactivado dibuja tan rápido como lo permita el navegador; aun así, el navegador no muestra más cuadros de los que tiene la pantalla"
+ },
+ {
+  "tag": "Frame rate limit",
+  "text": "Límite de cuadros por segundo"
+ },
+ {
+  "tag": "Frame rate limit value",
+  "text": "Valor del límite de cuadros por segundo"
+ },
+ {
+  "tag": "Hold the race to this many frames a second",
+  "text": "Limita la carrera a esta cantidad de cuadros por segundo"
+ },
+ {
+  "tag": "Show the frames per second in the corner of a race or replay (the FPS counter key switches it)",
+  "text": "Muestra los cuadros por segundo en una esquina durante una carrera o repetición (la tecla Contador de FPS lo activa o desactiva)"
+ },
+ {
+  "tag": "Backdrops",
+  "text": "Fondos"
+ },
+ {
+  "tag": "Effects",
+  "text": "Efectos"
+ },
+ {
+  "tag": "Tire tracks",
+  "text": "Huellas de neumáticos"
+ },
+ {
+  "tag": "Water splashes",
+  "text": "Salpicaduras de agua"
+ },
+ {
+  "tag": "Dust",
+  "text": "Polvo"
+ },
+ {
+  "tag": "Sparks",
+  "text": "Chispas"
+ },
+ {
+  "tag": "Evo grass",
+  "text": "Pasto de Evo"
+ },
+ {
+  "tag": "Enhanced graphics",
+  "text": "Gráficos mejorados"
+ },
+ {
+  "tag": "Preset",
+  "text": "Ajuste predefinido"
+ },
+ {
+  "tag": "Sound",
+  "text": "Sonido"
+ },
+ {
+  "tag": "Master",
+  "text": "General"
+ },
+ {
+  "tag": "Music",
+  "text": "Música"
+ },
+ {
+  "tag": "Mute",
+  "text": "Silenciar"
+ },
+ {
+  "tag": "Menu music",
+  "text": "Música de los menús"
+ },
+ {
+  "tag": "Announcer voice",
+  "text": "Voz del comentarista"
+ },
+ {
+  "tag": "Keys",
+  "text": "Teclas"
+ },
+ {
+  "tag": "Reset keys",
+  "text": "Restablecer teclas"
+ },
+ {
+  "tag": "Keys reset.",
+  "text": "Teclas restablecidas."
+ },
+ {
+  "tag": "Fly-by controls",
+  "text": "Controles del sobrevuelo"
+ },
+ {
+  "tag": "Extensions",
+  "text": "Extensiones"
+ },
+ {
+  "tag": "Optional game modes shipped with OpenMTM2. Each extension owns its settings and runtime rules.",
+  "text": "Modos de juego opcionales incluidos en OpenMTM2. Cada extensión tiene su propia configuración y sus propias reglas."
+ },
+ {
+  "tag": "Advanced",
+  "text": "Avanzado"
+ },
+ {
+  "tag": "MTM1 Classic preset",
+  "text": "Ajuste clásico de MTM1"
+ },
+ {
+  "tag": "MTM2 Classic preset",
+  "text": "Ajuste clásico de MTM2"
+ },
+ {
+  "tag": "OpenMTM2 preset",
+  "text": "Ajuste de OpenMTM2"
+ },
+ {
+  "tag": "MTM1 particles",
+  "text": "Partículas de MTM1"
+ },
+ {
+  "tag": "Monster Truck Madness 1's own particles and tracks: single points of the ground's colour thrown by the tires, which mark the ground where they land, and tracks darkened into the ground, in place of the dust, the spray and the tire tracks. From the next race",
+  "text": "Las partículas y huellas de Monster Truck Madness 1: puntos sueltos del color del suelo lanzados por las ruedas, que marcan el suelo donde caen, y huellas oscurecidas en el suelo, en lugar del polvo, las salpicaduras y las huellas de neumáticos. Desde la próxima carrera"
+ },
+ {
+  "tag": "Original backdrops",
+  "text": "Fondos originales"
+ },
+ {
+  "tag": "The game's own backdrops in place of HD ones (Community Patch 3's backdropsHD.pod), wherever an archive still has the original. From the next race",
+  "text": "Los fondos originales del juego en lugar de los HD (backdropsHD.pod del Community Patch 3), donde algún archivo aún tenga el original. Desde la próxima carrera"
+ },
+ {
+  "tag": "MTM1 sounds",
+  "text": "Sonidos de MTM1"
+ },
+ {
+  "tag": "Monster Truck Madness 1's skids from MTM2's SOUND.POD: its corner, wheelspin and brake skids. MTM1's engine is not in MTM2's archives; the engine stays MTM2's",
+  "text": "Los derrapes de Monster Truck Madness 1 desde el SOUND.POD de MTM2: en curvas, al patinar las ruedas y al frenar. El motor de MTM1 no está en los archivos de MTM2; el motor sigue siendo el de MTM2"
+ },
+ {
+  "tag": "MTM1 sky",
+  "text": "Cielo de MTM1"
+ },
+ {
+  "tag": "Monster Truck Madness 1's flat sky on every track: an MTM1 track's own, and EARTHSKY on the others, in the weathers without a sky of their own. Needs MTM1's sky files mounted (EARTHSKY.ACT and ALIENSKY.RAW, in MTM1's GAME.POD). From the next race",
+  "text": "El cielo plano de Monster Truck Madness 1 en todas las pistas: el propio en una pista de MTM1 y EARTHSKY en las demás, en los climas sin cielo propio. Requiere montar los archivos de cielo de MTM1 (EARTHSKY.ACT y ALIENSKY.RAW, en el GAME.POD de MTM1). Desde la próxima carrera"
+ },
+ {
+  "tag": "MTM2 Water reflections",
+  "text": "Reflejos en el agua de MTM2"
+ },
+ {
+  "tag": "MTM2's: the world mirrored in the game's water (\"Reflective water\" has its own). From the next race",
+  "text": "Los de MTM2: el mundo reflejado en el agua del juego (\"Agua reflectante\" tiene los suyos). Desde la próxima carrera"
+ },
+ {
+  "tag": "MTM2 Truck reflections",
+  "text": "Reflejos en los camiones de MTM2"
+ },
+ {
+  "tag": "MTM2's: the clouds mirrored on the trucks' bodies, or the sky in Rain, Dusk and Night; none in fog or Pitch Black. From the next race",
+  "text": "Los de MTM2: las nubes reflejadas en la carrocería de los camiones, o el cielo con Lluvia, Atardecer y Noche; ninguno con niebla u Oscuridad total. Desde la próxima carrera"
+ },
+ {
+  "tag": "MTM2 classic dust",
+  "text": "Polvo clásico de MTM2"
+ },
+ {
+  "tag": "Wheels' dust and collisions' smoke in the game's own grey puff colour, as MTM2 draws them, in place of the port's earth-coloured dust and dark smoke. From the next race",
+  "text": "El polvo de las ruedas y el humo de los choques en el color gris original, como los dibuja MTM2, en lugar del polvo color tierra y el humo oscuro de OpenMTM2. Desde la próxima carrera"
+ },
+ {
+  "tag": "Evo particles",
+  "text": "Partículas de Evo"
+ },
+ {
+  "tag": "4x4 Evolution tracks: the game's tire debris, in the ground's colour, by surface (gravel, grass, sand, mud, snow) from spinning and sliding tires, and the leaves on Autumn. From the next race",
+  "text": "Pistas de 4x4 Evolution: los restos que levantan los neumáticos, del color del suelo, según la superficie (grava, pasto, arena, barro, nieve) al patinar y deslizarse, y las hojas en Otoño. Desde la próxima carrera"
+ },
+ {
+  "tag": "Evo AI life",
+  "text": "Vida IA de Evo"
+ },
+ {
+  "tag": "4x4 Evolution tracks: the game's AI life, four flocks of birds that follow the computer drivers' line, circle, land and take off when a truck comes near, as the game's ailife setting. From the next race",
+  "text": "Pistas de 4x4 Evolution: la vida IA del juego, cuatro bandadas de aves que siguen la línea de los pilotos de la computadora, dan vueltas, se posan y despegan cuando se acerca un camión, como la opción ailife del juego. Desde la próxima carrera"
+ },
+ {
+  "tag": "Evo forest",
+  "text": "Bosque de Evo"
+ },
+ {
+  "tag": "4x4 Evolution tracks without a vegetation file (the first game's): a forest generated over every tile its .TEX marks for trees, as 4x4 Evolution 2 does, from the track's own tree models. From the next race",
+  "text": "Pistas de 4x4 Evolution sin archivo de vegetación (las del primer juego): un bosque generado en cada baldosa que su .TEX marca para árboles, como lo hace 4x4 Evolution 2, con los modelos de árboles de la propia pista. Desde la próxima carrera"
+ },
+ {
+  "tag": "CP3 Terrain detail",
+  "text": "Detalle del terreno de CP3"
+ },
+ {
+  "tag": "Community Patch 3 tracks: detail normals where the track paints a mask, and HD ground normal maps (Enhanced look)",
+  "text": "Pistas del Community Patch 3: normales de detalle donde la pista pinta una máscara y mapas de normales HD del suelo (aspecto mejorado)"
+ },
+ {
+  "tag": "CP3 HD weather",
+  "text": "Clima HD de CP3"
+ },
+ {
+  "tag": "Community Patch 3's HD skies for Rain, Dusk and Night and the older levels' clouds: the pictures in the game folder's WeatherArt folder, or the port's own copy of the community's set. Off: the game's own sky art",
+  "text": "Los cielos HD del Community Patch 3 para Lluvia, Atardecer y Noche y las nubes de los niveles antiguos: las imágenes de la carpeta WeatherArt del juego, o la copia del conjunto de la comunidad que trae OpenMTM2. Desactivado: el arte de cielo original del juego"
+ },
+ {
+  "tag": "CP3 Reflections",
+  "text": "Reflejos de CP3"
+ },
+ {
+  "tag": "Community Patch 3 materials: the sky reflected in glass and paint (Enhanced look)",
+  "text": "Materiales del Community Patch 3: el cielo reflejado en vidrios y pintura (aspecto mejorado)"
+ },
+ {
+  "tag": "Opponent frame rate",
+  "text": "Cuadros por segundo de los rivales"
+ },
+ {
+  "tag": "The frame rate the computer trucks drive as if the game ran at: they steer by the frame, so it changes how they handle. 30 is the standard",
+  "text": "Los cuadros por segundo a los que conducen los camiones de la computadora como si el juego corriera a esa velocidad: giran por cuadro, así que cambia cómo se manejan. 30 es lo estándar"
+ },
+ {
+  "tag": "Keep MTM1 trucks apart",
+  "text": "Mantener separados los camiones de MTM1"
+ },
+ {
+  "tag": "Monster Truck Madness 1 trucks named like MTM2's (BIGFOOT.TRK and the rest) are listed too, as \"Bigfoot (MTM1)\", and drawn from MTM1's own files. Off, a name goes to the archive mounted first, MTM2's, as in the game",
+  "text": "Los camiones de Monster Truck Madness 1 con el mismo nombre que los de MTM2 (BIGFOOT.TRK y los demás) también se listan, como \"Bigfoot (MTM1)\", y se dibujan con los archivos de MTM1. Desactivado, el nombre corresponde al archivo montado primero, el de MTM2, como en el juego"
+ },
+ {
+  "tag": "Sonic trucks",
+  "text": "Camiones Sonic"
+ },
+ {
+  "tag": "Professional only: the computer trucks drive as on a Sonic track, on every track",
+  "text": "Solo en Profesional: los camiones de la computadora conducen como en una pista Sonic, en todas las pistas"
+ },
+ {
+  "tag": "Names...",
+  "text": "Nombres..."
+ },
+ {
+  "tag": "Full Autopilot",
+  "text": "Piloto automático completo"
+ },
+ {
+  "tag": "The truck drives itself",
+  "text": "El camión se conduce solo"
+ },
+ {
+  "tag": "Show hidden tracks",
+  "text": "Mostrar pistas ocultas"
+ },
+ {
+  "tag": "Kooky horn",
+  "text": "Bocina loca"
+ },
+ {
+  "tag": "Three horns instead of one",
+  "text": "Tres bocinas en vez de una"
+ },
+ {
+  "tag": "Cameras",
+  "text": "Cámaras"
+ },
+ {
+  "tag": "Views...",
+  "text": "Vistas..."
+ },
+ {
+  "tag": "The Camera key (V) steps through the views in the list only: the cockpit, Chase Near and Chase Far unless changed",
+  "text": "La tecla Cámara (V) recorre solo las vistas de la lista: la cabina, Persecución cercana y Persecución lejana, salvo que lo cambies"
+ },
+ {
+  "tag": "Camera clearance",
+  "text": "Altura de la cámara"
+ },
+ {
+  "tag": "The chase camera keeps a few feet over the ground, easing back down after a crest. Off, it may touch the ground, as in the game",
+  "text": "La cámara de persecución se mantiene unos pies sobre el suelo y baja suavemente después de una cima. Desactivado, puede tocar el suelo, como en el juego"
+ },
+ {
+  "tag": "Z-mode cameras",
+  "text": "Cámaras del modo Z"
+ },
+ {
+  "tag": "Zoom with Shift and - or +, orbit with Insert and Delete, and the Inertia view, in any race without GOLD mode",
+  "text": "Acercar con Shift y - o +, orbitar con Insert y Supr, y la vista Inercia, en cualquier carrera sin el modo GOLD"
+ },
+ {
+  "tag": "App",
+  "text": "Aplicación"
+ },
+ {
+  "tag": "Data",
+  "text": "Datos"
+ },
+ {
+  "tag": "OpenMTM2 reads the tracks and vehicles of Monster Truck Madness 1 and 2, CART Precision Racing and 4x4 Evolution 1 and 2. Add POD.INI reads another game folder's POD.INI and mounts every archive it lists. Reload POD.INI picks the game folder again (or another Monster Truck Madness 2 folder) and reads every archive its POD.INI lists afresh, in its order. The POD manager shows what is mounted, and adds single POD files from any game without the game being installed.",
+  "text": "OpenMTM2 lee las pistas y los vehículos de Monster Truck Madness 1 y 2, CART Precision Racing y 4x4 Evolution 1 y 2. 'Agregar POD.INI' lee el POD.INI de la carpeta de otro juego y monta todos los archivos que lista. Volver a cargar POD.INI elige de nuevo la carpeta del juego (u otra carpeta de Monster Truck Madness 2) y vuelve a leer todos los archivos que lista su POD.INI, en su orden. El administrador de POD muestra lo que está montado y agrega archivos POD sueltos de cualquier juego sin necesidad de tenerlo instalado."
+ },
+ {
+  "tag": "Add POD.INI",
+  "text": "Agregar POD.INI"
+ },
+ {
+  "tag": "<<1>> archives added from <<2>> (<<3>>).",
+  "text": "<<1>> archivos agregados desde <<2>> (<<3>>)."
+ },
+ {
+  "tag": "<<1>> archives added from <<2>>.",
+  "text": "<<1>> archivos agregados desde <<2>>."
+ },
+ {
+  "tag": "Could not add the folder: <<1>>",
+  "text": "No se pudo agregar la carpeta: <<1>>"
+ },
+ {
+  "tag": "Pick another game's folder: its POD.INI is read and every archive it lists is added beside the base install",
+  "text": "Elige la carpeta de otro juego: se lee su POD.INI y todos los archivos que lista se agregan junto a la instalación base"
+ },
+ {
+  "tag": "Reload POD.INI",
+  "text": "Volver a cargar POD.INI"
+ },
+ {
+  "tag": "Pick the Monster Truck Madness 2 folder again, or another one: its POD.INI is read and every archive it lists is copied again, changed or not, and mounted in the file's order",
+  "text": "Elige de nuevo la carpeta de Monster Truck Madness 2, u otra: se lee su POD.INI y todos los archivos que lista se copian de nuevo, hayan cambiado o no, y se montan en el orden del archivo"
+ },
+ {
+  "tag": "POD mounting",
+  "text": "Montaje de POD"
+ },
+ {
+  "tag": "POD manager",
+  "text": "Administrador de PODs"
+ },
+ {
+  "tag": "Settings",
+  "text": "Configuración"
+ },
+ {
+  "tag": "Export settings",
+  "text": "Exportar configuración"
+ },
+ {
+  "tag": "Import settings",
+  "text": "Importar configuración"
+ },
+ {
+  "tag": "Clear all OpenMTM2 data from this browser? This permanently removes the copied install, drivers, Hall of Fame entries and settings.",
+  "text": "¿Borrar todos los datos de OpenMTM2 de este navegador? Esto elimina para siempre la instalación copiada, los pilotos, las entradas del Salón de la Fama y la configuración."
+ },
+ {
+  "tag": "Could not clear the browser data: <<1>>",
+  "text": "No se pudieron borrar los datos del navegador: <<1>>"
+ },
+ {
+  "tag": "Clear browser game data",
+  "text": "Borrar datos del juego del navegador"
+ },
+ {
+  "tag": "Close",
+  "text": "Cerrar"
+ },
+ {
+  "tag": "Add POD files, or ZIP files: every POD a ZIP holds is added",
+  "text": "Agrega archivos POD o ZIP: se agregan todos los POD que contenga un ZIP"
+ },
+ {
+  "tag": "Add PODs",
+  "text": "Agregar POD"
+ },
+ {
+  "tag": "Mounted archives, first mounted first: among archives of one game, a file is taken from the first that has it.",
+  "text": "Archivos montados, el primero montado primero: entre los archivos de un mismo juego, cada archivo interno se toma del primero que lo tenga."
+ },
+ {
+  "tag": "Archive",
+  "text": "Archivo"
+ },
+ {
+  "tag": "From",
+  "text": "Origen"
+ },
+ {
+  "tag": "Format",
+  "text": "Formato"
+ },
+ {
+  "tag": "Files",
+  "text": "Archivos"
+ },
+ {
+  "tag": "Tracks",
+  "text": "Pistas"
+ },
+ {
+  "tag": "Trucks",
+  "text": "Camiones"
+ },
+ {
+  "tag": "Size",
+  "text": "Tamaño"
+ },
+ {
+  "tag": "Moving...",
+  "text": "Moviendo..."
+ },
+ {
+  "tag": "Mount earlier",
+  "text": "Montar antes"
+ },
+ {
+  "tag": "Up",
+  "text": "Subir"
+ },
+ {
+  "tag": "Mount later",
+  "text": "Montar después"
+ },
+ {
+  "tag": "Down",
+  "text": "Bajar"
+ },
+ {
+  "tag": "Unmount it: it stays copied, and Reload POD.INI (Options, Data) mounts it again",
+  "text": "Desmontarlo: queda copiado, y Volver a cargar POD.INI (Opciones, Datos) lo monta de nuevo"
+ },
+ {
+  "tag": "Delete it from this browser",
+  "text": "Eliminarlo de este navegador"
+ },
+ {
+  "tag": "Removing <<1>>...",
+  "text": "Quitando <<1>>..."
+ },
+ {
+  "tag": "<<1>> removed until Reload POD.INI.",
+  "text": "<<1>> quitado hasta Volver a cargar POD.INI."
+ },
+ {
+  "tag": "<<1>> removed.",
+  "text": "<<1>> quitado."
+ },
+ {
+  "tag": "Remove",
+  "text": "Quitar"
+ },
+ {
+  "tag": "OpenMTM2 needs this archive to run",
+  "text": "OpenMTM2 necesita este archivo para funcionar"
+ },
+ {
+  "tag": "Required",
+  "text": "Requerido"
+ },
+ {
+  "tag": "<<1>> holds no POD.",
+  "text": "<<1>> no contiene ningún POD."
+ },
+ {
+  "tag": "Opening the ZIP files...",
+  "text": "Abriendo los archivos ZIP..."
+ },
+ {
+  "tag": "Nothing to add.",
+  "text": "No hay nada que agregar."
+ },
+ {
+  "tag": "Copying...",
+  "text": "Copiando..."
+ },
+ {
+  "tag": "<<1>> added",
+  "text": "<<1>> agregados"
+ },
+ {
+  "tag": "<<1>> read again (<<2>>)",
+  "text": "<<1>> leídos de nuevo (<<2>>)"
+ },
+ {
+  "tag": "left",
+  "text": "izquierdo"
+ },
+ {
+  "tag": "right",
+  "text": "derecho"
+ },
+ {
+  "tag": "Drag Weekend",
+  "text": "Fin de semana de aceleración"
+ },
+ {
+  "tag": "No drag weekend is in progress. Start one from the Races screen, on a drag strip.",
+  "text": "No hay un fin de semana de aceleración en curso. Comienza uno desde la pantalla Carreras, en una pista de aceleración."
+ },
+ {
+  "tag": "Abandon the drag weekend?",
+  "text": "¿Abandonar el fin de semana de aceleración?"
+ },
+ {
+  "tag": "Qualifying is over. The baseline is <<1>> s.",
+  "text": "Terminó la clasificación. El tiempo base es <<1>> s."
+ },
+ {
+  "tag": "a dead heat",
+  "text": "un empate"
+ },
+ {
+  "tag": "both trucks were disqualified",
+  "text": "ambos camiones fueron descalificados"
+ },
+ {
+  "tag": "a disqualified truck hit the other",
+  "text": "un camión descalificado chocó al otro"
+ },
+ {
+  "tag": "neither truck set a time",
+  "text": "ningún camión marcó tiempo"
+ },
+ {
+  "tag": "<<1>>: <<2>>. The pairing is run again.",
+  "text": "<<1>>: <<2>>. El duelo se corre de nuevo."
+ },
+ {
+  "tag": "<<1>> was disqualified",
+  "text": "<<1>> fue descalificado"
+ },
+ {
+  "tag": "<<1>> set no time",
+  "text": "<<1>> no marcó tiempo"
+ },
+ {
+  "tag": "<<1>> to <<2>>",
+  "text": "<<1>> contra <<2>>"
+ },
+ {
+  "tag": "<<1>>: <<2>> beat <<3>> (simulated), <<4>>.",
+  "text": "<<1>>: <<2>> venció a <<3>> (simulado), <<4>>."
+ },
+ {
+  "tag": "<<1>>: <<2>> beat <<3>>, <<4>>.",
+  "text": "<<1>>: <<2>> venció a <<3>>, <<4>>."
+ },
+ {
+  "tag": "Winner",
+  "text": "Ganador"
+ },
+ {
+  "tag": "Out: <<1>>",
+  "text": "Eliminado: <<1>>"
+ },
+ {
+  "tag": "Driver",
+  "text": "Piloto"
+ },
+ {
+  "tag": "Seed",
+  "text": "Siembra"
+ },
+ {
+  "tag": "Qualify",
+  "text": "Clasificación"
+ },
+ {
+  "tag": "Best",
+  "text": "Mejor"
+ },
+ {
+  "tag": "no time",
+  "text": "sin tiempo"
+ },
+ {
+  "tag": "bye",
+  "text": "pase libre"
+ },
+ {
+  "tag": "<<1>>: qualifying, <<2>> drivers",
+  "text": "<<1>>: clasificación, <<2>> pilotos"
+ },
+ {
+  "tag": "Run one pass alone, in the lane you like. Your elapsed time is your qualifying time, and the order is the seeding for the bracket.",
+  "text": "Corre una pasada solo, en el carril que prefieras. Tu tiempo es tu tiempo de clasificación, y el orden define la siembra del cuadro."
+ },
+ {
+  "tag": "A computer truck runs beside you: its time is the weekend's baseline, which the computer drivers' own times come from.",
+  "text": "Un camión de la computadora corre a tu lado: su tiempo es la base del fin de semana, de la que salen los tiempos de los pilotos de la computadora."
+ },
+ {
+  "tag": "Qualify: left lane",
+  "text": "Clasificar: carril izquierdo"
+ },
+ {
+  "tag": "Qualify: right lane",
+  "text": "Clasificar: carril derecho"
+ },
+ {
+  "tag": "<<1>>: <<2>> wins the drag weekend",
+  "text": "<<1>>: <<2>> gana el fin de semana de aceleración"
+ },
+ {
+  "tag": "Continue tournament",
+  "text": "Continuar torneo"
+ },
+ {
+  "tag": "<<1>> in the <<2>> lane",
+  "text": "<<1>> en el carril <<2>>"
+ },
+ {
+  "tag": "<<1>> against <<2>>",
+  "text": "<<1>> contra <<2>>"
+ },
+ {
+  "tag": "<<1>>% to <<2>>%",
+  "text": "<<1>>% contra <<2>>%"
+ },
+ {
+  "tag": "Race (<<1>> lane)",
+  "text": "Correr (carril <<1>>)"
+ },
+ {
+  "tag": "Watch",
+  "text": "Mirar"
+ },
+ {
+  "tag": "Race: left lane",
+  "text": "Correr: carril izquierdo"
+ },
+ {
+  "tag": "Race: right lane",
+  "text": "Correr: carril derecho"
+ },
+ {
+  "tag": "Simulate",
+  "text": "Simular"
+ },
+ {
+  "tag": "Run all others",
+  "text": "Correr todos los demás"
+ },
+ {
+  "tag": "Rookie",
+  "text": "Novato"
+ },
+ {
+  "tag": "Intermediate",
+  "text": "Intermedio"
+ },
+ {
+  "tag": "Professional",
+  "text": "Profesional"
+ },
+ {
+  "tag": "Player name",
+  "text": "Nombre del jugador"
+ },
+ {
+  "tag": "Skill level",
+  "text": "Habilidad"
+ },
+ {
+  "tag": "Select truck",
+  "text": "Monster Truck"
+ },
+ {
+  "tag": "Player Name",
+  "text": "Nombre del jugador"
+ },
+ {
+  "tag": "Skill Level",
+  "text": "Habilidad"
+ },
+ {
+  "tag": "Select Truck",
+  "text": "Monster Truck"
+ },
+ {
+  "tag": "The truck preview needs WebGL.",
+  "text": "La vista previa del camión necesita WebGL."
+ },
+ {
+  "tag": "Loading <<1>>…",
+  "text": "Cargando <<1>>…"
+ },
+ {
+  "tag": "Resume",
+  "text": "Continuar"
+ },
+ {
+  "tag": "Console",
+  "text": "Consola"
+ },
+ {
+  "tag": "End fly-by",
+  "text": "Terminar sobrevuelo"
+ },
+ {
+  "tag": "Shallow",
+  "text": "Poco profundo"
+ },
+ {
+  "tag": "Deep",
+  "text": "Profundo"
+ },
+ {
+  "tag": "Soft",
+  "text": "Blanda"
+ },
+ {
+  "tag": "Hard",
+  "text": "Dura"
+ },
+ {
+  "tag": "Transfer gear",
+  "text": "Caja de transferencia"
+ },
+ {
+  "tag": "Tire Cut",
+  "text": "Corte del neumático"
+ },
+ {
+  "tag": "Suspension",
+  "text": "Suspensión"
+ },
+ {
+  "tag": "Transfer Gear",
+  "text": "Caja de transferencia"
+ },
+ {
+  "tag": "tournament",
+  "text": "torneo"
+ },
+ {
+  "tag": "Points",
+  "text": "Puntos"
+ },
+ {
+  "tag": "Time",
+  "text": "Tiempo"
+ },
+ {
+  "tag": "Place",
+  "text": "Posicion"
+ },
+ {
+  "tag": "Player",
+  "text": "Jugador"
+ },
+ {
+  "tag": "Hall Of Fame",
+  "text": "Salón de la Fama"
+ },
+ {
+  "tag": "The install has no tracks.",
+  "text": "La instalación no tiene pistas."
+ },
+ {
+  "tag": "Laps or minutes",
+  "text": "Vueltas o minutos"
+ },
+ {
+  "tag": "Mode",
+  "text": "Modo"
+ },
+ {
+  "tag": "Computer Opponents",
+  "text": "Oponentes (Bots)"
+ },
+ {
+  "tag": "Resume drag weekend",
+  "text": "Continuar fin de semana de aceleración"
+ },
+ {
+  "tag": "Drag weekend",
+  "text": "Fin de semana de aceleración"
+ },
+ {
+  "tag": "Resume tournament",
+  "text": "Continuar torneo"
+ },
+ {
+  "tag": "Tournament",
+  "text": "Torneo"
+ },
+ {
+  "tag": "<<1>> preview",
+  "text": "Vista previa de <<1>>"
+ },
+ {
+  "tag": "The track's map and description",
+  "text": "El mapa y la descripción de la pista"
+ },
+ {
+  "tag": "Zoom",
+  "text": "Ampliar"
+ },
+ {
+  "tag": "<<1>> needs <<2>> trucks at least: pick computer opponents.",
+  "text": "<<1>> necesita al menos <<2>> camiones: elige bots."
+ },
+ {
+  "tag": "Filter tracks",
+  "text": "Filtrar pistas"
+ },
+ {
+  "tag": "Selected",
+  "text": "Seleccionada"
+ },
+ {
+  "tag": "Track Name",
+  "text": "Nombre"
+ },
+ {
+  "tag": "Track Type",
+  "text": "Tipo"
+ },
+ {
+  "tag": "<<1>> map",
+  "text": "Mapa de <<1>>"
+ },
+ {
+  "tag": "Drivers",
+  "text": "Pilotos"
+ },
+ {
+  "tag": "<<1>> drivers",
+  "text": "<<1>> pilotos"
+ },
+ {
+  "tag": "Qualifying, then an elimination bracket on this strip. You qualify alone; the order seeds the bracket, and a field short of 2, 4, 8 or 16 gives the best seeds a bye.",
+  "text": "Clasificación y luego un cuadro de eliminación en esta pista. Clasificas solo; el orden define la siembra del cuadro, y si el grupo no llega a 2, 4, 8 o 16, los mejores sembrados pasan directo."
+ },
+ {
+  "tag": "Field",
+  "text": "Participantes"
+ },
+ {
+  "tag": "Start",
+  "text": "Comenzar"
+ },
+ {
+  "tag": "Available trucks",
+  "text": "Camiones disponibles"
+ },
+ {
+  "tag": "Selected opponents",
+  "text": "Rivales elegidos"
+ },
+ {
+  "tag": "Spectator mode: this truck races and you watch. Up to <<1>>.",
+  "text": "Modo espectador: este camión corre y tú miras. Hasta <<1>>."
+ },
+ {
+  "tag": "Spectator mode: these trucks race and you watch. Up to <<1>>.",
+  "text": "Modo espectador: estos camiones corren y tú miras. Hasta <<1>>."
+ },
+ {
+  "tag": "You race against up to <<1>>. Pick <<2>> to watch them race instead.",
+  "text": "Corres contra un máximo de <<1>>. Elige <<2>> para mirarlos correr."
+ },
+ {
+  "tag": "Available trucks: <<1>>",
+  "text": "Camiones disponibles: <<1>>"
+ },
+ {
+  "tag": "Selected opponents: <<1>>/<<2>>",
+  "text": "Rivales elegidos: <<1>>/<<2>>"
+ },
+ {
+  "tag": "Default computer opponents",
+  "text": "Bots por defecto"
+ },
+ {
+  "tag": "Add >",
+  "text": "Agregar >"
+ },
+ {
+  "tag": "< Remove",
+  "text": "< Quitar"
+ },
+ {
+  "tag": "Remove all",
+  "text": "Quitar todos"
+ },
+ {
+  "tag": "Add trucks at random, keeping the ones already picked, until the list holds the default number of computer opponents",
+  "text": "Agrega camiones al azar, manteniendo los ya elegidos, hasta que la lista tenga la cantidad de rivales por defecto"
+ },
+ {
+  "tag": "Fill",
+  "text": "Completar"
+ },
+ {
+  "tag": "Spectator mode",
+  "text": "Modo espectador"
+ },
+ {
+  "tag": "Done",
+  "text": "Listo"
+ },
+ {
+  "tag": "Demo mode. Press any key to begin",
+  "text": "Modo demo. Presiona cualquier tecla para comenzar"
+ },
+ {
+  "tag": "and <<1>> more",
+  "text": "y <<1>> más"
+ },
+ {
+  "tag": "Race anyway",
+  "text": "Correr de todos modos"
+ },
+ {
+  "tag": "Spectator mode. Left, Right: another truck. V: view. B: free camera",
+  "text": "Modo espectador. Izquierda, Derecha: otro camión. V: vista. B: cámara libre"
+ },
+ {
+  "tag": "This track could not be loaded",
+  "text": "No se pudo cargar esta pista"
+ },
+ {
+  "tag": "Loading",
+  "text": "Cargando"
+ },
+ {
+  "tag": "Files this track names are missing",
+  "text": "Faltan archivos que esta pista necesita"
+ },
+ {
+  "tag": "Waiting for other players",
+  "text": "Esperando a los demás jugadores"
+ },
+ {
+  "tag": "Getting ready",
+  "text": "Preparando"
+ },
+ {
+  "tag": "Results",
+  "text": "Resultados"
+ },
+ {
+  "tag": "The race is over. Esc: the pause menu, and Results",
+  "text": "La carrera terminó. Esc: el menú de pausa y los Resultados"
+ },
+ {
+  "tag": "Restart race",
+  "text": "Reiniciar carrera"
+ },
+ {
+  "tag": "Instant replay",
+  "text": "Repetición instantánea"
+ },
+ {
+  "tag": "End race",
+  "text": "Terminar carrera"
+ },
+ {
+  "tag": "On",
+  "text": "Activado"
+ },
+ {
+  "tag": "VR options",
+  "text": "Opciones de VR"
+ },
+ {
+  "tag": "Horizon lock",
+  "text": "Bloqueo del horizonte"
+ },
+ {
+  "tag": "Seat forward",
+  "text": "Asiento adelante"
+ },
+ {
+  "tag": "Seat height",
+  "text": "Altura del asiento"
+ },
+ {
+  "tag": "Seat sideways",
+  "text": "Asiento al costado"
+ },
+ {
+  "tag": "Reset seat",
+  "text": "Restablecer asiento"
+ },
+ {
+  "tag": "HUD",
+  "text": "HUD"
+ },
+ {
+  "tag": "Recentre view",
+  "text": "Recentrar vista"
+ },
+ {
+  "tag": "No crash damage in Monster Truck Madness 1 physics",
+  "text": "No hay daño por choques con la física de Monster Truck Madness 1"
+ },
+ {
+  "tag": "Watching <<1>> (<<2>>)",
+  "text": "Mirando a <<1>> (<<2>>)"
+ },
+ {
+  "tag": "Red light! Disqualified.",
+  "text": "¡Luz roja! Descalificado."
+ },
+ {
+  "tag": "Out of your lane! Disqualified.",
+  "text": "¡Fuera de tu carril! Descalificado."
+ },
+ {
+  "tag": "Backing up! Disqualified.",
+  "text": "¡Retrocediste! Descalificado."
+ },
+ {
+  "tag": "Not staged in time! Disqualified.",
+  "text": "¡No te posicionaste a tiempo! Descalificado."
+ },
+ {
+  "tag": "Out of time! Disqualified.",
+  "text": "¡Se acabó el tiempo! Descalificado."
+ },
+ {
+  "tag": "Lap:",
+  "text": "Vuelta:"
+ },
+ {
+  "tag": "Reaction:",
+  "text": "Reacción:"
+ },
+ {
+  "tag": "Hit by a disqualified truck: the pass will be run again.",
+  "text": "Te chocó un camión descalificado: la pasada se correrá de nuevo."
+ },
+ {
+  "tag": "Elapsed time <<1>> s",
+  "text": "Tiempo <<1>> s"
+ },
+ {
+  "tag": "Score:",
+  "text": "Puntaje:"
+ },
+ {
+  "tag": "Best:",
+  "text": "Mejor:"
+ },
+ {
+  "tag": "Lead:",
+  "text": "Ventaja:"
+ },
+ {
+  "tag": "Back:",
+  "text": "Atras por:"
+ },
+ {
+  "tag": "Missed checkpoint! Turn around.",
+  "text": "¡Te saltaste un punto de control! Da la vuelta."
+ },
+ {
+  "tag": "Final lap!",
+  "text": "¡Última vuelta!"
+ },
+ {
+  "tag": "Determining times for remaining trucks...",
+  "text": "Calculando los tiempos de los camiones restantes..."
+ },
+ {
+  "tag": "Synchronizing scores",
+  "text": "Sincronizando puntajes"
+ },
+ {
+  "tag": "has left the race",
+  "text": "abandonó la carrera"
+ },
+ {
+  "tag": "Message",
+  "text": "Mensaje"
+ },
+ {
+  "tag": "There is no replay to show.",
+  "text": "No hay ninguna repetición para mostrar."
+ },
+ {
+  "tag": "Loading the replay…",
+  "text": "Cargando la repetición…"
+ },
+ {
+  "tag": "The replay's track could not be built: <<1>>",
+  "text": "No se pudo construir la pista de la repetición: <<1>>"
+ },
+ {
+  "tag": "<<1>> of <<2>>",
+  "text": "<<1>> de <<2>>"
+ },
+ {
+  "tag": "Position",
+  "text": "Posición"
+ },
+ {
+  "tag": "Play or pause (Space)",
+  "text": "Reproducir o pausar (Espacio)"
+ },
+ {
+  "tag": "paused",
+  "text": "en pausa"
+ },
+ {
+  "tag": "Replay saved",
+  "text": "Repetición guardada"
+ },
+ {
+  "tag": "To the start (Home)",
+  "text": "Al inicio (Inicio)"
+ },
+ {
+  "tag": "Rewind (R)",
+  "text": "Retroceder (R)"
+ },
+ {
+  "tag": "Frame back (,)",
+  "text": "Cuadro anterior (,)"
+ },
+ {
+  "tag": "Frame forward (.)",
+  "text": "Cuadro siguiente (.)"
+ },
+ {
+  "tag": "Fast forward (F)",
+  "text": "Avance rápido (F)"
+ },
+ {
+  "tag": "To the end (End)",
+  "text": "Al final (Fin)"
+ },
+ {
+  "tag": "Slower ([)",
+  "text": "Más lento ([)"
+ },
+ {
+  "tag": "Faster (])",
+  "text": "Más rápido (])"
+ },
+ {
+  "tag": "Save the replay as a .rpl file",
+  "text": "Guardar la repetición como archivo .rpl"
+ },
+ {
+  "tag": "Back (Esc)",
+  "text": "Volver (Esc)"
+ },
+ {
+  "tag": "Rerun",
+  "text": "Repetir"
+ },
+ {
+  "tag": "DQ",
+  "text": "DESC"
+ },
+ {
+  "tag": "Winner's Circle",
+  "text": "Círculo de ganadores"
+ },
+ {
+  "tag": "Race again",
+  "text": "Correr de nuevo"
+ },
+ {
+  "tag": "New race",
+  "text": "Nueva carrera"
+ },
+ {
+  "tag": "Hall of Fame: <<1>> on <<2>>.",
+  "text": "Salón de la Fama: <<1>> en <<2>>."
+ },
+ {
+  "tag": "First",
+  "text": "Primero"
+ },
+ {
+  "tag": "Second",
+  "text": "Segundo"
+ },
+ {
+  "tag": "Lap",
+  "text": "Lap"
+ },
+ {
+  "tag": "Fast Lap",
+  "text": "Vuelta rápida"
+ },
+ {
+  "tag": "Not implemented yet",
+  "text": "Aún no implementado"
+ },
+ {
+  "tag": "Photo:",
+  "text": "Foto:"
+ },
+ {
+  "tag": "by",
+  "text": "de"
+ },
+ {
+  "tag": "modified",
+  "text": "modificada"
+ },
+ {
+  "tag": "<<1>> lap",
+  "text": "<<1>> vuelta"
+ },
+ {
+  "tag": "<<1>> laps",
+  "text": "<<1>> vueltas"
+ },
+ {
+  "tag": "<<1>>: points totals",
+  "text": "<<1>>: puntos totales"
+ },
+ {
+  "tag": "<<1>>: event <<2>> of <<3>>, <<4>>",
+  "text": "<<1>>: evento <<2>> de <<3>>, <<4>>"
+ },
+ {
+  "tag": "Truck (Driver)",
+  "text": "Camión (Piloto)"
+ },
+ {
+  "tag": "run",
+  "text": "corrido"
+ },
+ {
+  "tag": "passed over",
+  "text": "omitido"
+ },
+ {
+  "tag": "Abandon",
+  "text": "Abandonar"
+ },
+ {
+  "tag": "Abandon the tournament?",
+  "text": "¿Abandonar el torneo?"
+ },
+ {
+  "tag": "<<1>>: points totals. Hall of Fame: <<2>>.",
+  "text": "<<1>>: puntos totales. Salón de la Fama: <<2>>."
+ },
+ {
+  "tag": "Resume the drag event",
+  "text": "Continuar el evento de aceleración"
+ },
+ {
+  "tag": "Race: <<1>>",
+  "text": "Correr: <<1>>"
+ },
+ {
+  "tag": "Untitled Tournament",
+  "text": "Torneo sin nombre"
+ },
+ {
+  "tag": "Tournament name",
+  "text": "Nombre del torneo"
+ },
+ {
+  "tag": "Description",
+  "text": "Descripción"
+ },
+ {
+  "tag": "Events",
+  "text": "Eventos"
+ },
+ {
+  "tag": "Available tracks",
+  "text": "Pistas disponibles"
+ },
+ {
+  "tag": "The maximum number of events has already been added to this tournament.",
+  "text": "Este torneo ya tiene la cantidad máxima de eventos."
+ },
+ {
+  "tag": "Editing <<1>>",
+  "text": "Editando <<1>>"
+ },
+ {
+  "tag": "A new tournament",
+  "text": "Un torneo nuevo"
+ },
+ {
+  "tag": "Name",
+  "text": "Nombre"
+ },
+ {
+  "tag": "Unable to create a new tournament because too many tournaments exist. Please delete an existing tournament before adding a new tournament.",
+  "text": "No se puede crear un torneo nuevo porque hay demasiados torneos. Elimina un torneo existente antes de agregar uno nuevo."
+ },
+ {
+  "tag": "Tournaments",
+  "text": "Torneos"
+ },
+ {
+  "tag": "yours",
+  "text": "tuyo"
+ },
+ {
+  "tag": "Race!",
+  "text": "¡A correr!"
+ },
+ {
+  "tag": "Edit",
+  "text": "Editar"
+ },
+ {
+  "tag": "Delete",
+  "text": "Eliminar"
+ },
+ {
+  "tag": "This is a factory-default tournament and cannot be deleted.",
+  "text": "Este es un torneo original del juego y no se puede eliminar."
+ },
+ {
+  "tag": "Are you sure you wish to delete the currently selected tournament? This operation cannot be undone.",
+  "text": "¿Seguro que quieres eliminar el torneo seleccionado? Esta acción no se puede deshacer."
+ },
+ {
+  "tag": "Save as .TRN",
+  "text": "Guardar como .TRN"
+ },
+ {
+  "tag": "<<1>> is not a tournament file.",
+  "text": "<<1>> no es un archivo de torneo."
+ },
+ {
+  "tag": "Unable to create a new tournament because too many tournaments exist.",
+  "text": "No se puede crear un torneo nuevo porque hay demasiados torneos."
+ },
+ {
+  "tag": "<<1>> truck",
+  "text": "<<1>> camión"
+ },
+ {
+  "tag": "<<1>> trucks",
+  "text": "<<1>> camiones"
+ },
+ {
+  "tag": "The events, listed in race order:",
+  "text": "Los eventos, en orden de carrera:"
+ },
+ {
+  "tag": "No tournament is installed. Make one with New, or open a .TRN.",
+  "text": "No hay torneos instalados. Crea uno con Nuevo o abre un .TRN."
+ },
+ {
+  "tag": "Pick a tournament.",
+  "text": "Elige un torneo."
+ },
+ {
+  "tag": "A tournament with a drag race takes 2, 4 or 8 trucks.",
+  "text": "Un torneo con una carrera de aceleración admite 2, 4 u 8 camiones."
+ },
+ {
+  "tag": "New",
+  "text": "Nuevo"
+ },
+ {
+  "tag": "Open .TRN",
+  "text": "Abrir .TRN"
+ },
+ {
+  "tag": "Browser not supported",
+  "text": "Navegador no compatible"
+ },
+ {
+  "tag": "OpenMTM2 needs features this browser does not offer:",
+  "text": "OpenMTM2 necesita funciones que este navegador no ofrece:"
+ },
+ {
+  "tag": "Use a current version of Chrome, Edge, Firefox or Safari, served over HTTPS or from localhost (file:// pages cannot use workers or OPFS).",
+  "text": "Usa una versión actual de Chrome, Edge, Firefox o Safari, servida por HTTPS o desde localhost (las páginas file:// no pueden usar workers ni OPFS)."
+ },
+ {
+  "tag": "Enter VR",
+  "text": "Entrar a VR"
+ },
+ {
+  "tag": "VR did not start",
+  "text": "No se pudo iniciar VR"
+ },
+ {
+  "tag": "You have been removed from the game.",
+  "text": "Te quitaron de la partida."
+ },
+ {
+  "tag": "The room was closed.",
+  "text": "La sala se cerró."
+ },
+ {
+  "tag": "The connection to the game was lost.",
+  "text": "Se perdió la conexión con la partida."
+ },
+ {
+  "tag": "Not in a network game.",
+  "text": "No estás en una partida en red."
+ },
+ {
+  "tag": "Choose a track on the Races screen first.",
+  "text": "Primero elige una pista en la pantalla Carreras."
+ },
+ {
+  "tag": "Every player must be Ready.",
+  "text": "Todos los jugadores deben estar Listos."
+ },
+ {
+  "tag": "Arrows move and turn, A and Z climb and sink, Page Up and Page Down tilt, drag the mouse to look, wheel to zoom",
+  "text": "Las flechas mueven y giran, A y Z suben y bajan, Re Pág y Av Pág inclinan, arrastra el mouse para mirar y usa la rueda para acercar"
+ },
+ {
+  "tag": "Arrows steer (Up is nose down), A and Z throttle, Home and Page Up roll",
+  "text": "Las flechas dirigen (Arriba baja la nariz), A y Z aceleran y desaceleran, Inicio y Re Pág giran sobre el eje"
+ },
+ {
+  "tag": "Arrows steer (Up is nose down), X and Z speed up and slow down, F is the turbo thrust",
+  "text": "Las flechas dirigen (Arriba baja la nariz), X y Z aceleran y frenan, F es el turbo"
+ },
+ {
+  "tag": "Left",
+  "text": "Izquierda"
+ },
+ {
+  "tag": "Right",
+  "text": "Derecha"
+ },
+ {
+  "tag": "Page Up",
+  "text": "Re Pág"
+ },
+ {
+  "tag": "Page Down",
+  "text": "Av Pág"
+ },
+ {
+  "tag": "forward",
+  "text": "adelante"
+ },
+ {
+  "tag": "back",
+  "text": "atrás"
+ },
+ {
+  "tag": "turn right",
+  "text": "girar a la derecha"
+ },
+ {
+  "tag": "turn left",
+  "text": "girar a la izquierda"
+ },
+ {
+  "tag": "climb",
+  "text": "subir"
+ },
+ {
+  "tag": "sink",
+  "text": "bajar"
+ },
+ {
+  "tag": "tilt up",
+  "text": "inclinar arriba"
+ },
+ {
+  "tag": "tilt down",
+  "text": "inclinar abajo"
+ },
+ {
+  "tag": "nose up",
+  "text": "nariz arriba"
+ },
+ {
+  "tag": "nose down",
+  "text": "nariz abajo"
+ },
+ {
+  "tag": "roll right",
+  "text": "girar el eje a la derecha"
+ },
+ {
+  "tag": "roll left",
+  "text": "girar el eje a la izquierda"
+ },
+ {
+  "tag": "faster",
+  "text": "más rápido"
+ },
+ {
+  "tag": "slower",
+  "text": "más lento"
+ },
+ {
+  "tag": "turbo thrust",
+  "text": "turbo"
+ },
+ {
+  "tag": "Mouse drag: look",
+  "text": "Arrastrar el mouse: mirar"
+ },
+ {
+  "tag": "Mouse wheel: zoom",
+  "text": "Rueda del mouse: acercar"
+ },
+ {
+  "tag": "Up, Down: follow faster, slower",
+  "text": "Arriba, Abajo: seguir más rápido, más lento"
+ },
+ {
+  "tag": "C: change the controls",
+  "text": "C: cambiar los controles"
+ },
+ {
+  "tag": "T: stop following the course",
+  "text": "T: dejar de seguir el recorrido"
+ },
+ {
+  "tag": "T: follow the course",
+  "text": "T: seguir el recorrido"
+ },
+ {
+  "tag": "O: show or hide this list",
+  "text": "O: mostrar u ocultar esta lista"
+ },
+ {
+  "tag": "Esc: pause",
+  "text": "Esc: pausa"
+ },
+ {
+  "tag": "Start Screen",
+  "text": "Pantalla de inicio"
+ },
+ {
+  "tag": "Race Screen",
+  "text": "Pantalla de carreras"
+ },
+ {
+  "tag": "Multiplayer Screen",
+  "text": "Pantalla multijugador"
+ },
+ {
+  "tag": "Viewing Results",
+  "text": "Viendo resultados"
+ },
+ {
+  "tag": "Racing!",
+  "text": "¡Corriendo!"
+ },
+ {
+  "tag": "Ready",
+  "text": "Listo"
+ },
+ {
+  "tag": "Unknown",
+  "text": "Desconocido"
+ },
+ {
+  "tag": "Local",
+  "text": "Local"
+ },
+ {
+  "tag": "lists the commands",
+  "text": "lista los comandos"
+ },
+ {
+  "tag": "empties the console",
+  "text": "vacía la consola"
+ },
+ {
+  "tag": "Unknown command \"<<1>>\". Type help.",
+  "text": "Comando desconocido \"<<1>>\". Escribe help."
+ },
+ {
+  "tag": "Type help for commands",
+  "text": "Escribe help para ver los comandos"
+ },
+ {
+  "tag": "how far the world is drawn, in terrain cells of 32 ft (128 is the standard)",
+  "text": "hasta dónde se dibuja el mundo, en celdas de terreno de 32 pies (128 es lo estándar)"
+ },
+ {
+  "tag": "Usage: <<1>>. Now <<2>> cells (<<3>> ft).",
+  "text": "Uso: <<1>>. Ahora <<2>> celdas (<<3>> pies)."
+ },
+ {
+  "tag": "Draw distance: <<1>> cells (<<2>> ft).",
+  "text": "Distancia de dibujado: <<1>> celdas (<<2>> pies)."
+ },
+ {
+  "tag": "<<1>>, following the course",
+  "text": "<<1>>, siguiendo el recorrido"
+ },
+ {
+  "tag": "O: keys",
+  "text": "O: teclas"
+ },
+ {
+  "tag": "off",
+  "text": "desactivado"
+ },
+ {
+  "tag": "auto throttle",
+  "text": "acelerador automático"
+ },
+ {
+  "tag": "full autopilot",
+  "text": "piloto automático completo"
+ },
+ {
+  "tag": "wireframe",
+  "text": "alambre"
+ },
+ {
+  "tag": "solid",
+  "text": "sólido"
+ },
+ {
+  "tag": "on",
+  "text": "activado"
+ },
+ {
+  "tag": "Zoom <<1>>x",
+  "text": "Zoom <<1>>x"
+ },
+ {
+  "tag": "Reverse course: <<1>>",
+  "text": "Recorrido invertido: <<1>>"
+ },
+ {
+  "tag": "Autopilot: <<1>>",
+  "text": "Piloto automático: <<1>>"
+ },
+ {
+  "tag": "Collision boxes: <<1>>",
+  "text": "Cajas de colisión: <<1>>"
+ },
+ {
+  "tag": "Weather: <<1>>.",
+  "text": "Clima: <<1>>."
+ },
+ {
+  "tag": "Slew mode: <<1>>",
+  "text": "Modo libre: <<1>>"
+ },
+ {
+  "tag": "Z mode: <<1>>",
+  "text": "Modo Z: <<1>>"
+ },
+ {
+  "tag": "Level <<1>>",
+  "text": "Nivel <<1>>"
+ },
+ {
+  "tag": "Polygons <<1>>/<<2>>",
+  "text": "Polígonos <<1>>/<<2>>"
+ },
+ {
+  "tag": "Models <<1>>",
+  "text": "Modelos <<1>>"
+ },
+ {
+  "tag": "Saved <<1>>",
+  "text": "Guardado <<1>>"
+ },
+ {
+  "tag": "Usage: <<1>>. Now <<2>>.",
+  "text": "Uso: <<1>>. Ahora: <<2>>."
+ },
+ {
+  "tag": "carries the camera along the track's course (the T key)",
+  "text": "lleva la cámara por el recorrido de la pista (la tecla T)"
+ },
+ {
+  "tag": "Follow <<1>>.",
+  "text": "Seguir: <<1>>."
+ },
+ {
+  "tag": "This track has no course to follow.",
+  "text": "Esta pista no tiene un recorrido que seguir."
+ },
+ {
+  "tag": "how the camera is flown",
+  "text": "cómo se maneja la cámara"
+ },
+ {
+  "tag": "changes the track, by its SIT's name or its title",
+  "text": "cambia la pista, por el nombre de su SIT o por su título"
+ },
+ {
+  "tag": "No track named <<1>>.",
+  "text": "No hay ninguna pista llamada <<1>>."
+ },
+ {
+  "tag": "Loading <<1>>.",
+  "text": "Cargando <<1>>."
+ },
+ {
+  "tag": "changes the weather: <<1>>",
+  "text": "cambia el clima: <<1>>"
+ },
+ {
+  "tag": "the track's backdrop models on or off (loads the track again)",
+  "text": "activa o desactiva los modelos de fondo de la pista (vuelve a cargar la pista)"
+ },
+ {
+  "tag": "Backdrop <<1>>.",
+  "text": "Fondo: <<1>>."
+ },
+ {
+  "tag": "the ground tiles' two-pixel overlap on or off, for this visit (loads the track again)",
+  "text": "activa o desactiva la superposición de dos píxeles de las baldosas del suelo en esta visita (vuelve a cargar la pista)"
+ },
+ {
+  "tag": "Overlap <<1>>.",
+  "text": "Superposición: <<1>>."
+ },
+ {
+  "tag": "the music on or off",
+  "text": "activa o desactiva la música"
+ },
+ {
+  "tag": "Music <<1>>.",
+  "text": "Música: <<1>>."
+ },
+ {
+  "tag": "all sound on or off",
+  "text": "activa o desactiva todo el sonido"
+ },
+ {
+  "tag": "Sound <<1>>.",
+  "text": "Sonido: <<1>>."
+ },
+ {
+  "tag": "back to the Races screen",
+  "text": "vuelve a la pantalla Carreras"
+ },
+ {
+  "tag": "Fly-by: <<1>> (<<2>>), <<3>> controls",
+  "text": "Sobrevuelo: <<1>> (<<2>>), controles <<3>>"
+ },
+ {
+  "tag": "Send to",
+  "text": "Enviar a"
+ },
+ {
+  "tag": "Private",
+  "text": "Privado"
+ },
+ {
+  "tag": "Private message",
+  "text": "Mensaje privado"
+ },
+ {
+  "tag": "Send",
+  "text": "Enviar"
+ },
+ {
+  "tag": "Disconnect",
+  "text": "Desconectar"
+ },
+ {
+  "tag": "Voice chat is not available",
+  "text": "El chat de voz no está disponible"
+ },
+ {
+  "tag": "CB Radio",
+  "text": "Radio CB"
+ },
+ {
+  "tag": "Connect",
+  "text": "Conectar"
+ },
+ {
+  "tag": "Copy a link that opens this room",
+  "text": "Copia un enlace que abre esta sala"
+ },
+ {
+  "tag": "Copy invite",
+  "text": "Copiar invitación"
+ },
+ {
+  "tag": "Invite link copied.",
+  "text": "Enlace de invitación copiado."
+ },
+ {
+  "tag": "The invite link:",
+  "text": "El enlace de invitación:"
+ },
+ {
+  "tag": "Remove <<1>> from the game",
+  "text": "Quitar a <<1>> de la partida"
+ },
+ {
+  "tag": "Remove <<1>>",
+  "text": "Quitar a <<1>>"
+ },
+ {
+  "tag": "Remove <<1>> from the game?",
+  "text": "¿Quitar a <<1>> de la partida?"
+ },
+ {
+  "tag": "Latency",
+  "text": "Latencia"
+ },
+ {
+  "tag": "Status",
+  "text": "Estado"
+ },
+ {
+  "tag": "Playing the original Monster Truck Madness 2",
+  "text": "Jugando el Monster Truck Madness 2 original"
+ },
+ {
+  "tag": "Owner",
+  "text": "Dueño"
+ },
+ {
+  "tag": "Host",
+  "text": "Anfitrión"
+ },
+ {
+  "tag": "Computer",
+  "text": "Computadora"
+ },
+ {
+  "tag": "Classic",
+  "text": "Clásico"
+ },
+ {
+  "tag": "no track",
+  "text": "sin la pista"
+ },
+ {
+  "tag": "other version",
+  "text": "otra versión"
+ },
+ {
+  "tag": "Everyone",
+  "text": "Todos"
+ },
+ {
+  "tag": "Room",
+  "text": "Sala"
+ },
+ {
+  "tag": "choose one on the Races screen",
+  "text": "elige una en la pantalla Carreras"
+ },
+ {
+  "tag": "not chosen yet",
+  "text": "aún no elegida"
+ },
+ {
+  "tag": "Computers",
+  "text": "Computadoras"
+ },
+ {
+  "tag": "Not Ready",
+  "text": "No listo"
+ },
+ {
+  "tag": "Start the race",
+  "text": "Comenzar la carrera"
+ },
+ {
+  "tag": "Waiting for every player to be Ready",
+  "text": "Esperando que todos los jugadores estén Listos"
+ },
+ {
+  "tag": "private",
+  "text": "privado"
+ },
+ {
+  "tag": "Received From",
+  "text": "Recibido de"
+ },
+ {
+  "tag": "Messages",
+  "text": "Mensajes"
+ },
+ {
+  "tag": "Looking for the helper…",
+  "text": "Buscando el ayudante…"
+ },
+ {
+  "tag": "Pairing token",
+  "text": "Código de emparejamiento"
+ },
+ {
+  "tag": "Classic games need the OpenMTM2 helper running on this computer. In the OpenMTM2 Server folder, run:",
+  "text": "Las partidas clásicas necesitan el ayudante de OpenMTM2 funcionando en esta computadora. En la carpeta de OpenMTM2 Server, ejecuta:"
+ },
+ {
+  "tag": "It prints a pairing token: type it here. Other players reach you on TCP 2300 to 2350, UDP 2350 to 2400 and, when you host, 47624: forward those ports or play over a VPN such as Radmin VPN. A CP3 direct connect host needs only its UDP port (2350).",
+  "text": "Muestra un código de emparejamiento: escríbelo aquí. Los demás jugadores te alcanzan por TCP 2300 a 2350, UDP 2350 a 2400 y, si eres anfitrión, 47624: abre esos puertos o juega por una VPN como Radmin VPN. Un anfitrión con conexión directa de CP3 solo necesita su puerto UDP (2350)."
+ },
+ {
+  "tag": "The helper is busy with another page.",
+  "text": "El ayudante está ocupado con otra página."
+ },
+ {
+  "tag": "The helper is running.",
+  "text": "El ayudante está funcionando."
+ },
+ {
+  "tag": "The helper is not running.",
+  "text": "El ayudante no está funcionando."
+ },
+ {
+  "tag": "Game name",
+  "text": "Nombre de la partida"
+ },
+ {
+  "tag": "Number of players",
+  "text": "Cantidad de jugadores"
+ },
+ {
+  "tag": "Another player hosts if the host leaves",
+  "text": "Otro jugador es anfitrión si el anfitrión se va"
+ },
+ {
+  "tag": "Connection",
+  "text": "Conexión"
+ },
+ {
+  "tag": "DirectPlay TCP/IP (every version)",
+  "text": "DirectPlay TCP/IP (todas las versiones)"
+ },
+ {
+  "tag": "CP3 direct connect (UDP)",
+  "text": "Conexión directa de CP3 (UDP)"
+ },
+ {
+  "tag": "Port",
+  "text": "Puerto"
+ },
+ {
+  "tag": "Host's port",
+  "text": "Puerto del anfitrión"
+ },
+ {
+  "tag": "Hosting…",
+  "text": "Creando la partida…"
+ },
+ {
+  "tag": "Host's IP address",
+  "text": "Dirección IP del anfitrión"
+ },
+ {
+  "tag": "Players",
+  "text": "Jugadores"
+ },
+ {
+  "tag": "Join",
+  "text": "Unirse"
+ },
+ {
+  "tag": "No games found yet.",
+  "text": "Aún no se encontraron partidas."
+ },
+ {
+  "tag": "Looking for games at <<1>>…",
+  "text": "Buscando partidas en <<1>>…"
+ },
+ {
+  "tag": "Looking for games on this network…",
+  "text": "Buscando partidas en esta red…"
+ },
+ {
+  "tag": "No game answered. Check the address, and that the host's ports are open.",
+  "text": "Ninguna partida respondió. Revisa la dirección y que los puertos del anfitrión estén abiertos."
+ },
+ {
+  "tag": "Joining <<1>>…",
+  "text": "Uniéndose a <<1>>…"
+ },
+ {
+  "tag": "Type the host's IP address.",
+  "text": "Escribe la dirección IP del anfitrión."
+ },
+ {
+  "tag": "Find games",
+  "text": "Buscar partidas"
+ },
+ {
+  "tag": "Join the first game found",
+  "text": "Unirse a la primera partida encontrada"
+ },
+ {
+  "tag": "Auto Select",
+  "text": "Selección automática"
+ },
+ {
+  "tag": "Room server address",
+  "text": "Dirección del servidor de salas"
+ },
+ {
+  "tag": "Browse rooms",
+  "text": "Ver salas"
+ },
+ {
+  "tag": "Type a room server's address.",
+  "text": "Escribe la dirección de un servidor de salas."
+ },
+ {
+  "tag": "Online rooms",
+  "text": "Salas en línea"
+ },
+ {
+  "tag": "Rooms on an OpenMTM2 server: a list of games, room codes and invite links.",
+  "text": "Salas en un servidor de OpenMTM2: una lista de partidas, códigos de sala y enlaces de invitación."
+ },
+ {
+  "tag": "Server",
+  "text": "Servidor"
+ },
+ {
+  "tag": "Classic TCP/IP",
+  "text": "TCP/IP clásico"
+ },
+ {
+  "tag": "Plays with Monster Truck Madness 2 itself and with other OpenMTM2 players. DirectPlay plays with every version (2.00.42, the patched game, Community Patch 3); CP3 direct connect is Community Patch 3's own UDP connection.",
+  "text": "Juega con el propio Monster Truck Madness 2 y con otros jugadores de OpenMTM2. DirectPlay funciona con todas las versiones (2.00.42, el juego parchado, Community Patch 3); la conexión directa de CP3 es la conexión UDP propia del Community Patch 3."
+ },
+ {
+  "tag": "Host a game",
+  "text": "Crear una partida"
+ },
+ {
+  "tag": "Another player hosts if you leave",
+  "text": "Otro jugador es anfitrión si te vas"
+ },
+ {
+  "tag": "UDP port",
+  "text": "Puerto UDP"
+ },
+ {
+  "tag": "Join a game",
+  "text": "Unirse a una partida"
+ },
+ {
+  "tag": "TREX: REX.BIN is not in any mounted archive (it is in Monster Truck Madness 1's GAME.POD).",
+  "text": "TREX: REX.BIN no está en ningún archivo montado (está en el GAME.POD de Monster Truck Madness 1)."
+ },
+ {
+  "tag": "Load a track by its .SIT name:",
+  "text": "Cargar una pista por el nombre de su .SIT:"
+ },
+ {
+  "tag": "free roam",
+  "text": "recorrido libre"
+ },
+ {
+  "tag": "Lap <<1>>/<<2>>",
+  "text": "Vuelta <<1>>/<<2>>"
+ },
+ {
+  "tag": "Track: <<1>> (<<2>>), Truck: <<3>> (<<4>>)",
+  "text": "Pista: <<1>> (<<2>>), Camión: <<3>> (<<4>>)"
+ },
+ {
+  "tag": "Position X:<<1>> Y:<<2>> Z:<<3>>, <<4>>, Weather: <<5>>, Backdrop: <<6>>, Bots: <<7>>",
+  "text": "Posición X:<<1>> Y:<<2>> Z:<<3>>, <<4>>, Clima: <<5>>, Fondo: <<6>>, Bots: <<7>>"
+ },
+ {
+  "tag": "the track, the truck and the simulation, as they are now",
+  "text": "la pista, el camión y la simulación, tal como están ahora"
+ },
+ {
+  "tag": "Game: <<1>>, Type: <<2>>, Skill: <<3>>, Look: <<4>>",
+  "text": "Juego: <<1>>, Tipo: <<2>>, Habilidad: <<3>>, Aspecto: <<4>>"
+ },
+ {
+  "tag": "Speed: <<1>> mph, Gear: <<2>>, RPM: <<3>>, Heading: <<4>> deg",
+  "text": "Velocidad: <<1>> mph, Marcha: <<2>>, RPM: <<3>>, Rumbo: <<4>> grados"
+ },
+ {
+  "tag": "Clock: <<1>>, Place: <<2>>, Checkpoint: <<3>>",
+  "text": "Reloj: <<1>>, Posición: <<2>>, Punto de control: <<3>>"
+ },
+ {
+  "tag": "Overlap: <<1>>, Music: <<2>>, Sound: <<3>>, Trucks: <<4>>, Objects: <<5>>",
+  "text": "Superposición: <<1>>, Música: <<2>>, Sonido: <<3>>, Camiones: <<4>>, Objetos: <<5>>"
+ },
+ {
+  "tag": "lists the computer opponents: number, driver, truck",
+  "text": "lista los rivales de la computadora: número, piloto, camión"
+ },
+ {
+  "tag": "There are no computer opponents.",
+  "text": "No hay rivales de la computadora."
+ },
+ {
+  "tag": "the free camera in a watched race (the B key)",
+  "text": "la cámara libre en una carrera como espectador (la tecla B)"
+ },
+ {
+  "tag": "Free camera <<1>>.",
+  "text": "Cámara libre: <<1>>."
+ },
+ {
+  "tag": "the truck the camera is on, 1 to <<1>>",
+  "text": "el camión que sigue la cámara, de 1 a <<1>>"
+ },
+ {
+  "tag": "Watching <<1>>.",
+  "text": "Mirando a <<1>>."
+ },
+ {
+  "tag": "the physics model: <<1>> (restarts the race)",
+  "text": "el modelo de física: <<1>> (reinicia la carrera)"
+ },
+ {
+  "tag": "Physics: <<1>>.",
+  "text": "Física: <<1>>."
+ },
+ {
+  "tag": "the track's backdrop models on or off (restarts the race)",
+  "text": "activa o desactiva los modelos de fondo de la pista (reinicia la carrera)"
+ },
+ {
+  "tag": "the ground tiles' two-pixel overlap on or off, for this race (restarts it)",
+  "text": "activa o desactiva la superposición de dos píxeles de las baldosas del suelo en esta carrera (la reinicia)"
+ },
+ {
+  "tag": "the FPS counter on or off",
+  "text": "activa o desactiva el contador de FPS"
+ },
+ {
+  "tag": "FPS counter <<1>>.",
+  "text": "Contador de FPS: <<1>>."
+ },
+ {
+  "tag": "adds a computer opponent (restarts the race)",
+  "text": "agrega oponente (bot) (reinicia la carrera)"
+ },
+ {
+  "tag": "Free roam has no opponents (freeroam 0 first).",
+  "text": "El recorrido libre no tiene oponentes (bots) (primero freeroam 0)."
+ },
+ {
+  "tag": "The grid is full.",
+  "text": "La parrilla está llena."
+ },
+ {
+  "tag": "<<1>> is already racing.",
+  "text": "<<1>> ya está corriendo."
+ },
+ {
+  "tag": "Adding <<1>>.",
+  "text": "Agregando a <<1>>."
+ },
+ {
+  "tag": "removes a computer opponent by its number in `bots` or its name, the last one by default (restarts the race)",
+  "text": "quita un oponente (bot) por su número en `bots` o por su nombre, el último por defecto (reinicia la carrera)"
+ },
+ {
+  "tag": "No opponent named <<1>>.",
+  "text": "No hay ningún oponente llamado <<1>>."
+ },
+ {
+  "tag": "Removing <<1>>.",
+  "text": "Quitando a <<1>>."
+ },
+ {
+  "tag": "sets the race's laps, from now on",
+  "text": "fija las vueltas de la carrera, desde ahora"
+ },
+ {
+  "tag": "Usage: <<1>>",
+  "text": "Uso: <<1>>"
+ },
+ {
+  "tag": "<<1>> laps.",
+  "text": "<<1>> vueltas."
+ },
+ {
+  "tag": "This race has no laps.",
+  "text": "Esta carrera no tiene vueltas."
+ },
+ {
+  "tag": "ends the race now: the times of the trucks still racing are worked out",
+  "text": "termina la carrera ahora: se calculan los tiempos de los camiones que siguen corriendo"
+ },
+ {
+  "tag": "Free roam has no race to finish.",
+  "text": "El recorrido libre no tiene una carrera que terminar."
+ },
+ {
+  "tag": "The race is finishing.",
+  "text": "La carrera está terminando."
+ },
+ {
+  "tag": "Finishing.",
+  "text": "Terminando."
+ },
+ {
+  "tag": "the opponents' difficulty: <<1>> (restarts the race)",
+  "text": "la dificultad de los rivales: <<1>> (reinicia la carrera)"
+ },
+ {
+  "tag": "Skill: <<1>>.",
+  "text": "Habilidad: <<1>>."
+ },
+ {
+  "tag": "changes your truck (restarts the race)",
+  "text": "cambia tu camión (reinicia la carrera)"
+ },
+ {
+  "tag": "Truck: <<1>>.",
+  "text": "Camión: <<1>>."
+ },
+ {
+  "tag": "free roam on or off (restarts the race)",
+  "text": "activa o desactiva el recorrido libre (reinicia la carrera)"
+ },
+ {
+  "tag": "This track has no checkpoints: free roam only.",
+  "text": "Esta pista no tiene puntos de control: solo recorrido libre."
+ },
+ {
+  "tag": "Free roam <<1>>.",
+  "text": "Recorrido libre: <<1>>."
+ },
+ {
+  "tag": "closes the console",
+  "text": "cierra la consola"
+ },
+ {
+  "tag": "starts the race again",
+  "text": "vuelve a comenzar la carrera"
+ },
+ {
+  "tag": "leaves the race for the Races screen",
+  "text": "sale de la carrera a la pantalla Carreras"
+ },
+ {
+  "tag": "the tournament's events: the status, or another event (one passed over scores nothing)",
+  "text": "los eventos del torneo: el estado, u otro evento (uno omitido no suma puntos)"
+ },
+ {
+  "tag": "No tournament is under way. Start one from the Races screen.",
+  "text": "No hay un torneo en curso. Comienza uno desde la pantalla Carreras."
+ },
+ {
+  "tag": "The tournament has events 1 to <<1>>.",
+  "text": "El torneo tiene los eventos 1 a <<1>>."
+ },
+ {
+  "tag": "Event <<1>>: <<2>>.",
+  "text": "Evento <<1>>: <<2>>."
+ },
+ {
+  "tag": "Waiting",
+  "text": "Esperando"
+ },
+ {
+  "tag": "Racing",
+  "text": "Corriendo"
+ },
+ {
+  "tag": "Connecting to <<1>>…",
+  "text": "Conectando a <<1>>…"
+ },
+ {
+  "tag": "Change server",
+  "text": "Cambiar servidor"
+ },
+ {
+  "tag": "This room has a password:",
+  "text": "Esta sala tiene contraseña:"
+ },
+ {
+  "tag": "Owner: <<1>>. Open to classic MTM2 players.",
+  "text": "Dueño: <<1>>. Abierta a jugadores del MTM2 clásico."
+ },
+ {
+  "tag": "Owner: <<1>>",
+  "text": "Dueño: <<1>>"
+ },
+ {
+  "tag": "Not chosen",
+  "text": "Sin elegir"
+ },
+ {
+  "tag": "No open rooms. Make one!",
+  "text": "No hay salas abiertas. ¡Crea una!"
+ },
+ {
+  "tag": "Refresh",
+  "text": "Actualizar"
+ },
+ {
+  "tag": "Join the fullest open room, or make one",
+  "text": "Unirse a la sala abierta más llena, o crear una"
+ },
+ {
+  "tag": "Quick Join",
+  "text": "Unión rápida"
+ },
+ {
+  "tag": "No open room; making one…",
+  "text": "No hay salas abiertas; creando una…"
+ },
+ {
+  "tag": "<<1>>'s room",
+  "text": "Sala de <<1>>"
+ },
+ {
+  "tag": "Room name",
+  "text": "Nombre de la sala"
+ },
+ {
+  "tag": "none",
+  "text": "ninguna"
+ },
+ {
+  "tag": "Password",
+  "text": "Contraseña"
+ },
+ {
+  "tag": "Show in the list",
+  "text": "Mostrar en la lista"
+ },
+ {
+  "tag": "Open to classic MTM2 players",
+  "text": "Abierta a jugadores del MTM2 clásico"
+ },
+ {
+  "tag": "Players of the original game join with the server's address, as with any host. Up to 8 players, no computer opponents.",
+  "text": "Los jugadores del juego original se unen con la dirección del servidor, como con cualquier anfitrión. Hasta 8 jugadores, sin rivales de la computadora."
+ },
+ {
+  "tag": "Open to classic MTM2 players (up to 8)",
+  "text": "Abierta a jugadores del MTM2 clásico (hasta 8)"
+ },
+ {
+  "tag": "Create Room",
+  "text": "Crear sala"
+ },
+ {
+  "tag": "Making the room…",
+  "text": "Creando la sala…"
+ },
+ {
+  "tag": "Room code",
+  "text": "Código de sala"
+ },
+ {
+  "tag": "if it has one",
+  "text": "si tiene"
+ },
+ {
+  "tag": "Room password",
+  "text": "Contraseña de la sala"
+ },
+ {
+  "tag": "Make a room",
+  "text": "Crear una sala"
+ },
+ {
+  "tag": "Show it in the list (otherwise by code only)",
+  "text": "Mostrarla en la lista (si no, solo por código)"
+ },
+ {
+  "tag": "Join by code",
+  "text": "Unirse por código"
+ },
+ {
+  "tag": "Rooms",
+  "text": "Salas"
+ },
+ {
+  "tag": "Not connected to <<1>>.",
+  "text": "Sin conexión con <<1>>."
+ },
+ {
+  "tag": "Room <<1>>: <<2>>",
+  "text": "Sala <<1>>: <<2>>"
+ },
+ {
+  "tag": "No truck named <<1>>.",
+  "text": "No hay ningún camión llamado <<1>>."
+ },
+ {
+  "tag": "[lap count]Lap:",
+  "text": "Vlta:"
+ },
+ {
+  "tag": "4x4 Evolution tracks: how far around the camera the grass is drawn, on every tile its .TEX marks for vegetation, pressed down under the trucks. Near is about the game's own. From the next race",
+  "text": "Pistas de 4x4 Evolution: hasta qué distancia de la cámara se dibuja el pasto, en cada baldosa que su .TEX marca para vegetación, aplastado bajo los camiones. Cerca es más o menos lo del juego original. Desde la próxima carrera"
+ }
+]

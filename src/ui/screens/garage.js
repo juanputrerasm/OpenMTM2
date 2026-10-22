@@ -4,20 +4,24 @@ import { currentDriver, getProfiles, saveProfiles } from "../../app/profile-stor
 import { playMenuSound } from "../../audio/menu-sounds.js";
 import { garageSummary } from "../../game/menu-data.js";
 import { frame } from "../frame.js";
+import { msg } from "../../game/strings.js";
 
 const TIRE_CUT_DOTS = [[459, 45], [428, 96], [408, 160]];
 const SUSPENSION_DOTS = [[447, 277], [490, 320], [546, 345]];
 const SLIDER_RECT = [44, 346, 280, 22];
 
 const TRANSFER_ENDS = 600 + 2000;
+const TIRE_CUTS = [msg("Shallow"), msg("Medium"), msg("Deep")];
+const SUSPENSIONS = [msg("Soft"), msg("Medium"), msg("Hard")];
 
 export default async function mount(container, context) {
+  const { t } = context;
   const driver = currentDriver(await getProfiles(context));
   const setup = { ...driver.garage };
   const save = () => { driver.garage = { ...setup }; saveProfiles(context); };
   const transfer = el("input", {
     // The slider runs the other way from the setting: its two ends add up to TRANSFER_ENDS.
-    type: "range", min: 600, max: 2000, step: 100, value: TRANSFER_ENDS - setup.transferSetting, "aria-label": "Transfer gear",
+    type: "range", min: 600, max: 2000, step: 100, value: TRANSFER_ENDS - setup.transferSetting, "aria-label": t("Transfer gear"),
   });
   const summary = el("span", { class: "garage-summary" });
   const refreshSummary = () => { summary.textContent = garageSummary(setup); };
@@ -37,28 +41,28 @@ export default async function mount(container, context) {
   // transfer gear as a slider. Without the art the stage names each ring and section instead.
   const dotLabels = (centres, names) => centres.map(([x, y], i) => [names[i], [x + 16, y - 9, 80, 18]]);
   const ui = await frame(container, context, {
-    title: context.t("Garage"), backdrop: "GARAGE", current: "garage", regions: { summary: [328, 342, 104, 30] },
+    title: msg("Garage"), backdrop: "GARAGE", current: "garage", regions: { summary: [328, 342, 104, 30] },
     labels: [
-      ["Tire Cut", [330, 18, 120, 18]], ...dotLabels(TIRE_CUT_DOTS, ["Shallow", "Medium", "Deep"]),
-      ["Suspension", [400, 230, 120, 18]], ...dotLabels(SUSPENSION_DOTS, ["Soft", "Medium", "Hard"]),
-      ["Transfer Gear", [44, 326, 280, 16]],
+      [msg("Tire Cut"), [330, 18, 120, 18]], ...dotLabels(TIRE_CUT_DOTS, TIRE_CUTS),
+      [msg("Suspension"), [400, 230, 120, 18]], ...dotLabels(SUSPENSION_DOTS, SUSPENSIONS),
+      [msg("Transfer Gear"), [44, 326, 280, 16]],
     ],
   });
 
   const stage = ui.regions.summary.parentElement;
   ui.regions.summary.append(summary);
   const rings = [];
-  const dots = (centres, key, names) => centres.forEach(([x, y], index) => {
+  const dots = (centres, key, heading, names) => centres.forEach(([x, y], index) => {
     const ring = el("button", {
-      class: "garage-dot", title: `${names[index]} ${key}`, "aria-label": `${key}: ${names[index]}`,
+      class: "garage-dot", title: `${t(heading)}: ${t(names[index])}`, "aria-label": `${t(heading)}: ${t(names[index])}`,
       style: `left:${x - 13}px;top:${y - 13}px`,
       onclick: () => { setup[key] = index; refresh(); refreshSummary(); save(); },
     });
     rings.push({ ring, key, index });
     stage.append(ring);
   });
-  dots(TIRE_CUT_DOTS, "tireCut", ["Shallow", "Medium", "Deep"]);
-  dots(SUSPENSION_DOTS, "suspension", ["Soft", "Medium", "Hard"]);
+  dots(TIRE_CUT_DOTS, "tireCut", "Tire Cut", TIRE_CUTS);
+  dots(SUSPENSION_DOTS, "suspension", "Suspension", SUSPENSIONS);
   const refresh = () => rings.forEach(({ ring, key, index }) => ring.classList.toggle("on", setup[key] === index));
   refresh();
   const [x, y, width, height] = SLIDER_RECT;

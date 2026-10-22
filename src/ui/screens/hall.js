@@ -4,19 +4,21 @@ import { getHall } from "../../app/profile-store.js";
 import { TOURNAMENT_MODE, topFor, tournamentBoards } from "../../game/hall-of-fame.js";
 import { formatRaceTime, ordinal } from "../../game/race-setup.js";
 import { frame } from "../frame.js";
+import { msg } from "../../game/strings.js";
 
-const DIFFICULTIES = ["Rookie", "Intermediate", "Professional"];
+const DIFFICULTIES = [msg("Rookie"), msg("Intermediate"), msg("Professional")];
 
 export default async function mount(container, context) {
   // Loaded here, not at the top: the previews need three.js, which the pure parts of this file do not.
   const { createPreviewSlot } = await import("../truck-preview-slot.js");
+  const { t } = context;
   const hall = await getHall(context);
   const catalog = await context.assets.call("catalog");
   // The tournaments that were finished are listed after the tracks, each a board of points totals.
-  const tracks = [...catalog.tracks, ...tournamentBoards(hall).map(({ key, name }) => ({ file: key, name: `${name} (tournament)`, raceType: TOURNAMENT_MODE }))];
+  const tracks = [...catalog.tracks, ...tournamentBoards(hall).map(({ key, name }) => ({ file: key, name: `${name} (${t("tournament")})`, raceType: TOURNAMENT_MODE }))];
   let track = tracks.find((item) => item.file === context.settings.lastTrack) ?? tracks[0];
   const truckNames = new Map(catalog.trucks.map((item) => [item.file.toUpperCase(), item.name]));
-  const picker = el("select", { "aria-label": "Tracks", class: "hall-track" },
+  const picker = el("select", { "aria-label": t("Tracks"), class: "hall-track" },
     ...tracks.map((item) => el("option", { value: item.file, selected: item === track }, item.name)));
   const table = el("table", { class: "results hall-results" });
   const info = el("div", {}), stats = el("div", {});
@@ -42,13 +44,13 @@ export default async function mount(container, context) {
     const rows = track ? topFor(hall, track.file, track.raceType) : [];
     selected = Math.min(selected, Math.max(0, rows.length - 1));
     showSelected(rows);
-    const head = classic ? [] : [el("thead", {}, el("tr", {}, ...["Place", "Player", "Truck", "Skill Level", "Points", "Time"].map((label) => el("th", {}, label))))];
+    const head = classic ? [] : [el("thead", {}, el("tr", {}, ...[msg("Place"), msg("Player"), msg("Truck"), msg("Skill Level"), msg("Points"), msg("Time")].map((label) => el("th", {}, t(label)))))];
     table.replaceChildren(
       ...head, el("tbody", {}, ...rows.map((entry, index) => el("tr", {
         class: index === selected ? "selected" : null,
         onclick: () => { selected = index; show(classic); },
       },
-        el("td", {}, ordinal(index + 1)),
+        el("td", {}, t(ordinal(index + 1))),
         el("td", {}, entry.name),
         el("td", {}, truckName(entry)),
         el("td", {}, context.t(DIFFICULTIES[entry.difficulty] ?? "")),
@@ -64,8 +66,8 @@ export default async function mount(container, context) {
   });
 
   const ui = await frame(container, context, {
-    title: context.t("Hall Of Fame"), backdrop: "HALLFAME", bar: "hall",
-    labels: [["Tracks", [26, 404, 54, 20]]],
+    title: msg("Hall Of Fame"), backdrop: "HALLFAME", bar: "hall",
+    labels: [[msg("Tracks"), [26, 404, 54, 20]]],
     regions: {
       hallInfo: [62, 137, 160, 80], hallStats: [227, 137, 150, 80], hallPreview: [398, 75, 194, 146],
       table: [29, 264, 582, 124], tracks: [82, 401, 181, 25],
@@ -79,10 +81,10 @@ export default async function mount(container, context) {
     ui.regions.table.append(table);
     ui.regions.tracks.append(picker);
   } else {
-    ui.regions.table.append(el("label", {}, "Tracks ", picker), table,
+    ui.regions.table.append(el("label", {}, `${t("Tracks")} `, picker), table,
       el("div", { class: "screen-actions" }, el("button", {
         class: "primary", "data-menu-sound": "STARTOFF", onclick: () => context.router.back(),
-      }, "Back")));
+      }, t("Back"))));
   }
   return { unmount() { slot.dispose(); ui.unmount?.(); } };
 }

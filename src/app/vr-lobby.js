@@ -48,10 +48,11 @@ export function raceFromBoard(context) {
   return goRace(context).catch((error) => {
     console.error("The race did not start:", error);
     const toLobby = () => context.xr.setBoard(null);
+    const { t } = context;
     context.xr.setBoard(createMenu({
-      title: "The race did not start",
+      title: t("The race did not start"),
       lines: [String(error?.message ?? error).slice(0, 70)],
-      items: [{ label: "Back", action: toLobby }, { label: "Leave VR", action: () => context.xr.exit() }],
+      items: [{ label: t("Back"), action: toLobby }, { label: t("Leave VR"), action: () => context.xr.exit() }],
       back: toLobby,
     }));
     return context.router.go("start", {}, { replace: true }).catch(() => {});

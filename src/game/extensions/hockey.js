@@ -9,6 +9,8 @@
   draws the boards and tints the goals. Positions are game feet; the rink's own frame is `a` along
   the line from the red goal to the blue one and `b` across it. Pure, so it runs under Node.
 */
+import { byVehicle, fromVehicles, localIndex, vehicleIndex } from "./net-wire.js";
+import { msg } from "../strings.js";
 
 export const HOCKEY_TRACK = "ROCKQRY.SIT";
 /** Whether `track` (a catalogue entry) can host Hockey: MTM2's own Breakneck Ridge. */
@@ -21,7 +23,7 @@ export const HOCKEY_WEATHER = 5;
 export const DEFAULT_GOALS = 3;
 export const PUCK_MODEL = "HPUCK.BIN";
 export const GOAL_MODEL = "HPOST3.BIN";
-export const TEAM_NAMES = Object.freeze(["Red", "Blue"]);
+export const TEAM_NAMES = Object.freeze([msg("Red"), msg("Blue")]);
 /** The teams' colours, for the labels over the trucks and the goal frames. */
 export const TEAM_COLOURS = Object.freeze(["#ff4436", "#3f8cff"]);
 /** Frozen water (ground type 8) and what the trucks take it as on the rink: gravel (type 7). */
@@ -43,11 +45,11 @@ export const ESCAPE_FT = 4, ESCAPE_S = 2;
  */
 export const HOCKEY_EXTENSION = Object.freeze({
   id: "hockey",
-  name: "Hockey",
-  description: "Two teams play for goals on Breakneck Ridge's frozen lake.",
-  length: Object.freeze({ key: "goals", label: "Goals", default: DEFAULT_GOALS, min: 1, max: 99 }),
+  name: msg("Hockey"),
+  description: msg("Two teams play for goals on Breakneck Ridge's frozen lake."),
+  length: Object.freeze({ key: "goals", label: msg("Goals"), default: DEFAULT_GOALS, min: 1, max: 99 }),
   settings: Object.freeze([
-    Object.freeze({ key: "goals", legacyKey: "hockeyGoals", label: "Goals to win", type: "number", min: 1, max: 99, default: DEFAULT_GOALS }),
+    Object.freeze({ key: "goals", legacyKey: "hockeyGoals", label: msg("Goals to win"), type: "number", min: 1, max: 99, default: DEFAULT_GOALS }),
   ]),
   acceptsTrack: isHockeyTrack,
   trackLocked: true,
@@ -420,5 +422,30 @@ export function rinkGround(ground) {
       const value = ground.surface(x, y, z);
       return value === FROZEN_SURFACE ? RINK_SURFACE : value;
     },
+  };
+}
+
+// ---- Over the network (docs/EXTENSIONS.md) ----
+
+/** Hockey's state as the room owner's machine sends it, the puck's pose included; truck indexes as vehicle numbers. */
+export function hockeyToWire(s, vehicleOf) {
+  const v = (i) => vehicleIndex(i, vehicleOf);
+  const e = s.event;
+  return {
+    teams: byVehicle(s.teams, vehicleOf), goals: byVehicle(s.goals, vehicleOf), score: [...s.score], phase: s.phase, timer: s.timer,
+    lastTouch: v(s.lastTouch), events: s.events, resets: s.resets, over: !!s.over, puck: s.puck,
+    event: e ? (e.kind === "goal" ? { ...e, scorer: v(e.scorer), own: v(e.own) } : { ...e }) : null,
+  };
+}
+
+/** The owner's Hockey state in this machine's truck order (`count` trucks). */
+export function hockeyFromWire(d, localOf, count) {
+  const i = (vehicle) => localIndex(vehicle, localOf);
+  const e = d.event;
+  return {
+    teams: fromVehicles(d.teams, localOf, count, 0), goals: fromVehicles(d.goals, localOf, count, 0), score: [d.score?.[0] | 0, d.score?.[1] | 0],
+    phase: String(d.phase ?? "play"), timer: Number(d.timer) || 0, lastTouch: i(d.lastTouch), events: d.events | 0, resets: d.resets | 0,
+    over: !!d.over, puck: d.puck ?? null,
+    event: e ? (e.kind === "goal" ? { ...e, scorer: i(e.scorer), own: i(e.own) } : { ...e }) : null,
   };
 }

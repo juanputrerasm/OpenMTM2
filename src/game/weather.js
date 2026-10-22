@@ -6,8 +6,10 @@
   port's approximation of what the software renderer's fog tables did. Pure, so it runs under
   Node.
 */
+import { msg } from "./strings.js";
+
 export const WEATHER_NAMES = Object.freeze([
-  "Clear", "Cloudy", "Foggy", "Dense Fog", "Rain", "Snow", "Dusk", "Night", "Pitch Black",
+  msg("Clear"), msg("Cloudy"), msg("Foggy"), msg("Dense Fog"), msg("Rain"), msg("Snow"), msg("Dusk"), msg("Night"), msg("Pitch Black"),
 ]);
 export const WEATHER_COUNT = WEATHER_NAMES.length;
 

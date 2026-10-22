@@ -8,10 +8,12 @@
     Tab          completes the command's name, or its argument where the command offers a list
 
   A command is `{ usage, help, run(args, line), complete?(prefix) }`: `run` gets the words after the
-  name and may return (or resolve to) a line of text to print; an error it throws is printed.
+  name and may return (or resolve to) a line of text to print; an error it throws is printed. The names
+  and their arguments stay English; `help` is a tag (game/strings.js), shown through `t`.
   While the console is open its keys do not reach the game.
 */
 import { el } from "./dom.js";
+import { createStrings, msg } from "../game/strings.js";
 
 const HISTORY_MAX = 50;
 /**
@@ -24,12 +26,12 @@ export const CONSOLE_KEYS = Object.freeze(["Backquote", "IntlBackslash"]);
 /**
  * @param {{ parent: HTMLElement, window: Window, commands: Record<string, { usage?: string, help: string,
  *   run: (args: string[], line: string) => unknown, complete?: (prefix: string) => string[] | Promise<string[]> }>,
- *   history?: string[], banner?: () => string }} options `history` is kept by the caller between races; `banner` is
- *   printed the first time the console opens
+ *   history?: string[], banner?: () => string, t?: (tag: string, ...args: unknown[]) => string }} options `history` is
+ *   kept by the caller between races; `banner` is printed the first time the console opens; `t` the message table
  */
-export function createConsole({ parent, window: win, commands, history = [], banner = null }) {
+export function createConsole({ parent, window: win, commands, history = [], banner = null, t = createStrings() }) {
   const log = el("div", { class: "game-console-log" });
-  const input = el("input", { class: "game-console-input", type: "text", spellcheck: "false", autocomplete: "off", "aria-label": "Console" });
+  const input = el("input", { class: "game-console-input", type: "text", spellcheck: "false", autocomplete: "off", "aria-label": t("Console") });
   const panel = el("div", { class: "game-console", hidden: true }, log, el("div", { class: "game-console-line" }, el("span", {}, "]"), input));
   parent.append(panel);
   let at = history.length;
@@ -41,10 +43,10 @@ export function createConsole({ parent, window: win, commands, history = [], ban
   };
   const names = () => Object.keys(commands).sort();
   commands.help ??= {
-    help: "lists the commands",
-    run: () => names().map((name) => `${(commands[name].usage ?? name).padEnd(22)} ${commands[name].help}`).join("\n"),
+    help: msg("lists the commands"),
+    run: () => names().map((name) => `${(commands[name].usage ?? name).padEnd(22)} ${t(commands[name].help)}`).join("\n"),
   };
-  commands.clear ??= { help: "empties the console", run: () => { log.replaceChildren(); } };
+  commands.clear ??= { help: msg("empties the console"), run: () => { log.replaceChildren(); } };
 
   async function run(line) {
     const text = line.trim();
@@ -55,7 +57,7 @@ export function createConsole({ parent, window: win, commands, history = [], ban
     at = history.length;
     const [name, ...args] = text.split(/\s+/);
     const command = commands[name.toLowerCase()];
-    if (!command) { print(`Unknown command "${name}". Type help.`, "game-console-error"); return; }
+    if (!command) { print(t("Unknown command \"<<1>>\". Type help.", name), "game-console-error"); return; }
     try {
       const said = await command.run(args, text.slice(name.length).trim());
       if (said !== undefined && said !== null && said !== "") print(said);
@@ -98,7 +100,7 @@ export function createConsole({ parent, window: win, commands, history = [], ban
   let greeted = false;
   const setOpen = (open) => {
     panel.hidden = !open;
-    if (open && !greeted) { greeted = true; print(banner ? banner() : "Type help for commands"); }
+    if (open && !greeted) { greeted = true; print(banner ? banner() : t("Type help for commands")); }
     if (open) { input.value = ""; input.focus(); log.scrollTop = log.scrollHeight; } else input.blur();
   };
   // In the capture phase, so the key works whether or not the input has the focus, and is never typed.
@@ -130,14 +132,15 @@ export function createConsole({ parent, window: win, commands, history = [], ban
  */
 export function distanceCommand(context, save = null) {
   return {
-    usage: "distance <16-256>", help: "how far the world is drawn, in terrain cells of 32 ft (128 is the standard)",
+    usage: "distance <16-256>", help: msg("how far the world is drawn, in terrain cells of 32 ft (128 is the standard)"),
     run: async ([word]) => {
+      const t = context.t ?? createStrings();
       const now = Math.max(16, Math.min(256, context.settings.drawCells ?? 128));
       const cells = Math.trunc(Number(word));
-      if (!word || !Number.isFinite(cells)) return `Usage: distance <16-256>. Now ${now} cells (${now * 32} ft).`;
+      if (!word || !Number.isFinite(cells)) return t("Usage: <<1>>. Now <<2>> cells (<<3>> ft).", "distance <16-256>", now, now * 32);
       context.settings.drawCells = Math.max(16, Math.min(256, cells));
       (save ?? (await import("../app/settings.js")).saveSettings)(context.settings);
-      return `Draw distance: ${context.settings.drawCells} cells (${context.settings.drawCells * 32} ft).`;
+      return t("Draw distance: <<1>> cells (<<2>> ft).", context.settings.drawCells, context.settings.drawCells * 32);
     },
   };
 }

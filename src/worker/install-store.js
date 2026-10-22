@@ -70,7 +70,7 @@ export async function removeInstall() {
 
 /**
  * Copy the archives into OPFS, replacing any previous install.
- * @param {{ files: { name: string, file: File | { url: string, size: number } }[], podIni: string }} request
+ * @param {{ files: { name: string, file: Blob | { url: string, size: number } }[], podIni: string, edition?: "full" | "trial" }} request
  * @param {(progress: { copied: number, total: number, name: string }) => void} onProgress
  */
 /** The WeatherArt folder's pictures (install/inspect-source.js `findWeatherArt`), copied afresh to `install/WEATHERART`. */
@@ -79,7 +79,7 @@ async function copyWeatherArt(weatherArt = []) {
   for (const { name, file } of weatherArt) await copyFile(file, `${INSTALL_DIR}/WEATHERART/${name.toUpperCase()}`, () => {});
 }
 
-export async function copyInstall({ files, podIni, exeVersion = null, weatherArt = [] }, onProgress) {
+export async function copyInstall({ files, podIni, exeVersion = null, weatherArt = [], edition = "full" }, onProgress) {
   await removeInstall();
   const total = files.reduce((sum, f) => sum + f.file.size, 0);
   let copied = 0;
@@ -96,6 +96,8 @@ export async function copyInstall({ files, podIni, exeVersion = null, weatherArt
     archives: files.map(({ name, file }) => ({ name, size: file.size, modified: file.lastModified ?? null })),
     weatherArt: weatherArt.map(({ name }) => name.toUpperCase()),
     exeVersion,
+    // "trial" for the MTM2 trial (install/required-pods.js `isTrialPodSet`), else "full".
+    edition,
     installedAt: new Date().toISOString(),
   };
   await writeBytesToFile(MANIFEST, new TextEncoder().encode(JSON.stringify(manifest, null, 2)));
@@ -109,7 +111,7 @@ export async function copyInstall({ files, podIni, exeVersion = null, weatherArt
  * date (Reload POD.INI: a POD rebuilt with the same name, size and date is still read afresh).
  * Returns the manifest with `added`, `removed` and `kept` archive names.
  */
-export async function syncInstall({ files, podIni, exeVersion = null, weatherArt = [], force = false }, onProgress) {
+export async function syncInstall({ files, podIni, exeVersion = null, weatherArt = [], force = false, edition = "full" }, onProgress) {
   const old = await readManifest();
   const before = new Map((old?.archives ?? []).map((a) => [a.name, a]));
   const wanted = new Set(files.map((f) => f.name));
@@ -137,6 +139,8 @@ export async function syncInstall({ files, podIni, exeVersion = null, weatherArt
     archives: files.map(({ name, file }) => ({ name, size: file.size, modified: file.lastModified ?? null })),
     weatherArt: weatherArt.map(({ name }) => name.toUpperCase()),
     exeVersion,
+    // "trial" for the MTM2 trial (install/required-pods.js `isTrialPodSet`), else "full".
+    edition,
     installedAt: new Date().toISOString(),
   };
   await writeBytesToFile(MANIFEST, new TextEncoder().encode(JSON.stringify(manifest, null, 2)));
@@ -207,7 +211,7 @@ export async function installMounts(manifest) {
     const file = await readFile(`${INSTALL_DIR}/${name}`);
     const archive = await indexPodFile(file);
     return {
-      key: `install:${name}`, name, archive, readEntry: (entry) => readPodEntryBytes(file, entry),
+      key: `install:${name}`, name, archive, readEntry: (entry) => readPodEntryBytes(file, entry), blob: () => file,
       family: "MTM", game: "MTM2", source: "Base MTM2 install", size: sizes.get(name), removable: !isRequiredPod(name), install: true,
     };
   }));

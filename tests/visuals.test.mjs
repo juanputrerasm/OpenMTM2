@@ -24,7 +24,7 @@ test("every part of the scenery has a switch, off by default, that Options shows
   assert.deepEqual(visualSettings(on), Object.fromEntries(VISUAL_PARTS.map((part) => [part, true])));
   // Custom is the only list of switches in Display's Enhanced graphics section, and it is this same list.
   const panel = readFileSync(new URL("../src/ui/options-panel.js", import.meta.url), "utf8");
-  assert.match(panel, /el\("h3", \{\}, "Enhanced graphics"\)/);
+  assert.match(panel, /el\("h3", \{\}, t\("Enhanced graphics"\)\)/);
   // A part with an amount (Volumetric weather) shows a slider in place of its switch.
   assert.match(panel, /choice === "custom"[\s\S]*VISUAL_OPTIONS\.map\(\(option\) => \(option\.amountKey \? slider\([\s\S]*?: toggle\(option\.label, option\.key, option\.hint\)\)\)/);
   assert.deepEqual(VISUAL_OPTIONS.filter((option) => option.amountKey).map((option) => option.key), ["volumetricWeather"]);

@@ -13,6 +13,7 @@
   to 22%, the 3% cap, the 5% foul rate and its 4 to 7% range, the choker's 2.5 and 3.5). The
   personalities' own values, the reaction times and the shape of the cap are the port's.
 */
+import { createStrings, msg } from "../strings.js";
 
 /** The field an event takes. */
 export const MIN_FIELD = 2;
@@ -94,10 +95,10 @@ export function createDragEvent({ strip, field }) {
   };
 }
 
-/** A round's name: the Final, the Semi-final, then the Round of 8 and of 16. */
-export function roundName(event, round) {
+/** A round's name: the Final, the Semi-final, then the Round of 8 and of 16; `t` translates it (game/strings.js). */
+export function roundName(event, round, t = createStrings()) {
   const left = event.bracket.length - round;
-  return left === 1 ? "Final" : left === 2 ? "Semi-final" : `Round of ${2 ** left}`;
+  return left === 1 ? t(msg("Final")) : left === 2 ? t(msg("Semi-final")) : t(msg("Round of <<1>>"), 2 ** left);
 }
 
 /** A driver's risk in a round: a choker's grows in the semi-final and the final. */

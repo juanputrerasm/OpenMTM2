@@ -6,29 +6,30 @@
   the latter two its own way (see `blimpCamera`, `raceCamera`).
 */
 import { terrainHeightAt } from "../vendor/openphotex/sim/mtm2/world/terrain.js";
+import { msg } from "./strings.js";
 
 const TURN = 65536;
 const ANGLE = (units) => (units / TURN) * Math.PI * 2;
 
 /** Modes in the order the View key steps through them. `dist`, `pitch`, `offset`, `zoom` are the exe's raw values. */
 export const CAMERA_MODES = Object.freeze([
-  { id: 0, name: "Cockpit" },
-  { id: 1, name: "Chase Near", dist: 0x1555, pitch: 0x800, offset: 0, zoom: 0xc000 },
-  { id: 2, name: "Chase Far", dist: 0x2aaa, pitch: 0x800, offset: 0, zoom: 0x10000 },
-  { id: 3, name: "BlimpCam" },
-  { id: 4, name: "RaceCam" },
-  { id: 5, name: "Chase Front", dist: 0x1555, pitch: 0x800, offset: 0x8000, zoom: 0xc000 },
-  { id: 6, name: "Chase Left", dist: 0x1555, pitch: 0x800, offset: 0x4000, zoom: 0xc000 },
-  { id: 7, name: "Chase Right", dist: 0x1555, pitch: 0x800, offset: 0xc000, zoom: 0xc000 },
-  { id: 8, name: "Chase Big Rear", dist: 0x1555, pitch: 0xa00, offset: 0, zoom: 0x6000 },
-  { id: 9, name: "Chase Big Front", dist: 0x1555, pitch: 0x800, offset: 0x8000, zoom: 0x6000 },
+  { id: 0, name: msg("Cockpit") },
+  { id: 1, name: msg("Chase Near"), dist: 0x1555, pitch: 0x800, offset: 0, zoom: 0xc000 },
+  { id: 2, name: msg("Chase Far"), dist: 0x2aaa, pitch: 0x800, offset: 0, zoom: 0x10000 },
+  { id: 3, name: msg("BlimpCam") },
+  { id: 4, name: msg("RaceCam") },
+  { id: 5, name: msg("Chase Front"), dist: 0x1555, pitch: 0x800, offset: 0x8000, zoom: 0xc000 },
+  { id: 6, name: msg("Chase Left"), dist: 0x1555, pitch: 0x800, offset: 0x4000, zoom: 0xc000 },
+  { id: 7, name: msg("Chase Right"), dist: 0x1555, pitch: 0x800, offset: 0xc000, zoom: 0xc000 },
+  { id: 8, name: msg("Chase Big Rear"), dist: 0x1555, pitch: 0xa00, offset: 0, zoom: 0x6000 },
+  { id: 9, name: msg("Chase Big Front"), dist: 0x1555, pitch: 0x800, offset: 0x8000, zoom: 0x6000 },
 ]);
 
 /**
  * The Inertia view (not the game's; the Z-mode cameras option adds it after the ten): a chase camera from behind whose
  * distance follows the speed, Chase Near's when slow, Chase Far's at speed and half as far again flat out.
  */
-export const INERTIA_MODE = Object.freeze({ id: 10, name: "Inertia", dist: 0x1555, pitch: 0x800, offset: 0, zoom: 0xc000, inertia: true });
+export const INERTIA_MODE = Object.freeze({ id: 10, name: msg("Inertia"), dist: 0x1555, pitch: 0x800, offset: 0, zoom: 0xc000, inertia: true });
 /**
  * Feet per second at which the Inertia view sits at Chase Near, at Chase Far, and at its farthest (1.5 x Chase Far):
  * out by about 31 mph, and all the way out by about 55 mph.

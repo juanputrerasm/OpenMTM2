@@ -1377,7 +1377,7 @@ with its own `.ACT`) and `STARTUP.POD` (the cones' `*FUZZ.RAW`, 256 x 256 noise)
 `0x579f10` calls `0x57a080` per lamp for every truck, every frame. The truck's **lamp switch** (`+0x1170`)
 starts at 2 when the weather's lamp flag (`0x657878 + 4`: Dusk, Night, Pitch Black) is set, else 0. The
 **Headlights key** (default L, scan code 38; not with Ctrl held) sets it to 2, or to 0 when it was not 0,
-for the player's truck and sends packet 0x20 (code 0x1f) in a network game. A lamp's brightness `b`
+for the player's truck and sends packet 0x1f in a network game. A lamp's brightness `b`
 by type, with "cockpit" the viewer sitting in this truck in the cockpit view (`viewCockpit` 2, head
 not turned):
 
@@ -1672,48 +1672,299 @@ flare is drawn along the screen axis through the sun; it hides when the rays are
 
 ## 14. Networking
 
-DirectPlay (`DPLAYX.DLL`, imported by ordinal: DirectPlayCreate, DirectPlayEnumerate,
-DirectPlayLobbyCreate), up to 8 players, sessions named `<<1>>'s Truckin' Game`, with an
-"AutoConnect test session" for development and the MSN Gaming Zone button. Team play exists
-("Team Play is Active", `JTeamBtn`).
+Traced in retail 2.00.42 (`MONSTER.EXE`, SHA-1 `f4fbce51d5ab14699ad2df4c0f45d994907b6d23`, the same
+file as the patched retail `MONSTER.EXE.old.EXE`). Ghidra's decompile misses much of `network.cpp`
+(0x4584a0 to 0x45ab00); that part was read from the disassembly. **H** marks a hypothesis.
 
-Lobby: player list with name, skill level, truck, latency and status (Normal, Racing!, Ready,
-Start Screen, Driver Check-in, Race Screen, Garage, Multiplayer Screen, Hall Of Fame, Viewing
-Results, Instant Replay); host changes track; missing-track checks ("You do not have this
-track!!!"); the patch adds version and track-checksum warnings. Chat with private messages.
+### 14.1 DirectPlay calls
 
-**Each machine simulates and owns its own truck** and broadcasts its state every frame. All
-packets share a header `{u32 size, u32 0, u32 flags, u8 type, ...}`:
+`DPLAYX.DLL` is imported by ordinal: 1 DirectPlayCreate, 2 DirectPlayEnumerateA, 4
+DirectPlayLobbyCreateA. No CoCreateInstance.
 
-| Type | Sender | Meaning |
+- `0x4597e0` calls `DirectPlayCreate(&spGuid, ...)` and asks the object for **IID_IDirectPlay2A**
+  (`9D460580-A822-11CF-960C-0080C7534E82`), kept at `0x646d70`. The game is ANSI DirectPlay 2
+  throughout. The lobby object (IDirectPlayLobbyA) is at `0x646d74`.
+- **Application GUID** (at `0x6499f0`): `{6CD1C6E0-96FB-11D1-A268-00A024F2C995}`, bytes in wire order
+  `e0 c6 d1 6c fb 96 d1 11 a2 68 00 a0 24 f2 c9 95`. guidInstance is always GUID_NULL.
+- **Service providers:** `0x459500` lists whatever `DirectPlayEnumerateA` reports; nothing is hard
+  coded. The GUID table at `0x60c1c8` holds the DirectPlay IIDs, the address data types and the TCP/IP
+  (`36E95EE0-8577-11CF-960C-0080C7534E82`) and modem SP GUIDs.
+- **Send rate:** after DirectPlayCreate, net `+0x28` is **4 when the SP is TCP/IP, else 8**. The state
+  is sent every `0x10000 / rate` (16.16 seconds): **4 Hz on TCP/IP**, 8 Hz on IPX, modem and serial.
+- **No IP address in the normal path.** EnumSessions and Open get no address; DirectPlay's own TCP/IP
+  dialog asks for it. The retail exe has no `/h` or `/j` switches (open question 5 is about a later
+  build). The lobby-launched path (`0x458360`, used by the Zone) and a developer "Lobby test session"
+  (`0x458510`, the only `CreateAddress(DPAID_INet, ip)`) and "AutoConnect test session" (`0x459ff0`)
+  are leftovers.
+
+**Sessions** (DPSESSIONDESC2 at session `+0x14`):
+
+| Call | Address | Facts |
 |---|---|---|
-| 0x02 | 0x58dff0, every frame | truck state (below) |
-| 0x06, 0x0d | 0x4dc00e | Remote Ridicule, chat |
-| 0x0b | 0x4dc230 | checkpoint split: vehicle, checkpoint, time |
-| 0x17 | 0x58e8b0 | sync ("Waiting for other players") |
-| 0x19 | 0x4dc2f0 | race start |
-| 0x1b | 0x511ff0 | lobby |
-| 0x1d, 0x1e | 0x429490, 0x429350, 0x41e030 | horn, YeeHaw and engine start sounds |
-| 0x1f | 0x585200, every frame | |
-| 0x20 | 0x532900 | crash damage |
-| 0x80 | 0x4ce2e0, 0x515790 | lobby control |
+| Create | `0x459970` | dwSize 0x50; dwFlags **0x46** (KEEPALIVE 0x40, MIGRATEHOST 0x4, and the undocumented 0x2), 0x42 when migrate-host (net `+0x15`, default on) is off; dwMaxPlayers from "No. of Players (2-8)", default 8; name default RC 11000 `<<1>>'s Truckin' Game`; empty password; **dwUser1 to 4 = 0**; `Open(desc, DPOPEN_CREATE)` |
+| Enumerate | `0x459550` | desc with only dwSize and the application GUID; timeout **1000 ms**; `DPENUMSESSIONS_AVAILABLE`; the callback keeps the name and dwMaxPlayers |
+| Join | `0x459890` | `Open(desc, DPOPEN_JOIN)` |
+| Close | `0x459ba0` | Close and Release both interfaces |
 
-**Truck state, type 0x02, 73 bytes:**
+After a successful open, net `+0x10` is 0 on the host and 1 on a client. SetSessionDesc, groups,
+SetPlayerData, SendChatMessage and SecureOpen are never used.
 
-| Field | Encoding |
+**Players:** `0x459c90` calls `CreatePlayer` with a DPNAME whose short and long names are both the
+driver name, and **no player data**. One player per machine. Team play is done with game packets, not
+DirectPlay groups.
+
+**Send** (`0x45a540`): `Send(idFrom = own DPID, idTo, flags, wire, size)`. idTo is a player's DPID or
+**0 (all players)**, which is what almost every call uses. Flags are **DPSEND_GUARANTEED (1)** for the
+packets marked G below, else **0x4** (not in the DX5/6 headers; **H**: the old "try once", i.e. not
+guaranteed). Over TCP/IP, guaranteed means TCP and the rest UDP.
+
+**Receive** (`0x45a5c0`, polled by `0x455b00`): GetMessageCount, then
+`Receive(&from, &to, DPRECEIVE_TOPLAYER, ...)` with a growing buffer. Messages from the own DPID are
+dropped. The sending player is found from the **DPID inside the packet** (wire `+8`), not from
+DirectPlay's idFrom. System messages handled:
+
+| DPSYS | Code | Action |
+|---|---|---|
+| CREATEPLAYERORGROUP | 0x3 | players only: new remote player from the DPID and the **long** name |
+| DESTROYPLAYERORGROUP | 0x5 | removes the player |
+| SESSIONLOST | 0x31 | Close |
+| HOST | 0x101 | the new host broadcasts 0x88 (`0x456580`) |
+
+Every other system message (player data, chat, group membership) is ignored.
+
+### 14.2 Packet format
+
+Little-endian, IEEE floats, ANSI NUL-terminated strings, packed. Barrier codes are C multi-character
+constants (`'sync'` = 0x73796e63, `'rslt'` = 0x72736c74) sent as u32. In memory a packet has a 12-byte
+local prefix `{u32 size, u32 sender object, u32 allocation flags}` that is **never sent**. The wire
+form starts with a 12-byte header:
+
+| Offset | Field |
 |---|---|
-| `ipos` | 3 floats |
-| `bvel` | 3 floats |
-| `theta, phi, psi` | each quantised to a byte, 256 per turn (x 40.7437), sent widened to float |
-| throttle | byte, x255 |
-| rear brake | byte, x255 |
-| steering | byte, x 256 / 2pi |
-| gear | byte |
-| autoShift | byte |
-| vehicle number | byte |
-| Summit score | float, mode 4 only |
+| +0 | u8 type |
+| +1 | 3 bytes padding (not initialised) |
+| +4 | u32 0 (never checked) |
+| +8 | u32 sender DPID |
 
-The **instant replay is disabled** when more than one networked player is in the race.
+The payload starts at +0xC. Sizes below are wire sizes. G = guaranteed; everything else is not.
+"All" = to all players.
+
+**Game packets** (factory `0x4d7d50`, dispatch `0x4d8c60`):
+
+| Type | Size | Payload (offsets from wire start) | Sent | Received |
+|---|---|---|---|---|
+| 0x01 | 16 | +C u8 ready | (no sender found) | ready flag |
+| 0x02 | 61 | truck state, table below | `0x58dff0` from `0x58e1f0`, 4 or 8 Hz, all; the host also sends the computer trucks' | `0x58e590`, into slot[vehicle] |
+| 0x03 | 92 | +20 char[20] truck name; +34 s16 (default 1, **H**); +36 s16 (default 0, **H**); +38 u8 status; +3A **u16 version 0x0201**; +3C u32 location; +40 u32 skill (0 Rookie, 1 Intermediate, 2 Professional); +44 5 x u32 (defaults 1, 1, 600, 1, 0; **H**: truck setup); +58 u32 team | `0x4cc298`, to each new remote player, G | version lower, higher or different than 0x201 gives a warning |
+| 0x06 | 16 | +C u32 n | Remote Ridicule, all | plays `tri<n>.wav`, "Remote Ridicule from <<1>>" |
+| 0x0b | 24 | +C u32 truck, +10 u32 checkpoint, +14 f32 split time | `0x4dc230` from the checkpoint code: own truck, and the host's computer trucks; all | `0x58e670` |
+| 0x0d | 56 | +C char[44] quick message | all | `<<1>> says "<<2>>"` |
+| 0x0e | 16 | +C u32 race exit code (9 = cancelled) | host at race exit; a new host in the lobby (9) | race: ends it; lobby: clears ready flags |
+| 0x0f | 32 | +C char[20] truck name | all | truck column |
+| 0x10 | 16 | +C u32 skill | all | Level column |
+| 0x11 | 16 | +C u32 location (screen) | G | Status column |
+| 0x12 | 112 | +C char[20] SIT file; +20 char[80] track name | host, on a change and to joiners, G | track check, then 0x1a or 0x25 |
+| 0x13 | 16 | +C u8 ready | all | ready flag |
+| 0x14 | 36 | +C char[20] SIT; +20 s16 laps or minutes; +22 s16 weather (Random already resolved) | host Start, G | load the race |
+| 0x15 | 16 | +C u32 barrier FourCC | barrier `0x4dbc40`, every 1 s, G | player's last barrier code |
+| 0x16 | 16 | +C s16 laps | host, G to joiners | laps |
+| 0x17 | 120 | +C 9 x {f32 x, y, z}: start position per truck index | host only, once after the `sync` barrier, all | `0x58e5e0` sets every truck's position |
+| 0x18 | 32 | +C u32 `rslt`; +10 u32 laps led; +14 u32 laps; +18 f32 total time; +1C f32 best lap or Summit score | `rslt` barrier, G | results table |
+| 0x19 | 16 | +C u32 0 | `0x4dc2f0`, when the local countdown passes 3.0 s, all | when this race has not started: start now (gear 4, race clock 3.0) |
+| 0x1a | 92 | +C char[80] track name | client to host | "<<1>> does not have the track" |
+| 0x1b | 16 | +C s32 weather (-1 Random) | host, G to joiners | weather |
+| 0x1c | 12 | none | a player leaving the race | that truck goes to autopilot |
+| 0x1d | 16 | +C s32 truck (-1 in the lobby) | horn | 3D horn, or `horn1.wav` in the lobby |
+| 0x1e | 16 | +C s32 truck (-1 in the lobby) | YeeHaw | 3D YeeHaw, or `yeehaw.wav` |
+| 0x1f | 20 | +C u32 vehicle, +10 u32 lamp switch (0 or 2) | `0x585200`, on the Headlights key | the truck's lamp switch |
+| 0x20 | 20 | +C u32 vehicle, +10 u32 damage code (12 zones x 2 bits) | `0x532900`, when the code changed | the truck's damage, visuals refreshed |
+| 0x21 | 16 | +C u8 team play | G | "Team Play is Active/Inactive" |
+| 0x22 | 48 | +C char[32] team name, +2C u32 team | | new team |
+| 0x23 | 16 | +C u32 team | G | "<<1>> has joined <<2>>" |
+| 0x24 | 12 | none | host kick or cancel, G | the receiver closes |
+| 0x25 | 116 | +C char[20] SIT; +20 char[80] name; +70 u32 CRC | host to joiners, client after a track change | "different version of <<2>>" |
+| 0x80 | 96 | +C u8 flag (**H**); +D u8 private; +E char[82] text | lobby chat, all or one player (private); the reply dialog sends G | "Private from ..." or "<<1>>: ..."; 20-line in-race buffer |
+
+**Truck state, type 0x02** (61 bytes):
+
+| Offset | Field | Encoding |
+|---|---|---|
+| +0C | ipos | 3 x f32 (truck `+0xfe0`) |
+| +18 | bvel | 3 x f32 (`+0xff8`) |
+| +24, +28, +2C | theta, phi, psi | f32 holding a whole byte value, angle x 256 / 2pi mod 256 |
+| +30 | steering | f32, same coding (`+0x298`) |
+| +34 | throttle | u8, x 255 |
+| +35 | rear brake | u8, x 255 |
+| +36 | gear | u8 |
+| +37 | autoShift | u8 |
+| +38 | vehicle number | u8 |
+| +39 | Summit score | f32 (mode 4 only; other modes send whatever is there) |
+
+**Net-layer packets** (dispatch `0x456740`, none guaranteed):
+
+| Type | Size | Payload | Meaning |
+|---|---|---|---|
+| 0x81 | 96 | char[80] name, u32 DPID | add a player to the list (any player, people included) |
+| 0x82 | 100 | the same plus u8 (1) | add it if unknown, and put it in the active list |
+| 0x83 | 16 | u32 DPID | remove player |
+| 0x84 | 16 | u32 time in 1.179648 MHz ticks (`timeGetTime x 1179.648`) | ping |
+| 0x85 | 16 | the echoed time | reply; RTT in ms = delta x 1000 / 0x120000 |
+| 0x86 | 96 | u32 DPID, char[80] | rename |
+| 0x87 | 20 | u32 DPID, u16 slot | grid slot |
+| 0x88 | 16 | u32 new host DPID | host change |
+| 0x89 | 20 + n | u8, u8 compression, u32 chunk, u16 samples, ACM data | voice radio |
+| 0x8a | 16 | 3 x u8 | player list closed or opened |
+
+**The host's player list** (`0x456008`; the same code in CP3 at `0x1400c3060`): when the host adds a
+player to its list, it sends 0x81 about that player to everyone. To the newcomer it then sends 0x81
+for each player already listed, 0x82 (flag 1) for each player in the active list, and 0x88 naming
+the host. A receiver (CP3 `0x1400c5980`) creates a player it does not know on 0x81, as it does for
+DirectPlay's create-player message. On 0x82 it does the same if needed, then moves the player into
+the active list. Over DirectPlay these repeat what DirectPlay reports. Over CP3's direct connect
+(14.5) they are how clients learn the other players at all.
+
+**Track checksum** (`0x569e50`): CRC-32/MPEG-2 (polynomial 0x04C11DB7, MSB first, initial
+0xFFFFFFFF, no final XOR) over the **whole POD** holding `WORLD\<SIT>`, -1 when none does, cached per
+POD.
+
+### 14.3 Lobby
+
+The Multiplayer Screen (dialog 7306, backdrop `NETWORK.BMP`) lists the players with the columns
+Player, Level, Truck Name, Latency and Status (RC 1220 to 1224), a chat pane, a chat entry with a
+target list (Everyone, or one player for a private message), and the Ready, Not Ready, Disconnect,
+Send, Team and End Game buttons. The connect dialogs are Connect (3008: Host, Join), Host a Network
+Game (7002: session name, protocol) and Join a Network Game (7001: protocol, session list, Auto
+Select). INI keys `networkChatFlag` and `latencyDisplay`.
+
+- **A player joins:** DirectPlay reports the new player. Every machine sends it 0x03 (G). The host
+  also sends 0x12 track, 0x16 laps, 0x1b weather, 0x21 team play (all G) and 0x25 checksum. A joiner
+  without the track answers 0x1a.
+- **In the lobby:** 0x0f truck, 0x10 skill, 0x11 location and 0x13 ready. The player list
+  (`0x514175`) shows:
+  - Player: the name, with " (Host)" for the host, and " (Version <<1>>.<<2>>)" (RC 1045, the
+    version's high byte, then the low byte with a leading zero below 10) when its version is not
+    0x0201.
+  - Level: Rookie, Intermediate or Professional.
+  - Truck Name: the truck table's display name for the truck file it sent.
+  - Latency: "Local" for this machine, else by the round trip: "Unknown" (none yet), "Low" (under
+    500 ms), "Normal" (under 1501 ms), "High".
+  - Status: when ready, "Ready" ("Racing!" in a race); otherwise by location: 1 Start Screen,
+    2 Driver Check-in, 3 Race Screen, 4 Garage, 5 Multiplayer Screen, 6 Hall Of Fame, 7 Viewing
+    Results, 8 Instant Replay, 9 Racing!, any other value Unknown. Every 5 s the lobby pings the next human in turn
+  (`0x4c9eb0`) for the Latency column.
+- **The players' slots:** the net object keeps a pending and an active list. A player's 1-based place
+  in the active list is its **vehicle number and grid position**. Computer opponents are entries in
+  the same list, marked as computer players.
+- **Start (host):** shuffle the active list (5n random swaps, `0x4554f0`); close the list (`0x455600`):
+  send 0x8a, drop the pending players ("The host did not select you"), send 0x87 {DPID, slot} for each
+  player; then send 0x14.
+
+### 14.4 Race
+
+1. Every machine loads the race.
+2. **`sync` barrier:** "Waiting for other players (<<1>>)", 0x15 every second, 120 s limit.
+3. The host broadcasts **0x17**, the start positions of every truck.
+4. Each machine runs its own 3 s countdown. The first to pass 3.0 s sends **0x19**; the others start at
+   once. There is no other clock sync and no packet carries a time stamp.
+5. Every frame `0x58e1f0` sends the state (0x02) at the send rate, and applies what arrived.
+6. Computer trucks are simulated by the host, which sends their 0x02 and 0x0b. (**H**: clients run
+   their autopilot too, overwritten by the packets.)
+7. **End:** each machine works out the results; a `rslt` barrier ("Synchronizing Scores", 30 s)
+   exchanges 0x18 for each local player. The host broadcasts 0x0e when it leaves the race.
+
+**Remote trucks** are full physics bodies on every machine. On each 0x02 the receiver sets the body
+velocity, the three angles (wrapped to +-pi), throttle, both brakes from the rear brake, steering,
+gear, autoShift and score. The **position is snapped only when more than 1 s has passed since that
+truck's last snap**; in between the local simulation drives the truck from the last controls and
+velocity. There is no interpolation or extrapolation code. Collisions with remote trucks are resolved
+on each machine against its own copy (**H**: the MTM1 "lag shots", the owner never feels the hit and
+the next snap moves the truck). Damage is owned by the truck's machine and replaces the local copy on
+0x20.
+
+**A player leaves:** DirectPlay reports it; in a race that truck goes to autopilot on every machine
+(not in Summit). A removed player sees "You have been removed from the game." **The host leaves:**
+with migrate-host on, DirectPlay picks a new host, which broadcasts 0x88; in the lobby it also sends
+0x0e(9) and reopens the list, dropping computer players.
+
+**Network tick** (`0x451e70`) differs from the single-player tick (`0x5859a0`): it empties the
+typed-key queue without reading it, so **no cheats and no Torture Pit check** in a network race. The
+**instant replay is disabled** when more than one networked player is in the race.
+
+### 14.5 Community Patch 3
+
+CP3's `monster.exe` (2.0.52.0, a 64-bit rebuild) keeps the application GUID and still loads
+`dplayx.dll`, so it can use DirectPlay TCP/IP. It adds its own **UDP/IP (direct connect)** mode, which
+its author recommends. Its author published no source code. What follows was traced from the
+executable (`tools/re/decompile.sh cp3`; the source file is named `support\network.cpp`).
+
+**The game layer is unchanged.** Direct connect replaces DirectPlay underneath the game. The game
+sends (`0x1400c7fb0`) and receives (`0x1400c5080`) the same packets as in 14.2, without the local
+12-byte prefix, and still takes a packet's sender from its own header. A player's ID is its direct
+connect ID: the host is 1, and joiners get 2, 3 and so on, in order. The transport's events stand in
+for DirectPlay's system messages:
+
+| Event | Becomes |
+|---|---|
+| a player joined (ID, name) | create player |
+| a player left | destroy player |
+| the connection was lost | session lost |
+| this machine is the host now | host change |
+
+Clients hear of a join only through the host's 0x81 and 0x82 (14.2, "The host's player list").
+
+**Reliability.** The game's send mode picks it:
+
+| Mode | Sent |
+|---|---|
+| 2 | reliable |
+| 1 | unreliable |
+| any other | the truck state (0x02) unreliable, everything else reliable |
+
+**Transport.** One UDP socket per machine, in WinSock's non-blocking mode.
+
+- **Ports:** the host binds `[Network] Port` in `monster.ini` (default 2350). A joiner binds any
+  free port and sends to the host's port, at the address in `[Network] Host`.
+- **A star:** clients send only to the host, which relays.
+- **Size:** a datagram is a 20-byte header and at most 1200 bytes of payload. Every value is
+  little-endian.
+
+| Offset | Field |
+|---|---|
+| 0 | u32 `0x3355544d` ("MTU3") |
+| 4 | u8 type |
+| 5 | u8 0 |
+| 6 | u16 payload length |
+| 8 | u32 A: the sequence number (type 2, 3), the sender's clock (9, 10), otherwise 0 |
+| 12 | u32 B: the sender's ID (for relayed data, the original sender's) |
+| 16 | u32 C: the target's ID, 0 for everyone |
+| 20 | payload |
+
+| Type | Name | Payload | What happens |
+|---|---|---|---|
+| 1 | data | a game packet | Unreliable. The host passes it on to every other peer the target matches, and keeps it when the target is 0 or itself |
+| 2 | reliable data | a game packet, at most 1024 bytes | Every copy is acknowledged with type 3. Delivered in order of A, which counts from 1 per pair of machines. Up to 16 early ones are held, and 256 recent numbers are remembered to drop repeats. The acknowledgement goes before the check, so an early message with no room left to hold it is acknowledged and lost. The host relays it as type 1 is relayed, numbered on each onward link |
+| 3 | ack | none | A is the sequence acknowledged |
+| 4 | connect | none | A joiner sends it every 200 ms, for up to 3 s, until the host answers |
+| 5 | connected | none | The host's answer to 4; B is the host's ID (1) |
+| 6 | join | char[32] name | Sent every 150 ms, for up to 4 s, until 7 comes. The host gives a new machine the next ID and reports "joined", then answers 7 to every copy |
+| 7 | welcome | u32 the joiner's ID | |
+| 8 | leave | u32 the sender's ID | Sent to every peer on closing. The host reports "left". A client that gets it from the host reports the connection lost |
+| 9 | ping | none | Each machine pings each peer every second; A is its tick count |
+| 10 | pong | none | Echoes A. The round trip starts at 100 ms and is smoothed as 0.875 x old + 0.125 x new; samples of 10 s or more are ignored |
+| 11 | roster | u32 n (at most 8), then n x { u32 ID, 4-byte IPv4 address, u16 port }, address and port in network order | Sent by the host to every peer every 2 s; its own entry is not in it |
+
+- **Resending:** an unacknowledged reliable message goes again after 1.5 x the round trip,
+  between 60 and 1200 ms.
+- **Limits:** a peer holds 64 unacknowledged messages, and the host 8 peers.
+- **Timeout:** a peer that sent nothing for 8 s is dropped. The host reports "left".
+- **Host migration:** when a client loses the host this way, the lowest ID in the last roster,
+  other than the old host's, takes over.
+  - If that is this machine, it becomes the host, adds every roster entry as a peer, and
+    continues numbering after the highest ID.
+  - Otherwise it reaches the new host at that entry's address.
+  - With no roster, the connection is lost.
+- **Testing aids:** `[Network] SimLatencyMs` (0 to 2000), `SimJitterMs` (0 to 1000) and
+  `SimLossPct` (0 to 90) delay and drop incoming datagrams.
 
 ---
 
@@ -1858,8 +2109,8 @@ Concrete behaviours OpenMTM2 should reproduce, beyond what JSTrackViewer's Test 
 4. **Rules**: checkpoint sequencing with the direction test and CPU respawn (6.2), Summit
    scoring (6.3), the 3-second countdown (6.1), fast-simulated finishing times (5).
 5. **AI**: course segments with speed targets and a P controller (9).
-6. **Network**: state broadcast per truck with the 73-byte layout (14) is a good model for
-   WebRTC/WebSocket play; each client owns its truck.
+6. **Network**: state broadcast per truck with the 61-byte layout (14) is a good model for
+   WebSocket play; each client owns its truck.
 7. **Replays**: 4 Hz records of trucks, moved boxes and top-crush objects (section 11) are what
    Instant Replay and CP3 `.rpl` files contain; recording them is cheap and gives replays,
    ghosts and test fixtures.
@@ -1900,7 +2151,7 @@ left.
 1. When `GOODY.BIN` parts spawn.
 2. The `0x5a0` weight term and the meaning of `+0x2a8`/`+0x518` (15000).
 3. The `player.pro` and saved-game layouts, and the Hall of Fame field meanings.
-4. Packet 0x1f and the exact sync/lobby protocol.
+4. Answered in section 14: 0x1f is the headlights, and the lobby, barriers and start are traced.
 5. The `/h` and `/j <ip>` command-line switches documented by the patch readme (not found as
    strings; probably parsed inside the MFC command-line override).
 
@@ -1937,6 +2188,12 @@ left.
 | 0x584490 | player controls |
 | 0x5859a0, 0x585da0 | cheats, game tick |
 | 0x58dff0 | network truck state |
+| 0x4597e0 | DirectPlayCreate, IDirectPlay2A |
+| 0x459970 | session create |
+| 0x45a540, 0x45a5c0 | send, receive |
+| 0x4d8c60 | game packet dispatch |
+| 0x58e1f0 | network send and apply, every frame |
+| 0x569e50 | track checksum |
 | 0x6407bc | difficulty |
 | 0x6407c0 | GOLD debug switch |
 | 0x6407d8 | Sonic track flag |

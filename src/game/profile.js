@@ -3,6 +3,8 @@
   a tally of races. The game keeps a `player.pro`; its layout is not traced, so profiles are
   stored as JSON in OPFS (`userdata/profiles.json`). Pure, so it runs under Node.
 */
+import { msg } from "./strings.js";
+
 export const MAX_NAME_LENGTH = 16;
 /** A new driver's Garage: Medium suspension and a Medium tire cut (MTM2's own start is Soft and Shallow). */
 export const DEFAULT_GARAGE = Object.freeze({ suspension: 1, transferSetting: 1500, tireCut: 1 });
@@ -52,7 +54,7 @@ const indexOfName = (profiles, name) => profiles.drivers.findIndex((d) => d.name
 /** Add a driver and make them current. Returns an error message, or null. */
 export function addDriver(profiles, name) {
   const clean = cleanName(name);
-  if (!clean) return "Enter a name.";
+  if (!clean) return msg("Enter a name.");
   if (indexOfName(profiles, clean) >= 0) return `There is already a driver called ${clean}.`;
   profiles.drivers.push(newDriver(clean));
   profiles.current = profiles.drivers.length - 1;
@@ -62,7 +64,7 @@ export function addDriver(profiles, name) {
 /** Select an existing driver by name, or create and select a new one from the editable combo box. */
 export function selectOrAddDriver(profiles, name) {
   const clean = cleanName(name);
-  if (!clean) return "Enter a name.";
+  if (!clean) return msg("Enter a name.");
   const existing = indexOfName(profiles, clean);
   if (existing >= 0) {
     profiles.current = existing;
@@ -73,7 +75,7 @@ export function selectOrAddDriver(profiles, name) {
 
 export function renameDriver(profiles, index, name) {
   const clean = cleanName(name);
-  if (!clean) return "Enter a name.";
+  if (!clean) return msg("Enter a name.");
   const other = indexOfName(profiles, clean);
   if (other >= 0 && other !== index) return `There is already a driver called ${clean}.`;
   profiles.drivers[index].name = clean;
@@ -82,7 +84,7 @@ export function renameDriver(profiles, index, name) {
 
 /** Remove a driver; the last one cannot be removed. */
 export function removeDriver(profiles, index) {
-  if (profiles.drivers.length < 2) return "At least one driver is needed.";
+  if (profiles.drivers.length < 2) return msg("At least one driver is needed.");
   profiles.drivers.splice(index, 1);
   profiles.current = Math.min(profiles.current > index ? profiles.current - 1 : profiles.current, profiles.drivers.length - 1);
   return null;

@@ -12,6 +12,7 @@ import {
   FLY_SCHEMES, FLY_SCHEME_NAMES, createCourseTour, createFlyCamera, flyForward, nextFlyScheme, startTourNear, stepCourseTour, stepFlyCamera,
 } from "../game/fly-camera.js";
 import { FLY_HELP, flyInput, flyKeyCodes, flyKeyLines, flyUsesMouse } from "../game/input/fly-controls.js";
+import { createStrings, msg } from "../game/strings.js";
 
 /** The keys the controller takes for itself whatever the scheme: the scheme, following the course (T, the tour: F is
  * Hellbender's turbo), the list. */
@@ -30,7 +31,7 @@ export const FLY_SCHEME_KEY = "KeyC", FLY_FOLLOW_KEY = "KeyT", FLY_LIST_KEY = "K
  * @param {number} options.baseFov the view's field of view at zoom 1, degrees
  * @param {object} [options.font] the game's bitmap font (render/bitmap-text.js) the list of keys is drawn in, as the HUD is
  */
-export function createFlyController({ canvas, settings, save, course = [], courseOpen = false, groundAt, say = () => {}, blocked = () => false, baseFov = 60, font = null }) {
+export function createFlyController({ canvas, settings, save, course = [], courseOpen = false, groundAt, say = () => {}, blocked = () => false, baseFov = 60, font = null, t = createStrings() }) {
   const fly = createFlyCamera();
   const tour = createCourseTour(course, { open: courseOpen });
   let scheme = FLY_SCHEMES.includes(settings.flyControls) ? settings.flyControls : "traxx";
@@ -42,8 +43,8 @@ export function createFlyController({ canvas, settings, save, course = [], cours
   if (panel) list.append(panel.element);
 
   const drawList = () => {
-    const title = `${FLY_SCHEME_NAMES[scheme]}${following ? ", following the course" : ""}`;
-    const lines = flyKeyLines(scheme, { following, course: !!tour }).map((line) => {
+    const title = following ? t("<<1>>, following the course", FLY_SCHEME_NAMES[scheme]) : FLY_SCHEME_NAMES[scheme];
+    const lines = flyKeyLines(scheme, { following, course: !!tour, t }).map((line) => {
       const [key, ...rest] = line.split(": ");
       return [key, rest.join(": ")];
     });
@@ -52,7 +53,7 @@ export function createFlyController({ canvas, settings, save, course = [], cours
       el("p", { class: "fly-keys-title" }, title),
       ...lines.map(([key, what]) => el("p", {}, el("span", { class: "fly-key" }, key), what)));
   };
-  const announce = () => say(`${FLY_SCHEME_NAMES[scheme]}. ${FLY_HELP[scheme]}. O: keys`, 5);
+  const announce = () => say(`${FLY_SCHEME_NAMES[scheme]}. ${t(FLY_HELP[scheme])}. ${t("O: keys")}`, 5);
   const setScheme = (next) => {
     if (!FLY_SCHEMES.includes(next)) return;
     scheme = next;
@@ -63,11 +64,11 @@ export function createFlyController({ canvas, settings, save, course = [], cours
     announce();
   };
   const setFollowing = (on) => {
-    if (on && !tour) { say("This track has no course to follow", 3); return false; }
+    if (on && !tour) { say(t("This track has no course to follow"), 3); return false; }
     following = !!on;
     if (following) startTourNear(tour, fly.pos[0], fly.pos[2]);
     drawList();
-    say(following ? "Following the course. Up and Down change the speed, T stops" : "Flying free", 4);
+    say(following ? t("Following the course. Up and Down change the speed, T stops") : t("Flying free"), 4);
     return following;
   };
 

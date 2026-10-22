@@ -6,6 +6,7 @@
   driver 0, adds a CPU driver for each flagged truck other than the player's (in catalogue
   order), and shuffles the first start slots among the drivers.
 */
+import { msg } from "./strings.js";
 
 /** The default CPU driver names (0x551f90). */
 export const CPU_NAMES = Object.freeze(["Mark", "Greg", "Rich", "Brett", "Gaither", "Chuck", "Terry", "Joe"]);
@@ -90,7 +91,7 @@ export function formatRaceTime(seconds) {
 
 /** "1st", "2nd", ... as the standings list prints places. */
 export function ordinal(place) {
-  return ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"][place - 1] ?? `${place}th`;
+  return [msg("1st"), msg("2nd"), msg("3rd"), msg("4th"), msg("5th"), msg("6th"), msg("7th"), msg("8th")][place - 1] ?? `${place}th`;
 }
 
 /** A Summit Rumble's drivers for the overlay, best score first (ties in grid order): `[[name, score], ...]`. */
