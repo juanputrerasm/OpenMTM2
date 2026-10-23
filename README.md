@@ -15,6 +15,11 @@ Patch 3**. Everything runs locally and nothing is uploaded. The only game files 
 are the unmodified trial and its license (`assets/trial/`), which the license allows to be passed on
 free of charge.
 
+> **More than Monster Truck Madness 2.** OpenMTM2 also plays the tracks **and vehicles** of
+> **CART Precision Racing** and **4x4 Evolution 1 and 2**, plus Monster Truck Madness 1. Add those
+> games' folders or PODs and race CART cars and Evo trucks on any track, each on its own game's
+> physics. See [CART Precision Racing and 4x4 Evolution](#cart-precision-racing-and-4x4-evolution).
+
 **Live application:** [Play OpenMTM2 on GitHub Pages](https://juanputrerasm.github.io/OpenMTM2/)
 
 ![OpenMTM2 running an eight-truck race with the enhanced renderer](docs/screenshot.jpg)
@@ -30,14 +35,18 @@ free of charge.
 - **Party modes:** Hockey, Soccer, Tag, Cops & Robbers and Race & Rumble, with teams, roles and
   rules set in Options.
 - **Faithful simulation:** clean-room truck physics, collisions and CPU drivers running in a Web Worker.
-- **Broad content support:** MTM2 Beta 10 through Community Patch 3, plus tracks from MTM1, CART
-  Precision Racing and both 4x4 Evolution games.
+- **Four Terminal Reality games in one:** MTM2 Beta 10 through Community Patch 3, plus the tracks and
+  vehicles of CART Precision Racing, 4x4 Evolution 1 and 2, and MTM1, each vehicle on its own game's
+  physics.
 - **Classic or enhanced presentation:** ten cameras, the original-style HUD, dynamic weather,
   water, shadows, lighting, particles and optional modern scenery effects.
 - **Sound and replay:** engines, impacts, ambience, music and instant replays that can read and write
   the game's `.rpl` format.
-- **Player choice:** truck tuning, rebindable controls, graphics presets, cheats, gamepad support,
-  free roam and an in-game console.
+- **Gamepad from start to finish:** menus, the install screen, an on-screen keyboard and racing all
+  work with a controller alone, with the game's force feedback felt as rumble.
+- **Phones:** installable to the Home Screen or as an app, fullscreen and clear of the notch.
+- **Player choice:** truck tuning, rebindable controls, graphics presets, cheats, free roam and an
+  in-game console.
 - **WebXR:** menus and races work in supported standalone and PC-connected VR headsets.
 
 Each area is described under [Feature details](#feature-details).
@@ -60,6 +69,21 @@ the version; the executable is never run. At minimum the installation must provi
 
 Community Patch 3 content includes `.SI2` tracks, HD PNG and TGA art,
 normal and occlusion maps, enhanced materials and glass, track lights and moving objects.
+
+## CART Precision Racing and 4x4 Evolution
+
+OpenMTM2 reads the other Terminal Reality racing games of the time from your own copies:
+
+| Game | Tracks | Vehicles |
+|---|---|---|
+| CART Precision Racing (1997) | Road courses with their road layer, walls and catch fences | CART cars on the CPR car model: six gears, Garage springs, dampers and wings, and CPR's own computer drivers |
+| 4x4 Evolution (2000) | Terrain, models, trees, grass, AI life (flocks of birds) and checkpoints; mission tracks in Free Roam | Evo vehicles on the 4x4 Evolution model, with Garage tuning |
+| 4x4 Evolution 2 (2001) | All of the above, plus object paths and track scripts | Evo 2 vehicles on the 4x4 Evolution 2 model, with Garage tuning |
+| Monster Truck Madness (1996) | Its tracks, skies and stadium drag strips | MTM1 trucks on the 1996 physics and drag rules |
+
+Add a game with **Options > Data > Add POD.INI** (pick its folder) or single PODs with the **POD manager**.
+Any vehicle races on any track. **Options > Game > Physics** picks the model: by default each vehicle
+drives on its own game's physics; it can also follow the track's game, or use one model for all.
 
 ## Requirements
 
@@ -141,9 +165,20 @@ A standard gamepad (Xbox, PlayStation and the like) plays the whole game, menus 
 | Type in a text box | A opens an on-screen keyboard; Done keeps the text, B puts it back |
 
 Options, Keys has **Gamepad pedals** (the triggers, the left stick, or both) and **Steering response** (10 is the game's
-own steep curve; lower makes the stick steer more evenly). A pad without the standard mapping drives with its left
+own steep curve; lower makes the stick steer more evenly), plus **Gamepad rumble**, **Rumble strength** and **Rumble
+effects**: the game's force feedback felt as the pad's rumble. Hits (crashes, landings, wheels hitting things), the
+ground under the wheels, and a soft engine rumble; fewer effects save a wireless pad's battery. **Rumble readout** shows
+in a race what the pad is doing and why (Chrome, Edge and Safari; not Firefox). A pad without the standard mapping drives with its left
 stick. Choosing a game folder or an ISO needs a mouse, keyboard or touch once, since browsers open their file window only
 for those; the free trial installs with the pad alone. VR controllers follow the WebXR `xr-standard` layout.
+
+### Phones and fullscreen
+
+On a desktop or Android browser, the Start screen and the foot of Options, Game have a **Fullscreen** button. Browsers allow it only from a click or tap,
+not from a gamepad. OpenMTM2 can also be installed: Android's **Install app**, or on an iPhone **Share, Add to Home
+Screen** (from Safari, or Chrome on iOS 16.4 and later). Installed, it opens with no browser bars, in landscape on
+Android. An iPhone puts only videos fullscreen in its browser tabs, so the Home Screen is the way there; its copy keeps
+its own storage, so the game files are installed once more inside it. A phone shows a tip about this once.
 
 ## Feature details
 
@@ -192,7 +227,8 @@ See [the multiplayer guide](docs/MULTIPLAYER.md) for the protocols, ports and se
   shows every mounted archive, its detected game, and the tracks and trucks it supplies.
 - MTM1 tracks retain their skies and stadium drag strips. CART Precision Racing tracks include their
   road layer, walls and catch fences. 4x4 Evolution 1 and 2 tracks include terrain, models, AI life,
-  object paths trees and checkpoints. All can be raced with MTM2 trucks and physics.
+  object paths, trees and checkpoints. Every track takes every vehicle: MTM2 trucks, CART cars and Evo
+  vehicles, each on its own game's physics or on the model picked in Options.
 - Community Patch 3 support covers HD model, truck, sky and terrain art; normal and occlusion maps;
   enhanced materials and glass; track lights; moving objects; four-tire sets; and `.SI2` tracks.
 
@@ -216,7 +252,8 @@ See [the visuals guide](docs/VISUALS.md) for the rendering choices and their con
 
 - Web Audio plays engine loops, skids, impacts, splashes, ambience, moving-object sounds, menu audio
   and MOD music from the player's installation.
-- Instant Replay records the race, switches among any truck and camera, and provides VCR-style play,
+- Instant Replay records the race, plays it back with engine sound, gear changes, ambience and music,
+  switches among any truck and camera, and provides VCR-style play,
   pause, rewind, fast-forward, slow-motion, frame-step and scrub controls. Replays can be saved to or
   opened from the game's `.rpl` format.
 - The Garage provides truck tuning. Options include rebindable keys, graphics presets, V-sync, a

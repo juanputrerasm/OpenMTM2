@@ -80,4 +80,4 @@ export * as cprSim from "./sim/cpr/index.js";
 export { CPR_DEFAULT_SETUP, cloneCprSetup, parseCprGarage, writeCprGarage } from "./cpr/garage.js";
 export { PodFormatError } from "./errors.js";
 /** The library version, as published in package.json. */
-export const VERSION = "1.3.0";
+export const VERSION = "1.3.1";

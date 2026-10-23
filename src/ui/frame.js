@@ -14,6 +14,7 @@ import { msg } from "../game/strings.js";
 import { goRace, goDemo } from "../app/flow.js";
 import { resolveSkin } from "../install/exe-version.js";
 import { vrButton } from "./vr-button.js";
+import { fullscreenButton } from "./fullscreen.js";
 
 /** Baked button rectangles [x, y, w, h] on the 640 x 480 art. */
 const BUTTONS = {
@@ -112,7 +113,9 @@ export async function frame(container, context, { title, backdrop, bar = "main",
     place(hotspot, BUTTONS[button]);
     stage.append(hotspot);
   }
-  if (options) stage.append(optionsButton(context, "stage-utility"));
+  // Options, and on the Start screen Fullscreen where the browser can do it (ui/fullscreen.js), in the top corner.
+  const fullscreen = bar === "start" ? fullscreenButton(t, "stage-utility") : null;
+  if (options || fullscreen) stage.append(el("div", { class: "stage-utilities" }, fullscreen, options ? optionsButton(context, "stage-utility") : null));
   // The modern skin also has a way back from a screen with no bottom bar to leave by.
   if (!art && bar === "none") {
     stage.append(el("button", { class: "stage-back", "data-menu-sound": "STARTOFF", onclick: () => context.router.back() }, t("Back")));

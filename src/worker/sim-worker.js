@@ -200,10 +200,12 @@ function soundOf(t, ground) {
   const out = {
     weather, inWater, vy: m[3] * s.bvel[0] + m[4] * s.bvel[1] + m[5] * s.bvel[2],
     rpm: s.rpm, throttle: s.controls.throttle, brake: Math.max(s.controls.brakeFront, s.controls.brakeRear), gear: s.controls.gear, airborne: air, forward: s.bvel[2],
-    speed: Math.hypot(s.bvel[0], s.bvel[1], s.bvel[2]), 
+    speed: Math.hypot(s.bvel[0], s.bvel[1], s.bvel[2]), vx: s.bvel[0], bottoming: t.snd.bottoming, collide: t.snd.collide ?? 0, 
     impact: t.snd.impact, hit: t.snd.hit, clearance: s.pos[1] - ground.height(s.pos[0], s.pos[2]), splash: t.snd.splash, tires, surface: S.surfaceType(ground.surface(s.pos[0], s.pos[1] + 100, s.pos[2])), heli: s.heliTimer > 0, heliTeryl: !!s.heliVisual?.teryl, heliPos: s.heliVisual ? [...s.heliVisual.pos] : null,
   };
   t.snd.impact = 0;
+  t.snd.bottoming = 0;
+  t.snd.collide = 0;
   t.snd.hit = null;
   t.snd.splash = false;
   return out;
@@ -436,7 +438,7 @@ export function createSession(init) {
     // A foot under the body's origin: a step up to about a wheel's height is climbed, a taller face is not ground.
     const ownGround = meshGround ? meshGround.below(() => state.pos[1] - 1) : extensionGround;
     const ctx = { ground: ownGround, human: i === 0 && !autopilot && !remote, difficulty, sonicTrack, recovery };
-    return { state, params, autopilot, remote, recovery, ctx, evoVehicle: !!spec.truck.evo, cprCar, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
+    return { state, params, autopilot, remote, recovery, ctx, evoVehicle: !!spec.truck.evo, cprCar, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, bottoming: 0, collide: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
   });
   const player = trucks[0];
   // Under CPR physics a CPR car drives by CART.EXE's autopilot on the SIT course (game/cpr-driver.js, CPR_PHYSICS.md
@@ -694,6 +696,8 @@ export function createSession(init) {
           // `hull`: bodywork met, not only tires (which throw no sparks).
           for (const t of [a, b]) {
             const hull = met.hull || !!t.touch?.hull;
+            // The pair's force, for a gamepad's rumble (game/input/rumble.js): the game's jolt counts collision forces.
+            t.snd.collide = Math.max(t.snd.collide ?? 0, force);
             if (!t.touch || force > t.touch.force) t.touch = { force, pos: where, steps: (t.touch?.steps ?? 0) + 1, hull };
             else { t.touch.steps++; t.touch.hull = hull; }
           }
@@ -1187,6 +1191,8 @@ export function createSession(init) {
       else if (evoModel) E.stepEvoTruck(t.state, t.params, t.ctx, STEP);
       else S.stepTruck(t.state, t.params, t.ctx, STEP);
       t.snd.impact = Math.max(t.snd.impact, t.state.impactForce);
+      // The bump stops' jolt, for a gamepad's rumble (game/input/rumble.js); only the MTM2 model reports it.
+      t.snd.bottoming = Math.max(t.snd.bottoming, t.state.bottoming ?? 0);
       t.snd.splash = t.snd.splash || t.state.splash;
     }
     for (const box of listed) S.stepBox(box, ground, STEP);

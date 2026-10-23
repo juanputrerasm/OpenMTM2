@@ -90,7 +90,23 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
   }
 
   /** `listener` is the camera's position in game feet; `clock` the race clock in seconds, or null. */
+  /** Silenced (a race's instant replay plays over it): the engines hushed and the loops stopped, until let go. */
+  let muted = false;
+  function setMuted(on) {
+    muted = !!on;
+    if (!muted) return;
+    for (const t of trucks) {
+      for (const voice of Object.values(t.engine ?? {})) voice?.setGain(0);
+      for (const r of t.rear) { r.corner = stopLoop(r.corner); r.spin = stopLoop(r.spin); }
+      t.wade = stopLoop(t.wade);
+      t.bridges = t.bridges.map(stopLoop);
+      t.heli?.then?.((voice) => voice?.stop());
+      t.heli = null;
+    }
+  }
+
   function update(dt, poses, listener, clock, damaged = []) {
+    if (muted) return;
     poses.forEach((pose, i) => {
       const t = trucks[i], s = pose.sound;
       if (!s) return;
@@ -236,5 +252,5 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
     }
   }
 
-  return { update, dispose, horn, yeehaw };
+  return { update, dispose, horn, yeehaw, setMuted };
 }

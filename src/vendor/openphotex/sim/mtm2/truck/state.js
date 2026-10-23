@@ -56,6 +56,7 @@ export function createTruckState(pos, heading = 0, gear = GEAR.FIRST, params) {
         hover: 0,
         impulseMoment: 0,
         impactForce: 0,
+        bottoming: 0,
         splash: false,
         ap: {
             segment: 0, integral: 0, gain: autopilotGain(params?.difficulty ?? 1), segmentsPassed: 0, target: 0,

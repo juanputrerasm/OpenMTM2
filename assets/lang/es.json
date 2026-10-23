@@ -1484,6 +1484,86 @@
   "text": "Controles del sobrevuelo"
  },
  {
+  "tag": "This browser or pad has no rumble",
+  "text": "Este navegador o mando no tiene vibración"
+ },
+ {
+  "tag": "No gamepad connected",
+  "text": "No hay ningún mando conectado"
+ },
+ {
+  "tag": "Rumble: strong motor, then weak motor",
+  "text": "Vibración: motor fuerte y luego motor suave"
+ },
+ {
+  "tag": "Test rumble",
+  "text": "Probar vibración"
+ },
+ {
+  "tag": "What makes the gamepad rumble. Hits: crashes, landings and wheels hitting things. Hits + ground: also the surface under the wheels. All: also a soft, steady rumble from the engine. Fewer effects make a wireless pad's battery last longer",
+  "text": "Qué hace vibrar el mando. Golpes: choques, aterrizajes y ruedas que golpean cosas. Golpes + terreno: también la superficie bajo las ruedas. Todo: también una vibración suave y constante del motor. Menos efectos hacen que la batería de un mando inalámbrico dure más"
+ },
+ {
+  "tag": "All",
+  "text": "Todo"
+ },
+ {
+  "tag": "Hits + ground",
+  "text": "Golpes + terreno"
+ },
+ {
+  "tag": "Hits",
+  "text": "Golpes"
+ },
+ {
+  "tag": "Rumble effects",
+  "text": "Efectos de vibración"
+ },
+ {
+  "tag": "A race shows whether the gamepad rumbles, why not when it does not, how hard each motor runs and what set it. For testing. From the next race",
+  "text": "En carrera se muestra si el mando vibra, por qué no cuando no lo hace, con qué fuerza va cada motor y qué lo provocó. Para pruebas. Desde la próxima carrera"
+ },
+ {
+  "tag": "Rumble readout",
+  "text": "Indicador de vibración"
+ },
+ {
+  "tag": "For fullscreen, install OpenMTM2 as an app, or tap Fullscreen in the menus.",
+  "text": "Para jugar en pantalla completa, instala OpenMTM2 como aplicación o toca Pantalla completa en los menús."
+ },
+ {
+  "tag": "For fullscreen, add OpenMTM2 to your Home Screen: tap Share, then Add to Home Screen. The Home Screen copy keeps its own files, so install the game once more there.",
+  "text": "Para jugar en pantalla completa, añade OpenMTM2 a tu pantalla de inicio: toca Compartir y luego Añadir a pantalla de inicio. La copia de la pantalla de inicio guarda sus propios archivos, así que instala el juego una vez más allí."
+ },
+ {
+  "tag": "Install",
+  "text": "Instalar"
+ },
+ {
+  "tag": "Exit fullscreen",
+  "text": "Salir de pantalla completa"
+ },
+ {
+  "tag": "Fullscreen",
+  "text": "Pantalla completa"
+ },
+ {
+  "tag": "The game's force feedback strength: 70% is its default",
+  "text": "La intensidad de la retroalimentación de fuerza del juego: 70% es su valor predeterminado"
+ },
+ {
+  "tag": "Rumble strength",
+  "text": "Intensidad de la vibración"
+ },
+ {
+  "tag": "The gamepad shakes with crashes, hard landings and rough ground, as the game's force feedback pushed a joystick. Needs a browser and pad with rumble (Chrome, Edge or Safari, and an Xbox or PlayStation pad)",
+  "text": "El mando vibra con los choques, los aterrizajes fuertes y el terreno irregular, como la retroalimentación de fuerza del juego empujaba un joystick. Necesita un navegador y un mando con vibración (Chrome, Edge o Safari, y un mando de Xbox o PlayStation)"
+ },
+ {
+  "tag": "Gamepad rumble",
+  "text": "Vibración del mando"
+ },
+ {
   "tag": "Choosing a folder or a file needs a mouse, a keyboard or a touch: the browser opens its file window only for those. With a gamepad alone, play the free trial.",
   "text": "Elegir una carpeta o un archivo requiere un ratón, un teclado o tocar la pantalla: el navegador solo abre su ventana de archivos con ellos. Solo con un mando, juega la prueba gratuita."
  },

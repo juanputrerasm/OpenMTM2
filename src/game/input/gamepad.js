@@ -38,9 +38,35 @@ export function choosePad(pads) {
   return connected.find((p) => p.mapping === "standard") ?? connected[0] ?? null;
 }
 
+/** A motor barely turns below about this; any level asked for is lifted over it, so a soft rumble is still felt. */
+const MOTOR_START = 0.12;
+const EFFECT_MS = 250, RESEND_MS = 150, LEVEL_STEP = 0.05;
+
+/** The level sent to a motor for one asked for (0..1): 0 stays 0, anything else starts where the motor turns. */
+export const motorLevel = (v) => (v > 0.01 ? MOTOR_START + (1 - MOTOR_START) * Math.min(1, v) : 0);
+
+/**
+ * Options, Keys, Test rumble: half a second of the strong motor, then half a second of the weak one. Resolves to
+ * "ok", "no gamepad" or "no rumble" (the browser or the pad has none).
+ */
+export async function testRumble(nav = navigator) {
+  const actuator = choosePad(nav.getGamepads ? [...nav.getGamepads()] : [])?.vibrationActuator;
+  if (!choosePad(nav.getGamepads ? [...nav.getGamepads()] : [])) return "no gamepad";
+  if (!actuator?.playEffect) return "no rumble";
+  try {
+    await actuator.playEffect("dual-rumble", { startDelay: 0, duration: 500, strongMagnitude: 1, weakMagnitude: 0 });
+    await actuator.playEffect("dual-rumble", { startDelay: 100, duration: 500, strongMagnitude: 0, weakMagnitude: 1 });
+    return "ok";
+  } catch {
+    return "no rumble";
+  }
+}
+
 /** `pedals` gives the Gamepad pedals choice, read at every sample so that a change in the options takes effect at once. */
 export function createGamepadInput(nav = navigator, pedals = () => PAD_PEDALS[0]) {
-  let upHeld = false, downHeld = false;
+  let upHeld = false, downHeld = false, rumbling = false, sentStrong = 0, sentWeak = 0, sentAt = 0;
+  const sends = [];
+  const padNow = () => choosePad(nav.getGamepads ? [...nav.getGamepads()] : []);
   const pressed = (pad, i) => !!pad.buttons[i]?.pressed;
   return {
     /** The joystick input for the simulation, or null with no pad. */
@@ -54,6 +80,36 @@ export function createGamepadInput(nav = navigator, pedals = () => PAD_PEDALS[0]
       const shiftUp = up && !upHeld, shiftDown = down && !downHeld;
       upHeld = up; downHeld = down;
       return { x: pad.axes[0] ?? 0, y, deadZone: DEAD_ZONE, shiftUp, shiftDown, handbrake: pressed(pad, DPAD_DOWN) };
+    },
+    /**
+     * The pad's two motors, 0..1 (game/input/rumble.js), for the next tenth of a second, or off with both 0. A browser or
+     * pad without rumble (Firefox, most adapters) is left alone.
+     */
+    /** For the rumble readout: the pad in use, whether it can rumble, the levels last sent and the sends in the last second. */
+    rumbleInfo() {
+      const pad = padNow(), now = performance.now();
+      while (sends.length && now - sends[0] > 1000) sends.shift();
+      return { pad: pad?.id ?? null, canRumble: !!pad?.vibrationActuator?.playEffect, sent: rumbling ? { strong: sentStrong, weak: sentWeak } : null, perSecond: sends.length };
+    },
+    /**
+     * The pad's two motors, 0..1 (game/input/rumble.js), or off with both 0. A level is lifted to where a motor turns
+     * (`motorLevel`). An effect plays for a quarter second and is sent again only when a level moves or it is about to
+     * end: sent every frame, a pad on Bluetooth drops them or starts over before its motors spin up. A browser or pad
+     * without rumble (Firefox, most adapters) is left alone.
+     */
+    rumble(strong, weak, now = performance.now()) {
+      const actuator = padNow()?.vibrationActuator;
+      if (!actuator?.playEffect) return;
+      const s = motorLevel(strong), w = motorLevel(weak);
+      if (s === 0 && w === 0) {
+        if (!rumbling) return;
+        rumbling = false;
+        (actuator.reset?.() ?? actuator.playEffect("dual-rumble", { startDelay: 0, duration: 0, strongMagnitude: 0, weakMagnitude: 0 }))?.catch?.(() => {});
+        return;
+      }
+      if (rumbling && Math.abs(s - sentStrong) < LEVEL_STEP && Math.abs(w - sentWeak) < LEVEL_STEP && now - sentAt < RESEND_MS) return;
+      rumbling = true; sentStrong = s; sentWeak = w; sentAt = now; sends.push(now);
+      actuator.playEffect("dual-rumble", { startDelay: 0, duration: EFFECT_MS, strongMagnitude: s, weakMagnitude: w })?.catch?.(() => {});
     },
   };
 }

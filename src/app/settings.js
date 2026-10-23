@@ -86,6 +86,11 @@ export const DEFAULT_SETTINGS = Object.freeze({
   crashDamage: true,          // MONSTER.INI allowCrashDamage (the game's own default is off): collisions dent the bodies
   autoShift: true,            // automatic gears (the game's default)
   steeringResponse: 10,       // MONSTER.INI [Control] steeringResponse, 0 to 10 (the game's default 10): lower makes a stick's steering less steep
+  installTipSeen: false,      // the phone tip on fullscreen (Add to Home Screen, Install) was closed (ui/fullscreen.js)
+  padRumble: true,            // the gamepad rumbles with the game's force feedback (MONSTER.INI useForceFeedback; game/input/rumble.js)
+  padRumbleStrength: 70,
+  padRumbleLevel: 3,          // the Rumble effects: 1 hits only, 2 hits and ground, 3 hits, ground and engine (game/input/rumble.js)
+  padRumbleReadout: false,    // a race shows whether the pad rumbles and how hard (ui/rumble-readout.js), for testing      // MONSTER.INI forceFeedbackStrength, 0 to 100 (the game's default 70)
   padPedals: "triggers",      // a gamepad's throttle and brake: "triggers", "stick" (the left stick's y) or "both" (game/input/gamepad.js)
   bindings: Object.freeze({}), // key code overrides by action, see game/input/bindings.js
   hdWeather: true,            // Community Patch 3's HD skies: the install's WeatherArt folder, else the port's copy (worker/weather-art.js)

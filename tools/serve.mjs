@@ -36,11 +36,11 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MIME = Object.freeze({
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".md": "text/markdown; charset=utf-8",
+  ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".md": "text/markdown; charset=utf-8", ".webmanifest": "application/manifest+json",
   ".svg": "image/svg+xml", ".png": "image/png", ".ini": "text/plain; charset=utf-8", ".txt": "text/plain; charset=utf-8",
 });
 /** What the app itself is made of; nothing else in the repository is served. */
-const APP_PATHS = Object.freeze(["index.html", "sw.js", "src", "styles"]);
+const APP_PATHS = Object.freeze(["index.html", "sw.js", "manifest.webmanifest", "icons", "src", "styles"]);
 
 /** `--name value` and `--flag` arguments. */
 export function parseArgs(argv) {

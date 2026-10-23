@@ -166,7 +166,9 @@ table.results tr.player td { color: var(--accent); font-weight: 600; }
 .stage-panel .menu button { padding: 2px 8px; }
 .stage-panel-menu > p { margin: 0 0 4px; }
 .screen-utility { position: fixed; z-index: 20; top: 14px; right: 14px; }
-.stage-utility { position: absolute; z-index: 20; top: 10px; right: 10px; padding: 5px 12px; background: rgba(0, 0, 0, 0.72); }
+/* Options and Fullscreen (ui/fullscreen.js), side by side in the stage's top corner. */
+.stage-utilities { position: absolute; z-index: 20; top: 10px; right: 10px; display: flex; gap: 6px; }
+.stage-utility { padding: 5px 12px; background: rgba(0, 0, 0, 0.72); }
 /* The note that the game is saved for starting without its server (src/ui/offline-note.js). */
 .offline-note { position: fixed; z-index: 30; left: 16px; bottom: 16px; max-width: min(30em, calc(100vw - 32px)); padding: 0.7em 1em; border: 1px solid var(--accent); border-radius: var(--radius); background: rgba(8, 10, 13, 0.92); color: var(--text); line-height: 1.4; cursor: pointer; }
 .offline-note strong { color: var(--accent); }
@@ -613,3 +615,18 @@ body.pad-nav [role=option]:focus:not(.selected) td { background: rgba(242, 193, 
 .pad-key { flex: 1 1 0; min-width: 0; padding: 8px 0; }
 .pad-key-wide { flex: 2 1 0; }
 .pad-key-space { flex: 5 1 0; }
+
+/* Clear of a phone's notch and rounded corners (viewport-fit=cover in index.html): the menus' stage and pages. */
+#app { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.stage-view { inset: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+/* The Fullscreen button at the foot of the Options' Game page (ui/fullscreen.js). */
+.opt-fullscreen { grid-column: 1 / -1; justify-content: flex-start; margin-top: 8px; }
+/* The phone tip on fullscreen (ui/fullscreen.js). */
+.install-tip { position: fixed; z-index: 50; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(560px, calc(100vw - 24px)); padding: 10px 14px; border: 1px solid var(--panel-edge); border-radius: 8px; background: var(--panel, #1a2030); color: var(--text); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); }
+.install-tip p { margin: 0 0 8px; line-height: 1.4; }
+.install-tip-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* The rumble readout (ui/rumble-readout.js), under the FPS counter's corner; green while a motor runs. */
+.rumble-readout { position: absolute; z-index: 3; left: 10px; bottom: 10px; max-width: calc(100% - 20px); padding: 6px 8px; background: rgba(0, 0, 0, 0.7); border: 1px solid #555; color: #cfcfcf; font: 600 11px/1.45 ui-monospace, monospace; font-variant-numeric: tabular-nums; white-space: pre; overflow: hidden; pointer-events: none; }
+.rumble-readout[hidden] { display: none; }
+.rumble-readout.on { border-color: #4fd17a; color: #e8ffe8; }

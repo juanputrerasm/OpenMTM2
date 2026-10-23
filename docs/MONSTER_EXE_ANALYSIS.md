@@ -816,6 +816,63 @@ forward:
 
 Joystick buttons give the shift requests (+1 / -1) and the bound actions (`buttonFunction0..7`).
 
+### Force feedback (`0x572ae0`)
+
+DirectInput force feedback for a joystick or wheel, run once a frame for the player's truck. The game's debug
+overlay (`0x573f70`) names its five effects: a constant force ("Raw" x, y), a spring ("SpringXK"), a damper, a
+friction, and a periodic shake. `MONSTER.INI [Control]` holds the settings (read at `0x44d350`, written at
+`0x44e790`):
+
+| Key | Meaning |
+|---|---|
+| `useForceFeedback` | on or off |
+| `forceFeedbackStrength` | 0 to 100, default 70; the code uses it as a 0..1 scale (x 0.01) |
+| `forceFeedbackSpringStrength` | 0 to 100, default the strength; scales the centring spring |
+| `forceFeedbackWheel` | the device is a wheel: one axis, so fore-aft forces are folded into the lateral one |
+
+It runs only in a race, with `joystickActive` 2 or 3 (a joystick or wheel, not the keyboard or the digital
+gamepad), and not under autopilot or in a replay; otherwise every effect is zeroed. Each frame:
+
+1. **Wheels** (`0x572890`, for each of the four tires): a tire on the ground counts as a contact and gives its
+   surface code (`type * 100`, the value at `+0xbc` shifted right 16); a tire in the air counts as 1300. On 300 or
+   1300 (water) the damper grows with the tire's depth in the water (`0.25 * min(1, depth / radius + 0.1)`);
+   elsewhere the friction grows with the tire's load (`+0x8c`). Each surface met gets a weight, 30 for 1100 (Wood),
+   40 for 1400, 1 for the rest, summed per surface. With both front tires in the air the friction is -0.3.
+2. **The jolt.** `J = F * 6.25e-5 + dv / dt * 0.02`, with `F` the contact and collision forces in the body's force
+   sum (`0x46cfe0`, lbf, body axes), `dv` the bottoming damper's velocity change (`0x46ba80`, ft/s) and `dt` the
+   frame time. The vertical part is folded into the horizontal one: x and z are scaled by `|J.y| / |J.xz| + 1`, so
+   the push's size is `|J.xz| + |J.y|`. A wheel then takes `x +- |z|`. A jolt is held for 0.5 s (less below a
+   size of 0.4), and a new one replaces it only when it is larger on either axis. While a jolt is held it is the
+   constant force, and there is no shake.
+3. **Otherwise**, with a tire on the ground, the constant force leans the stick the way the truck tilts (a world
+   vector of `-0.25` per contact, put in body axes, as `2 x|x|` sideways and `1.7 z|z|` fore-aft). Moving faster
+   than 0.1 ft/s (`speed = sqrt(5 vx^2 + vz^2)`, body ft/s), the surface with the largest weight sets the
+   **shake**: each axis an amplitude with a random sign (a wheel only the lateral one), with `r` a fresh
+   `rand() / 32768`, a base frequency, and a cap on the frequency:
+
+   | Surface | Amplitude | Base | Cap (Hz) |
+   |---|---|---|---|
+   | 0 | `0.405 r + 0.135` | 0.85 | 9 |
+   | 100, and any code not listed | `0.09 r + 0.03` | 0.85 | 9 |
+   | 200 (Dirt) | `r^2 + 0.15` | 0.6 | 7 |
+   | 400 (Mud) | `0.36 r + 0.12` | 0.85 | 9 |
+   | 600 (Grass) | `0.315 r + 0.105` | 0.85 | 9 |
+   | 700 (Gravel) | `1.2 r^2 + 0.15` | 1.1 | 12 |
+   | 900 (Snow) | `0.27 r + 0.09` | 0.85 | 9 |
+   | 1100 (Wood) | 0.3, fore-aft only (a wheel: lateral) | 1.6 | 15 |
+   | 1200 (Rocks) | `18 r^2` | 0.9 | 10 |
+   | 1400 | 0.7, fore-aft only (a wheel: lateral) | 1.0 | 20 |
+   | 300, 500, 800, 1300 | none | | |
+
+   The amplitudes are times the strength, and below 4 ft/s also times `speed / 4`; the frequency is
+   `base * speed / 8`, at most the cap. The shake is sent every 0.2 s.
+4. **The spring's** stiffness follows the cornering: `k += (|F_lat| * 0.0003125 - 0.4 - k) * 0.4`, at least 0,
+   with `F_lat` the player's front axle's lateral tire force less the rear one's (`0x47eb30`, lbf).
+5. The constant force is times the strength, and the effects are sent one per frame in turn (all five when a jolt
+   begins).
+
+The spring, damper and friction resist the stick or wheel; only the jolt and the shake are felt as motion.
+
 ### Other bindings
 
 The `[Keys]` section stores DirectInput scan codes plus Windows VK codes for 29 actions:

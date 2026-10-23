@@ -509,6 +509,7 @@ export function postStepTruck(s, p, ground, dt) {
             for (let k = 0; k < 3; k++)
                 corr[k] += t.normal[k] * vn * 0.25;
     }
+    s.bottoming = Math.hypot(corr[0], corr[1], corr[2]);
     if (corr[0] !== 0 || corr[1] !== 0 || corr[2] !== 0) {
         const b = toBody(m, -corr[0], -corr[1], -corr[2]);
         for (let k = 0; k < 3; k++)

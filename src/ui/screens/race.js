@@ -60,6 +60,8 @@ import { WEATHER_LOOK, WEATHER_NAMES, isUnderwater, resolveWeather, waterOffsetF
 import { beamAir, headlightPool, lampsAtStart, toggleLamps } from "../../game/truck-lights.js";
 import { createGoldMode } from "../gold-mode.js";
 import { createGamepadInput } from "../../game/input/gamepad.js";
+import { createRumble } from "../../game/input/rumble.js";
+import { createRumbleReadout } from "../rumble-readout.js";
 import { createTextPanel, hudFontScale, loadFont } from "../../render/bitmap-text.js";
 import { createRaceGauges, gearLabel } from "../../render/race-gauges.js";
 import { createWaterEffects, createWaterSurface } from "../../render/water-effects.js";
@@ -229,6 +231,8 @@ async function mountRace(container, context, params, owned = []) {
   const dragTree = createDragTree();
   // The toggleable FPS counter, in the top right (below the drag tree on a drag strip).
   const fpsCounter = createFpsCounter({ visible: !!context.settings.fpsCounter });
+  // Options, Keys, Rumble readout: whether the pad rumbles, and how hard (ui/rumble-readout.js).
+  const rumbleReadout = createRumbleReadout({ visible: !!context.settings.padRumbleReadout });
   // The app's one renderer and its canvas (render/xr/xr-host.js); a headset shows this note meanwhile.
   context.xr.setBoard(createMenu({ title: t("Loading"), lines: [track.name] }));
   const host = await context.xr.host();
@@ -318,7 +322,7 @@ async function mountRace(container, context, params, owned = []) {
   // drivers' names on, so who is It, on which team, racing or blocking, can be told at once.
   let namesMode = extension ? NAMES_DRIVERS : 0;
   const enterVr = vrButton(context, "race-vr");
-  const view = el("section", { class: "race-view" }, canvas, ...(cockpit ? [cockpit.dashboard, cockpit.mirror, cockpit.finder] : []), hud.element, flyHud.element, driveHud.element, dragTree.element, fpsCounter.element, gauges.element, caption.element, enterVr.element, pauseMenu, loading);
+  const view = el("section", { class: "race-view" }, canvas, ...(cockpit ? [cockpit.dashboard, cockpit.mirror, cockpit.finder] : []), hud.element, flyHud.element, driveHud.element, dragTree.element, fpsCounter.element, rumbleReadout.element, gauges.element, caption.element, enterVr.element, pauseMenu, loading);
   container.append(view);
 
   let disposed = false;
@@ -656,6 +660,19 @@ async function mountRace(container, context, params, owned = []) {
 
   const keys = createKeyboardInput(window, context.settings.bindings);
   const pad = createGamepadInput(navigator, () => context.settings.padPedals);
+  // The game's force feedback as the pad's rumble (game/input/rumble.js), while the player drives their own truck.
+  const rumble = createRumble();
+  let rumbleAt = 0;
+  /** Why the pad does not rumble now, or null when it does. */
+  const rumbleOff = (info) => (context.settings.padRumble === false ? "Gamepad rumble is off in Options"
+    : demo ? "the demo" : spectator ? "spectator mode" : context.settings.fullAutopilot ? "Full Autopilot"
+      : !context.padDriving?.() ? "not driving (paused, a menu or chat)"
+        : !info.pad ? "no gamepad" : !info.canRumble ? "this browser or pad has no rumble" : null);
+  const stopRumble = (reason = "stopped") => {
+    rumbleAt = 0; rumble.reset(); pad.rumble(0, 0);
+    rumbleReadout.show({ on: false, reason, info: pad.rumbleInfo() });
+  };
+  cleanups.push(stopRumble);
   cleanups.push(() => keys.dispose());
   let gold = null, gameConsole = null;
   /** The controllers' joystick, and their presses since the simulation last took the input. */
@@ -690,6 +707,7 @@ async function mountRace(container, context, params, owned = []) {
     if (net) { if (!finishing) { pauseMenu.hidden = !on; netMenuOpen = on; showVrMenu(); } return; }
     if (finishing || paused === on) return;
     paused = on;
+    if (on) stopRumble("paused");
     pauseMenu.hidden = !on;
     showVrMenu();
     // Every sound stops but the music.
@@ -739,11 +757,16 @@ async function mountRace(container, context, params, owned = []) {
       replaying?.screen?.unmount?.();
       replaying = null;
       overlay.remove();
+      truckAudio.setMuted(false);
     };
+    // The replay has sounds of its own: the race's trucks are hushed under it; its ambience and music play on.
+    truckAudio.setMuted(true);
     replaying = { screen: null };
     const { default: mountReplay } = await import("./replay.js");
     const inner = Object.create(context);
     inner.router = { back: close, go: (...args) => { close(); return context.router.go(...args); }, stack: context.router.stack };
+    // The replay's sound knows the race's music plays on and its mixer is paused under it (ui/screens/replay.js).
+    inner.replayInRace = true;
     const screen = await mountReplay(overlay, inner, { replay });
     if (replaying) replaying.screen = screen; else screen?.unmount?.();
   }
@@ -1462,6 +1485,20 @@ async function mountRace(container, context, params, owned = []) {
       sim.call("tick", { tMs: now, input: sampleInput(), net: netRace?.commands() })
         .then((r) => {
           latest = r;
+          const felt = r.poses?.[0]?.sound, padInfo = pad.rumbleInfo();
+          const off = felt ? rumbleOff(padInfo) : "no truck to feel";
+          if (!off) {
+            const at = performance.now(), since = rumbleAt ? Math.min(0.25, (at - rumbleAt) / 1000) : 0;
+            rumbleAt = at;
+            const strength = (context.settings.padRumbleStrength ?? 70) / 100;
+            const motors = rumble.update({
+              impact: felt.impact, collide: felt.collide, bottoming: felt.bottoming, hitSpeed: felt.hit?.force ?? 0,
+              tires: felt.tires, vx: felt.vx, vz: felt.forward, rpm: felt.rpm,
+            }, since, strength, context.settings.padRumbleLevel ?? 3);
+            pad.rumble(motors.strong, motors.weak);
+            rumbleReadout.show({ on: true, info: padInfo, strength, report: motors });
+          } else if (rumbleAt) stopRumble(off);
+          else rumbleReadout.show({ on: false, reason: off, info: padInfo });
           if (netRace && !disposed) netTick(r, now);
           if (fpsCounter.visible) fpsCounter.noteSim(performance.now(), r.steps ?? 0, performance.now() - sentAt);
           if ((r.race || freeRoam) && r.time !== undefined) recorder.update(r.time, r.poses.map((p) => p.current), r.boxes ?? [], (i) => crash.code(i));

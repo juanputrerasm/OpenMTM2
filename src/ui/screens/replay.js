@@ -44,6 +44,10 @@ import { enableSunShadows } from "../../render/sun-shadows.js";
 import { createExtensionScene } from "../../render/extensions/loader.js";
 import { GRASS_RADII, grassLevel } from "../../render/evo-grass.js";
 import { createGpuPacer } from "../../render/gpu-pacer.js";
+import { createAudio } from "../../audio/audio-engine.js";
+import { createTruckAudio } from "../../audio/truck-audio.js";
+import { createWorldAudio } from "../../audio/world-audio.js";
+import { createReplaySound } from "../../game/replay-sound.js";
 import { screenSampled } from "../../game/aa.js";
 import { msg } from "../../game/strings.js";
 
@@ -130,6 +134,39 @@ export default async function mount(container, context, { replay }) {
     return { ...object, model, tireRadius: tireRadiusFt(model.parts.tireRight ?? model.parts.tireLeft), wheels: wheelShare(model.tire), tread: treadShare(model.tire) };
   });
   const terrain = terrainOfBuild(build);
+
+  // Sound: the engines and gears rebuilt from the film (game/replay-sound.js), and the track's ambience and music. In a
+  // race's instant replay the race is paused under it: its ambience and music play on, its trucks are hushed, and its
+  // mixer goes back to paused after.
+  const inRace = !!context.replayInRace;
+  if (!inRace) context.menuMusic?.stop();
+  const sharedAudio = context.menuAudio ?? createAudio(context.assets, context.settings.sound);
+  const audio = sharedAudio.scoped?.() ?? sharedAudio;
+  const ambience = await context.assets.call("ambience", { number: trackInfo.ambientSound ?? 0 }).catch(() => null);
+  if (disposed) return { unmount };
+  const worldAudio = createWorldAudio(audio, {
+    ambient: inRace ? null : ambience, weather: replay.weather ?? 0, music: inRace ? null : build.musicName ?? null, objects: build.soundObjects,
+  });
+  const truckAudio = createTruckAudio(audio, {
+    count: replay.vehicles.length, player: 0, kookyHorn: !!context.settings.kookyHorn, mtm1Sounds: !!context.settings.mtm1Sounds,
+  });
+  const replaySound = createReplaySound(drawn.map((d) => d?.tireRadius ?? 2.75));
+  /** The effects are heard only while the film plays forward; paused, scrubbed or rewound, the music alone. */
+  let effectsOn = null;
+  const hearEffects = (on) => { if (on !== effectsOn) { effectsOn = on; audio.setEffectsPaused?.(!on); } };
+  audio.resume();
+  const resumeAudio = () => audio.resume();
+  window.addEventListener("keydown", resumeAudio);
+  window.addEventListener("pointerdown", resumeAudio);
+  cleanups.push(() => {
+    window.removeEventListener("keydown", resumeAudio);
+    window.removeEventListener("pointerdown", resumeAudio);
+    worldAudio.dispose();
+    truckAudio.dispose();
+    audio.stopAll?.();
+    audio.setEffectsPaused?.(inRace);
+    if (!inRace) context.menuMusic?.start();
+  });
   // With "Smooth terrain" the ground drawn is not quite the ground the trucks were recorded on (game/terrain-relief.js):
   // what follows the ground follows the drawn one, and the drawn trucks are seated on it.
   const relief = build.relief ? createRelief({ heights: build.heights ?? build.heightsFt, ...build.relief }) : null;
@@ -446,7 +483,17 @@ export default async function mount(container, context, { replay }) {
     // What the trucks throw up and leave behind moves with the film, and only forward: played back, or jumped about
     // in, nothing new is thrown.
     const filmDt = filmClock !== null && playing && rate > 0 ? Math.min(0.25, Math.max(0, clock - filmClock)) : 0;
+    // The sound follows the film forward; a jump starts each engine afresh where its truck then is.
+    const forwardFilm = playing && rate > 0;
+    if (filmClock === null || Math.abs(clock - filmClock) > 0.5) replaySound.reset(state.trucks);
     filmClock = clock;
+    hearEffects(forwardFilm);
+    if (forwardFilm) {
+      const listener = [camera.position.x, camera.position.y, -camera.position.z];
+      const sounds = replaySound.frame(state.trucks, filmDt, replay.weather ?? 0);
+      truckAudio.update(filmDt, state.trucks.map((pose, i) => (pose ? { current: { pos: pose.pos }, sound: sounds[i] } : { current: { pos: [0, 0, 0] }, sound: null })), listener, clock);
+      worldAudio.update(filmDt, listener, new Map());
+    }
     const flags = effectFlags(), weatherNow = replay.weather ?? 0;
     if (tireFx) {
       tireFx.setWater(waters[0] ? waters[0].userData.levelFt + waters[0].position.y : null);

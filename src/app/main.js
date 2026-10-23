@@ -16,6 +16,7 @@ import { offlineNote } from "../ui/offline-note.js";
 import { WorkerClient } from "../shared/worker-client.js";
 import { mountWatermark } from "../ui/watermark.js";
 import { startGamepadNav } from "../ui/gamepad-nav.js";
+import { startInstallTip } from "../ui/fullscreen.js";
 import { missingRequiredPods } from "../install/required-pods.js";
 
 const screens = {
@@ -60,6 +61,8 @@ async function boot() {
   context.router = router;
   // A gamepad works every screen, the install screen included (ui/gamepad-nav.js).
   startGamepadNav(context);
+  // On a phone's browser tab, once: how to play fullscreen (ui/fullscreen.js). The install prompt is caught from here on.
+  const showInstallTip = startInstallTip(context);
 
   // The player's language comes first, so even this page is in it; the install's own wording is laid over it below.
   await loadStrings(context);
@@ -102,6 +105,7 @@ async function boot() {
   const invite = installed && !requiredMissing.length ? takeInvite() : null;
   await router.go(invite ? "rooms" : installed && !requiredMissing.length ? "start" : "install", invite ? { invite } : requiredMissing.length ? { requiredMissing } : {});
   context.offline.start();
+  showInstallTip();
 }
 
 /** The room invite in the page's address, if any, taken out of it so a reload does not join again. */

@@ -46,6 +46,8 @@ function edgeCrossing(from, q, edgeFoot, u) {
 }
 export function solveHullContacts(s, inertia, ground, external, mass, weight, dt, friction) {
     const out = { force: [0, 0, 0], moment: [0, 0, 0], count: 0 };
+    // This step's contact force only: a step with no contact has none, not the last one met.
+    s.impactForce = 0;
     if (s.contactCount === 0)
         return out;
     const m = s.matrix;

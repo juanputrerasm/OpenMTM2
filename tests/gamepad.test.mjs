@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { choosePad, createGamepadInput, padPedalAxis } from "../src/game/input/gamepad.js";
+import { choosePad, createGamepadInput, motorLevel, padPedalAxis } from "../src/game/input/gamepad.js";
 import { DRIVE_BUTTONS, PAD, pickInDirection } from "../src/ui/gamepad-nav.js";
 import { applyJoystick } from "../src/vendor/openphotex/sim/mtm2/truck/controls.js";
 
@@ -78,4 +78,24 @@ test("gamepad race buttons: Y helicopter, X camera, A dashboard, B map, Start pa
   assert.equal(DRIVE_BUTTONS[PAD.A], "dashboard");
   assert.equal(DRIVE_BUTTONS[PAD.B], "map");
   assert.equal(DRIVE_BUTTONS[PAD.START], "pause");
+});
+
+test("gamepad rumble: a level starts where the motor turns, and a steady one is not sent again every frame", () => {
+  assert.equal(motorLevel(0), 0);
+  assert.ok(Math.abs(motorLevel(0.05) - (0.12 + 0.88 * 0.05)) < 1e-12);
+  assert.equal(motorLevel(2), 1);
+  const played = [];
+  const p = pad();
+  p.vibrationActuator = { playEffect: (type, params) => { played.push(params); return Promise.resolve("complete"); }, reset: () => { played.push("reset"); return Promise.resolve(); } };
+  const input = createGamepadInput({ getGamepads: () => [p] });
+  input.rumble(0.5, 0, 0);
+  input.rumble(0.51, 0, 16);
+  input.rumble(0.51, 0, 33);
+  assert.equal(played.length, 1);
+  input.rumble(0.9, 0, 50);
+  assert.equal(played.length, 2);
+  input.rumble(0.9, 0, 250);
+  assert.equal(played.length, 3);
+  input.rumble(0, 0, 260);
+  assert.equal(played.at(-1), "reset");
 });

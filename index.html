@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>OpenMTM2: Monster Truck Madness 2 in your browser</title>
-  <meta name="description" content="OpenMTM2 is a free, open-source fan remake of Monster Truck Madness 2 (1998) that runs in your web browser. Play the free trial or your own copy, with enhanced graphics, VR and community tracks and trucks.">
-  <meta name="keywords" content="Monster Truck Madness 2, MTM2, OpenMTM2, monster truck game, browser game, open source, remake, Terminal Reality, WebGL, WebXR">
-  <meta name="author" content="Juan Pablo Utreras">
+  <meta name="description" content="OpenMTM2 is a free, modern open-source remake of Monster Truck Madness 2 that runs in your web browser. Play the free trial or your own copy, with enhanced graphics, CPR & 4x4 Evo support,VR and add-on tracks and trucks.">
+  <meta name="keywords" content="Monster Truck Madness 2, MTM2, OpenMTM2, monster truck game, monster truck, Terminal Reality, CART Precision Racing, 4x4 Evo, 4x4 Evo 2, WebGL, WebXR">
+  <meta name="author" content="Juan Pablo 'Kmaster' Utreras">
   <meta name="robots" content="index, follow">
   <meta name="theme-color" content="#f2a516">
   <link rel="canonical" href="https://juanputrerasm.github.io/OpenMTM2/">
@@ -14,7 +14,7 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="OpenMTM2">
   <meta property="og:title" content="OpenMTM2: Monster Truck Madness 2 in your browser">
-  <meta property="og:description" content="A free, open-source fan remake of Monster Truck Madness 2 that runs in your web browser.">
+  <meta property="og:description" content="A free, open-source modern remake of Monster Truck Madness 2 that runs in your web browser.">
   <meta property="og:url" content="https://juanputrerasm.github.io/OpenMTM2/">
   <meta property="og:image" content="https://juanputrerasm.github.io/OpenMTM2/assets/start-background.webp">
   <meta property="og:image:width" content="1448">
@@ -23,7 +23,7 @@
   <meta property="og:locale:alternate" content="es_ES">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="OpenMTM2: Monster Truck Madness 2 in your browser">
-  <meta name="twitter:description" content="A free, open-source fan remake of Monster Truck Madness 2 that runs in your web browser.">
+  <meta name="twitter:description" content="A free, open-source modern remake of Monster Truck Madness 2 that runs in your web browser.">
   <meta name="twitter:image" content="https://juanputrerasm.github.io/OpenMTM2/assets/start-background.webp">
 
   <script type="application/ld+json">
@@ -47,6 +47,13 @@
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
     }
   </script>
+  <!-- Installable (Add to Home Screen, Install app): it then opens without the browser's bars (src/ui/fullscreen.js). -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="OpenMTM2">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%23f2a516'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="./styles/base.css">
   <link rel="stylesheet" href="./styles/screens.css">
@@ -63,7 +70,7 @@
   <main id="app" aria-live="polite"></main>
   <noscript>
     <h1>OpenMTM2</h1>
-    <p>A free, open-source fan remake of Monster Truck Madness 2 (1998) that runs in your web browser.
+    <p>A free, open-source modern remake of Monster Truck Madness 2 that runs in your web browser.
       Source code: <a href="https://github.com/juanputrerasm/OpenMTM2">github.com/juanputrerasm/OpenMTM2</a>.</p>
     <p>OpenMTM2 needs JavaScript, Web Workers and the Origin Private File System.</p>
   </noscript>

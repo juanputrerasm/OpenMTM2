@@ -5,12 +5,16 @@ import { FLY_SCHEMES, FLY_SCHEME_NAMES } from "../game/fly-camera.js";
 import { buildKind, defaultSkin } from "../install/exe-version.js";
 import { el } from "./dom.js";
 import { showAlert, showConfirm } from "./dialogs.js";
+import { fullscreenButton } from "./fullscreen.js";
 import { LANGUAGES, PHYSICS_MODELS, applyMtm1Classic, applyMtm2Classic, applyOpenMtm2, clearSettings, languageOf, optionsFile, physicsModel, readOptionsFile, saveSettings } from "../app/settings.js";
 import { offlineStatusText } from "../app/offline.js";
 import { loadStrings } from "../app/strings-store.js";
 import { locName, msg } from "../game/strings.js";
 import { ACTIONS, DEFAULT_BINDINGS, codeLabel, conflictFor, mergeBindings } from "../game/input/bindings.js";
-import { PAD_PEDALS } from "../game/input/gamepad.js";
+import { PAD_PEDALS, testRumble } from "../game/input/gamepad.js";
+
+/** The Rumble effects slider's steps (game/input/rumble.js RUMBLE_LEVELS). */
+const RUMBLE_LEVEL_NAMES = [msg("Hits"), msg("Hits + ground"), msg("All")];
 import { CAB_STYLES, VIEW_DISTANCES, VR_VIEWS, vrSettings } from "../game/vr/settings.js";
 import { VOICE_COMMENTARY_ENABLED } from "../audio/commentary-audio.js";
 import { AA_HINT, AA_MODES, aaChoice } from "../game/aa.js";
@@ -386,6 +390,8 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       } }, ...[0, 1, 2, 3, 4, 5, 6, 7].map((n) => el("option", { value: n, selected: n === (settings.defaultOpponents ?? 3) }, String(n)))),
       msg("How many computer trucks race by default; the Races screen picks which")),
       menus,
+      // Fullscreen, where the browser can do it and the game is not installed (ui/fullscreen.js), at the page's foot.
+      ...(() => { const button = fullscreenButton(t, "opt-fullscreen-button"); return button ? [el("div", { class: "opt-actions opt-fullscreen" }, button)] : []; })(),
     ]],
     [msg("Display"), [
       row(msg("Smooth textures"), el("input", {
@@ -454,7 +460,27 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         min: 0, max: 10, step: 1, value: settings.steeringResponse ?? 10, format: (v) => String(v),
         set: (v) => { settings.steeringResponse = v; save(); },
         title: msg("How steep the steering is. 10 is the game's own: a gamepad stick or wheel turns little near the centre and fast near the edge. Lower makes a stick turn more evenly; 0 is straight. From the next race"),
-      })]],
+      }),
+      // The game's force feedback (MONSTER.INI useForceFeedback, forceFeedbackStrength) as the pad's rumble (game/input/rumble.js).
+      toggle(msg("Gamepad rumble"), "padRumble", msg("The gamepad shakes with crashes, hard landings and rough ground, as the game's force feedback pushed a joystick. Needs a browser and pad with rumble (Chrome, Edge or Safari, and an Xbox or PlayStation pad)")),
+      slider(msg("Rumble strength"), {
+        min: 0, max: 100, step: 10, value: settings.padRumbleStrength ?? 70, format: (v) => `${v}%`,
+        set: (v) => { settings.padRumbleStrength = v; save(); },
+        title: msg("The game's force feedback strength: 70% is its default"),
+      }),
+      // Fewer effects run the motors less: a wireless pad's battery lasts longer (game/input/rumble.js RUMBLE_LEVELS).
+      slider(msg("Rumble effects"), {
+        min: 1, max: 3, step: 1, value: settings.padRumbleLevel ?? 3, format: (v) => RUMBLE_LEVEL_NAMES[v - 1],
+        set: (v) => { settings.padRumbleLevel = v; save(); },
+        title: msg("What makes the gamepad rumble. Hits: crashes, landings and wheels hitting things. Hits + ground: also the surface under the wheels. All: also a soft, steady rumble from the engine. Fewer effects make a wireless pad's battery last longer"),
+      }),
+      // Both motors in turn, to check the pad and the browser outside a race.
+      el("div", { class: "opt-actions" }, button(msg("Test rumble"), async (event) => {
+        const target = event.currentTarget;
+        const said = await testRumble();
+        target.textContent = said === "ok" ? t("Rumble: strong motor, then weak motor") : said === "no gamepad" ? t("No gamepad connected") : t("This browser or pad has no rumble");
+      })),
+      toggle(msg("Rumble readout"), "padRumbleReadout", msg("A race shows whether the gamepad rumbles, why not when it does not, how hard each motor runs and what set it. For testing. From the next race"))]],
     [msg("Extensions"), [
       el("p", { class: "muted" }, t("Optional game modes shipped with OpenMTM2. Each extension owns its settings and runtime rules.")),
       ...extensionPanels,
