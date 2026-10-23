@@ -11,7 +11,8 @@
   Pure, so it runs under Node.
 */
 import { msg } from "../strings.js";
-import { toWorld } from "./hockey.js";
+import { BALL_GAME_TIME_SETTINGS, toWorld } from "./hockey.js";
+import { TWO_TEAM_PICKER } from "./teams.js";
 
 export const SOCCER_TRACK = "CASTLE.SIT";
 /** Whether `track` (a catalogue entry) can host Soccer: Monster Truck Madness's Highlands Rally. */
@@ -51,7 +52,10 @@ export const SOCCER_EXTENSION = Object.freeze({
   length: Object.freeze({ key: "goals", label: msg("Goals"), default: DEFAULT_SOCCER_GOALS, min: 1, max: 99 }),
   settings: Object.freeze([
     Object.freeze({ key: "goals", label: msg("Goals to win"), type: "number", min: 1, max: 99, default: DEFAULT_SOCCER_GOALS }),
+    ...BALL_GAME_TIME_SETTINGS,
   ]),
+  /** The Computer Opponents dialog picks each truck's team, red or blue. */
+  teamPicker: () => TWO_TEAM_PICKER,
   acceptsTrack: isSoccerTrack,
   trackLocked: true,
   minEntrants: 2,

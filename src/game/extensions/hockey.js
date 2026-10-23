@@ -10,7 +10,7 @@
   the line from the red goal to the blue one and `b` across it. Pure, so it runs under Node.
 */
 import { byVehicle, fromVehicles, localIndex, vehicleIndex } from "./net-wire.js";
-import { TEAM_COLOURS, TEAM_NAMES, twoTeams } from "./teams.js";
+import { TEAM_COLOURS, TEAM_NAMES, TWO_TEAM_PICKER, twoTeams } from "./teams.js";
 import { msg } from "../strings.js";
 
 export { TEAM_COLOURS, TEAM_NAMES };
@@ -24,6 +24,16 @@ export function isHockeyTrack(track) {
 /** Snow: the lake is frozen. */
 export const HOCKEY_WEATHER = 5;
 export const DEFAULT_GOALS = 3;
+/** The game's time limit by default, minutes (0: none), and whether a tie when it runs out goes to sudden death. */
+export const DEFAULT_TIME_LIMIT_MIN = 10;
+/**
+ * The time limit and sudden death, shared by Hockey and Soccer: when the clock runs out the side ahead wins; level, the
+ * game goes on and the next goal wins it (sudden death), or with sudden death off it ends a draw.
+ */
+export const BALL_GAME_TIME_SETTINGS = Object.freeze([
+  Object.freeze({ key: "minutes", label: msg("Time limit"), type: "number", min: 0, max: 99, default: DEFAULT_TIME_LIMIT_MIN, suffix: msg("minutes (0: none)") }),
+  Object.freeze({ key: "suddenDeath", label: msg("Sudden death on a tie"), type: "boolean", default: true }),
+]);
 export const PUCK_MODEL = "HPUCK.BIN";
 export const GOAL_MODEL = "HPOST3.BIN";
 /** Frozen water (ground type 8) and what the trucks take it as on the rink: gravel (type 7). */
@@ -50,7 +60,10 @@ export const HOCKEY_EXTENSION = Object.freeze({
   length: Object.freeze({ key: "goals", label: msg("Goals"), default: DEFAULT_GOALS, min: 1, max: 99 }),
   settings: Object.freeze([
     Object.freeze({ key: "goals", legacyKey: "hockeyGoals", label: msg("Goals to win"), type: "number", min: 1, max: 99, default: DEFAULT_GOALS }),
+    ...BALL_GAME_TIME_SETTINGS,
   ]),
+  /** The Computer Opponents dialog picks each truck's team, red or blue. */
+  teamPicker: () => TWO_TEAM_PICKER,
   acceptsTrack: isHockeyTrack,
   trackLocked: true,
   minEntrants: 2,
@@ -252,11 +265,17 @@ export function hockeyHeliSpot(rink, teams, i, puckPos = null) {
 /** How far from the puck the helicopter sets a truck down at the centre. */
 export const HELI_CLEAR_FT = 30;
 
-/** A game of Hockey: `teams[i]` the team of truck i, `target` the goals that win it. */
-export function createHockey(rink, teams, target = DEFAULT_GOALS) {
+/**
+ * A game of Hockey: `teams[i]` the team of truck i, `target` the goals that win it. `clock` is `{ minutes, suddenDeath }`
+ * (Options): a time limit, 0 for none, and whether a tie when it runs out plays on to the next goal.
+ */
+export function createHockey(rink, teams, target = DEFAULT_GOALS, clock = {}) {
+  const minutes = Math.max(0, Number(clock.minutes) || 0);
   return {
     rink, teams: [...teams], target: Math.max(1, Math.trunc(target) || DEFAULT_GOALS),
     score: [0, 0], goals: teams.map(() => 0), phase: "play", timer: 0,
+    /** The time limit (seconds, 0 none), the time played, and whether the game is in sudden death. */
+    limit: minutes * 60, elapsed: 0, suddenDeathOn: clock.suddenDeath !== false, suddenDeath: false,
     /** The truck that touched the puck last, or -1. */
     lastTouch: -1,
     /** The last event (`{ kind: "goal", team, scorer, own }` or `{ kind: "out" }`) and how many there have been. */
@@ -265,10 +284,32 @@ export function createHockey(rink, teams, target = DEFAULT_GOALS) {
   };
 }
 
+/** Seconds left on the clock, or null without a time limit. */
+export const hockeyTimeLeft = (h) => (h.limit > 0 ? Math.max(0, h.limit - h.elapsed) : null);
+
+/** The winning team once the game is over: 0 or 1, or -1 for a draw. */
+export const hockeyWinner = (h) => (h.score[0] === h.score[1] ? -1 : h.score[0] > h.score[1] ? 0 : 1);
+
+/**
+ * The clock has run out (outside a goal's celebration): the side ahead wins; level, sudden death begins (an event), or
+ * without it the game ends a draw. Returns "over" or null.
+ */
+function timeUp(h) {
+  if (h.suddenDeath || !(h.limit > 0) || h.elapsed < h.limit) return null;
+  if (h.score[0] === h.score[1] && h.suddenDeathOn) {
+    h.suddenDeath = true;
+    h.event = { kind: "sudden" };
+    h.events++;
+    return null;
+  }
+  h.phase = "over";
+  return "over";
+}
+
 /**
  * One step of play once the race runs, with the puck's position: goals, the pause after one, the
- * face-off. Returns "reset" when the trucks and the puck go back to the face-off, "over" when the game
- * ends, else null.
+ * face-off, the clock and sudden death. Returns "reset" when the trucks and the puck go back to the face-off, "over"
+ * when the game ends, else null.
  */
 export function hockeyStep(h, puckPos, dt) {
   const { rink } = h;
@@ -276,12 +317,16 @@ export function hockeyStep(h, puckPos, dt) {
   const prev = h.prev;
   h.prev = at;
   if (h.phase === "over") return null;
+  h.elapsed = (h.elapsed ?? 0) + dt;
   if (h.phase === "goal") {
     h.timer -= dt;
     if (h.timer > 0) return null;
-    if (h.score.some((s) => s >= h.target)) { h.phase = "over"; return "over"; }
+    // The target reached, or a goal in sudden death, ends it; so does a clock that ran out during the celebration.
+    if (h.score.some((s) => s >= h.target) || h.suddenDeath) { h.phase = "over"; return "over"; }
+    if (timeUp(h) === "over") return "over";
     return faceOff(h);
   }
+  if (timeUp(h) === "over") return "over";
   if (h.phase === "faceoff") {
     h.timer -= dt;
     if (h.timer <= 0) h.phase = "play";
@@ -464,7 +509,7 @@ export function hockeyToWire(s, vehicleOf) {
   const e = s.event;
   return {
     teams: byVehicle(s.teams, vehicleOf), goals: byVehicle(s.goals, vehicleOf), score: [...s.score], phase: s.phase, timer: s.timer,
-    lastTouch: v(s.lastTouch), events: s.events, resets: s.resets, over: !!s.over, puck: s.puck,
+    lastTouch: v(s.lastTouch), events: s.events, resets: s.resets, over: !!s.over, puck: s.puck, elapsed: s.elapsed ?? 0, suddenDeath: !!s.suddenDeath,
     event: e ? (e.kind === "goal" ? { ...e, scorer: v(e.scorer), own: v(e.own) } : { ...e }) : null,
   };
 }
@@ -476,7 +521,7 @@ export function hockeyFromWire(d, localOf, count) {
   return {
     teams: fromVehicles(d.teams, localOf, count, 0), goals: fromVehicles(d.goals, localOf, count, 0), score: [d.score?.[0] | 0, d.score?.[1] | 0],
     phase: String(d.phase ?? "play"), timer: Number(d.timer) || 0, lastTouch: i(d.lastTouch), events: d.events | 0, resets: d.resets | 0,
-    over: !!d.over, puck: d.puck ?? null,
+    over: !!d.over, puck: d.puck ?? null, elapsed: Number(d.elapsed) || 0, suddenDeath: !!d.suddenDeath,
     event: e ? (e.kind === "goal" ? { ...e, scorer: i(e.scorer), own: i(e.own) } : { ...e }) : null,
   };
 }

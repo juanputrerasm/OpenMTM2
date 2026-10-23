@@ -11,7 +11,10 @@ import { saveSettings } from "../../app/settings.js";
 import { setRaceConfig } from "../../app/flow.js";
 import { GAME_MODES, raceTypeName, trackInfoRows, trackPreviewBmp } from "../../game/menu-data.js";
 import { WEATHER_NAMES, allowedWeathers, resolveWeather } from "../../game/weather.js";
-import { availableExtensions, entrantsShortfall, extensionById, extensionLength, lengthLabel as extensionLengthLabel, setExtensionSetting, trackForExtension } from "../../game/extensions/loader.js";
+import {
+  PLAYER_PICK, availableExtensions, entrantsShortfall, extensionById, extensionLength, lengthLabel as extensionLengthLabel, setExtensionSetting,
+  storedTeamPicks, teamPickerFor, trackForExtension,
+} from "../../game/extensions/loader.js";
 import { playMenuSound } from "../../audio/menu-sounds.js";
 import { frame, uiImageUrl } from "../frame.js";
 import { msg } from "../../game/strings.js";
@@ -285,7 +288,9 @@ export default async function mount(container, context) {
 
   opponentsButton.addEventListener("click", async () => {
     // A drag strip has two lanes, the other tracks a grid of eight.
-    const picked = await chooseOpponents(trucks, driver.lastTruck, opponentsNow(), onDragStrip() ? 2 : 8, spectator, settings, t);
+    // A team mode (Hockey, Soccer, Race & Rumble) also picks each truck's team, and its role where the mode has roles.
+    const picker = onDragStrip() ? null : teamPickerFor(settings, gameMode);
+    const picked = await chooseOpponents(trucks, driver.lastTruck, opponentsNow(), onDragStrip() ? 2 : 8, spectator, settings, t, picker ? { id: gameMode, picker } : null);
     if (onDragStrip()) dragOpponents = picked.files; else selectedOpponents = picked.files;
     spectator = picked.spectator;
     remember();
@@ -412,12 +417,15 @@ async function chooseField(t) {
 /**
  * The Computer Opponents dialog. `full` is the grid (eight; a drag strip's two lanes): the player drives against up to
  * `full - 1` trucks, or with Spectator mode ticked watches up to `full` of them, their own truck among them if picked.
- * Filling the grid ticks Spectator mode by itself. The default number of opponents (Options, Game) is set here too, and
- * Fill tops the list up to it with trucks at random. Returns `{ files, spectator }`.
+ * Filling the grid ticks Spectator mode by itself, and taking a truck off a full grid of watched trucks unticks it (unless
+ * the player's own truck is still among them). The default number of opponents (Options, Game) is set here too, and
+ * Fill tops the list up to it with trucks at random. In a team mode, `team` (`{ id, picker }`, game/extensions/loader.js
+ * `teamPickerFor`) lists the player and each picked truck with a team colour and a role to choose, each "Auto" to leave
+ * it to the mode; the picks are kept in `settings.teamPicks`. Returns `{ files, spectator }`.
  */
-async function chooseOpponents(trucks, playerTruck, initial, full = 8, watching = false, settings = {}, t = (text) => text) {
+async function chooseOpponents(trucks, playerTruck, initial, full = 8, watching = false, settings = {}, t = (text) => text, team = null) {
   return new Promise((resolve) => {
-    let selected = [...initial], spectator = !!watching;
+    let selected = [...initial], spectator = !!watching, cancelled = false;
     const before = { selected: [...initial], spectator };
     const spectatorBox = el("input", { type: "checkbox", checked: spectator });
     const note = el("p", { class: "muted" });
@@ -439,6 +447,45 @@ async function chooseOpponents(trucks, playerTruck, initial, full = 8, watching 
       }));
       availableHead.textContent = t("Available trucks: <<1>>", availableList.options.length);
       selectedHead.textContent = t("Selected opponents: <<1>>/<<2>>", selected.length, full);
+      drawTeams();
+    };
+    // The team modes' picks, by the player's key or a truck's file; kept when the dialog closes, not when it is cancelled.
+    const picker = team?.picker ?? null;
+    const picks = picker ? { ...storedTeamPicks(settings, team.id) } : null;
+    const teamsBody = el("tbody");
+    const setPick = (key, patch) => {
+      const next = { ...(picks[key] ?? {}), ...patch };
+      for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
+      if (Object.keys(next).length) picks[key] = next; else delete picks[key];
+    };
+    const truckName = (file) => trucks.find((truck) => truck.file === file)?.name ?? file;
+    /** One choice of `names` (team colours or roles) for `key`'s `field`, "Auto" first, with a swatch in the chosen colour. */
+    const choice = (key, name, field, names, colours, label) => {
+      const swatch = colours ? el("span", { class: "opponent-team-swatch" }) : null;
+      const paint = () => { if (swatch) swatch.style.background = Number.isInteger(picks[key]?.[field]) ? colours[picks[key][field]] : "transparent"; };
+      const select = el("select", {
+        "aria-label": t(label, name),
+        onchange: (event) => { setPick(key, { [field]: event.target.value === "" ? undefined : Number(event.target.value) }); paint(); },
+      }, el("option", { value: "", selected: !Number.isInteger(picks[key]?.[field]) }, t("Auto")),
+      ...names.map((text, k) => el("option", { value: k, selected: picks[key]?.[field] === k }, t(text))));
+      paint();
+      return el("td", {}, swatch, select);
+    };
+    const drawTeams = () => {
+      if (!picker) return;
+      const rows = [...(spectator ? [] : [{ key: PLAYER_PICK, name: t("You") }]), ...selected.map((file) => ({ key: file, name: truckName(file) }))];
+      teamsBody.replaceChildren(...rows.map(({ key, name }) => el("tr", {},
+        el("td", {}, name),
+        picker.teams > 0 ? choice(key, name, "team", picker.teamNames.slice(0, picker.teams), picker.teamColours, "Team of <<1>>") : null,
+        picker.roles ? choice(key, name, "role", picker.roles, picker.roleColours ?? null, "Role of <<1>>") : null)));
+    };
+    const teamsPanel = picker ? el("div", { class: "opponent-teams" },
+      el("h2", {}, picker.roles ? (picker.teams > 0 ? t("Teams and roles") : t("Sides")) : t("Teams")),
+      el("div", { class: "opponent-teams-scroll" }, el("table", {}, teamsBody)),
+      el("p", { class: "muted" }, t("Auto leaves the choice to the mode, which evens the teams out."))) : null;
+    /** A full grid of watched trucks that loses one is a race to drive again, unless the player's own truck is still in it. */
+    const afterRemove = (wasFull) => {
+      if (spectator && wasFull && selected.length < full && !selected.includes(playerTruck)) spectator = false;
     };
     const add = () => {
       for (const option of availableList.selectedOptions) {
@@ -450,7 +497,9 @@ async function chooseOpponents(trucks, playerTruck, initial, full = 8, watching 
     };
     const remove = () => {
       const removed = new Set([...selectedList.selectedOptions].map((option) => option.value));
+      const wasFull = selected.length === full;
       selected = selected.filter((file) => !removed.has(file));
+      afterRemove(wasFull);
       draw();
     };
     // The default number of computer opponents, as on the Options' Game page.
@@ -471,7 +520,7 @@ async function chooseOpponents(trucks, playerTruck, initial, full = 8, watching 
         el("label", {}, availableHead, availableList),
         el("div", { class: "opponent-moves" },
           el("div", { class: "opponent-moves-group" }, el("button", { onclick: add }, t("Add >")), el("button", { onclick: remove }, t("< Remove")),
-            el("button", { onclick: () => { selected = []; draw(); } }, t("Remove all"))),
+            el("button", { onclick: () => { const wasFull = selected.length === full; selected = []; afterRemove(wasFull); draw(); } }, t("Remove all"))),
           el("button", {
             class: "opponent-fill", onclick: fill,
             title: t("Add trucks at random, keeping the ones already picked, until the list holds the default number of computer opponents"),
@@ -480,8 +529,9 @@ async function chooseOpponents(trucks, playerTruck, initial, full = 8, watching 
       el("label", { class: "form-row" }, `${t("Default computer opponents")} `, defaultCount),
       el("label", { class: "form-row opponent-spectator" }, spectatorBox, ` ${t("Spectator mode")}`),
       note,
+      teamsPanel,
       el("div", { class: "screen-actions" },
-        el("button", { onclick: () => { selected = before.selected; spectator = before.spectator; dialog.close(); } }, t("Cancel")),
+        el("button", { onclick: () => { selected = before.selected; spectator = before.spectator; cancelled = true; dialog.close(); } }, t("Cancel")),
         el("button", { class: "primary", onclick: () => dialog.close() }, t("Done"))));
     availableList.addEventListener("dblclick", add);
     selectedList.addEventListener("dblclick", remove);
@@ -491,7 +541,14 @@ async function chooseOpponents(trucks, playerTruck, initial, full = 8, watching 
       if (!spectator) selected = selected.filter((file) => file !== playerTruck).slice(0, full - 1);
       draw();
     });
-    dialog.addEventListener("close", () => { dialog.remove(); resolve({ files: selected, spectator }); }, { once: true });
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      if (picker && !cancelled) {
+        settings.teamPicks = { ...(settings.teamPicks ?? {}), [team.id]: picks };
+        saveSettings(settings);
+      }
+      resolve({ files: selected, spectator });
+    }, { once: true });
     document.body.append(dialog);
     draw();
     dialog.showModal();

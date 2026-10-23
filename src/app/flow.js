@@ -43,10 +43,11 @@ export const SPECTATOR_WARNING = msg("Spectator mode is on: the computer trucks 
 
 /**
  * The trucks of a race to be watched, or null when the race is one to drive: spectator mode is asked for, the track has
- * a race, and at least one computer truck is picked (`config.opponents` as a list of files that are installed).
+ * a race (or a party mode is played on it), and at least one computer truck is picked (`config.opponents` as a list of files that are installed).
  */
 export function spectatorField(config, track, trucks) {
-  if (!config?.spectator || config.freeRoam || track?.freeRoamOnly || !Array.isArray(config.opponents)) return null;
+  // A free roam track has no race to watch, unless a party mode makes one on it.
+  if (!config?.spectator || config.freeRoam || (track?.freeRoamOnly && !extensionById(config.gameMode)) || !Array.isArray(config.opponents)) return null;
   const installed = new Set(trucks.map((t) => t.file));
   const field = config.opponents.filter((file) => installed.has(file));
   return field.length ? field : null;

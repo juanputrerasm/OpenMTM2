@@ -26,7 +26,7 @@ export const LOG_LINES = 60;
 export const sessionName = (driver) => `${driver}'s Truckin' Game`;
 
 /** The room servers every player is offered first, before the ones they have used. */
-export const DEFAULT_ROOM_SERVERS = Object.freeze(["multiplayer.mtm2.com", "localhost"]);
+export const DEFAULT_ROOM_SERVERS = Object.freeze(["multiplayer.openmtm2.workers.dev", "localhost"]);
 /** How many servers a player has used are remembered. */
 export const RECENT_ROOM_SERVERS = 8;
 

@@ -11,7 +11,7 @@ import { el } from "../dom.js";
 import { frame } from "../frame.js";
 import { saveSettings } from "../../app/settings.js";
 import { bridgeStatus } from "../../net/bridge-transport.js";
-import { classicHelper, hostClassic, joinClassic, hostCp3, joinCp3, sessionName, roomServerList, rememberServer } from "../../app/net.js";
+import { DEFAULT_ROOM_SERVERS, classicHelper, hostClassic, joinClassic, hostCp3, joinCp3, sessionName, roomServerList, rememberServer } from "../../app/net.js";
 import { getProfiles } from "../../app/profile-store.js";
 import { currentDriver } from "../../game/profile.js";
 import { msg } from "../../game/strings.js";
@@ -128,7 +128,7 @@ export default async function mount(container, context) {
   showSessions();
 
   // ---- Online rooms ----
-  const serverUrl = el("input", { type: "text", value: net.serverUrl ?? "", placeholder: "rooms.example.org", maxlength: 200, autocomplete: "off", spellcheck: "false", "aria-label": t("Room server address"), class: "net-server-url" });
+  const serverUrl = el("input", { type: "text", value: net.serverUrl || DEFAULT_ROOM_SERVERS[0], placeholder: "rooms.example.org", maxlength: 200, autocomplete: "off", spellcheck: "false", "aria-label": t("Room server address"), class: "net-server-url" });
   const browse = el("button", { class: "primary", "data-menu-sound": "STARTOFF" }, t("Browse rooms"));
   const browseServer = (address) => {
     if (!address) { say(t("Type a room server's address."), true); return; }

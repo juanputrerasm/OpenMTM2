@@ -303,16 +303,19 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
     ...extension.settings.map((spec) => {
       const current = settingsForExtension(settings, extension)[spec.key];
       if (spec.type === "number") {
-        return row(spec.label, el("input", {
+        const input = el("input", {
           type: "number", min: spec.min, max: spec.max, value: current,
           "aria-label": `${t(extension.name)}: ${t(spec.label)}`,
           onchange: (event) => {
-            const value = Math.max(spec.min, Math.min(spec.max, Math.trunc(Number(event.target.value)) || spec.default));
+            const typed = Math.trunc(Number(event.target.value));
+            const value = Math.max(spec.min, Math.min(spec.max, Number.isFinite(typed) && event.target.value !== "" ? typed : spec.default));
             event.target.value = String(value);
             setExtensionSetting(settings, extension, spec.key, value);
             save();
           },
-        }), spec.suffix ? t(spec.suffix) : null);
+        });
+        // The unit after the box ("minutes"), where there is one.
+        return row(spec.label, spec.suffix ? el("span", {}, input, ` ${t(spec.suffix)}`) : input);
       }
       if (spec.type === "boolean") {
         return row(spec.label, el("input", {
@@ -320,6 +323,12 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
           "aria-label": `${t(extension.name)}: ${t(spec.label)}`,
           onchange: (event) => { setExtensionSetting(settings, extension, spec.key, !!event.target.checked); save(); },
         }));
+      }
+      if (spec.type === "select") {
+        return row(spec.label, el("select", {
+          "aria-label": `${t(extension.name)}: ${t(spec.label)}`,
+          onchange: (event) => { setExtensionSetting(settings, extension, spec.key, event.target.value); save(); },
+        }, ...spec.options.map((option) => el("option", { value: option.value, selected: option.value === current }, t(option.label)))));
       }
       return null;
     }).filter(Boolean),

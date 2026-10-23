@@ -4206,5 +4206,117 @@
  {
   "tag": "A look stays where the mouse leaves it, without easing back",
   "text": "La vista se queda donde la deja el ratón, sin volver"
+ },
+ {
+  "tag": "Time limit",
+  "text": "Límite de tiempo"
+ },
+ {
+  "tag": "minutes (0: none)",
+  "text": "minutos (0: sin límite)"
+ },
+ {
+  "tag": "Sudden death on a tie",
+  "text": "Muerte súbita si hay empate"
+ },
+ {
+  "tag": "Sudden death",
+  "text": "Muerte súbita"
+ },
+ {
+  "tag": "Time! Tied <<1>> - <<2>>: sudden death, the next goal wins.",
+  "text": "¡Tiempo! Empate <<1>> - <<2>>: muerte súbita, el próximo gol gana."
+ },
+ {
+  "tag": "Face-off! Sudden death: the next goal wins",
+  "text": "¡Saque neutral! Muerte súbita: el próximo gol gana"
+ },
+ {
+  "tag": "Time! A draw, <<1>> - <<2>>.",
+  "text": "¡Tiempo! Empate, <<1>> - <<2>>."
+ },
+ {
+  "tag": "You are a Racer: get one of the Racers home within <<1>>.",
+  "text": "Eres Corredor: lleva a un Corredor a la meta antes de <<1>>."
+ },
+ {
+  "tag": "You are a Blocker: hold the Racers off for <<1>>.",
+  "text": "Eres Bloqueador: frena a los Corredores durante <<1>>."
+ },
+ {
+  "tag": "You race for <<1>>: be the first racer home.",
+  "text": "Corres para <<1>>: sé el primer corredor en llegar."
+ },
+ {
+  "tag": "You block for <<1>>: stop the other racers and guard your own.",
+  "text": "Bloqueas para <<1>>: frena a los otros corredores y protege al tuyo."
+ },
+ {
+  "tag": "One minute left!",
+  "text": "¡Queda un minuto!"
+ },
+ {
+  "tag": "Racers and Blockers. Classic: teams of a racer and a blocker, the first racer home wins it for its team. Timed block: two sides, the Racers must get one of theirs home before the time runs out.",
+  "text": "Corredores y Bloqueadores. Clásico: equipos de un corredor y un bloqueador; el primer corredor en llegar gana para su equipo. Bloqueo contra reloj: dos bandos; los Corredores deben llevar a uno de los suyos a la meta antes de que se acabe el tiempo."
+ },
+ {
+  "tag": "Classic: teams of a racer and a blocker",
+  "text": "Clásico: equipos de un corredor y un bloqueador"
+ },
+ {
+  "tag": "Timed block: Racers against Blockers",
+  "text": "Bloqueo contra reloj: Corredores contra Bloqueadores"
+ },
+ {
+  "tag": "Timed block's time limit",
+  "text": "Límite de tiempo del bloqueo contra reloj"
+ },
+ {
+  "tag": "Proximity points",
+  "text": "Puntos por cercanía"
+ },
+ {
+  "tag": "Proximity zone",
+  "text": "Zona de cercanía"
+ },
+ {
+  "tag": "feet",
+  "text": "pies"
+ },
+ {
+  "tag": "Points a second beside It",
+  "text": "Puntos por segundo junto al que la lleva"
+ },
+ {
+  "tag": "Points a second at the zone's edge",
+  "text": "Puntos por segundo en el borde de la zona"
+ },
+ {
+  "tag": "Points It loses a second",
+  "text": "Puntos por segundo que pierde el que la lleva"
+ },
+ {
+  "tag": "Teams and roles",
+  "text": "Equipos y funciones"
+ },
+ {
+  "tag": "Sides",
+  "text": "Bandos"
+ },
+ {
+  "tag": "Teams",
+  "text": "Equipos"
+ },
+ {
+  "tag": "Auto leaves the choice to the mode, which evens the teams out.",
+  "text": "Auto deja la elección al modo, que equilibra los equipos."
+ },
+ {
+  "tag": "Team of <<1>>",
+  "text": "Equipo de <<1>>"
+ },
+ {
+  "tag": "Role of <<1>>",
+  "text": "Función de <<1>>"
  }
 ]

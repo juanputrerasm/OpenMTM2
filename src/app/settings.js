@@ -75,6 +75,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   opponentTrucks: Object.freeze([]), // explicitly selected CPU truck files from the Races dialog
   gameMode: "default",        // a core mode id, or an id registered by the extension loader
   extensions: Object.freeze(extensionSettingDefaults()), // settings owned by shipped extensions
+  teamPicks: Object.freeze({}), // the team modes' teams and roles from the Computer Opponents dialog, by mode (game/extensions/loader.js)
   wording: "",                // a .LOC from the install that rewords the game's text ("" is the standard wording)
   skin: "auto",               // "auto" (classic on retail and beta builds, modern on a community patch), "classic" or "modern"
   developer: false,           // list tracks and trucks with the developer views on the Start screen
@@ -110,6 +111,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   freeLook: true,             // the mouse looks round the external cameras (game/camera-look.js); the wheel zooms either way
   freeLookInvert: false,      // the mouse's look turned the other way
   freeLookHold: false,        // a look stays where it is left, without easing back after two seconds
+  cameraZoom: Object.freeze({}), // the mouse wheel's zoom on each external view, kept for the next games (game/camera-look.js)
   autoStage: true,            // drag races: the player's truck stages itself (off: stage it by hand, or press the Auto Stage key)
   dustEffects: true,          // MONSTER.INI smokeEffectFlag: dust puffs behind the wheels on soft ground
   tireTracks: true,           // MONSTER.INI tireTrackFlag: treads left on soft ground (the game reads it but never draws them)

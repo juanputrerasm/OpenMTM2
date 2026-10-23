@@ -48,7 +48,7 @@ import { createStartLamps } from "../../render/start-lamps.js";
 import { createTrackLights } from "../../render/track-lights.js";
 import { createHelicopters } from "../../render/heli-object.js";
 import { createNameTags } from "../../render/name-tags.js";
-import { nameLabel, nameLine, nextNamesMode } from "../../game/names.js";
+import { NAMES_DRIVERS, nameLabel, nameLine, nextNamesMode } from "../../game/names.js";
 import { createAudio } from "../../audio/audio-engine.js";
 import { VOICE_COMMENTARY_ENABLED, createCommentaryAudio } from "../../audio/commentary-audio.js";
 import { createAnnouncer } from "../../game/commentary.js";
@@ -73,7 +73,7 @@ import { createCaption } from "../../render/caption.js";
 import { courseLoop, createCourseMap } from "../../render/minimap.js";
 import { createSummitSounds } from "../../game/summit-sounds.js";
 import { createCockpit, finderAngle } from "../../render/cockpit.js";
-import { cpuNames, formatRaceTime, raceDrivers, seatDrivers, summitBoard } from "../../game/race-setup.js";
+import { cpuNames, fillGrid, formatRaceTime, raceDrivers, seatDrivers, summitBoard } from "../../game/race-setup.js";
 import {
   addFallingTree, createModelLibrary, createTrackWorld, disposeObject, moveObjects, poseFallingTree, removeFallingTree, setForestTree,
   setStartLights, skyColor, skyOf, updateSky, updateTrackWorld, placeSky,
@@ -96,7 +96,7 @@ import {
   extensionFinderTarget, extensionHud, extensionKeepsRace, extensionMapMarks, extensionMapPoints, extensionMarkerTarget, extensionNetFromWire,
   extensionNetToWire, extensionResultTime, extensionTruckLabels, extensionTruckMarks, prepareExtensionRace, resolveRaceExtension,
 } from "../../game/extensions/race-loader.js";
-import { settingsForExtension } from "../../game/extensions/loader.js";
+import { entrantTeamPicks, settingsForExtension } from "../../game/extensions/loader.js";
 import { createExtensionScene } from "../../render/extensions/loader.js";
 import { GRASS_RADII, grassLevel } from "../../render/evo-grass.js";
 import { createNetRace } from "../../net/net-race.js";
@@ -313,8 +313,9 @@ async function mountRace(container, context, params, owned = []) {
   const showMessage = (text) => { caption.show(text, Infinity); vrMessage.set([text]); };
   host.menu.setFonts(messageFont, hudFont);
   const pauseMenu = el("div", { class: "race-pause", hidden: true });
-  // The Names key (game/names.js): what the course map and the labels over the trucks say.
-  let namesMode = 0;
+  // The Names key (game/names.js): what the course map and the labels over the trucks say. A party mode starts with the
+  // drivers' names on, so who is It, on which team, racing or blocking, can be told at once.
+  let namesMode = extension ? NAMES_DRIVERS : 0;
   const enterVr = vrButton(context, "race-vr");
   const view = el("section", { class: "race-view" }, canvas, ...(cockpit ? [cockpit.dashboard, cockpit.mirror, cockpit.finder] : []), hud.element, flyHud.element, driveHud.element, dragTree.element, fpsCounter.element, gauges.element, caption.element, enterVr.element, pauseMenu, loading);
   container.append(view);
@@ -360,16 +361,21 @@ async function mountRace(container, context, params, owned = []) {
   minimap.setVisible(!!context.settings.minimap);
   view.append(minimap.element);
   cleanups.push(() => minimap.dispose());
-  const grid = build.sim.grid;
+  const extensionTerrain = extension ? terrainOfBuild(build) : null;
+  const extensionGround = (x, z) => mtm2Sim.groundHeightAt(extensionTerrain, x, z);
+  // A party mode on a track with too few start slots (a free roam level has one, or none) gets a grid round the first;
+  // a room fills a full one, the same on every machine, since its vehicle numbers are the slots.
+  const grid = extension ? fillGrid(build.sim.grid, net ? 8 : Math.min(8, drivers?.length ?? 8), extensionGround, build.sim.start) : build.sim.grid;
   const entrants = eventPass
     ? eventPass.entrants.filter((e) => build.truckModels[e.file] && e.slot < grid.length)
     // A network race's slot is its vehicle number's grid place (the host's 0x87).
     : net ? drivers.filter((d) => build.truckModels[d.file] && d.vehicle - 1 < grid.length).map((d) => ({ ...d, slot: d.vehicle - 1 }))
     : seatDrivers(drivers.filter((d) => build.truckModels[d.file]), grid.length);
-  const extensionTerrain = extension ? terrainOfBuild(build) : null;
   const extensionRace = prepareExtensionRace(extension, {
     build, entrants, length: laps, settings: settingsForExtension(context.settings, extension),
-    groundHeightAt: (x, z) => mtm2Sim.groundHeightAt(extensionTerrain, x, z),
+    groundHeightAt: extensionGround,
+    // The teams (and roles) picked in the Computer Opponents dialog; a room's are its own.
+    picks: extension && !net ? entrantTeamPicks(context.settings, extension, entrants) : null,
   });
   /** What an extension draws, and what its replay draws again. */
   const extensionDress = extensionRace?.dress ?? null;
@@ -1134,7 +1140,17 @@ async function mountRace(container, context, params, owned = []) {
     The mouse on the external views (game/camera-look.js): moving it looks round, the wheel zooms, and the look eases
     back after two seconds. Not while the camera is flown free, which has the mouse to itself, nor in a headset.
   */
-  const mouseLook = createCameraLook(() => lookOptions(context.settings));
+  // The wheel's zoom on each view is kept for the next games, saved once the wheel rests.
+  let zoomSave = null;
+  const mouseLook = createCameraLook(() => lookOptions(context.settings), {
+    saved: context.settings.cameraZoom,
+    onZoom: (zooms) => {
+      context.settings.cameraZoom = zooms;
+      clearTimeout(zoomSave);
+      zoomSave = setTimeout(() => saveSettings(context.settings), 400);
+    },
+  });
+  cleanups.push(() => { if (zoomSave !== null) { clearTimeout(zoomSave); saveSettings(context.settings); } });
   const lookFree = () => !flyer?.enabled && !host.presenting && !paused && !context.optionsDialog?.isConnected;
   const onLookMove = (e) => { if (lookFree() && viewMode !== 0) mouseLook.move(e.movementX ?? 0, e.movementY ?? 0); };
   const onLookWheel = (e) => { if (lookFree() && viewMode !== 0) { e.preventDefault(); mouseLook.wheel(viewMode, e.deltaY); } };

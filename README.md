@@ -25,6 +25,10 @@ free of charge.
 
 - **Complete single-player racing:** Circuit, Rally, Summit Rumble, drag racing, tournaments, driver
   profiles, results and a Hall of Fame, with up to eight trucks.
+- **Multiplayer:** online rooms through a server browser, up to 16 players, and classic TCP/IP play
+  with the original game (retail and Community Patch 3).
+- **Party modes:** Hockey, Soccer, Tag, Cops & Robbers and Race & Rumble, with teams, roles and
+  rules set in Options.
 - **Faithful simulation:** clean-room truck physics, collisions and CPU drivers running in a Web Worker.
 - **Broad content support:** MTM2 Beta 10 through Community Patch 3, plus tracks from MTM1, CART
   Precision Racing and both 4x4 Evolution games.
@@ -127,15 +131,33 @@ Gamepads use the browser's standard mapping. VR controllers follow the WebXR `xr
   disqualifications, timing slips and drag weekends based on Community Patch 3's documented rules.
 - Explore any non-race track in Free Roam. This is also how mission tracks without checkpoints from
   4x4 Evolution are driven.
+- Play the party modes, OpenMTM2 additions that were never in the game: Hockey on Breakneck Ridge's
+  frozen lake and Soccer on Highlands Rally (time limit and sudden death), Tag (proximity points),
+  Cops & Robbers, and Race & Rumble (classic racer and blocker teams, or a timed block). Pick each
+  truck's team colour and role in the Computer Opponents dialog. Party modes also run on free roam
+  tracks. See [the extensions guide](docs/EXTENSIONS.md).
 - CPU trucks contest the zone in Rumble events, while tire tracks, dust, sparks, splashes and moving
   scenery bring the race to life.
+
+### Multiplayer
+
+- **Online rooms:** choose **Multiplayer**, then **Online rooms**. The default server is
+  `multiplayer.openmtm2.workers.dev`. Browse, create or join rooms (public, password or code), share
+  an invite link, and race with up to 16 players and computer opponents. The room owner can also
+  pick a party mode.
+- **Classic TCP/IP:** host or join games with the original MTM2 (retail 2.00.42 or Community
+  Patch 3) by IP address, through a small desktop helper from the OpenMTM2 Server project.
+- Each machine simulates its own truck; remote trucks are smoothed, and results are shared at the end.
+
+See [the multiplayer guide](docs/MULTIPLAYER.md) for the protocols, ports and server setup.
 
 ### Simulation, cameras and HUD
 
 - The truck simulation is a clean-room implementation of the original game's documented behaviour:
   suspension, tires, drivetrain, collisions and AI all advance at a fixed 60 Hz in a worker.
 - Ten camera views include chase, cockpit and track cameras. The cockpit has its dashboard, steering
-  wheel, shifter and mirror; Z mode adds zoom and orbit, while Inertia pulls back with speed.
+  wheel, shifter and mirror; Z mode adds zoom and orbit, while Inertia pulls back with speed. The
+  mouse looks round the exterior views, and the wheel's zoom on each view is kept between games.
 - The HUD recreates the game's timing board, Lead and Back gaps, speedometer, tachometer, gear strip,
   finder ring, course map and message bar. Speed can be shown in MPH or KPH.
 
@@ -232,6 +254,8 @@ The project is under active development. Completed milestones and remaining work
 |---|---|
 | [Project plan](docs/PLAN.md) | Milestones, completed work and remaining tasks |
 | [Architecture](docs/ARCHITECTURE.md) | Modules, workers, storage and application data flow |
+| [Multiplayer](docs/MULTIPLAYER.md) | Online rooms, classic TCP/IP play and the server |
+| [Extensions](docs/EXTENSIONS.md) | The party modes and how to add one |
 | [VR](docs/VR.md) | Headset setup, controls and implementation |
 | [Visuals](docs/VISUALS.md) | Enhanced terrain, water, weather, lighting and scenery |
 | [Standalone asset inventory](docs/STANDALONE_ASSETS.md) | Original MTM2 asset dependencies that need replacement for a self-contained release |

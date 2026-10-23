@@ -215,8 +215,8 @@ test("the Volumetric weather slider: Default where a preset turns it on, None wh
 test("version 11 moves shipped mode settings into extension-owned panels", async () => {
   const { migrateSettings } = await import("../src/app/settings.js");
   const moved = migrateSettings({ version: 10, hockeyGoals: 7, tagMinutes: 12 });
-  assert.deepEqual(moved.extensions.hockey, { goals: 7 });
-  assert.deepEqual(moved.extensions.tag, { minutes: 12 });
+  assert.deepEqual(moved.extensions.hockey, { goals: 7, minutes: 10, suddenDeath: true });
+  assert.deepEqual(moved.extensions.tag, { minutes: 12, proximity: true, zoneFt: 400, nearPoints: 1, farPoints: 5, itDrain: 1 });
   assert.ok(!("hockeyGoals" in moved));
   assert.ok(!("tagMinutes" in moved));
 });

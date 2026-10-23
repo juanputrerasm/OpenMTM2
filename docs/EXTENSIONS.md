@@ -58,12 +58,14 @@ export const MY_EXTENSION = Object.freeze({
   trackLocked: false,             // true when the mode owns the track choice
   keepsRace: false,               // true to play on the track's own race: checkpoints, laps and its ending
   minEntrants: 2,                 // trucks the mode needs (the player counts unless spectating); omit for none
+  teamPicker: null,               // a team mode: (settings) => { teams, teamNames, teamColours, roles, roleColours }
   weather: null,                  // null uses the player's weather; a number locks it
   detailLevel: null,              // null uses the normal setting
 });
 ```
 
-Settings may be `type: "number"` or `type: "boolean"` (a checkbox). Register the manifest in
+Settings may be `type: "number"`, `type: "boolean"` (a checkbox) or `type: "select"` (with `options`, each
+`{ value, label }`). Register the manifest in
 `game/extensions/loader.js`. Add an entry to `ADAPTERS` in `race-loader.js`. Its `prepare` returns only the pieces
 the mode needs; the other members (labels and their colours, map marks and points, the arrow's truck, the finder's
 target, the result time, the HUD, the network state) are listed at the top of that file:
@@ -107,6 +109,19 @@ timing, trucks, collisions and race transport. Data returned by `view` must be s
 If the extension draws anything, register one scene adapter in `render/extensions/loader.js`. It returns
 `updateMarker` and `dispose`; a replay receives the same plain `dress` data. A `marker` colour in the dress asks
 for the arrow over one truck (the adapter's `markerTarget`).
+
+## Teams, start grid and names
+
+- **Team picks.** A mode with a `teamPicker` (Hockey, Soccer, Race & Rumble) lists the player and each picked
+  truck in the Computer Opponents dialog, each with a team colour and, where the mode has roles, a role, "Auto"
+  leaving it to the mode. The picks are kept below `settings.teamPicks.<id>` by the player (`@player`) and by truck
+  file, and reach `prepare` as `ctx.picks`. Trucks left on Auto join the smallest team. An online room keeps its own
+  teams.
+- **Start grid.** A track with fewer start slots than trucks (a free roam level has one, or none) gets more for a
+  party mode (`game/race-setup.js` `fillGrid`): behind and beside its first slot, or its start, in pairs 30 ft
+  apart, a row every 40 ft, facing its way, riding as high over the ground as the first slot, none within 20 ft of
+  another. A room fills all eight, the same on every machine. Spectator mode works on these tracks too.
+- **Names** are on (drivers' names) when a party mode starts; the Names key cycles them as usual.
 
 ## Shared presentation
 
@@ -152,15 +167,15 @@ machine sees slightly different copies of the other trucks. **The room owner's m
 What each shipped mode sends:
 
 - **Tag:** It, the points, the time as It, the opening hold, who may not be tagged back and until
-  when, the last tag, the end.
+  when, the last tag, the end, and the owner's scoring rules.
 - **Soccer:** as Hockey, the ball for the puck.
 - **Cops & Robbers:** the robber, the points and captures, the time safe, the last capture, the count of
   captures and where the robber was set down (a follower that drives the robber sets its own truck down there),
   the end.
-- **Race & Rumble:** the sides, and the end; the times come from the results exchange as in a race.
+- **Race & Rumble:** the mode, the teams and roles, and the end; the times come from the results exchange as in a race.
 - **Hockey:**
   - the teams, the score, each truck's goals, the phase and its timer, the last touch, the last
-    event, the number of face-offs and the end;
+    event, the number of face-offs, the time played, sudden death and the end;
   - the puck's position, velocity, rates and angles. A follower snaps its own puck to them, and
     its local physics moves the puck in between.
   - On the first state and at every face-off, a follower puts its own trucks on their spots for
@@ -193,7 +208,12 @@ The level places the puck at 22 ft, below the 28.5 ft ice. Hockey starts it at r
 surface. Trucks use gravel grip on the frozen water because the original ice grip and at-rest clamp leave
 a stopped truck unable to drive away. Sounds and wheel effects still identify the surface as ice.
 
-The player's team is red or blue at random. Computer trucks alternate starting with the other team, so
+Options sets a time limit (0 to 99 minutes, 0 none, 10 by default) and sudden death (on by default), for Hockey
+and Soccer alike. When the time runs out the side ahead wins; level, play goes on and the next goal wins
+(the HUD reads "Sudden death"); with sudden death off a level game ends a draw. The clock counts from the
+countdown's end, face-offs and celebrations included; time up during a celebration is judged after it.
+
+The player's team is red or blue at random, unless picked in the Computer Opponents dialog. Computer trucks alternate starting with the other team, so
 team sizes differ by at most one. Red defends the low-x goal. Driver labels use team colors. Goal frames
 are tinted red and blue after their texture is made grey enough to accept the tint. Replays redraw the
 boards and goal tints.
@@ -222,15 +242,18 @@ trucks recover upright like the player and are not lifted merely for moving slow
 ## Shipped extension: Tag
 
 Tag runs on any track and any weather that track permits. Round length is 1 to 99 minutes, with 5 as the
-default. Time begins after the normal countdown.
+default. Time begins after the normal countdown. Options sets the proximity points: on or off, the zone's size
+(50 to 2000 ft, 400 by default), the points a second beside It and at the zone's edge (0 to 20, 1 and 5 by
+default) and the points It loses a second (0 to 20, 1 by default).
 
 One truck is selected as It. It remains in Park for 5 seconds after the countdown while the field gets
 away, although another truck can still shove it. A hull contact passes It to the touched truck. There is
 no hold after a tag. The new It cannot tag the previous It back for 10 seconds.
 
-Every truck starts with 100 points. After the opening hold, each whole second gives a free truck within
-150 ft of It (on the ground) `ceil(5 x (1 - d / 150))` points, 1 at the edge to 5 alongside, and nothing
-farther off; It loses 1. A tag transfers at least 8 and at most 28 points from the victim to the
+Every truck starts with 100 points. After the opening hold, each whole second gives a free truck inside the
+zone round It (on the ground, `d` under the zone's size `Z`) `round(near + (far - near) x d / Z)` points, by
+default 1 alongside to 5 at the edge, so keeping a distance pays; nothing farther off, or with the points off.
+It loses its drain. A tag transfers at least 8 and at most 28 points from the victim to the
 tagger, capped by the victim's points and scaled by the victim's shared place. Places sort by points and
 then entry order. The HUD lists scores like a Rumble, the player's rate now ("+3 a second" or "too far from
 It") and each truck's time as It.
@@ -244,8 +267,9 @@ target by travel time over 80 ft/s up to 1.5 seconds. It can route around a tall
 target 14 ft higher by a slope step, and use a ramp facing the target when still at least 140 ft away.
 With no legal target it wanders.
 
-Free computer trucks do not drive laps. They shadow It: a point 60 to 130 ft from It on the truck's own
-side, turned up to 0.8 radians round it, which follows It as it moves, at up to 80 ft/s slowing as they reach
+Free computer trucks do not drive laps. They shadow It where the zone pays best: a point 60 to 92 percent of
+the zone out from It when the edge pays more (240 to 368 ft by default), 40 to 87 percent when beside It pays more,
+150 to 300 ft with the points off, on the truck's own side, turned up to 0.8 radians round it, which follows It as it moves, at up to 80 ft/s slowing as they reach
 it. When It comes within 45 ft, about 55 percent hide (high ground, a ridge, cover or a ramp away) and the
 rest flee, until It is 130 ft behind. Aims last 4 to 8 seconds. Their roaming rectangle is the course extent
 plus 700 ft, or a 1400 ft area around the grid when no course covers ground. A truck calls the helicopter
@@ -300,18 +324,24 @@ weather, 1 to 99 minutes with 20 as the default, at least two trucks.
 
 ## Shipped extension: Race & Rumble
 
-After the community's rules (mtm2.com/~mtmg/rnr.php). Circuit tracks only, the laps as the length (3 by
-default), at least two trucks. The race is the track's own (`keepsRace`): checkpoints, laps, the countdown,
-the final lap and the ending.
+Circuit tracks only, the laps as the length (3 by default), at least two trucks. The race is the track's own
+(`keepsRace`): checkpoints, laps, the countdown, the final lap and the ending. Options picks one of two modes:
 
-- Two sides, the Racers and the Blockers (a truck's side is its role). The player races, or blocks with "Play as
-  blocker"; the others alternate from the other side, so the sides differ by at most one.
-- Racers drive the course (computer racers on the course's autopilot). Blockers roam and need not finish a lap:
-  computer blockers drive at 95 ft/s for a point ahead of the nearest racer still racing (its velocity times the
-  distance over 90 ft/s, at most 2 s).
-- The race is over as soon as any racer finishes, and the Racers win. A race left with no racer home goes to the
-  Blockers.
-- Places: the winning side first; racers by their finish (a finished racer by its time, ahead of those still
-  racing, those by race place), blockers by race place. Points: 10 a truck on the winning side, 4 on the other.
-- Labels and map dots in the sides' colours (red Racers, blue Blockers), with the side. A blocker's finder points
-  at the nearest racer.
+- **Classic**, after the community's rules (mtm2.com/~mtmg/rnr.php): teams of two, a Racer and a Blocker in each,
+  one team for every two trucks (at least two, four at most: red, blue, green, yellow). The first racer home wins
+  it for its team. Teams and roles come from the Computer Opponents dialog; a truck left on Auto joins the
+  smallest team in the role it lacks, a racer first (the player's role is Racer, or Blocker with "Play as blocker").
+  Places: the teams in order (the winner, then by each team's racer: one home by its time, the others by race
+  place), its racer ahead of its blocker.
+- **Timed block**: two sides, the Racers and the Blockers (a truck's side is its role, picked in the dialog). The
+  Racers win as soon as any racer finishes within the time limit (1 to 99 minutes, 5 by default); when it runs out
+  first, the Blockers win. The HUD warns of the last minute. Places: the winning side first; racers by their finish,
+  blockers by race place.
+
+Racers drive the course (computer racers on the course's autopilot). Blockers roam and need not finish a lap:
+a computer blocker drives at 95 ft/s for a point ahead of its target (its velocity times the distance over 90 ft/s,
+at most 2 s). Its target is the nearest racer of another team still racing, unless a blocker of another team is
+within 150 ft of its own racer and nearer to it than that racer: then it fights that blocker. With no racer left to
+stop it goes for the nearest enemy blocker. Points: 10 a truck on the winning team, 4 on the others. Labels say
+Racer or Blocker under each name, in the team's colour, as are the map dots. A blocker's finder points at the
+nearest racer of another team.

@@ -1,7 +1,8 @@
 /*
   The port's own mouse on the external cameras (not the game's): moving the mouse looks round the truck, the wheel
   zooms, and Backspace held looks back. A look eases back to the view's own after LOOK_RETURN_S seconds without
-  moving the mouse; the zoom stays, for each view on its own, until the view is chosen again with the wheel.
+  moving the mouse; the zoom stays, for each view on its own, until the view is chosen again with the wheel, and is
+  kept for the next games (`settings.cameraZoom`, by view).
   Options, Advanced, Cameras: "Free look" off leaves the mouse's movement alone (the wheel still zooms), "Reverse free
   look" turns it the other way on both axes, and "Hold free look" keeps a look where it was left, with no easing back.
   Pure: the screen feeds it the mouse and the keys and reads `yaw`, `pitch`, `zoom` and `back` each frame.
@@ -23,10 +24,24 @@ export function lookOptions(settings = {}) {
   return { enabled: settings.freeLook !== false, invert: settings.freeLookInvert === true, hold: settings.freeLookHold === true };
 }
 
-/** `options`: a function giving `lookOptions` now, read on every movement and step, so a change in Options applies at once. */
-export function createCameraLook(options = () => ({ enabled: true, invert: false, hold: false })) {
-  let yaw = 0, pitch = 0, idle = Infinity, back = false;
+/** The zooms kept from the last games (`settings.cameraZoom`, `{ [view]: factor }`), each held to the range. */
+export function storedZooms(stored) {
   const zooms = new Map();
+  for (const [mode, value] of Object.entries(stored && typeof stored === "object" ? stored : {})) {
+    const v = Number(value);
+    if (Number.isFinite(v) && v > 0 && /^\d+$/.test(mode)) zooms.set(Number(mode), Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, v)));
+  }
+  return zooms;
+}
+
+/**
+ * `options`: a function giving `lookOptions` now, read on every movement and step, so a change in Options applies at once.
+ * `saved`: the zooms to start from (`storedZooms`' input), and `onZoom(zooms)`, told of each wheel change with every
+ * view's zoom as `{ [view]: factor }`, to keep them.
+ */
+export function createCameraLook(options = () => ({ enabled: true, invert: false, hold: false }), { saved = null, onZoom = null } = {}) {
+  let yaw = 0, pitch = 0, idle = Infinity, back = false;
+  const zooms = storedZooms(saved);
   return {
     /** The mouse moved by `dx`, `dy` pixels: look round (right and down positive on the screen). */
     move(dx, dy) {
@@ -45,6 +60,7 @@ export function createCameraLook(options = () => ({ enabled: true, invert: false
       if (!deltaY) return;
       const now = zooms.get(mode) ?? 1;
       zooms.set(mode, Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, now * (deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP))));
+      onZoom?.(Object.fromEntries(zooms));
     },
     /** Backspace down or up. */
     setBack(on) { back = !!on; },

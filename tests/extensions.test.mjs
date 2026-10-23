@@ -12,7 +12,7 @@ import {
   AIM_MIN_S, AIM_MAX_S, BREAK_FT, COVER_REACH_FT, FLANK_FT, HIDE_STANDOFF_FT, IT_ARROW, IT_START_HOLD_S,
   PRESSED_COVER_SHARE, ROAM_FT, ROAM_MARGIN_FT, SHADOW_MAX_FT, SHADOW_MIN_FT, TAG_BACK_S, TAG_ZONE_FT, chasePoint, clampToRect,
   coverBetween, coverOf, createTag, createTagDriver, fleePoint, flankPoint, hideBehind, hideScore, rampAway, rampLaunch,
-  roamRect, routePoint, tagDrivePoint, tagHeld, tagItDrain, tagPlaces, tagRanks, tagSafe, tagStep, tagTransfer, tagZoneRate, wanderPoint,
+  roamRect, routePoint, tagDrivePoint, tagHeld, tagItDrain, tagPlaces, tagRanks, tagSafe, tagScoring, tagShadowBand, tagStep, tagTransfer, tagZoneRate, wanderPoint,
 } from "../src/game/extensions/tag.js";
 import { WORLD_FT } from "../src/shared/scene-frame.js";
 import { GAME_MODES, raceLengthLabel } from "../src/game/menu-data.js";
@@ -172,8 +172,8 @@ test("on the rink the trucks take the frozen water as gravel; the rest of the gr
 
 test("Tag: It is held 5 s at the start without draining, a touch hands it on with no post-tag hold, and may not tag back for 10 s", () => {
   const tag = createTag(3, () => 0.5);
-  // Three trucks 140 ft apart: each free truck is at the zone's edge and scores 1 a second.
-  const P = [[0, 0, 0], [140, 0, 0], [70, 0, 140 * Math.sqrt(3) / 2]];
+  // Three trucks 10 ft apart: each free truck is right beside It and scores 1 a second.
+  const P = [[0, 0, 0], [10, 0, 0], [5, 0, 10 * Math.sqrt(3) / 2]];
   assert.equal(tag.it, 1);
   assert.ok(tagHeld(tag, 1, IT_START_HOLD_S - 0.1) && !tagHeld(tag, 0, IT_START_HOLD_S - 0.1));
   assert.equal(tagStep(tag, IT_START_HOLD_S - 0.1, 1, [[0, 1]], P), null, "no tag while It is held at the start");
@@ -194,28 +194,44 @@ test("Tag: It is held 5 s at the start without draining, a touch hands it on wit
   assert.deepEqual(tagPlaces(tag), [3, 1, 2]);
 });
 
-test("Tag scores a free truck by its distance from It (1 to 5 a second inside 150 ft, nothing beyond) and -1/s for It", () => {
-  assert.equal(TAG_ZONE_FT, 150);
-  assert.equal(tagZoneRate(0), 5);
-  assert.equal(tagZoneRate(40), 4);
+test("Tag scores a free truck by its distance from It (1 beside It to 5 at the zone's 400 ft edge, nothing beyond) and -1/s for It", () => {
+  assert.equal(TAG_ZONE_FT, 400);
+  assert.equal(tagZoneRate(0), 1);
   assert.equal(tagZoneRate(100), 2);
-  assert.equal(tagZoneRate(149), 1);
-  assert.equal(tagZoneRate(150), 0);
+  assert.equal(tagZoneRate(200), 3);
+  assert.equal(tagZoneRate(399), 5, "the farther the more");
+  assert.equal(tagZoneRate(400), 0);
   assert.equal(tagZoneRate(Infinity), 0);
   const tag = createTag(3, () => 0);
   assert.equal(tag.it, 0);
-  // Truck 1 right beside It, truck 2 far away.
-  const P = [[0, 0, 0], [10, 0, 0], [900, 0, 0]];
+  // Truck 1 near the zone's edge, truck 2 far outside it.
+  const P = [[0, 0, 0], [390, 0, 0], [900, 0, 0]];
   tagStep(tag, 0, 5, [], P);
   assert.deepEqual(tag.points, [100, 100, 100], "no score change during the 5 s start hold");
   tagStep(tag, IT_START_HOLD_S, 0.4, [], P);
   tagStep(tag, IT_START_HOLD_S + 0.4, 0.4, [], P);
   assert.deepEqual(tag.points, [100, 100, 100], "under 1 s accumulated: no whole second ticked yet");
   tagStep(tag, IT_START_HOLD_S + 0.8, 0.4, [], P);
-  assert.deepEqual(tag.points, [99, 105, 100], "1 s crossed: It loses 1, the close truck gains 5, the far one nothing");
+  assert.deepEqual(tag.points, [99, 105, 100], "1 s crossed: It loses 1, the truck at the edge gains 5, the far one nothing");
   tagStep(tag, IT_START_HOLD_S + 1.2, 4, [], P);
   assert.equal(tagItDrain(5), 5);
   assert.deepEqual(tag.points, [95, 125, 100]);
+});
+
+test("Tag's proximity scoring comes from Options: off, its zone, its points either end and It's drain", () => {
+  assert.deepEqual(tagScoring({}), { proximity: true, zoneFt: 400, nearPoints: 1, farPoints: 5, itDrain: 1 });
+  assert.deepEqual(tagScoring({ zoneFt: 10, farPoints: 50, itDrain: -3 }), { proximity: true, zoneFt: 50, nearPoints: 1, farPoints: 20, itDrain: 0 }, "held to the ranges");
+  const off = tagScoring({ proximity: false });
+  assert.equal(tagZoneRate(10, off), 0, "off: no proximity points");
+  const close = tagScoring({ zoneFt: 150, nearPoints: 5, farPoints: 1, itDrain: 2 });
+  assert.equal(tagZoneRate(0, close), 5, "the closer the more, when asked for");
+  assert.equal(tagZoneRate(149, close), 1);
+  const tag = createTag(2, () => 0, close);
+  tagStep(tag, IT_START_HOLD_S, 1, [], [[0, 0, 0], [0, 0, 0]]);
+  assert.deepEqual(tag.points, [98, 105], "It loses its set drain");
+  assert.deepEqual(tagShadowBand(tagScoring({})), [240, 368], "paid more far off: the shadow keeps out near the edge");
+  assert.deepEqual(tagShadowBand(close), [60, 131], "paid more close in: nearer It");
+  assert.deepEqual(tagShadowBand(off), [150, 300], "off: clear of It");
 });
 
 test("Tag's point transfer scales with the victim's place and takes at most what the victim has left", () => {

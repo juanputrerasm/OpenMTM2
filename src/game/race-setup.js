@@ -121,3 +121,39 @@ export function rumbleGrid(grid, zone) {
     return { ...slot, pos: [x, top, z], heading: Math.atan2(cx - x, cz - z), moved: true };
   });
 }
+
+/**
+ * A port addition for the party modes (docs/EXTENSIONS.md): a track with fewer start slots than trucks (a free roam
+ * level, whose SIT or script places one truck or none) gets more, set out behind and beside its first slot (or its
+ * `start` when it has none) in pairs `PARTY_GRID_ACROSS_FT` apart, a row every `PARTY_GRID_BACK_FT`, all facing its way.
+ * Each new slot rides as high over the ground (`heightAt(x, z)`, feet) as the first one does, and none comes within
+ * `PARTY_GRID_CLEAR_FT` of a slot already there. A grid that holds `count` already is returned as it is.
+ */
+export const PARTY_GRID_ACROSS_FT = 30, PARTY_GRID_BACK_FT = 40, PARTY_GRID_CLEAR_FT = 20;
+/** How high over the ground a filled slot is held when the first one gives no height to copy, feet (MTM2's grids). */
+const PARTY_RIDE_FT = 6;
+export function fillGrid(grid, count, heightAt = null, start = null) {
+  const slots = grid ?? [];
+  if (slots.length >= count) return slots;
+  const first = slots[0] ?? (start?.pos ? { file: "", pos: [...start.pos], heading: start.heading ?? 0 } : null);
+  if (!first) return slots;
+  const out = slots.length ? [...slots] : [first];
+  const h = first.heading ?? 0;
+  const fwd = [Math.sin(h), Math.cos(h)], right = [Math.cos(h), -Math.sin(h)];
+  const ground = (x, z) => (heightAt ? heightAt(x, z) : null);
+  const base = ground(first.pos[0], first.pos[2]);
+  const ride = base === null || !Number.isFinite(base) ? null : Math.max(2, Math.min(20, first.pos[1] - base));
+  const clear = (x, z) => out.every((slot) => Math.hypot(slot.pos[0] - x, slot.pos[2] - z) >= PARTY_GRID_CLEAR_FT);
+  for (let row = 0; out.length < count && row < 16; row++) {
+    for (const across of [0, 1, -1, 2, -2]) {
+      if (out.length >= count) break;
+      const x = first.pos[0] - fwd[0] * row * PARTY_GRID_BACK_FT + right[0] * across * PARTY_GRID_ACROSS_FT;
+      const z = first.pos[2] - fwd[1] * row * PARTY_GRID_BACK_FT + right[1] * across * PARTY_GRID_ACROSS_FT;
+      if (!clear(x, z)) continue;
+      const g = ground(x, z);
+      const y = ride !== null && Number.isFinite(g) ? g + ride : g !== null && Number.isFinite(g) ? g + PARTY_RIDE_FT : first.pos[1];
+      out.push({ file: "", pos: [x, y, z], heading: h, filled: true });
+    }
+  }
+  return out;
+}

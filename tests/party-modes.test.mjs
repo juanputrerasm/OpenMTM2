@@ -4,14 +4,18 @@
 */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { hockeySpot, hockeyStep, createHockey, toLocal } from "../src/game/extensions/hockey.js";
+import { hockeySpot, hockeyStep, hockeyTimeLeft, hockeyWinner, createHockey, toLocal } from "../src/game/extensions/hockey.js";
 import { BALL_WALL_HEIGHT_FT, PITCH_HALF_WIDTH_FT, isSoccerTrack, soccerPitch } from "../src/game/extensions/soccer.js";
 import {
   CAPTURE_POINTS, ESCAPE_FT, GRACE_S, STUCK_S, cnrHeld, cnrHeliAllowed, cnrPlaces, cnrStep, createCnr, escapeSpot, offWheels,
 } from "../src/game/extensions/cops-robbers.js";
-import { BLOCKER, RACER, blockTarget, racerHome, rnrPlaces, rnrTeamPlaces, rnrTeams, rnrWinner } from "../src/game/extensions/race-rumble.js";
-import { extensionFinderTarget, extensionMapMarks, extensionNetFromWire, extensionNetToWire } from "../src/game/extensions/race-loader.js";
-import { teamsOf, twoTeams } from "../src/game/extensions/teams.js";
+import {
+  BLOCKER, RACER, RNR_CLASSIC, RNR_TIMED, blockTarget, blockerTarget, racerHome, rnrPlaces, rnrTeamPlaces, rnrTeams, rnrWinner,
+} from "../src/game/extensions/race-rumble.js";
+import { extensionFinderTarget, extensionMapMarks, extensionNetFromWire, extensionNetToWire, extensionTruckLabels, prepareExtensionRace } from "../src/game/extensions/race-loader.js";
+import { PLAYER_PICK, entrantTeamPicks, extensionById, setTeamPick, teamPickerFor } from "../src/game/extensions/loader.js";
+import { pickedTeams, teamsOf, twoTeams } from "../src/game/extensions/teams.js";
+import { fillGrid } from "../src/game/race-setup.js";
 
 /** Highlands Rally's ball and goal posts as CASTLE.SIT places them (MTM1 GAME.POD). */
 const CASTLE = [
@@ -100,26 +104,129 @@ test("Cops & Robbers: the robber scores its free seconds, calls the helicopter o
   assert.deepEqual(escapeSpot([[0, 0, 0], [200, 0, 0]], [[50, 0, 0]]), [200, 0, 0], "else the farthest");
 });
 
-test("Race & Rumble: two sides, Racers and Blockers; the first racer home ends it and wins for the Racers", () => {
-  const { teams, roles } = rnrTeams(6);
+test("Race & Rumble, timed block: two sides, Racers and Blockers; the first racer home wins for the Racers, else the Blockers", () => {
+  const { teams, roles } = rnrTeams(6, false, { variant: RNR_TIMED });
   assert.deepEqual(roles, [RACER, BLOCKER, RACER, BLOCKER, RACER, BLOCKER]);
   assert.deepEqual(teams, roles, "the side is the role");
-  assert.deepEqual(rnrTeams(5, true).roles, [BLOCKER, RACER, BLOCKER, RACER, BLOCKER], "the player may block");
+  assert.deepEqual(rnrTeams(5, true, { variant: RNR_TIMED }).roles, [BLOCKER, RACER, BLOCKER, RACER, BLOCKER], "the player may block");
+  assert.deepEqual(rnrTeams(4, false, { variant: RNR_TIMED, picks: [null, { role: RACER }, null, null] }).roles, [RACER, RACER, BLOCKER, BLOCKER],
+    "picked sides kept, the others even them out");
   const trucks = [
     { finished: false, raceTime: 0, place: 2 }, { finished: false, raceTime: 0, place: 1 },
     { finished: false, raceTime: 0, place: 3 }, { finished: false, raceTime: 0, place: 4 },
     { finished: false, raceTime: 0, place: 6 }, { finished: false, raceTime: 0, place: 5 },
   ];
   assert.ok(!racerHome(roles, trucks), "a blocker ahead on laps ends nothing");
-  assert.equal(rnrWinner(roles, trucks), BLOCKER, "left early with no racer home: the Blockers'");
+  assert.equal(rnrWinner(roles, trucks, teams, RNR_TIMED), BLOCKER, "the time up with no racer home: the Blockers'");
   trucks[2].finished = true; trucks[2].raceTime = 290;
   assert.ok(racerHome(roles, trucks), "one racer home is enough; the blockers need not finish");
-  assert.equal(rnrWinner(roles, trucks), RACER);
-  const places = rnrPlaces(teams, roles, trucks);
+  assert.equal(rnrWinner(roles, trucks, teams, RNR_TIMED), RACER);
+  const places = rnrPlaces(teams, roles, trucks, RNR_TIMED);
   assert.deepEqual(places, [2, 4, 1, 5, 3, 6], "the Racers first, the one home ahead, then the Blockers by race place");
   assert.deepEqual([...rnrTeamPlaces(teams, places)], [[RACER, 1], [BLOCKER, 2]]);
   const target = blockTarget(BLOCKER, [0, 0, 0], [{ index: 2, team: RACER, pos: [50, 0, 0], finished: false }, { index: 0, team: RACER, pos: [500, 0, 0], finished: false }]);
   assert.equal(target.index, 2, "a blocker goes for the nearest racer");
+});
+
+test("Race & Rumble, classic: teams of a racer and a blocker; the first racer home wins it for its team", () => {
+  const { teams, roles } = rnrTeams(6, false, { variant: RNR_CLASSIC });
+  assert.deepEqual(teams, [0, 1, 2, 0, 1, 2], "three teams of two");
+  assert.deepEqual(roles, [RACER, RACER, RACER, BLOCKER, BLOCKER, BLOCKER], "each with its racer and its blocker");
+  const picked = rnrTeams(4, false, { picks: [{ team: 1, role: BLOCKER }, { team: 1, role: RACER }, null, null] });
+  assert.deepEqual(picked, { teams: [1, 1, 0, 0], roles: [BLOCKER, RACER, RACER, BLOCKER] }, "the dialog's picks kept, the rest filled in");
+  assert.equal(rnrTeams(8, false).teams.filter((t) => t === 3).length, 2, "eight trucks: four teams");
+  const trucks = [
+    { finished: false, place: 3 }, { finished: true, raceTime: 300, place: 1 }, { finished: false, place: 2 },
+    { finished: false, place: 4 }, { finished: false, place: 6 }, { finished: false, place: 5 },
+  ];
+  assert.equal(rnrWinner(roles, trucks, teams, RNR_CLASSIC), 1, "truck 1's team: its racer home first");
+  assert.deepEqual(rnrPlaces(teams, roles, trucks, RNR_CLASSIC), [5, 1, 3, 6, 2, 4], "the winning team first, then by each team's racer, racer ahead of blocker");
+  // A blocker goes for the other teams' racer, unless an enemy blocker is on its own racer and nearer.
+  const field = [
+    { index: 0, team: 0, role: RACER, pos: [0, 0, 0], vel: [0, 0, 0], finished: false },
+    { index: 1, team: 1, role: RACER, pos: [400, 0, 0], vel: [0, 0, 0], finished: false },
+    { index: 2, team: 0, role: BLOCKER, pos: [100, 0, 0], vel: [0, 0, 0], finished: false },
+    { index: 3, team: 1, role: BLOCKER, pos: [40, 0, 0], vel: [0, 0, 0], finished: false },
+  ];
+  assert.equal(blockerTarget(2, field).index, 3, "the enemy blocker on its racer, and nearer: fight it");
+  field[3].pos = [1000, 0, 0];
+  assert.equal(blockerTarget(2, field).index, 1, "no threat: block the other racer");
+  assert.equal(blockerTarget(3, field).index, 0, "the other team's blocker goes for team 0's racer");
+});
+
+test("Race & Rumble's labels say who races and who blocks; the race takes the dialog's picks", () => {
+  const entrants = [{ name: "You", file: "A", player: true }, { name: "Mark", file: "B" }, { name: "Greg", file: "C" }, { name: "Rich", file: "D" }];
+  const extension = extensionById("race-rumble");
+  const race = prepareExtensionRace(extension, { entrants, length: 3, settings: { variant: "classic" }, picks: [{ team: 0, role: BLOCKER }, null, null, null] });
+  assert.equal(race.simulation.roles[0], BLOCKER);
+  assert.equal(race.simulation.variant, "classic");
+  const labels = extensionTruckLabels(race.dress, entrants, (entrant) => entrant.name);
+  assert.deepEqual(labels[0], ["You", "Blocker"]);
+  assert.deepEqual(labels.map((label) => label[1]).sort(), ["Blocker", "Blocker", "Racer", "Racer"]);
+  const timed = prepareExtensionRace(extension, { entrants, length: 3, settings: { variant: "timed", minutes: 4 } });
+  assert.equal(timed.simulation.minutes, 4);
+  assert.deepEqual(timed.simulation.teams, timed.simulation.roles);
+});
+
+test("the Computer Opponents dialog's picks: what each team mode asks, kept by player and truck file", () => {
+  assert.equal(teamPickerFor({}, "tag"), null, "Tag has no teams");
+  assert.equal(teamPickerFor({}, "hockey").teams, 2);
+  assert.deepEqual([teamPickerFor({}, "race-rumble").teams, teamPickerFor({}, "race-rumble").roles.length], [4, 2], "classic: a team and a role");
+  const timed = teamPickerFor({ extensions: { "race-rumble": { variant: "timed" } } }, "race-rumble");
+  assert.deepEqual([timed.teams, timed.roles.length], [0, 2], "timed block: the side alone");
+  const settings = {};
+  setTeamPick(settings, "hockey", PLAYER_PICK, { team: 1 });
+  setTeamPick(settings, "hockey", "B", { team: 7 });
+  const picks = entrantTeamPicks(settings, "hockey", [{ file: "A", player: true }, { file: "B" }, { file: "C" }]);
+  assert.deepEqual(picks, [{ team: 1 }, null, null], "a team out of range is not a pick");
+  assert.deepEqual(pickedTeams(4, [1, null, null, null], 2), [1, 0, 0, 1], "the rest even the teams out");
+  assert.deepEqual(pickedTeams(3, [null, null, null], 2, () => 0.9), twoTeams(3, () => 0.9), "no picks: the random split");
+});
+
+test("Hockey and Soccer: when the time runs out the side ahead wins; tied, sudden death, the next goal wins", () => {
+  const pitch = soccerPitch(CASTLE, pitchGround);
+  const at = (a, b, y = 266) => {
+    const { u, v, centre } = pitch.frame;
+    return [centre[0] + u[0] * a + v[0] * b, y, centre[1] + u[1] * a + v[1] * b];
+  };
+  const centre = at(0, 0);
+  const ahead = createHockey(pitch, [0, 1], 5, { minutes: 1 });
+  assert.equal(hockeyTimeLeft(ahead), 60);
+  ahead.score = [1, 0];
+  assert.equal(hockeyStep(ahead, centre, 59), null);
+  assert.equal(hockeyStep(ahead, centre, 1), "over", "time: the side ahead wins");
+  assert.equal(hockeyWinner(ahead), 0);
+  const tied = createHockey(pitch, [0, 1], 5, { minutes: 1 });
+  hockeyStep(tied, centre, 60);
+  assert.ok(tied.suddenDeath && tied.phase !== "over", "time, level: sudden death");
+  assert.equal(tied.event.kind, "sudden");
+  hockeyStep(tied, centre, 30);
+  assert.ok(tied.phase !== "over", "sudden death has no clock");
+  const g1 = pitch.goals[1], mid = (g1.mouth[0] + g1.mouth[1]) / 2;
+  tied.lastTouch = 0;
+  hockeyStep(tied, at(g1.along - 20, mid), 0.02);
+  hockeyStep(tied, at(g1.along + 8, mid), 0.02);
+  assert.deepEqual(tied.score, [1, 0]);
+  assert.equal(hockeyStep(tied, centre, 3), "over", "the goal in sudden death ends it after the celebration");
+  const draw = createHockey(pitch, [0, 1], 5, { minutes: 1, suddenDeath: false });
+  assert.equal(hockeyStep(draw, centre, 60), "over", "sudden death off: a draw");
+  assert.equal(hockeyWinner(draw), -1);
+  const untimed = createHockey(pitch, [0, 1], 5);
+  assert.equal(hockeyTimeLeft(untimed), null);
+  assert.equal(hockeyStep(untimed, centre, 6000), null, "no limit: first to the goals");
+});
+
+test("a party mode on a track with too few start slots gets a grid round the first", () => {
+  const grid = fillGrid([{ file: "", pos: [100, 16, 100], heading: 0 }], 6, () => 10);
+  assert.equal(grid.length, 6);
+  assert.ok(grid.every((slot) => slot.pos[1] === 16 && slot.heading === 0), "riding as high as the first, facing its way");
+  for (let i = 0; i < grid.length; i++) for (let j = i + 1; j < grid.length; j++) {
+    assert.ok(Math.hypot(grid[i].pos[0] - grid[j].pos[0], grid[i].pos[2] - grid[j].pos[2]) >= 20, "no two slots on each other");
+  }
+  assert.ok(grid.slice(1).every((slot) => slot.pos[2] <= 100), "behind or beside the first slot");
+  assert.equal(fillGrid([], 4, () => 10, { pos: [0, 16, 0], heading: 0 }).length, 4, "no slot: round the start");
+  const full = [{ pos: [0, 0, 0] }, { pos: [50, 0, 0] }];
+  assert.equal(fillGrid(full, 2), full, "a grid big enough is kept");
 });
 
 test("teams: two sides alternate from the player's; fixed teams in entry order", () => {

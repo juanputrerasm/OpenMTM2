@@ -4,8 +4,9 @@
 
   It is picked at random and held where it stands for 5 s after the countdown; a truck made It is
   not held, and may not tag back the truck that tagged it for 10 s. Each truck starts with the same
-  points; once the start hold is over, each whole second a free truck within 150 ft of It gains 1 to 5
-  points, the closer the more, and nothing farther off, while It loses 1; a tag moves points from the
+  points; once the start hold is over, each whole second a free truck inside the proximity zone round It
+  gains points (by default 1 alongside It up to 5 at the zone's edge, 400 ft: the farther the more), and
+  nothing farther off, while It loses 1. The zone and its points are set in Options; a tag moves points from the
   truck tagged to the one that tagged it, more when the victim is higher in the standings. Places go by
   points, the most the best. The rules (`createTag`, `tagStep`) run in
   the simulation worker after the race tick, with the hull touches of the step before.
@@ -13,7 +14,7 @@
   Computer trucks do not drive the course. It chases a truck it may tag, nearer first but with a bias
   toward those higher in the standings, going around a
   solid object and up a slope, and taking a ramp that faces its quarry. The others shadow It, keeping
-  60 to 130 ft from it where the points are, and break away (a run, or the far side of an object)
+  inside the zone where its points are best (`tagShadowBand`), and break away (a run, or the far side of an object)
   when It comes within 45 ft. Pure, so it runs under Node.
 */
 import { byVehicle, fromVehicles, localIndex, vehicleIndex } from "./net-wire.js";
@@ -30,6 +31,11 @@ export const TAG_EXTENSION = Object.freeze({
   length: Object.freeze({ key: "minutes", label: msg("Minutes"), default: DEFAULT_TAG_MINUTES, min: 1, max: 99 }),
   settings: Object.freeze([
     Object.freeze({ key: "minutes", legacyKey: "tagMinutes", label: msg("Round length"), type: "number", min: 1, max: 99, default: DEFAULT_TAG_MINUTES, suffix: msg("minutes") }),
+    Object.freeze({ key: "proximity", label: msg("Proximity points"), type: "boolean", default: true }),
+    Object.freeze({ key: "zoneFt", label: msg("Proximity zone"), type: "number", min: 50, max: 2000, default: 400, suffix: msg("feet") }),
+    Object.freeze({ key: "nearPoints", label: msg("Points a second beside It"), type: "number", min: 0, max: 20, default: 1 }),
+    Object.freeze({ key: "farPoints", label: msg("Points a second at the zone's edge"), type: "number", min: 0, max: 20, default: 5 }),
+    Object.freeze({ key: "itDrain", label: msg("Points It loses a second"), type: "number", min: 0, max: 20, default: 1 }),
   ]),
   acceptsTrack: () => true,
   trackLocked: false,
@@ -64,13 +70,20 @@ export const TAG_TRANSFER_MIN = 8;
 export const TAG_TRANSFER_MAX = 28;
 /** It treats a leader as this many feet closer when picking a quarry (not always the leader). */
 export const CHASE_RANK_FT = 55;
-/** Points lost per whole second while a truck is It, after the opening hold. */
+/** Points lost per whole second while a truck is It, after the opening hold (the default; Options sets it). */
 export const TAG_IT_DRAIN_PS = 1;
-/** A free truck this near It (feet, on the ground) scores each whole second, up to `TAG_ZONE_MAX_PS` right beside it. */
-export const TAG_ZONE_FT = 150;
-export const TAG_ZONE_MAX_PS = 5;
-/** A shadowing computer truck keeps this far from It, and breaks away when It comes nearer than `BREAK_FT`. */
-export const SHADOW_MIN_FT = 60, SHADOW_MAX_FT = 130, BREAK_FT = 45;
+/**
+ * The proximity zone's defaults: a free truck this near It (feet, on the ground) scores each whole second,
+ * `TAG_NEAR_PS` beside It rising to `TAG_FAR_PS` at the edge, so a truck is paid for keeping its distance.
+ */
+export const TAG_ZONE_FT = 400;
+export const TAG_NEAR_PS = 1, TAG_FAR_PS = 5;
+/** The scoring Options gives Tag (`tagScoring`): the zone on or off, its size, its points and It's drain. */
+export const TAG_SCORING = Object.freeze({ proximity: true, zoneFt: TAG_ZONE_FT, nearPoints: TAG_NEAR_PS, farPoints: TAG_FAR_PS, itDrain: TAG_IT_DRAIN_PS });
+/** A shadowing computer truck keeps this far from It with the default zone, and breaks away when It comes nearer than `BREAK_FT`. */
+export const SHADOW_MIN_FT = 240, SHADOW_MAX_FT = 368, BREAK_FT = 45;
+/** With the proximity points off, the shadow keeps clear of It in this band, feet. */
+export const SHADOW_OFF_FT = Object.freeze([150, 300]);
 /** A shy truck (`ctx.shy`, Cops & Robbers' robber) runs once the chaser is this near, and hides otherwise. */
 export const SHY_PRESS_FT = 220;
 /** Without a course to drive, a truck runs this far ahead of itself, away from It, and keeps within `HOME_FT` of home. */
@@ -96,9 +109,34 @@ export const HIDE_STANDOFF_FT = 36, FLANK_FT = 40;
 export const RAMP_MIN_HEIGHT = 6, RAMP_MIN_LENGTH = 16, RAMP_CHASE_FT = 140, RAMP_REACH_FT = 300;
 const MAP_MARGIN = 96;
 
-/** A game of Tag among `count` trucks, It picked by `random`. */
-export function createTag(count, random = Math.random) {
+/**
+ * Tag's scoring from its Options (`settingsForExtension`), each value held to its range: missing ones take the defaults.
+ */
+export function tagScoring(settings = {}) {
+  const num = (key, min, max) => {
+    const v = Number(settings?.[key]);
+    return Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : TAG_SCORING[key];
+  };
   return {
+    proximity: settings?.proximity === undefined ? TAG_SCORING.proximity : !!settings.proximity,
+    zoneFt: num("zoneFt", 50, 2000), nearPoints: num("nearPoints", 0, 20), farPoints: num("farPoints", 0, 20), itDrain: num("itDrain", 0, 20),
+  };
+}
+
+/**
+ * The distances a shadowing computer truck keeps from It, feet: where the zone pays best. Paid more far off, it stays
+ * 60 to 92 percent of the way out; paid more close in, 40 to 87 percent (the old 60 to 130 ft of a 150 ft zone).
+ */
+export function tagShadowBand(scoring = TAG_SCORING) {
+  if (!scoring.proximity) return [...SHADOW_OFF_FT];
+  const z = scoring.zoneFt;
+  return scoring.farPoints >= scoring.nearPoints ? [Math.round(z * 0.6), Math.round(z * 0.92)] : [Math.round(z * 0.4), Math.round(z * 0.87)];
+}
+
+/** A game of Tag among `count` trucks, It picked by `random`, scored by `scoring` (`tagScoring`). */
+export function createTag(count, random = Math.random, scoring = TAG_SCORING) {
+  return {
+    scoring: { ...TAG_SCORING, ...scoring },
     it: Math.min(count - 1, Math.floor(random() * count)),
     itTime: new Array(count).fill(0),
     points: new Array(count).fill(TAG_START_POINTS),
@@ -114,14 +152,18 @@ export function createTag(count, random = Math.random) {
 }
 
 /** Points drained from It over `seconds` whole seconds. */
-export function tagItDrain(seconds) {
-  return TAG_IT_DRAIN_PS * seconds;
+export function tagItDrain(seconds, scoring = TAG_SCORING) {
+  return scoring.itDrain * seconds;
 }
 
-/** Points per whole second for a free truck `distance` feet from It: 1 to 5 inside `TAG_ZONE_FT`, the closer the more, else 0. */
-export function tagZoneRate(distance) {
-  if (!(distance < TAG_ZONE_FT)) return 0;
-  return Math.max(1, Math.ceil(TAG_ZONE_MAX_PS * (1 - distance / TAG_ZONE_FT)));
+/**
+ * Points per whole second for a free truck `distance` feet from It: inside the zone, `nearPoints` beside It to
+ * `farPoints` at the edge, in a straight line rounded to the nearest point; nothing outside it, or with the zone off.
+ */
+export function tagZoneRate(distance, scoring = TAG_SCORING) {
+  if (!scoring.proximity || !(distance < scoring.zoneFt)) return 0;
+  const k = Math.max(0, distance) / scoring.zoneFt;
+  return Math.round(scoring.nearPoints + (scoring.farPoints - scoring.nearPoints) * k);
 }
 
 /** Truck `i`'s distance from It on the ground, feet, from `positions` (`[x, y, z]` each); Infinity without them. */
@@ -143,9 +185,10 @@ export function tagStep(tag, clock, dt, touches = [], positions = null) {
   const ticks = Math.floor(tag.second + 1e-9);
   if (ticks > 0) {
     tag.second = Math.max(0, tag.second - ticks);
-    const drain = tagItDrain(ticks);
+    const scoring = tag.scoring ?? TAG_SCORING;
+    const drain = tagItDrain(ticks, scoring);
     for (let i = 0; i < tag.points.length; i++) {
-      tag.points[i] = i === tag.it ? Math.max(0, tag.points[i] - drain) : tag.points[i] + tagZoneRate(itDistance(tag, positions, i)) * ticks;
+      tag.points[i] = i === tag.it ? Math.max(0, tag.points[i] - drain) : tag.points[i] + tagZoneRate(itDistance(tag, positions, i), scoring) * ticks;
     }
   }
   for (const [a, b] of touches) {
@@ -490,8 +533,9 @@ function pickFree(driver, ctx, pressed) {
     driver.kind = "cover";
   } else if (!pressed) {
     // The points are near It: keep a distance from it, on the truck's own side, moving round it now and then.
+    const [near, far] = ctx.shadow ?? [SHADOW_MIN_FT, SHADOW_MAX_FT];
     driver.angle = (ctx.random() - 0.5) * 1.6;
-    driver.shadow = SHADOW_MIN_FT + ctx.random() * (SHADOW_MAX_FT - SHADOW_MIN_FT);
+    driver.shadow = near + ctx.random() * (far - near);
     driver.point = clampToRect(shadowPoint(ctx.pos, ctx.itPos, driver.angle, driver.shadow), ctx.rect);
     driver.kind = "shadow";
   } else if (ctx.random() < PRESSED_COVER_SHARE) {
@@ -514,8 +558,9 @@ export function tagSpeed(driver, pos, point) {
 
 /**
  * The point this computer truck steers toward, and the kind of aim on `driver` (`createTagDriver`).
- * `role` is `"it"` or `"free"`. `ctx` is `{ clock, pos, itPos, quarry, rect, covers, ramps, heightAt, water, random, shy? }`;
- * a `shy` free truck runs and hides from It instead of shadowing it.
+ * `role` is `"it"` or `"free"`. `ctx` is `{ clock, pos, itPos, quarry, rect, covers, ramps, heightAt, water, random, shy?, shadow? }`;
+ * a `shy` free truck runs and hides from It instead of shadowing it; `shadow` is the band a shadow keeps from It
+ * (`tagShadowBand`, the default zone's without it).
  * `quarry` is the list `chasePoint` takes. The point it returns may be a step around a cover or up a slope;
  * `driver.point` stays the place it means to reach.
  */
@@ -540,7 +585,7 @@ export function tagDrivePoint(driver, role, ctx) {
   const stale = driver.kind === "chase" || driver.kind === "ramp";
   driver.wasPressed = pressed;
   // A run is over once It is left behind past the shadow's distance; a shadow breaks away when It comes close.
-  const clear = !ctx.shy && (driver.kind === "flee" || driver.kind === "cover") && itNear > SHADOW_MAX_FT;
+  const clear = !ctx.shy && (driver.kind === "flee" || driver.kind === "cover") && itNear > (ctx.shadow?.[1] ?? SHADOW_MAX_FT);
   // A shadow's place moves with It, so reaching it does not end it; its time does.
   const done = arrived && driver.kind !== "shadow";
   if (!driver.point || stale || ctx.clock >= driver.until || done || clear || (pressEdge && driver.kind === "shadow")) {
@@ -560,6 +605,7 @@ export function tagToWire(s, vehicleOf) {
     it: v(s.it), itTime: byVehicle(s.itTime, vehicleOf), points: byVehicle(s.points, vehicleOf), holdUntil: s.holdUntil,
     safe: v(s.safe), safeUntil: s.safeUntil, events: s.events, over: !!s.over,
     event: s.event ? { ...s.event, from: v(s.event.from), to: v(s.event.to) } : null,
+    ...(s.scoring ? { scoring: s.scoring } : {}),
   };
 }
 
@@ -570,10 +616,12 @@ export function tagFromWire(d, localOf, count) {
     it: Math.max(0, i(d.it)), itTime: fromVehicles(d.itTime, localOf, count, 0), points: fromVehicles(d.points, localOf, count, TAG_START_POINTS),
     holdUntil: Number(d.holdUntil) || 0, safe: i(d.safe), safeUntil: Number(d.safeUntil) || 0, events: d.events | 0, over: !!d.over,
     event: d.event ? { ...d.event, from: i(d.event.from), to: i(d.event.to) } : null,
+    ...(d.scoring ? { scoring: tagScoring(d.scoring) } : {}),
   };
 }
 
-/** Take the owner's state into a game of this machine (its `second` accumulator stays its own). */
+/** Take the owner's state into a game of this machine (its `second` accumulator stays its own; the owner's scoring rules). */
 export function tagAdopt(tag, state) {
   Object.assign(tag, { it: state.it, itTime: state.itTime, points: state.points, holdUntil: state.holdUntil, safe: state.safe, safeUntil: state.safeUntil, event: state.event, events: state.events });
+  if (state.scoring) tag.scoring = state.scoring;
 }
