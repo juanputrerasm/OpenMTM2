@@ -314,6 +314,13 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
           },
         }), spec.suffix ? t(spec.suffix) : null);
       }
+      if (spec.type === "boolean") {
+        return row(spec.label, el("input", {
+          type: "checkbox", class: "opt-switch", checked: !!current,
+          "aria-label": `${t(extension.name)}: ${t(spec.label)}`,
+          onchange: (event) => { setExtensionSetting(settings, extension, spec.key, !!event.target.checked); save(); },
+        }));
+      }
       return null;
     }).filter(Boolean),
   ]);
@@ -367,6 +374,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         save();
       } }, ...[0, 1, 2, 3, 4, 5, 6, 7].map((n) => el("option", { value: n, selected: n === (settings.defaultOpponents ?? 3) }, String(n)))),
       msg("How many computer trucks race by default; the Races screen picks which")),
+      menus,
     ]],
     [msg("Display"), [
       row(msg("Smooth textures"), el("input", {
@@ -389,7 +397,6 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       msg("Hold the race to this many frames a second")),
       toggle(msg("FPS counter"), "fpsCounter", msg("Show the frames per second in the corner of a race or replay (the FPS counter key switches it)")),
       toggle(msg("Backdrops"), "backdrops"),
-      menus,
       el("h3", {}, t("Effects")),
       toggle(msg("Tire tracks"), "tireTracks"), toggle(msg("Water splashes"), "waterSplash"),
       // One amount for both pictures (game/tire-effects.js `CLASSIC_DUST`, `RICH_DUST`): Few is the game's own puffs.
@@ -447,6 +454,8 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         set: (v) => { settings.evoGrassRange = v; settings.evoGrass = v > 0; save(); },
         title: msg("4x4 Evolution tracks: how far around the camera the grass is drawn, on every tile its .TEX marks for vegetation, pressed down under the trucks. Near is about the game's own. From the next race"),
       }),
+      toggle(msg("Ground box grain"), "groundBoxGrain", msg("With Ground detail on: its grain on the ground boxes too, the walls, buildings and signs built of them. Off, they keep their textures plain. From the next race")),
+      toggle(msg("No overlap on MTM1 tracks"), "mtm1NoOverlap", msg("With Terrain overlap on: the ground tiles of a Monster Truck Madness 1 track still meet edge to edge, as MTM1 draws them; the other tracks keep the two-pixel overlap. From the next race")),
       toggle(msg("MTM1 particles"), "mtm1Particles", msg("Monster Truck Madness 1's own particles and tracks: single points of the ground's colour thrown by the tires, which mark the ground where they land, and tracks darkened into the ground, in place of the dust, the spray and the tire tracks. From the next race")),
       toggle(msg("Original backdrops"), "originalBackdrops", msg("The game's own backdrops in place of HD ones (Community Patch 3's backdropsHD.pod), wherever an archive still has the original. From the next race")),
       toggle(msg("MTM1 sounds"), "mtm1Sounds", msg("Monster Truck Madness 1's skids from MTM2's SOUND.POD: its corner, wheelspin and brake skids. MTM1's engine is not in MTM2's archives; the engine stays MTM2's")),
@@ -470,6 +479,11 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       toggle(msg("Sonic trucks"), "sonicTrucks", msg("Professional only: the computer trucks drive as on a Sonic track, on every track")),
       row(msg("Computer drivers"), button(msg("Names..."), () => editDriverNames()), "The names of the computer drivers"),
       toggle(msg("Full Autopilot"), "fullAutopilot", msg("The truck drives itself")),
+      // CART Precision Racing's Skill Level (docs/CPR_PHYSICS.md 14.3; game/cpr-driver.js `cprAids`).
+      row(msg("CPR skill level"), el("select", { "aria-label": t("CPR skill level"), "data-opt": "CPR skill level", onchange: (event) => { settings.cprSkill = event.target.value; save(); } },
+        ...[["rookie", msg("Rookie")], ["intermediate", msg("Intermediate")], ["professional", msg("Professional")]]
+          .map(([value, label]) => el("option", { value, selected: (settings.cprSkill ?? "rookie") === value }, t(label)))),
+      msg("Under the CART Precision Racing physics, how much the game helps the player's car, as its Driving Aids. Rookie: full grip, Auto-Brake, Stay on track, anti-lock brakes, traction control and Spin Correction. Intermediate: four fifths of the grip, with Stay on track, anti-lock brakes, traction control and Spin Correction. Professional: four fifths of the grip, less still on grass, dirt and rocks, and no aids")),
       toggle(msg("Show hidden tracks"), "showHiddenTracks"),
       toggle(msg("Kooky horn"), "kookyHorn", msg("Three horns instead of one")),
       el("h3", {}, t("Cameras")),
@@ -479,6 +493,9 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       msg("The Camera key (V) steps through the views in the list only: the cockpit, Chase Near and Chase Far unless changed")),
       toggle(msg("Camera clearance"), "cameraClearance", msg("The chase camera keeps a few feet over the ground, easing back down after a crest. Off, it may touch the ground, as in the game")),
       toggle(msg("Z-mode cameras"), "zModeCameras", msg("Zoom with Shift and - or +, orbit with Insert and Delete, and the Inertia view, in any race without GOLD mode")),
+      toggle(msg("Free look"), "freeLook", msg("On the external cameras the mouse looks round, easing back after two seconds; the wheel zooms either way")),
+      toggle(msg("Reverse free look"), "freeLookInvert", msg("The mouse's look turns the other way, up and down and left and right")),
+      toggle(msg("Hold free look"), "freeLookHold", msg("A look stays where the mouse leaves it, without easing back")),
       el("h3", {}, t("App")),
       language, wording, offlineRow,
     ]],

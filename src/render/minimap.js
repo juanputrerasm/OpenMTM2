@@ -116,11 +116,14 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
     /** Stops watching the map's size. */
     dispose() { watching?.disconnect(); watching = null; },
     /**
-     * `trucks`: `{ pos, heading, place, label }` in game feet, the player first; `label` (a truck's or a driver's
-     * name, or null) is shown with the place (the Names key, game/names.js). `focus`: the truck the map centres on
-     * (the watched one in spectator mode). `state`: on a Rumble, the focused truck's scoring state (2 in the zone).
+     * `trucks`: `{ pos, heading, place, label, color?, marker? }` in game feet, the player first; `label` (a truck's or a
+     * driver's name, or null) is shown with the place (the Names key, game/names.js). An extension mode may give a truck
+     * a `color` (its team) and a `marker` (`"arrow"`: Tag's It, the robber), drawn larger and kept at the map's edge when
+     * the truck is off it. `focus`: the truck the map centres on (the watched one in spectator mode). `state`: on a
+     * Rumble, the focused truck's scoring state (2 in the zone). `points`: other things an extension marks
+     * (`{ pos, color }`, a ball).
      */
-    set(trucks, dt = 0.016, { focus = 0, state = 0 } = {}) {
+    set(trucks, dt = 0.016, { focus = 0, state = 0, points = [] } = {}) {
       if (!shown) return;
       const [w, h] = fit();
       ctx.clearRect(0, 0, w, h);
@@ -177,12 +180,36 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
       blink = (blink + dt * 2) % 2;
       const pulse = Math.round(120 + 135 * (blink < 1 ? blink : 2 - blink));
       const unitPx = Math.max(1, h / 480);
+      for (const p of points ?? []) {
+        const [x, y] = px(p.pos[0], p.pos[2]);
+        if (x < 4 * unitPx || y < 4 * unitPx || x > w - 4 * unitPx || y > h - 4 * unitPx) continue;
+        ctx.fillStyle = "#000";
+        ctx.beginPath(); ctx.arc(x, y, 3 * unitPx, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = p.color ?? "#ffffff";
+        ctx.beginPath(); ctx.arc(x, y, 2 * unitPx, 0, Math.PI * 2); ctx.fill();
+      }
       for (let i = trucks.length - 1; i >= 0; i--) {
         const t = trucks[i];
-        const [x, y] = px(t.pos[0], t.pos[2]);
-        if (x < 6 * unitPx || y < 7 * unitPx || x > w - 6 * unitPx || y > h - 7 * unitPx) continue;
-        ctx.fillStyle = `rgb(${pulse},${pulse},${pulse})`;
-        for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) ctx.fillRect(x + (dx - 0.5) * unitPx, y + (dy - 0.5) * unitPx, unitPx, unitPx);
+        let [x, y] = px(t.pos[0], t.pos[2]);
+        const off = x < 6 * unitPx || y < 7 * unitPx || x > w - 6 * unitPx || y > h - 7 * unitPx;
+        if (off && t.marker !== "arrow") continue;
+        if (t.marker === "arrow") {
+          // A marked truck is never lost: off the map it stays at the edge, on the line from the map's centre to it.
+          if (off) {
+            const ex = x - cx, ey = y - cy, edge = 10 * unitPx;
+            const f = Math.min((ex > 0 ? w - edge - cx : cx - edge) / Math.max(1e-6, Math.abs(ex)), (ey > 0 ? h - edge - cy : cy - edge) / Math.max(1e-6, Math.abs(ey)));
+            x = cx + ex * f; y = cy + ey * f;
+          }
+          const r = (blink < 1 ? 5 : 4) * unitPx;
+          ctx.beginPath(); ctx.moveTo(x, y - r - unitPx); ctx.lineTo(x + r + unitPx, y); ctx.lineTo(x, y + r + unitPx); ctx.lineTo(x - r - unitPx, y); ctx.closePath();
+          ctx.fillStyle = "#000"; ctx.fill();
+          ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath();
+          ctx.fillStyle = t.color ?? "#ffa21f"; ctx.fill();
+          if (off) continue;
+        } else {
+          ctx.fillStyle = t.color ?? `rgb(${pulse},${pulse},${pulse})`;
+          for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) ctx.fillRect(x + (dx - 0.5) * unitPx, y + (dy - 0.5) * unitPx, unitPx, unitPx);
+        }
         const label = t.label ? `${t.label} (${t.place})` : String(t.place);
         const colour = i === focus ? "#ffffff" : "#b5b5b5";
         if (font) {

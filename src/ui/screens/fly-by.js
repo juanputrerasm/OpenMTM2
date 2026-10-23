@@ -11,7 +11,7 @@
 */
 import * as THREE from "three";
 import { WATERMARK } from "../../app/version.js";
-import { saveSettings } from "../../app/settings.js";
+import { saveSettings, tileOverlapOf } from "../../app/settings.js";
 import { createAudio } from "../../audio/audio-engine.js";
 import { createWorldAudio } from "../../audio/world-audio.js";
 import { groundHeightFn } from "../../game/cameras.js";
@@ -83,7 +83,7 @@ export default async function mount(container, context, params) {
     build = await context.assets.call("trackRender", {
       evoForest: context.settings.evoForest !== false,
       path: track.path, scope: track.scope, detailLevel: context.settings.detailLevel, raceType: track.raceType,
-      truckFiles: [], weather: weatherId, mtm1: mtm1Options, tileOverlap: params.tileOverlap ?? context.settings.terrainOverlap !== false, smoothTiles: context.settings.look === "enhanced",
+      truckFiles: [], weather: weatherId, mtm1: mtm1Options, tileOverlap: params.tileOverlap ?? tileOverlapOf(context.settings), smoothTiles: context.settings.look === "enhanced",
       visuals: trackVisuals(context.settings, { weather: weatherId, weatherMask: track.weatherMask }),
       sunShadows: context.settings.look === "enhanced",
     });
@@ -146,7 +146,7 @@ export default async function mount(container, context, params) {
   const effectsArt = await context.assets.call("effectsArt").catch(() => null);
   const terrain = terrainOfBuild(build);
   // With "Smooth terrain" the ground drawn is not quite the ground under it (game/terrain-relief.js).
-  const relief = build.relief ? createRelief({ heights: build.heights, ...build.relief }) : null;
+  const relief = build.relief ? createRelief({ heights: build.heights ?? build.heightsFt, ...build.relief }) : null;
   // The port's own weather, ground and water, each where its switch is on (render/scenery.js; docs/VISUALS.md).
   const scenery = createScenery({
     scene, camera, world, sun, build, settings: context.settings, ground: relief ? relief.heightAt : groundHeightFn(terrain), relief,

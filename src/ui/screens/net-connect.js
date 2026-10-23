@@ -11,7 +11,7 @@ import { el } from "../dom.js";
 import { frame } from "../frame.js";
 import { saveSettings } from "../../app/settings.js";
 import { bridgeStatus } from "../../net/bridge-transport.js";
-import { classicHelper, hostClassic, joinClassic, hostCp3, joinCp3, sessionName } from "../../app/net.js";
+import { classicHelper, hostClassic, joinClassic, hostCp3, joinCp3, sessionName, roomServerList, rememberServer } from "../../app/net.js";
 import { getProfiles } from "../../app/profile-store.js";
 import { currentDriver } from "../../game/profile.js";
 import { msg } from "../../game/strings.js";
@@ -130,17 +130,25 @@ export default async function mount(container, context) {
   // ---- Online rooms ----
   const serverUrl = el("input", { type: "text", value: net.serverUrl ?? "", placeholder: "rooms.example.org", maxlength: 200, autocomplete: "off", spellcheck: "false", "aria-label": t("Room server address"), class: "net-server-url" });
   const browse = el("button", { class: "primary", "data-menu-sound": "STARTOFF" }, t("Browse rooms"));
-  browse.addEventListener("click", () => {
-    const address = serverUrl.value.trim();
+  const browseServer = (address) => {
     if (!address) { say(t("Type a room server's address."), true); return; }
-    saveNet({ serverUrl: address });
+    saveNet({ serverUrl: address, recentServers: rememberServer(context.settings.net?.recentServers, address) });
     context.router.go("rooms", {}, { replace: true });
-  });
+  };
+  browse.addEventListener("click", () => browseServer(serverUrl.value.trim()));
   serverUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); browse.click(); } });
+  // The default servers, then the ones used before: one click browses one.
+  const serverList = el("ul", { class: "net-server-list", "aria-label": t("Room servers") },
+    ...roomServerList(net).map((address) => el("li", {},
+      el("button", {
+        type: "button", class: address === net.serverUrl ? "net-server current" : "net-server", "data-menu-sound": "STARTOFF",
+        onclick: () => { serverUrl.value = address; browseServer(address); },
+      }, address))));
   const rooms = el("section", { class: "net-card net-card-main" },
     el("h2", {}, t("Online rooms")),
-    el("p", { class: "muted" }, t("Rooms on an OpenMTM2 server: a list of games, room codes and invite links.")),
+    el("p", { class: "muted" }, t("Join or create an online room on an OpenMTM2 server.")),
     el("div", { class: "net-field" }, el("span", {}, `${t("Server")} `), serverUrl, browse),
+    serverList,
   );
 
   const byConnection = { dplay: [], cp3: [] };

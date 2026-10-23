@@ -132,6 +132,30 @@ table.results tr.player td { color: var(--accent); font-weight: 600; }
 .garage-dot.on { box-shadow: 0 0 0 2px #f2c14e, 0 0 8px 2px rgba(242, 193, 78, 0.8); }
 .garage-slider { position: absolute; margin: 0; padding: 0; accent-color: #f2c14e; background: transparent; opacity: 0.9; }
 .garage-race { position: absolute; left: 16px; top: 296px; }
+/* The other games' settings in the Garage's free space: the 4x4 Evolution garage, or CART Precision Racing's setup. */
+.stage-panel-extra { padding: 0; overflow: visible; }
+.garage-extra { height: 100%; box-sizing: border-box; padding: 6px 10px; background: rgba(10, 14, 24, 0.82); border: 1px solid rgba(160, 180, 230, 0.35); border-radius: 4px; color: #e9eefc; font-size: 11px; overflow: auto; }
+.garage-extra h3 { margin: 0 0 4px; font-size: 13px; color: #f2c14e; }
+.garage-setting { margin: 1px 0; }
+.garage-row { display: flex; align-items: center; gap: 6px; min-height: 18px; }
+.garage-track { display: grid; grid-template-columns: 70px 1fr 70px; align-items: center; gap: 4px; }
+.garage-row-label { font-weight: 700; }
+.garage-reading { color: #f2c14e; font-variant-numeric: tabular-nums; }
+.garage-end { font-size: 10px; color: #b9c3e0; text-align: center; }
+.garage-track input[type="range"] { width: 100%; margin: 0; accent-color: #f2c14e; }
+.garage-track input[type="range"].stock { opacity: 0.45; }
+.garage-stock { margin-left: auto; }
+.garage-treads { display: flex; gap: 4px; margin-left: auto; }
+.garage-extra .garage-treads button, .garage-extra button.garage-stock, .garage-extra .garage-extra-foot button { padding: 2px 6px; font-size: 10px; line-height: 1.2; }
+.garage-treads button.on { background: #f2c14e; border-color: #f2c14e; color: #1b1b1b; }
+.garage-extra-foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.garage-extra-note { margin: 4px 0 0; font-size: 10px; line-height: 1.3; color: #b9c3e0; }
+.garage-extra-note[hidden] { display: none; }
+.garage-group { margin: 4px 0 1px; font-size: 10px; font-weight: 700; color: #b9c3e0; text-transform: uppercase; letter-spacing: 0.5px; }
+.garage-cpr-row { display: grid; grid-template-columns: 96px 1fr 70px; gap: 6px; min-height: 18px; }
+.garage-cpr-row input[type="range"] { width: 100%; margin: 0; accent-color: #f2c14e; }
+.garage-cpr-row select { grid-column: 2 / -1; font-size: 11px; padding: 1px 4px; }
+.garage-cpr .garage-reading { text-align: right; }
 .stage-panel .tabs { flex-direction: column; margin: 0; }
 .stage-panel .tabs button { width: 100%; }
 .stage-panel-first, .stage-panel-second { background: transparent; border: 0; overflow: hidden; }
@@ -283,7 +307,6 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 .stage-modern.stage-scene-start .stage-panel-main { padding: 0; border: 0; background: none; overflow: visible; }
 .stage-scene-start .start-actions { flex-direction: row; flex-wrap: nowrap; align-items: stretch; gap: 8px; height: 100%; }
 .stage-scene-start .start-actions button { flex: 1; padding: 0 8px; font-size: 14px; }
-.stage-scene-start .start-actions button:not(.primary) { background: rgba(10, 14, 24, 0.78); }
 .stage-credit { position: absolute; right: 24px; bottom: 12px; margin: 0; font-size: 10px; line-height: 1.2; color: #e9eefc; text-shadow: 0 1px 2px #000; }
 .stage-credit a { color: inherit; }
 .stage-label { position: absolute; display: grid; place-items: center; font: 700 12px/1 Arial, sans-serif; color: #f2c14e; text-transform: uppercase; letter-spacing: 0.5px; pointer-events: none; }
@@ -294,6 +317,9 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 .stage-button:disabled { opacity: 0.45; cursor: default; }
 .stage-button.current { background: linear-gradient(#2b3348, #1a2030); color: #f2c14e; border-color: #f2c14e; }
 .stage-button.go { border-radius: 22px; font-size: 20px; color: #9cf27a; }
+/* The Start screen's Driver Check-in (frame.js PRIMARY_BUTTONS): the yellow button among the others. */
+.stage-button.primary { border-color: #f2c14e; background: linear-gradient(#f2c14e, #c48d1c); color: #1b1b1b; font-size: 15px; }
+.stage-button.primary:hover:not(:disabled) { background: linear-gradient(#ffd56a, #d89c22); }
 /* The Races screen's way into a drag weekend, and the weekend's own screen (ui/screens/drag-event.js). */
 .stage-event { position: absolute; z-index: 20; top: 10px; right: 236px; padding: 5px 12px; background: rgba(0, 0, 0, 0.72); }
 .stage-event[hidden] { display: none; }
@@ -415,6 +441,9 @@ input.race-off { background: #777; color: #222; }
 /* A watched race flown free: the race's lap and clock at the top in the middle; the watched truck's times are put away. */
 .race-fly-hud { position: absolute; z-index: 3; top: 4px; left: 50%; transform: translateX(-50%); image-rendering: pixelated; pointer-events: none; }
 .race-fly-hud[hidden], .race-flying .race-hud { display: none; }
+/* An Evo vehicle's transfer case (race.js driveHud), centred over the gear strip. */
+.race-drive-hud { position: absolute; z-index: 3; image-rendering: pixelated; pointer-events: none; }
+.race-drive-hud[hidden] { display: none; }
 
 /* The pause menu: every button the same width. */
 .race-pause > button { box-sizing: border-box; width: 220px; }
@@ -479,6 +508,9 @@ input.race-off { background: #777; color: #222; }
 .net-token { width: 9em; }
 .net-sessions { width: 100%; margin-top: 4px; }
 .net-message { min-height: 1.3em; margin: 0; }
+.net-server-list { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 4px; padding: 0; list-style: none; }
+.net-server-list .net-server { padding: 2px 8px; font-size: 11px; }
+.net-server-list .net-server.current { border-color: var(--accent); }
 .muted { color: #aab; }
 /* The lobby on the game's art: the lists and the send line sit in the openings NETWORK.BMP draws. */
 .net-lobby .net-region { padding: 0; border: 0; border-radius: 0; background: transparent; overflow: auto; }

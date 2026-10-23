@@ -25,6 +25,30 @@ export const LOG_LINES = 60;
 /** The game's default session name, `<<1>>'s Truckin' Game`. */
 export const sessionName = (driver) => `${driver}'s Truckin' Game`;
 
+/** The room servers every player is offered first, before the ones they have used. */
+export const DEFAULT_ROOM_SERVERS = Object.freeze(["multiplayer.mtm2.com", "localhost"]);
+/** How many servers a player has used are remembered. */
+export const RECENT_ROOM_SERVERS = 8;
+
+const sameServer = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+
+/** The servers the Connect screen lists: the defaults, then the ones used before (newest first), each once. */
+export function roomServerList(net = {}) {
+  const list = [];
+  for (const address of [...DEFAULT_ROOM_SERVERS, ...(Array.isArray(net?.recentServers) ? net.recentServers : [])]) {
+    if (typeof address === "string" && address.trim() && !list.some((known) => sameServer(known, address))) list.push(address.trim());
+  }
+  return list;
+}
+
+/** `recentServers` with `address` put first (a default server is not repeated there). */
+export function rememberServer(recent, address) {
+  const value = String(address ?? "").trim();
+  const kept = (Array.isArray(recent) ? recent : []).filter((known) => typeof known === "string" && !sameServer(known, value));
+  if (!value || DEFAULT_ROOM_SERVERS.some((known) => sameServer(known, value))) return kept.slice(0, RECENT_ROOM_SERVERS);
+  return [value, ...kept].slice(0, RECENT_ROOM_SERVERS);
+}
+
 /** The classic helper (openmtm2-bridge), connected and paired once per page. */
 export async function classicHelper(context) {
   if (context.netHelper?.alive) return context.netHelper.helper;

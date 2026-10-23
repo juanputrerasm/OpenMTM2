@@ -10,6 +10,7 @@
   Pure: it reads through a VFS (see vfs.js) and returns plain data.
 */
 import { isEvoSit, parseEvoSit } from "../vendor/openphotex/evo/sit.js";
+import { parseEvoLte } from "../vendor/openphotex/evo/lte.js";
 import { parseMtmSit } from "../vendor/openphotex/mtm/sit.js";
 import { parseTruckManifest } from "../vendor/openphotex/truck/manifest.js";
 import { podPathTitle } from "../vendor/openphotex/pod/paths.js";
@@ -30,17 +31,22 @@ export const EVO_TRACK_TYPES = Object.freeze({ 2: ["Circuit", "circuit"], 3: ["R
 /**
  * The 4x4 Evolution 1 and 2 tracks among the mounted archives, each looked up as a track of its own game. A track
  * without checkpoints (the missions) can only be driven in free roam (`freeRoamOnly`); how the game plays a mission
- * is not known.
+ * is not known. Evo 1's Lite tracks (`.LTE`, docs/EVO2_EXE_ANALYSIS.md 5b) are listed too, with the world they
+ * borrow from (`liteBase`).
  */
 async function evoTracks(vfs, problems) {
   const tracks = [];
   for (const game of ["EVO1", "EVO2"]) {
     const view = vfs.scoped?.(game);
     if (!view) continue;
-    for (const { path, mount, entry } of view.list(".SIT")) {
+    const scripts = [...view.list(".SIT"), ...(game === "EVO1" ? view.list(".LTE") : [])];
+    for (const { path, mount, entry } of scripts) {
       if (mount.family !== game) continue;
+      // A Lite track is a file added in the POD manager (worker/addon-store.js `liteArchive`), not a .LTE inside a POD.
+      if (/\.LTE$/i.test(path) && mount.archive.format !== "lte") continue;
       try {
-        const bytes = await mount.readEntry(entry);
+        const lite = /\.LTE$/i.test(path) ? parseEvoLte(await mount.readEntry(entry), podPathTitle(path)) : null;
+        const bytes = lite ? lite.sitBytes : await mount.readEntry(entry);
         if (!isEvoSit(bytes)) continue;
         const file = podPathTitle(path);
         const sit = parseEvoSit(bytes, file);
@@ -49,7 +55,7 @@ async function evoTracks(vfs, problems) {
         const raceType = mode ?? "circuit";
         tracks.push({
           path, pod: mount.name, file, name: sit.trackName || file, locale: "", author: sit.author?.trim() || null, checkpoints,
-          game, scope: game, typeLabel: `${type} (${game})`, freeRoamOnly: !mode || checkpoints === 0,
+          game, scope: game, typeLabel: lite ? `${type}, Lite (${game})` : `${type} (${game})`, freeRoamOnly: !mode || checkpoints === 0, liteBase: lite?.baseWorld ?? null,
           typeCode: sit.raceType, raceType, weatherMask: sit.weatherMask, trackLength: sit.trackLength || null,
           defaultLaps: defaultLaps(raceType, sit.trackLength || undefined), ambientSound: sit.ambientSound, level: sit.lvlName, hidden: false,
         });

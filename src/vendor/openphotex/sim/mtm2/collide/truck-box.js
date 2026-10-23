@@ -31,6 +31,16 @@ export function truckBoxSeparated(s, p, box, dt) {
 function truckMass(p) {
     return truckWeight(p) * INV_G;
 }
+/** Records a contact along `normalWorld` (outward from the box), at the truck's speed against the box. */
+function touched(touch, s, box, normalWorld) {
+    const iv = toWorld(s.matrix, s.bvel[0], s.bvel[1], s.bvel[2]);
+    const closing = -((iv[0] - box.vel[0]) * normalWorld[0] + (iv[1] - box.vel[1]) * normalWorld[1] + (iv[2] - box.vel[2]) * normalWorld[2]);
+    const speed = closing > 0 ? closing : 0;
+    if (!touch.hit)
+        touch.hit = { speed };
+    else if (speed > touch.hit.speed)
+        touch.hit.speed = speed;
+}
 /**
  * A truck against a box (§14.14, §14.17): hull points, wheels and tire contact points, then the
  * box's corners against the wheels. An immovable box becomes ground for the truck; a pushable one
@@ -40,15 +50,15 @@ function truckMass(p) {
  */
 export function collideTruckBox(s, p, box, dt) {
     if (truckBoxSeparated(s, p, box, dt))
-        return;
+        return null;
     const mt = truckMass(p);
     const pushable = box.mass !== 0 && box.mass < mt;
-    const pair = { pushable, mEff: pushable ? box.mass : mt, box: null, truck: null };
+    const pair = { pushable, touch: { hit: null }, mEff: pushable ? box.mass : mt, box: null, truck: null };
     hullPoints(s, box, pair, dt);
     // Wheels, tires 13 to 16 (FR, FL, RR, RL), sides -1, +1, -1, +1.
     for (let i = 0; i < 4; i++) {
         const side = i % 2 === 0 ? -1 : 1;
-        wheelSuspension(s, p, box, i, side);
+        wheelSuspension(s, p, box, i, side, pair.touch);
         tireContactPoint(s, p, box, i, pair, dt);
     }
     if (box.mass > 0 && !truckBoxSeparated(s, p, box, dt)) {
@@ -68,17 +78,20 @@ export function collideTruckBox(s, p, box, dt) {
             s.extMoment[k] += pair.truck.m[k];
         }
     }
+    return pair.touch.hit;
 }
-/** The immovable case only, whatever the box's mass (ground boxes have none). */
+/** The immovable case only, whatever the box's mass (ground boxes have none). Returns the contact, as `collideTruckBox`. */
 export function collideTruckImmovableBox(s, p, box, dt) {
     if (truckBoxSeparated(s, p, box, dt))
-        return;
-    hullPoints(s, box, { pushable: false, mEff: truckMass(p), box: null, truck: null }, dt);
+        return null;
+    const touch = { hit: null };
+    hullPoints(s, box, { pushable: false, touch, mEff: truckMass(p), box: null, truck: null }, dt);
     for (let i = 0; i < 4; i++) {
         const side = i % 2 === 0 ? -1 : 1;
-        wheelSuspension(s, p, box, i, side);
-        tireContactPoint(s, p, box, i, { pushable: false, mEff: 0, box: null, truck: null }, dt);
+        wheelSuspension(s, p, box, i, side, touch);
+        tireContactPoint(s, p, box, i, { pushable: false, touch, mEff: 0, box: null, truck: null }, dt);
     }
+    return touch.hit;
 }
 /** Hull points 1 to 12: rays from last step's reference point through each point now. */
 function hullPoints(s, box, pair, dt) {
@@ -103,6 +116,9 @@ function hullPoints(s, box, pair, dt) {
         if (depth <= s.depths[j])
             continue;
         const n = faceNormal(face);
+        // A hull point deeper inside the box than its last contact (`0x4aad00`).
+        if (depth > 0)
+            touched(pair.touch, s, box, toWorld(bm, n[0], n[1], n[2]));
         if (!pair.pushable) {
             s.depths[j] = depth;
             s.normals.set(toWorld(bm, n[0], n[1], n[2]), j * 3);
@@ -160,7 +176,7 @@ function lastHub(s, i) {
     return [s.prevPos[0] + w[0], s.prevPos[1] + w[1], s.prevPos[2] + w[2]];
 }
 /** The wheel's suspension against the box: driving on its top (§14.14 step 3). */
-function wheelSuspension(s, p, box, i, side) {
+function wheelSuspension(s, p, box, i, side, touch) {
     const m = s.matrix, bm = box.matrix, half = box.half;
     const t = s.tires[i];
     const [ax, ay, az] = p.hubs[i];
@@ -196,6 +212,7 @@ function wheelSuspension(s, p, box, i, side) {
     if (pen > 0) {
         t.normal = outWorld;
         t.onGround = true;
+        touched(touch, s, box, outWorld); // `0x4a5da0`
     }
     t.penetration = pen;
     t.lever = Math.hypot(r, px);
@@ -233,6 +250,8 @@ function tireContactPoint(s, p, box, i, pair, dt) {
     const j = 12 + i;
     if (!(s.depths[j] < depth))
         return;
+    if (depth > 0)
+        touched(pair.touch, s, box, outWorld); // `0x4a7fc0`
     if (pair.pushable) {
         if (depth > 0)
             pushPoint(s, box, point, pb, out, depth, pair, dt);
@@ -316,6 +335,8 @@ function cornerAgainstWheel(s, p, box, c, i, pair, dt) {
     const ml = Math.hypot(move[0], move[1], move[2]);
     const nw = ml === 0 ? [0, 1, 0] : [move[0] / ml, move[1] / ml, move[2] / ml];
     const n = toBody(bm, nw[0], nw[1], nw[2]);
+    // A corner against a wheel (`0x49f920`): the box was pushed along `nw`, so its face looks the other way.
+    touched(pair.touch, s, box, [-nw[0], -nw[1], -nw[2]]);
     // The hub's velocity against the corner's, box axes.
     const [pr, qr, rr] = s.rates;
     const vh = [s.bvel[0] + (rr * h[2] - pr * h[1]), s.bvel[1] + (pr * h[0] - qr * h[2]), s.bvel[2] + (qr * h[1] - rr * h[0])];

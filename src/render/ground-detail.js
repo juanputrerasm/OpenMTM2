@@ -180,7 +180,7 @@ function tileStack(atlas, renderer, look) {
  *   `textureValues` each texture's `.TTY` value, which says what ground it is; `sun` the scene's
  *   sun, whose position is the way to it.
  */
-export function createGroundDetail({ world, atlas, textureValues = null, renderer, sun, look = "enhanced" }) {
+export function createGroundDetail({ world, atlas, textureValues = null, renderer, sun, look = "enhanced", boxes = true }) {
   const stack = tileStack(atlas, renderer, look);
   const slots = Math.max(1, atlas.slots ?? 1), pitch = (atlas.tileSide ?? 64) + (atlas.padding ?? 0) * 2;
   const shares = new Uint8Array(slots);
@@ -214,7 +214,8 @@ export function createGroundDetail({ world, atlas, textureValues = null, rendere
         .replace("#include <map_fragment>", MAP);
     });
   }
-  world.traverse((object) => { if ((object.name === "terrain" || object.name === "groundBoxes") && object.material) dress(object.material); });
+  // `boxes` false ("Ground box grain" off): the ground boxes (walls, buildings, signs) keep their own textures plain.
+  world.traverse((object) => { if ((object.name === "terrain" || (boxes && object.name === "groundBoxes")) && object.material) dress(object.material); });
 
   return {
     /** Dress one more material as the terrain's is (the lit twin of the classic look's, render/weather-scene.js). */

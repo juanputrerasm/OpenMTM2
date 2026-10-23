@@ -30,6 +30,9 @@ import { decodeSmfModel, loadEvoModelTextures, loadEvoTexture } from "./evo-mode
 import { decodeModel } from "./models.js";
 import { AMT_SUSPENSION, EVO_BAR_AXLE_SPAN } from "../game/evo-suspension.js";
 import { createPaletteResolver } from "./palette-resolver.js";
+import { CPR_DEFAULT_SETUP } from "../vendor/openphotex/cpr/garage.js";
+import { CPR_CAR } from "../vendor/openphotex/sim/cpr/rules.js";
+import { cprAnchorsForSag } from "../shared/cpr-anchors.js";
 
 /** The games whose vehicles are listed beside MTM's trucks, and where each keeps its manifests. */
 export const FOREIGN_TRUCK_GAMES = Object.freeze({
@@ -224,13 +227,66 @@ async function cprCar(view, file) {
       if (name && !(name in textures)) textures[name] = await loadArtTexture(view, name, palettes, { cutout: mesh.cutout });
     }
   }
+  const placed = cprWheelPlaces(parts, MTM_WHEEL_KEYS.map((key) => xyz(manifest.wheelAnchors[key])));
   return {
     name: manifest.truckName, parts, textures,
-    anchors: MTM_WHEEL_KEYS.map((key) => xyz(manifest.wheelAnchors[key])),
+    anchors: placed.anchors, restHubs: placed.restHubs, tireLift: placed.tireLift,
     scrapePoints: (manifest.scrapePoints ?? []).map(xyz),
-    tire: tireSize(parts.tireLeft ?? parts.tireRight), game: "CPR",
+    tire: placed.tire, game: "CPR",
   };
 }
+
+/** The body's suspension groups by simulation corner (FR, FL, RR, RL). */
+const CPR_SUSPENSION_GROUPS = Object.freeze(["RFSUSP", "LFSUSP", "RRSUSP", "LRSUSP"]);
+const CPR_TIRE_KEYS = Object.freeze(["tireFR", "tireFL", "tireRR", "tireRL"]);
+
+/**
+ * Where a CPR car's wheels go, and the one tire the simulation rolls on (the port's rule). The `.CAR`'s
+ * `static_bpos` (x +-2.87 / +-2.64, y -0.333, z +-5 on every stock car) does not fit the body as it is drawn: its floor
+ * is at y 0 and its suspension arms (the groups LFSUSP, RFSUSP, LRSUSP, RRSUSP) end some 1.3 ft higher and inboard of
+ * it, so a car set on those anchors stood a foot off the ground with its wheels apart from the arms. Instead each wheel
+ * stands at its arm: out by the arm's end plus half the wheel's width, along at the arm's middle. Its height puts the
+ * floor at the stock setup's static ride height (1.5 in front, 2.5 in rear, `staticRideHeight`) once the springs have
+ * taken the car's weight. The simulation has one tire size for all four: the rear's (the driven wheels); a wheel of
+ * another size is drawn higher or lower by the difference (`tireLift`), so that every wheel meets the ground where the
+ * simulation's tire does. Without the arms the manifest's anchors stand. Returns `{ anchors, restHubs, tire, tireLift }`.
+ */
+export function cprWheelPlaces(parts, manifestAnchors) {
+  const sizes = CPR_TIRE_KEYS.map((key) => tireSize(parts[key]));
+  const tire = sizes[2] ?? sizes[3] ?? sizes[0] ?? sizes[1] ?? tireSize(parts.tireLeft ?? parts.tireRight);
+  const arms = CPR_SUSPENSION_GROUPS.map((name) => {
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (const mesh of parts.body?.meshes ?? []) {
+      if (mesh.groupName !== name) continue;
+      for (let i = 0; i < mesh.positions.length; i++) { const a = i % 3; lo[a] = Math.min(lo[a], mesh.positions[i]); hi[a] = Math.max(hi[a], mesh.positions[i]); }
+    }
+    return lo[0] <= hi[0] ? { lo, hi } : null;
+  });
+  if (!tire || arms.some((arm) => !arm)) return { anchors: manifestAnchors, restHubs: null, tire, tireLift: null };
+  // The springs' static compression: the car with its fuel, 45% on the front (as sim/cpr's `createCprParams`).
+  const setup = CPR_DEFAULT_SETUP;
+  const weight = CPR_CAR.dryWeightLb + setup.fuelAmount * CPR_CAR.fuelLbPerGallon;
+  const sag = (axle) => {
+    const k = axle === 0 ? 0 : 2;
+    return ((weight * (axle === 0 ? 0.45 : 0.55)) / 2) / (setup.springRate[k] * setup.installationRatio[k]);
+  };
+  // Where each hub rests, the car's weight on its springs: the floor at the ride height.
+  const restHubs = arms.map((arm, i) => {
+    const axle = i < 2 ? 0 : 1, right = i % 2 === 0;
+    const half = (sizes[i] ?? tire).widthFt / 2;
+    const x = right ? arm.hi[0] + half : arm.lo[0] - half;
+    // The model mirrors z: the game's z is its negative.
+    const z = -(arm.lo[2] + arm.hi[2]) / 2;
+    return [x, tire.radiusFt - setup.staticRideHeight[axle], z];
+  });
+  // The anchors are where the hubs hang with the springs unloaded: the CPR model's sag above them.
+  const anchors = cprAnchorsForSag(restHubs, [sag(0), sag(1)]);
+  // How far each wheel is drawn over the simulation's hub: a wheel of another size than the simulation's keeps its
+  // bottom where the simulation's tire meets the ground (render/truck-object.js `tireLift`).
+  const tireLift = sizes.map((own) => (own ? own.radiusFt - tire.radiusFt : 0));
+  return { anchors, restHubs, tire, tireLift };
+}
+
 
 /**
  * A vehicle of another game for drawing, or null when its files are not mounted: `{ file, name, game, parts, anchors,

@@ -40,6 +40,9 @@ const BARS = {
   none: [],
 };
 
+/** On the modern stage the Start screen's Driver Check-in is yellow, the way in among the other buttons. */
+const PRIMARY_BUTTONS = new Set(["startDriver"]);
+
 /** The Status column's location for each menu screen, by its backdrop (legacy-session.js LOCATION). */
 const NET_LOCATIONS = { START: 1, DRIVER: 2, RACES: 3, GARAGE: 4, NETWORK: 5, HALLFAME: 6, RESULTS: 7 };
 
@@ -101,7 +104,7 @@ export async function frame(container, context, { title, backdrop, bar = "main",
   for (const [button, label, action, modernOnly] of BARS[bar] ?? []) {
     if (art && modernOnly) continue;
     const hotspot = el("button", {
-      class: art ? "stage-hotspot" : `stage-button${action === current ? " current" : ""}${button === "go" ? " go" : ""}`,
+      class: art ? "stage-hotspot" : `stage-button${action === current ? " current" : ""}${button === "go" ? " go" : ""}${PRIMARY_BUTTONS.has(button) ? " primary" : ""}`,
       "aria-label": t(label), title: t(label), disabled: action === null,
       "data-menu-sound": action === "go" || action === "again" ? "GOOFF" : action && action !== "web" ? "STARTOFF" : null,
       onclick: () => navigate(context, action),

@@ -10,7 +10,10 @@
   the line from the red goal to the blue one and `b` across it. Pure, so it runs under Node.
 */
 import { byVehicle, fromVehicles, localIndex, vehicleIndex } from "./net-wire.js";
+import { TEAM_COLOURS, TEAM_NAMES, twoTeams } from "./teams.js";
 import { msg } from "../strings.js";
+
+export { TEAM_COLOURS, TEAM_NAMES };
 
 export const HOCKEY_TRACK = "ROCKQRY.SIT";
 /** Whether `track` (a catalogue entry) can host Hockey: MTM2's own Breakneck Ridge. */
@@ -23,9 +26,6 @@ export const HOCKEY_WEATHER = 5;
 export const DEFAULT_GOALS = 3;
 export const PUCK_MODEL = "HPUCK.BIN";
 export const GOAL_MODEL = "HPOST3.BIN";
-export const TEAM_NAMES = Object.freeze([msg("Red"), msg("Blue")]);
-/** The teams' colours, for the labels over the trucks and the goal frames. */
-export const TEAM_COLOURS = Object.freeze(["#ff4436", "#3f8cff"]);
 /** Frozen water (ground type 8) and what the trucks take it as on the rink: gravel (type 7). */
 export const FROZEN_SURFACE = 800;
 export const RINK_SURFACE = 700;
@@ -65,6 +65,8 @@ const CORNER_MIN_FT = 20, CORNER_MAX_FT = 120, CORNER_STEP_FT = 10;
 const SCAN_STEP_FT = 2, SCAN_MAX_FT = 1500;
 const PUCK_LIFT_FT = 0.3;
 const OUT_PAST_FT = 20, OUT_UNDER_FT = 6, OUT_OVER_FT = 200;
+/** A puck hanging still is one that moved under STUCK_MOVE_FT while more than STUCK_RISE_FT over its face-off height. */
+const STUCK_MOVE_FT = 1, STUCK_RISE_FT = 3;
 /** A team's face-off spots, (along toward its own goal, across), feet from the centre. */
 const SPOTS = [[40, 28], [40, -28], [95, 55], [95, -55]];
 /** The computer trucks: the gap kept behind the puck, a defender's distance in front of its goal. */
@@ -88,6 +90,16 @@ export const NUDGE_AFTER_S = 0.5, NUDGE_FT_S = 0.6;
 /** A wing waits this far behind the puck and this far to its side; the attack changes hands at this much nearer. */
 const WING_BACK_FT = 70, WING_WIDE_FT = 55;
 const ATTACK_SWAP_FT = 25;
+/**
+ * How the computer trucks play (`hockeyAim`): the gap kept behind the puck and the extra way back per unit of miss, a
+ * defender's distance in front of its goal, where a wing waits, the carrying speed; within `directFt` of a puck that lies
+ * toward the goal the attack drives straight through it (0: never), and a wing or defender within `chaseFt` of it goes
+ * for it too (0: never). Hockey's are for trucks sliding on the ice; Soccer has its own (soccer.js `SOCCER_TUNE`).
+ */
+export const HOCKEY_TUNE = Object.freeze({
+  standFt: STAND_FT, backPerMissFt: BACK_PER_MISS_FT, defendFt: DEFEND_FT, wingBackFt: WING_BACK_FT, wingWideFt: WING_WIDE_FT,
+  carrySpeed: CARRY_SPEED, directFt: 0, chaseFt: 0,
+});
 
 const hyp = (x, z) => Math.hypot(x, z);
 
@@ -208,8 +220,7 @@ function board(frame, p, q, iceFt) {
  * others alternate, the other team first.
  */
 export function hockeyTeams(count, random = Math.random) {
-  const mine = random() < 0.5 ? 0 : 1;
-  return Array.from({ length: count }, (_, i) => (mine + i) % 2);
+  return twoTeams(count, random);
 }
 
 /** Where truck `i` of `teams` faces off: `{ pos, heading }`, on its own half facing the other goal. */
@@ -294,7 +305,19 @@ export function hockeyStep(h, puckPos, dt) {
     }
   }
   const { minA, maxA, minB, maxB } = rink.extent;
-  const out = at.a < minA - OUT_PAST_FT || at.a > maxA + OUT_PAST_FT || at.b < minB - OUT_PAST_FT || at.b > maxB + OUT_PAST_FT
+  // A rink may say how far past its edge the puck is out (Soccer's ball: just over the goal line or a touchline).
+  const past = rink.outPast ?? OUT_PAST_FT, side = rink.sideOutPast ?? OUT_PAST_FT;
+  // A rink may also call the puck out when it hangs still off the ground (Soccer's ball caught in a wall it only meets).
+  let stuck = false;
+  if (rink.stuckS) {
+    const still = h.still && Math.hypot(puckPos[0] - h.still.pos[0], puckPos[1] - h.still.pos[1], puckPos[2] - h.still.pos[2]) < STUCK_MOVE_FT;
+    const up = puckPos[1] - rink.puck.start[1] > STUCK_RISE_FT;
+    if (!up) h.still = null;
+    else if (!still) h.still = { pos: [...puckPos], t: 0 };
+    else h.still.t += dt;
+    stuck = !!h.still && h.still.t >= rink.stuckS;
+  }
+  const out = stuck || at.a < minA - past || at.a > maxA + past || at.b < minB - side || at.b > maxB + side
     || puckPos[1] < rink.iceFt - OUT_UNDER_FT || puckPos[1] > rink.iceFt + OUT_OVER_FT;
   if (out) {
     h.event = { kind: "out" };
@@ -309,6 +332,7 @@ function faceOff(h) {
   h.timer = FACEOFF_HOLD_S;
   h.lastTouch = -1;
   h.prev = null;
+  h.still = null;
   return "reset";
 }
 
@@ -365,10 +389,12 @@ export function hockeyRoles(h, positions, cpu, puckPos) {
  * on its nose into the goal (and on until either is lost by more); from the wrong side it goes round, wide. `memo` keeps that between
  * steps. A wing waits behind the play on its `side`. A defender stays in front of its own goal while the puck is in the other half.
  */
-export function hockeyAim(rink, team, role, truck, puckPos, side = 1, memo = {}) {
+export function hockeyAim(rink, team, role, truck, puckPos, side = 1, memo = {}, tune = HOCKEY_TUNE) {
   const { frame, extent } = rink;
   const { pos, heading } = truck;
   const p = toLocal(frame, puckPos[0], puckPos[2]), t = toLocal(frame, pos[0], pos[2]);
+  // A wing or a defender the puck comes near plays it.
+  if (role !== "attack" && tune.chaseFt > 0 && hyp(p.a - t.a, p.b - t.b) < tune.chaseFt) role = "attack";
   const own = rink.goals[team], attack = rink.goals[1 - team];
   const at = (a, b) => {
     const [x, z] = toWorld(frame, Math.max(extent.minA + 10, Math.min(extent.maxA - 10, a)), Math.max(extent.minB + 10, Math.min(extent.maxB - 10, b)));
@@ -379,11 +405,11 @@ export function hockeyAim(rink, team, role, truck, puckPos, side = 1, memo = {})
     const d = hyp(a - t.a, b - t.b);
     return { point: at(a, b), speed: d < 12 ? 0 : Math.max(10, Math.min(top, d * 0.5)) };
   };
-  if (role === "defend" && p.a * own.out < 0) return waitAt(own.along - own.out * DEFEND_FT, (own.mouth[0] + own.mouth[1]) / 2, 45);
+  if (role === "defend" && p.a * own.out < 0) return waitAt(own.along - own.out * tune.defendFt, (own.mouth[0] + own.mouth[1]) / 2, 45);
   const goalB = (attack.mouth[0] + attack.mouth[1]) / 2;
   const toGoal = hyp(attack.along - p.a, goalB - p.b) || 1;
   const ua = (attack.along - p.a) / toGoal, ub = (goalB - p.b) / toGoal;
-  if (role === "wing") return waitAt(p.a - ua * WING_BACK_FT - ub * side * WING_WIDE_FT, p.b - ub * WING_BACK_FT + ua * side * WING_WIDE_FT, 55);
+  if (role === "wing") return waitAt(p.a - ua * tune.wingBackFt - ub * side * tune.wingWideFt, p.b - ub * tune.wingBackFt + ua * side * tune.wingWideFt, 55);
   // How well the truck lines up behind the puck: 1 straight behind it, facing the goal through it.
   const da = p.a - t.a, db = p.b - t.b, dist = hyp(da, db) || 1;
   const align = (da * ua + db * ub) / dist;
@@ -394,16 +420,21 @@ export function hockeyAim(rink, team, role, truck, puckPos, side = 1, memo = {})
   if (align > enter && facing > hold) {
     // Carried on the truck's nose, the puck goes where the truck steers: at the goal's mouth.
     memo.through = true;
-    return { point: at(attack.along + attack.out * 10, goalB), speed: CARRY_SPEED };
+    return { point: at(attack.along + attack.out * 10, goalB), speed: tune.carrySpeed };
   }
   memo.through = false;
+  // Close, with the puck lying toward the goal: straight through it, at a point just beyond it on its line to the goal.
+  if (tune.directFt > 0 && dist < tune.directFt && align > 0) {
+    const beyond = rink.puck.radius + 4;
+    return { point: at(p.a + ua * beyond, p.b + ub * beyond), speed: tune.carrySpeed };
+  }
   // Behind the puck on its line to the goal, the farther back the worse the truck lines up (a truck slides wide on
   // the ice); from the wrong side, round it, wide, on the truck's own side.
-  const back = STAND_FT + rink.puck.radius + BACK_PER_MISS_FT * (1 - align);
+  const back = tune.standFt + rink.puck.radius + tune.backPerMissFt * (1 - align);
   let a = p.a - ua * back, b = p.b - ub * back;
   if (align < WRONG_SIDE) {
     const way = -da * ub + db * ua <= 0 ? 1 : -1;
-    const wide = rink.puck.radius + STAND_FT + 10;
+    const wide = rink.puck.radius + tune.standFt + 10;
     a -= ub * way * wide;
     b += ua * way * wide;
   }

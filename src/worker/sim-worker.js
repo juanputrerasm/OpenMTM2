@@ -10,12 +10,15 @@
   Everything here is portable: the same code runs in Node tests through `createSession`.
 */
 import * as E from "../vendor/openphotex/sim/evo/index.js";
+import * as Cp from "../vendor/openphotex/sim/cpr/index.js";
 import * as S from "../vendor/openphotex/sim/mtm2/index.js";
 import { createCrossingLog, raceGap, recordCrossings } from "../game/timing.js";
 import { buildRumbleField, createRumbleDriver, rumbleControls } from "../game/rumble-ai.js";
 import { REVERSE_SPEED, TREE_S, createDrag, dragCollision, dragLamps, dragOver, dragPlaces, dragTick, mirrorCourse, stageSpeed, stagingDistance, stillStaging } from "../game/drag-race.js";
 import { createExtensionSession, extensionSessionGround } from "../game/extensions/session-loader.js";
 import { createEvoPathRunner } from "../game/evo-paths.js";
+import { applyCprAids, cprAids, cprCarFigures, cprCourse, createCprDriver, createWidthLookup, spinCorrection } from "../game/cpr-driver.js";
+import { cprAnchorsForSag } from "../shared/cpr-anchors.js";
 import { createFlight, departVisual, flightVisual, nearestCourseSpot, stepFlight, timerVisual } from "../game/heli-flight.js";
 
 export const STEP = 1 / 60;
@@ -224,6 +227,15 @@ export const REMOTE_BLEND_S = 0.5, REMOTE_SNAP_FT = 100;
  * The index of the course straight a truck at `pos` heading `heading` is on: the nearest one that runs its way.
  * For a grid that stands part way round the course (CART Precision Racing); 0 without one.
  */
+/** Spin Correction's turn (CPR_PHYSICS.md 14.3): a new heading, the world velocity kept (the body's follows the turn). */
+function turnKeepingVelocity(state, heading) {
+  const m = state.matrix, b = state.bvel;
+  const v = [0, 1, 2].map((r) => m[r * 3] * b[0] + m[r * 3 + 1] * b[1] + m[r * 3 + 2] * b[2]);
+  state.euler[2] = heading;
+  S.eulerToMatrix(state.euler[0], state.euler[1], state.euler[2], m);
+  for (let c = 0; c < 3; c++) b[c] = m[c] * v[0] + m[3 + c] * v[1] + m[6 + c] * v[2];
+}
+
 function nearestStraight(course, pos, heading) {
   let best = 0, bestDistance = Infinity;
   course.forEach((seg, i) => {
@@ -249,7 +261,9 @@ export function createSession(init) {
   // The physics model's rules (app/settings.js PHYSICS_MODELS): MTM2's unless the race asks for the 1996 game's, or for one
   // of 4x4 Evolution's, whose vehicle model then drives every truck (OpenPhotex evoSim; docs/EVO2_PHYSICS.md).
   const evoModel = E.isEvoRules(init.rules);
-  const rules = evoModel ? E.evoRules(init.rules) : S.simRules(init.rules);
+  // CART Precision Racing's model (OpenPhotex sim/cpr): its cars drive on it, every other vehicle on MTM2's.
+  const cprModel = Cp.isCprRules(init.rules);
+  const rules = evoModel ? E.evoRules(init.rules) : cprModel ? Cp.CPR_RULES : S.simRules(init.rules);
   const terrainGround = S.createTerrainGround(terrain, surfaces, weather, init.waterLevelFt ?? null, rules);
   // CPR's road layer lies over the terrain and is the ground where it does (OpenPhotex world/road.ts).
   const ground = init.road ? S.createRoadGround(terrainGround, init.road) : terrainGround;
@@ -366,28 +380,44 @@ export function createSession(init) {
   if (opponentFps >= 10 && opponentFps <= 240) apCtx.frameDt = 1 / opponentFps;
 
   const specs = init.trucks ?? [{ truck: init.truck, start: init.start, autopilot: init.autopilot }];
+  // The CPR Skill Level (Options, Advanced): the player's driving aids under CPR physics.
+  const cprPlayerAids = cprAids(init.cprSkill ?? "rookie");
+  const playerAids = {
+    abs: cprPlayerAids.abs, tractionControl: cprPlayerAids.tractionControl,
+    gripScale: cprPlayerAids.gripScale, offroadGrip: cprPlayerAids.offroadGrip,
+  };
   const trucks = specs.map((spec, i) => {
     const setup = { difficulty, autoShift: init.autoShift ?? true, ...spec.setup };
-    let params, state;
-    if (evoModel) {
+    let params, state, cprCar = false;
+    if (cprModel && spec.truck.cpr) {
+      // A CPR car on its own figures and the player's Garage setup (`setup.cpr`; the stock one for the others).
+      cprCar = true;
+      // The player's car carries the Skill Level's aids (CPR_PHYSICS.md 14.3); a computer car brakes with ABS.
+      const aids = i === 0 && !spec.remote ? playerAids : undefined;
+      params = Cp.createCprParams(Cp.cprSpec(spec.truck.anchors, spec.truck.scrapePoints, setup.cpr ?? null),
+        { radiusFt: spec.truck.tire?.radiusFt, widthFt: spec.truck.tire?.widthFt }, { cpu: !!spec.autopilot, autoShift: setup.autoShift, difficulty, aids });
+      state = Cp.createCprTruckState(spec.start.pos, spec.start.heading ?? 0, S.GEAR.FIRST, params);
+      state.forwardGears = params.cpr.gears.length;
+    } else if (evoModel) {
       // An Evo vehicle drives on its own .TRK figures (`truck.evo`); any other on MTM2's figures for it, its MTM2 grip
       // factor included (OpenPhotex evoSpecFromMtm2: the port's rule). An MTM truck rolls on MTM2's 3 by 4 ft tires.
       const cpuSonicPro = !!spec.autopilot && difficulty === S.DIFFICULTY.PROFESSIONAL && sonicTrack;
-      const evoSpec = spec.truck.evo ?? E.evoSpecFromMtm2({
+      // The player's Garage settings for an Evo vehicle (EVO2_PHYSICS.md 2.2; `setup.evo`, the player only).
+      const evoSpec = spec.truck.evo ? E.applyEvoGarage(spec.truck.evo, setup.evo ?? null, rules.defaultCgZ ?? 0) : E.evoSpecFromMtm2({
         wheelAnchors: spec.truck.anchors, scrapePoints: spec.truck.scrapePoints, suspension: setup.suspension,
         transferSetting: setup.transferSetting, difficulty, gripK: cpuSonicPro ? S.TIRE_GRIP_K_SONIC_PRO : S.TIRE_GRIP_K,
       });
       params = E.createEvoParams(evoSpec, rules,
         { tireRadiusFt: spec.truck.tire?.radiusFt ?? S.TRUCK.tireRadiusFt, tireWidthFt: spec.truck.tire?.widthFt ?? S.TRUCK.tireWidthFt },
-        { difficulty, cpu: !!spec.autopilot, autoShift: setup.autoShift, tread: setup.tireCut ?? (spec.truck.evo ? 1 : 0) });
+        { difficulty, cpu: !!spec.autopilot, autoShift: setup.autoShift, tread: (spec.truck.evo ? setup.evo?.tread : null) ?? setup.tireCut ?? (spec.truck.evo ? 1 : 0) });
       state = E.createEvoTruckState(spec.start.pos, spec.start.heading ?? 0, S.GEAR.FIRST, params);
       state.forwardGears = Math.max(1, params.evo.spec.maxGear - 3);
     } else {
-      params = S.createTruckParams(
-        // `tire`: another game's vehicle rolls on its own tires' size (worker/foreign-truck-build.js); an MTM truck has none.
-        { wheelAnchors: spec.truck.anchors, scrapePoints: spec.truck.scrapePoints, tireRadiusFt: spec.truck.tire?.radiusFt, tireWidthFt: spec.truck.tire?.widthFt },
-        setup,
-      );
+      // `tire`: another game's vehicle rolls on its own tires' size (worker/foreign-truck-build.js); an MTM truck has none.
+      const figures = { wheelAnchors: spec.truck.anchors, scrapePoints: spec.truck.scrapePoints, tireRadiusFt: spec.truck.tire?.radiusFt, tireWidthFt: spec.truck.tire?.widthFt };
+      params = S.createTruckParams(figures, setup);
+      // A CPR car rests at its ride height on MTM2's softer springs too: its anchors for MTM2's sag.
+      if (spec.truck.restHubs) params = S.createTruckParams({ ...figures, wheelAnchors: cprAnchorsForSag(spec.truck.restHubs, params.sagFt) }, setup);
       state = S.createTruckState(spec.start.pos, spec.start.heading ?? 0, S.GEAR.FIRST, params);
     }
     if (init.startOnNearestSegment) state.ap.segment = nearestStraight(course, spec.start.pos, spec.start.heading ?? 0);
@@ -404,9 +434,25 @@ export function createSession(init) {
     // A foot under the body's origin: a step up to about a wheel's height is climbed, a taller face is not ground.
     const ownGround = meshGround ? meshGround.below(() => state.pos[1] - 1) : extensionGround;
     const ctx = { ground: ownGround, human: i === 0 && !autopilot && !remote, difficulty, sonicTrack, recovery };
-    return { state, params, autopilot, remote, recovery, ctx, evoVehicle: !!spec.truck.evo, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
+    return { state, params, autopilot, remote, recovery, ctx, evoVehicle: !!spec.truck.evo, cprCar, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
   });
   const player = trucks[0];
+  // Under CPR physics a CPR car drives by CART.EXE's autopilot on the SIT course (game/cpr-driver.js, CPR_PHYSICS.md
+  // 14.2), every one of them: the player's gives the aids and drives under Full Autopilot.
+  if (cprModel && course.length) {
+    const segs = cprCourse(course);
+    const widthAt = createWidthLookup(init.cprLine);
+    for (const t of trucks) {
+      if (!t.cprCar || t.remote) continue;
+      t.cprDriver = createCprDriver(segs, widthAt);
+      t.cprFigures = cprCarFigures(t.params, Cp.cprAero(t.params.cpr.spec.setup), Cp.CPR_CAR.refAreaFt2, Cp.CPR_AIR_DENSITY);
+    }
+  }
+  /** One step of a CPR car's autopilot; `player` for the aids' dry run. */
+  const cprDrive = (t, player = false) => {
+    const others = trucks.filter((o) => o !== t).map((o) => ({ pos: o.state.pos, speed: Math.hypot(o.state.bvel[0], o.state.bvel[2]) }));
+    return t.cprDriver.step(t.state, { car: t.cprFigures, dt: STEP, mu: Cp.cprMu, others, player, dryRun: player });
+  };
   // Traffic (MTM2_PHYSICS.md 14.25): every truck sees the others' last values.
   if (trucks.length > 1) apCtx.traffic = trucks.map((t) => ({ s: t.state, p: t.params }));
   // A drag race (game/drag-race.js) is one pass: staging and the tree in place of the countdown, the beams and the
@@ -669,7 +715,11 @@ export function createSession(init) {
       facesAround(t.state.pos[0], t.state.pos[2], t.radius, nearFaces);
       for (const face of nearFaces) S.withNearest(t.state, face.centre[0], face.centre[2], () => S.collideTruckFace(t.state, t.params, face, STEP));
       for (const box of listed) {
-        const collide = () => near(box, () => S.collideTruckBox(t.state, t.params, box, STEP));
+        const collide = () => {
+          const touch = near(box, () => S.collideTruckBox(t.state, t.params, box, STEP));
+          if (touch) noteObjectHit(t, box, touch);
+          return touch;
+        };
         if (box === extensionSession?.specialBox) extensionSession.collideSpecial(ti, box, collide);
         else collide();
       }
@@ -1022,7 +1072,8 @@ export function createSession(init) {
       if (t.autopilot) {
         if (!race || drag) S.advanceAutopilotSegment(t.state, apOf(t));
         recoveryOf(t);
-        if (go && extensionSession) extensionSession.drive(t, i);
+        // An extension mode drives its trucks; one that answers false leaves the truck to the course's autopilot (Race & Rumble's racers).
+        if (go && extensionSession && extensionSession.drive(t, i) !== false) { /* driven by the mode */ }
         else if (go && t.rumble) {
           const onSummit = race.summit.trucks[i].state !== 0;
           t.recovery.autopilot = !onSummit;
@@ -1033,6 +1084,9 @@ export function createSession(init) {
           // A computer driver's reaction to the green; a disqualified truck stays where it is.
           t.state.controls.throttle = 0;
           t.state.controls.brakeFront = t.state.controls.brakeRear = 1;
+        } else if (go && t.cprDriver) {
+          cprDrive(t);
+          watchHeadway(t);
         } else if (go) {
           S.applyAutopilot(t.state, t.params, apOf(t));
           watchHeadway(t);
@@ -1056,7 +1110,14 @@ export function createSession(init) {
         if (keys.driveMode && t.state.evo) {
           t.state.evo.transfer = t.params.evo.spec.driveType === 0 ? 0 : (t.state.evo.transfer + 1) % 3;
         }
-        if (t.apLevel === 1 && course.length && go) {
+        if (t.cprDriver && go) {
+          // The CPR aids (CPR_PHYSICS.md 14.3): the autopilot's pedals and a window on the wheel; speed control
+          // (Ctrl+T once) works both pedals, as Auto-Throttle.
+          const ap = cprDrive(t, true);
+          applyCprAids(t.state.controls, ap, t.apLevel === 1 ? { ...cprPlayerAids, control: 2 } : cprPlayerAids);
+          const turned = cprPlayerAids.spinCorrection ? spinCorrection(t.state, ap) : null;
+          if (turned !== null) turnKeepingVelocity(t.state, turned);
+        } else if (t.apLevel === 1 && course.length && go) {
           // Speed control only: the autopilot drives the pedals, the player the wheel.
           const { steer, rearSteer } = t.state.controls;
           recoveryOf(t);
@@ -1120,7 +1181,8 @@ export function createSession(init) {
       // The player's helicopter holds the truck still and carries it itself (game/heli-flight.js).
       if (t.flight) { flyTruck(t); continue; }
       extensionSession?.afterTruckStep?.(t);
-      if (evoModel) E.stepEvoTruck(t.state, t.params, t.ctx, STEP);
+      if (t.cprCar) Cp.stepCprTruck(t.state, t.params, t.ctx, STEP);
+      else if (evoModel) E.stepEvoTruck(t.state, t.params, t.ctx, STEP);
       else S.stepTruck(t.state, t.params, t.ctx, STEP);
       t.snd.impact = Math.max(t.snd.impact, t.state.impactForce);
       t.snd.splash = t.snd.splash || t.state.splash;
@@ -1159,20 +1221,21 @@ export function createSession(init) {
       S.postStepBox(box, ground);
       if (!posedAs(box, before, i * 6)) dirty.add(box);
     });
-    // Which object a hard hit was against, for its own sound (SIT "@sound effect entries").
-    for (const t of trucks) {
-      if (t.state.impactForce <= 400) continue;
-      let best = null, bestGap = t.radius + 6;
-      for (const box of listed) {
-        if (box.sitIndex === undefined) continue;
-        const gap = Math.hypot(box.pos[0] - t.state.pos[0], box.pos[1] - t.state.pos[1], box.pos[2] - t.state.pos[2]) - box.radius;
-        if (gap < bestGap) { bestGap = gap; best = box; }
-      }
-      if (best && (!t.snd.hit || t.state.impactForce > t.snd.hit.force)) t.snd.hit = { sitIndex: best.sitIndex, force: t.state.impactForce };
-    }
     updateHeliVisuals();
     time += STEP;
     if (race) handOverFinished();
+  }
+
+  /**
+   * A truck touched a level object (SIT "@sound effect entries"): its sound, as the game plays it at each contact the
+   * collision finds (`0x428bc0`, MONSTER_EXE_ANALYSIS.md "Object sounds"), never for a hit near it. The hardest contact
+   * of the reply is kept, with where the object stands from the truck (the short way round the world's seam).
+   */
+  function noteObjectHit(t, box, touch) {
+    if (box.sitIndex === undefined) return;
+    if (t.snd.hit && touch.speed <= t.snd.hit.force) return;
+    const s = t.state;
+    t.snd.hit = { sitIndex: box.sitIndex, force: touch.speed, offset: [S.wrapDelta(box.pos[0] - s.pos[0]), box.pos[1] - s.pos[1], S.wrapDelta(box.pos[2] - s.pos[2])] };
   }
 
   /**
@@ -1186,6 +1249,8 @@ export function createSession(init) {
     if (t.flight) { releaseTruck(t); return; }
     // A truck on its roof is counting down to the game's own reset (a negative timer): the call still goes through.
     if (t.state.heliTimer > 0) return;
+    // An extension may refuse the call (Cops & Robbers: the robber, out of deep water).
+    if (extensionSession?.heliAllowed?.(trucks.indexOf(t)) === false) return;
     heliCalls = (heliCalls + 1) % 3;
     const driven = course.length ? S.orientedCourse(course, apCtx.reversed) : [];
     const here = t.state.pos;
@@ -1265,7 +1330,7 @@ export function createSession(init) {
       laps: race.laps,
       over: race.over,
       /** The HUD's Lead or Back gap for the player's truck (game/timing.js). */
-      gap: race.summit || extensionSession ? null : raceGap(race.trucks, crossings, 0),
+      gap: race.summit || (extensionSession && !extensionSession.keepsRace) ? null : raceGap(race.trucks, crossings, 0),
       /** Public state supplied by the active extension, else null. */
       extension: extensionSession?.view(since) ?? null,
       /** Summit Rumble: scores and the seconds left in the round (6.3), else null. */
@@ -1296,8 +1361,8 @@ export function createSession(init) {
    */
   function finishRace() {
     if (!race) return null;
-    // An extension race left early ends where it stands.
-    if (extensionSession) { extensionSession.finish(); return raceView(); }
+    // An extension race left early ends where it stands; one played on the race (Race & Rumble) runs on as a race does.
+    if (extensionSession && !extensionSession.keepsRace) { extensionSession.finish(); return raceView(); }
     const until = race.clock + FAST_SIMULATION_S;
     keepPrevious = false;
     try {
@@ -1306,6 +1371,7 @@ export function createSession(init) {
       keepPrevious = true;
     }
     for (const t of trucks) t.previous = snapshot(t.state);
+    extensionSession?.finish();
     return raceView();
   }
 

@@ -19,14 +19,12 @@
   Positions are the file's own: `[x, altitude, along]` in feet. The file says nothing of which
   way `along` runs against the terrain's rows; the caller places it.
 */
-import { CPR_CROSS_SECTION_MIDPOINT, CPR_WALL_LAYERS, cprSegmentPairs, cprTextureIndex, cprTextureSlice, cprTextureU, cprVisibleSlots, isDegenerateSlot, } from "./track.js";
+import { CPR_CROSS_SECTION_MIDPOINT, CPR_SLOT_CURB, CPR_SLOT_ROAD, CPR_TREE_WALL, CPR_WALL_LAYERS, cprSegmentPairs, cprTextureIndex, cprTextureSlice, cprTextureU, cprVisibleSlots, isDegenerateSlot, } from "./track.js";
 /*
-  Height of one wall panel, in feet.
-
-  Not in the data: the engine holds it. 4.5 ft is JSTrackViewer's calibration against the
-  original game's screenshots of Laguna. It is the one number here that is not read off the file.
+  Height of one wall panel, in feet: 4/256 of a 256 ft unit (CART.EXE 0x44a1a0, 0x448a80; OpenMTM2
+  docs/CPR_PHYSICS.md 10.3). JSTrackViewer had calibrated 4.5 ft from screenshots of Laguna.
 */
-export const CPR_WALL_PART_HEIGHT_FT = 4.5;
+export const CPR_WALL_PART_HEIGHT_FT = 4;
 /** Feet of track one road texture tile covers along the stretch. */
 const ROAD_TILE_FT = 128;
 /** The section U values a slot takes when the record writes none (16.16 over 0..256). */
@@ -75,19 +73,68 @@ export function buildCprRoad(surfaces, textureCount = Infinity) {
             for (const layer of layers) {
                 const top = base + layer.units * CPR_WALL_PART_HEIGHT_FT;
                 const value = parts[layer.part ?? 0] ?? parts[0] ?? 0;
-                const vTop = layer.fence ? 0 : cprTextureSlice(value) / 4;
+                // CART.EXE 0x448a80 reads a strip's rows 1 to 63 of its 64, so the strip next to it never bleeds in.
+                const slice = cprTextureSlice(value);
                 panels.push({
                     baseFt: base, topFt: top, fence: !!layer.fence, texture: layer.fence ? -1 : textureOf(value),
-                    vTop, vBottom: layer.fence ? 1 : vTop + 1 / 4,
+                    vTop: layer.fence ? 0 : (slice * 64 + 1) / 256, vBottom: layer.fence ? 1 : (slice * 64 + 63) / 256,
                 });
                 base = top;
             }
             walls.push({
-                segment: from, point: index, wallType, from: p0, to: p1, heightFt: base,
-                uRepeat: Math.max(1, Math.hypot(p1[0] - p0[0], p1[2] - p0[2]) / ROAD_TILE_FT),
+                segment: from, point: index, wallType, solid: wallType !== CPR_TREE_WALL, from: p0, to: p1, heightFt: base,
+                // One texture width per stretch, however long (CART.EXE 0x448a80: U from texel 1 to 255).
+                uRepeat: 1,
                 facing: index < CPR_CROSS_SECTION_MIDPOINT ? 1 : -1, panels,
             });
         }
     }
     return { quads, walls };
+}
+/**
+ * The track's centreline, one point per cross section in the file's order: the place on each section at lateral offset
+ * 0 (the `pointOffsets` are measured from it), between the two points either side of it in the section's left half,
+ * where the game's sections keep the racing surface. With it, how far the road's own slots (Road and Curb) reach either
+ * way from it, on the run of them that holds the centreline. Sections without points are skipped.
+ */
+export function cprCentreline(surfaces) {
+    const out = [];
+    for (const s of surfaces) {
+        const pts = s.points ?? [], offs = s.pointOffsets ?? [];
+        const n = Math.min(pts.length, offs.length);
+        if (n < 2)
+            continue;
+        let pos = null;
+        for (let i = 0; i + 1 < n && !pos; i++) {
+            const a = offs[i], b = offs[i + 1];
+            if (a <= 0 && b >= 0) {
+                const t = b === a ? 0 : -a / (b - a);
+                const p = point(pts[i]), q = point(pts[i + 1]);
+                pos = [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t];
+            }
+        }
+        if (!pos)
+            continue;
+        // The run of road and curb slots round the centreline, out to the first slot of another kind with any width either
+        // way (a slot of no width, as the sections' middle ones often are, does not break it): its outermost offsets. Where a
+        // pit lane joins the track with no grass between, it is counted in.
+        const types = s.segmentTypes ?? [];
+        const slots = Math.min(types.length, n - 1);
+        const road = (k) => types[k] === CPR_SLOT_ROAD || types[k] === CPR_SLOT_CURB || Math.abs(offs[k + 1] - offs[k]) < 0.5;
+        let centre = -1;
+        for (let k = 0; k < slots; k++)
+            if (offs[k] <= 0 && offs[k + 1] >= 0 && road(k)) {
+                centre = k;
+                break;
+            }
+        let left = 0, right = 0;
+        if (centre >= 0) {
+            for (let k = centre; k >= 0 && road(k); k--)
+                left = Math.max(left, -Math.min(offs[k], offs[k + 1]));
+            for (let k = centre; k < slots && road(k); k++)
+                right = Math.max(right, Math.max(offs[k], offs[k + 1]));
+        }
+        out.push({ pos, left, right });
+    }
+    return out;
 }

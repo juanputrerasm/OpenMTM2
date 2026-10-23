@@ -11,13 +11,16 @@
 import * as S from "../../vendor/openphotex/sim/mtm2/index.js";
 import { createRumbleDriver, driveToPoint } from "../rumble-ai.js";
 import {
-  ESCAPE_S, NUDGE_AFTER_S, NUDGE_FT_S, TURN_FLOOR, createHockey, hockeyAim, hockeyHeld,
+  ESCAPE_S, HOCKEY_TUNE, NUDGE_AFTER_S, NUDGE_FT_S, TURN_FLOOR, createHockey, hockeyAim, hockeyHeld,
   hockeyHeliSpot, hockeyPlaces, hockeyRoles, hockeySpot, hockeyStep, outsideRink, rinkGround,
 } from "./hockey.js";
 import {
-  TAG_SPEED, coverOf, createTag, createTagDriver, roamRect, tagAdopt, tagDrivePoint, tagHeld,
-  tagPlaces, tagRanks, tagSafe, tagStep,
+  coverOf, createTag, createTagDriver, roamRect, tagAdopt, tagDrivePoint, tagHeld,
+  itDistance, tagPlaces, tagRanks, tagSafe, tagSpeed, tagStep, tagZoneRate, wanderPoint,
 } from "./tag.js";
+import { SOCCER_DRIVE, SOCCER_TUNE } from "./soccer.js";
+import { COPS_HOLD_S, cnrHeld, cnrHeliAllowed, cnrPlaces, cnrStep, createCnr, escapeSpot } from "./cops-robbers.js";
+import { BLOCKER, RACER, blockTarget, interceptPoint, racerHome, rnrPlaces, rnrWinner } from "./race-rumble.js";
 
 const worldVelocity = (state) => {
   const matrix = state.matrix, [x, y, z] = state.bvel;
@@ -65,14 +68,37 @@ function commonRuntime(payload, env) {
 
 const following = (env) => env.net?.authority === "follower";
 
+/** The ground the chase modes roam (Tag, Cops & Robbers): their rectangle, and the covers on it. */
+function chaseField(env) {
+  const { levelBoxes, walls, course, specs } = env;
+  const home = [specs.reduce((sum, spec) => sum + spec.start.pos[0], 0) / specs.length, specs.reduce((sum, spec) => sum + spec.start.pos[2], 0) / specs.length];
+  const covers = [];
+  for (const box of levelBoxes) { const cover = coverOf(box); if (cover) covers.push(cover); }
+  for (const wall of walls ?? []) {
+    const cover = coverOf({ pos: wall.pos, reach: Math.hypot(wall.size[0], wall.size[2]) * 0.5, tall: wall.size[1] });
+    if (cover) covers.push(cover);
+  }
+  return { rect: roamRect(roamPoints(course), home), covers };
+}
+
+/** A truck's speed, ft/s. */
+const speedOf = (state) => Math.hypot(state.bvel[0], state.bvel[1], state.bvel[2]);
+
 function createHockeyRuntime(payload, env) {
   const base = commonRuntime(payload, env);
   const { trucks, race, step, levelBoxes, dirty, wallsAround } = env;
   const game = createHockey(payload.rink, payload.teams, payload.goals);
+  // Soccer's walls that only the ball meets (soccer.js `ballWalls`); a pitch the trucks may leave has no escape rule.
+  const ballWalls = (payload.rink.ballWalls ?? []).map((w) => S.createBox(w.pos, w.size, 0, [0, 0, w.psi]));
+  const escape = payload.rink.boards.length > 0;
   /** Face-offs so far (the owner counts them; a follower places its own trucks when the count moves on). */
   let resets = 0, seenResets = -1;
   const puck = levelBoxes.find((box) => box.sitIndex === payload.rink.puck.sitIndex) ?? null;
   let roles = null;
+  // Soccer plays on grass: its own way of playing and driving (soccer.js); Hockey slides on the ice.
+  const soccer = payload.mode === "soccer";
+  const tune = soccer ? SOCCER_TUNE : HOCKEY_TUNE;
+  const driving = soccer ? SOCCER_DRIVE : { back: false, turnFloor: TURN_FLOOR };
   const setPuck = () => {
     if (!puck) return;
     const { start, psi } = payload.rink.puck;
@@ -100,7 +126,7 @@ function createHockeyRuntime(payload, env) {
         setPuck();
       } else if (action === "over") base.end();
       if (puck) roles = hockeyRoles(game, trucks.map((truck) => truck.state.pos), trucks.map((truck) => truck.autopilot), puck.pos);
-      trucks.forEach((truck, index) => {
+      if (escape) trucks.forEach((truck, index) => {
         truck.outside = truck.flight || !outsideRink(payload.rink, truck.state.pos) ? 0 : (truck.outside ?? 0) + step;
         if (truck.outside >= ESCAPE_S) { base.placeTruck(truck, hockeySpot(payload.rink, game.teams, index)); truck.outside = 0; }
       });
@@ -109,8 +135,8 @@ function createHockeyRuntime(payload, env) {
     drive(truck, index) {
       const role = roles?.[index] ?? { role: "attack", side: 1 };
       const state = truck.state;
-      const aim = puck ? hockeyAim(payload.rink, game.teams[index], role.role, { pos: state.pos, heading: state.euler[2] }, puck.pos, role.side, truck.extensionDriver) : { point: state.pos, speed: 0 };
-      driveToPoint(state, truck.extensionDriver, aim.point, aim.speed, 0, S.GEAR, step, { back: false, turnFloor: TURN_FLOOR });
+      const aim = puck ? hockeyAim(payload.rink, game.teams[index], role.role, { pos: state.pos, heading: state.euler[2] }, puck.pos, role.side, truck.extensionDriver, tune) : { point: state.pos, speed: 0 };
+      driveToPoint(state, truck.extensionDriver, aim.point, aim.speed, 0, S.GEAR, step, driving);
     },
     afterTruckStep(truck) {
       const state = truck.state, controls = state.controls;
@@ -128,11 +154,12 @@ function createHockeyRuntime(payload, env) {
       const walls = [];
       wallsAround(puck.pos[0], puck.pos[2], puck.radius, walls);
       for (const wall of walls) if (!all.includes(wall)) all.push(wall);
+      for (const wall of ballWalls) all.push(wall);
     },
     view() {
       return {
         mode: payload.mode, score: [...game.score], target: game.target, teams: game.teams, phase: game.phase,
-        timer: Math.max(0, game.timer), event: game.event, events: game.events,
+        timer: Math.max(0, game.timer), event: game.event, events: game.events, ball: puck ? [...puck.pos] : null,
       };
     },
     score: (index) => game.goals[index],
@@ -163,18 +190,11 @@ function createHockeyRuntime(payload, env) {
 
 function createTagRuntime(payload, env) {
   const base = commonRuntime(payload, env);
-  const { trucks, race, step, levelBoxes, walls, course, specs, ramps, ground, weather, watchHeadway } = env;
+  const { trucks, race, step, ramps, ground, weather, watchHeadway } = env;
   const game = createTag(trucks.length);
   if (Number.isInteger(payload.it) && payload.it >= 0 && payload.it < trucks.length) game.it = payload.it;
   race.roundSeconds = Math.max(1, Number(payload.minutes) || 5) * 60;
-  const home = [specs.reduce((sum, spec) => sum + spec.start.pos[0], 0) / specs.length, specs.reduce((sum, spec) => sum + spec.start.pos[2], 0) / specs.length];
-  const covers = [];
-  for (const box of levelBoxes) { const cover = coverOf(box); if (cover) covers.push(cover); }
-  for (const wall of walls ?? []) {
-    const cover = coverOf({ pos: wall.pos, reach: Math.hypot(wall.size[0], wall.size[2]) * 0.5, tall: wall.size[1] });
-    if (cover) covers.push(cover);
-  }
-  const rect = roamRect(roamPoints(course), home);
+  const { rect, covers } = chaseField(env);
   const touches = [];
   trucks.forEach((truck) => { truck.tagDriver = createTagDriver(); });
   return {
@@ -183,7 +203,7 @@ function createTagRuntime(payload, env) {
     held: (index) => tagHeld(game, index, base.sinceStart()),
     touch: (a, b) => { if (!following(env)) touches.push([a, b]); },
     tick() {
-      if (!following(env)) tagStep(game, base.sinceStart(), step, touches);
+      if (!following(env)) tagStep(game, base.sinceStart(), step, touches, trucks.map((truck) => truck.state.pos));
       touches.length = 0;
       if (base.sinceStart() >= race.roundSeconds) base.end();
       tagPlaces(game).forEach((place, index) => { race.trucks[index].place = place; });
@@ -201,13 +221,15 @@ function createTagRuntime(payload, env) {
         water: weather() === S.WEATHER.SNOW ? null : ground.waterLevelFt, random: Math.random,
       });
       base.driveByPoint(truck);
-      driveToPoint(truck.state, truck.extensionDriver, point ?? truck.state.pos, point ? TAG_SPEED[truck.tagDriver.kind] ?? TAG_SPEED.wander : 0, 0, S.GEAR, step);
+      driveToPoint(truck.state, truck.extensionDriver, point ?? truck.state.pos, point ? tagSpeed(truck.tagDriver, truck.state.pos, truck.tagDriver.point) : 0, 0, S.GEAR, step);
       if (role === "it" && tagHeld(game, index, since)) truck.headway = null;
       else watchHeadway(truck);
     },
     view(since) {
       return {
         mode: payload.mode, it: game.it, itTime: [...game.itTime], points: [...game.points],
+        // Each truck's points a second now, for the HUD: near It, 1 to 5.
+        rates: trucks.map((truck, i) => (i === game.it || since < game.holdUntil ? 0 : tagZoneRate(itDistance(game, trucks.map((x) => x.state.pos), i)))),
         safe: tagSafe(game, game.safe, Math.max(0, since)) ? game.safe : -1,
         hold: Math.max(0, game.holdUntil - Math.max(0, since)),
         left: Math.max(0, race.roundSeconds - Math.max(0, since)), event: game.event, events: game.events,
@@ -226,9 +248,159 @@ function createTagRuntime(payload, env) {
   };
 }
 
+function createCnrRuntime(payload, env) {
+  const base = commonRuntime(payload, env);
+  const { trucks, race, step, ramps, ground, weather, watchHeadway } = env;
+  const game = createCnr(trucks.length);
+  if (Number.isInteger(payload.robber) && payload.robber >= 0 && payload.robber < trucks.length) game.robber = payload.robber;
+  race.roundSeconds = Math.max(1, Number(payload.minutes) || 20) * 60;
+  const { rect, covers } = chaseField(env);
+  const touches = [];
+  /** Captures so far, where the robber was set down last, and until when it is held there. */
+  let resets = 0, seenResets = 0, spot = null, settleUntil = 0;
+  const RIDE_FT = 6;
+  const groundSpot = (p) => [p[0], ground.height(p[0], p[2]) + RIDE_FT, p[2]];
+  const dry = (p) => ground.waterLevelFt === null || ground.waterLevelFt === undefined || weather() === S.WEATHER.SNOW || ground.height(p[0], p[2]) > ground.waterLevelFt + 1.5;
+  const setDown = (where) => {
+    const robber = trucks[game.robber];
+    base.placeTruck(robber, { pos: where.pos, heading: where.heading });
+    settleUntil = base.sinceStart() + 1;
+  };
+  trucks.forEach((truck) => { truck.tagDriver = createTagDriver(); });
+  return {
+    id: payload.mode,
+    debug: { game },
+    held: (index) => cnrHeld(game, index, base.sinceStart()) || (index === game.robber && base.sinceStart() < settleUntil),
+    heliAllowed(index) {
+      const state = trucks[index].state;
+      const deep = ground.waterLevelFt !== null && ground.waterLevelFt !== undefined && weather() !== S.WEATHER.SNOW
+        && ground.height(state.pos[0], state.pos[2]) < ground.waterLevelFt - 3;
+      return cnrHeliAllowed(game, index, deep);
+    },
+    touch: (a, b) => { if (!following(env)) touches.push([a, b]); },
+    tick() {
+      const since = base.sinceStart();
+      if (!following(env)) {
+        const robber = trucks[game.robber].state;
+        const capture = cnrStep(game, since, step, touches, { up: robber.matrix[4], speed: speedOf(robber) });
+        if (capture) {
+          const cops = trucks.filter((_, i) => i !== game.robber).map((truck) => truck.state.pos);
+          const candidates = [];
+          for (let k = 0; k < 24; k++) { const p = groundSpot(wanderPoint(rect, Math.random)); if (dry(p)) candidates.push(p); }
+          const pos = escapeSpot(candidates.length ? candidates : [groundSpot(wanderPoint(rect, Math.random))], cops);
+          spot = { pos, heading: Math.random() * Math.PI * 2 };
+          resets++;
+          setDown(spot);
+        }
+      }
+      touches.length = 0;
+      if (since >= race.roundSeconds) base.end();
+      cnrPlaces(game).forEach((place, index) => { race.trucks[index].place = place; });
+    },
+    drive(truck, index) {
+      const since = base.sinceStart();
+      const robber = trucks[game.robber];
+      const role = truck === robber ? "free" : "it";
+      // The robber minds the nearest cop; the cops chase the robber.
+      let chaser = null, near = Infinity;
+      if (role === "free") {
+        for (const other of trucks) {
+          if (other === truck) continue;
+          const d = Math.hypot(other.state.pos[0] - truck.state.pos[0], other.state.pos[2] - truck.state.pos[2]);
+          if (d < near) { near = d; chaser = other; }
+        }
+      }
+      const quarry = role === "it" ? [robber.state.heliTimer > 0 ? null : { pos: robber.state.pos, vel: worldVelocity(robber.state), place: 0 }] : null;
+      const point = tagDrivePoint(truck.tagDriver, role, {
+        clock: since, pos: truck.state.pos, itPos: role === "free" ? (chaser ?? truck).state.pos : robber.state.pos, quarry, rect, covers, ramps,
+        shy: role === "free",
+        heightAt: (x, z) => ground.height(x, z), water: weather() === S.WEATHER.SNOW ? null : ground.waterLevelFt, random: Math.random,
+      });
+      base.driveByPoint(truck);
+      driveToPoint(truck.state, truck.extensionDriver, point ?? truck.state.pos, point ? tagSpeed(truck.tagDriver, truck.state.pos, truck.tagDriver.point) : 0, 0, S.GEAR, step);
+      if (cnrHeld(game, index, since)) truck.headway = null;
+      else watchHeadway(truck);
+    },
+    view(since) {
+      const now = Math.max(0, since);
+      return {
+        mode: payload.mode, robber: game.robber, points: [...game.points], captures: [...game.captures],
+        safe: Math.max(0, game.safeUntil - now), hold: Math.max(0, COPS_HOLD_S - now),
+        left: Math.max(0, race.roundSeconds - now), event: game.event, events: game.events,
+      };
+    },
+    score: (index) => game.points[index],
+    finish: base.end,
+    netState: () => ({
+      robber: game.robber, points: game.points, captures: game.captures, safeUntil: game.safeUntil,
+      event: game.event, events: game.events, resets, spot, over: !!race.over,
+    }),
+    applyNet(d) {
+      Object.assign(game, { robber: d.robber, points: d.points, captures: d.captures, safeUntil: d.safeUntil, event: d.event, events: d.events });
+      resets = d.resets;
+      // A capture: when this machine drives the robber, it sets its own truck down where the owner said.
+      if (d.resets !== seenResets) {
+        seenResets = d.resets;
+        if (d.spot && !trucks[game.robber].remote) setDown(d.spot);
+      }
+      if (d.over) base.end();
+    },
+  };
+}
+
+function createRnrRuntime(payload, env) {
+  const base = commonRuntime(payload, env);
+  const { trucks, race, step, watchHeadway } = env;
+  const teams = [...payload.teams], roles = [...payload.roles];
+  /** The places once the race is decided (a racer home, or the race left early), else null; and the winning side. */
+  let decided = null, winner = null;
+  // The blockers are driven here, and recover as the player does; the racers keep the course's autopilot.
+  trucks.forEach((truck, i) => { if (roles[i] === BLOCKER) base.driveByPoint(truck); });
+  const decide = () => {
+    winner = rnrWinner(roles, race.trucks);
+    decided = rnrPlaces(teams, roles, race.trucks);
+    decided.forEach((place, i) => { race.trucks[i].place = place; });
+  };
+  return {
+    id: payload.mode,
+    keepsRace: true,
+    held: () => false,
+    tick() {
+      if (decided) { decided.forEach((place, i) => { race.trucks[i].place = place; }); return; }
+      // The first racer home ends it for everyone.
+      if (!following(env) && racerHome(roles, race.trucks)) { decide(); base.end(); }
+    },
+    /** A racer drives the course (false: the worker's autopilot); a blocker goes for the nearest racer. */
+    drive(truck, index) {
+      if (roles[index] === RACER) return false;
+      const racers = trucks.map((other, i) => (roles[i] === RACER ? { index: i, team: teams[i], pos: other.state.pos, vel: worldVelocity(other.state), finished: race.trucks[i].finished } : null)).filter(Boolean);
+      const target = blockTarget(teams[index], truck.state.pos, racers);
+      base.driveByPoint(truck);
+      const point = target ? interceptPoint(truck.state.pos, target) : truck.state.pos;
+      driveToPoint(truck.state, truck.extensionDriver, point, target ? 95 : 0, 0, S.GEAR, step);
+      watchHeadway(truck);
+      return true;
+    },
+    view() {
+      return { mode: payload.mode, teams, roles, over: !!decided, places: decided ? [...decided] : null, winner };
+    },
+    // The winning side 10 points a truck, the other 4.
+    score: (index) => (decided ? (roles[index] === winner ? 10 : 4) : 0),
+    finish() { if (!decided) decide(); base.end(); },
+    netState: () => ({ teams, roles, over: !!decided }),
+    applyNet(d) {
+      if (d.over && !decided) { decide(); base.end(); }
+    },
+  };
+}
+
 const FACTORIES = new Map([
   ["hockey", { ground: rinkGround, create: createHockeyRuntime }],
+  // Soccer plays Hockey's rules on its own pitch (soccer.js), the ground as it is.
+  ["soccer", { ground: (ground) => ground, create: createHockeyRuntime }],
   ["tag", { ground: (ground) => ground, create: createTagRuntime }],
+  ["cops-robbers", { ground: (ground) => ground, create: createCnrRuntime }],
+  ["race-rumble", { ground: (ground) => ground, create: createRnrRuntime }],
 ]);
 
 /** Extension-specific driving ground selected before trucks are constructed. */

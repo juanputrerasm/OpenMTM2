@@ -192,6 +192,8 @@ export function createGoldMode(env) {
     get cameraTurn() { return zKeys() ? state.turn : 0; },
     /** The sim polling needs the slew keys only while slewing. */
     get slewing() { return state.slew; },
+    /** Whether GOLD mode takes this key itself (0, and 4 in slew mode, are its screenshot), so a number key picks no view. */
+    claims: (e) => state.gold && !e.ctrlKey && !e.altKey && (e.code === "Digit0" || (state.slew && e.code === "Digit4")),
     dispose() {
       scope.remove();
       win.removeEventListener("keydown", onKeyDown);

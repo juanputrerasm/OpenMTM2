@@ -824,6 +824,33 @@ MTM2's `SOUND.POD` carries every one of these but `spinice1`-`3`. The spin and t
 `0x43d3c0`). MTM1's engine (`engstart.wav`, then `idle1.wav` looping, `shift.wav`, `engstop.wav`, `0x43c930`,
 `0x441350`) is not in MTM2's `SOUND.POD`, and its pitch, set in the mixer, is not traced.
 
+## 6.8 Ground boxes and the world's edge
+
+Read from the decompiled `MONSTER.EXE` (`re/mtm1/`); nothing here is decompiled code.
+
+- **Loader `0x4a3dee`:** the level's `.RA0` and `.RA1` go into 18-byte records at `0x5f98c0`: +0 the lower height
+  shifted left 7, +2 the upper, +4 the six `.CL0` face words, +0x10 the `.LTE`'s third byte. No field hides a box.
+- **World draw `0x4a9990`:** from the view's cell (`(x & 0x1fe000) >> 13`) it walks rings of cells from 10 out to the
+  view's own, and for each draws the terrain (`0x4a5610`) and the cell's box (`0x4a8df0`, `0x4a9060`). The other path,
+  `0x4a9750`, walks the same rings through `0x4a9320`, which also asks `dx^2 + dz^2 < 0x7a`; the global `0x547ff4`
+  picks the path (**hypothesis**: the renderer mode). **The ground is drawn only within about 11 cells (350 ft) of the view.**
+- **Terrain `0x4a4bd0`:** the vertex window runs from the view's cell - 10 to + 11 unwrapped; only the height lookup is
+  masked to the map, so the terrain continues across the map's seam.
+- **Box `0x4a5dd0`:** nothing when lower equals upper; otherwise the box stands at its own cell, masked to the map
+  (`(cell & 255) << 13`), **never beside the view**: a box across the seam is placed a whole world away and culled when
+  all eight corners clip.
+
+So MTM1 shows a ground box only while the view is within about 11 cells of the box's own, unwrapped cell. MTM2 draws
+boxes beside the view across the seam (MONSTER_EXE_ANALYSIS.md, "The wrapping world"). ISLAND is the one stock level
+this matters to: of its 1,496 boxes, 1,020 are a fence 400 ft high on the map's edge (rows 0 and 255, columns 254 and
+255, faces textured `GALV.RAW`), while its land spans columns 24 to 215 and rows 9 to 232. In play the fence is never
+seen, but it stays solid.
+
+The port draws the world wrapped round the camera, with a longer draw distance. It leaves undrawn every MTM1 box on the
+map's outer two cells; those boxes stay in the simulation (`worker/track-build.js` `mtm1EdgeBoxDrawn`). In play the game
+does not draw even the stretch of ISLAND's north fence that a beach comes within 11 cells of (about 20 boxes), so the
+distance rule above is not the whole story there; what else keeps them undrawn is not traced.
+
 ## 7. What this means for OpenMTM2
 
 ### 7.1 "MTM1 physics" as an option

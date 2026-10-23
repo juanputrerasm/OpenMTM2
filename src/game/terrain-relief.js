@@ -99,7 +99,7 @@ export function buildReliefData({ clr, textureValues, ra0 = null, ra1 = null, fo
   const cellCrag = new Float32Array(cells);
   const boxed = new Uint8Array(cells);
   for (let cell = 0; cell < cells; cell++) {
-    const value = textureValues[clr[cell] & 0x0fff] ?? 0;
+    const value = textureValues?.[clr[cell] & 0x0fff] ?? 0;
     cellCrag[cell] = cragOf(Math.floor(value / 100));
     if (ra0 && ra1 && ra0[cell] !== ra1[cell]) boxed[cell] = 1;
   }
@@ -301,16 +301,18 @@ export function triangleHeight(h00, h01, h10, h11, fx, fz, main) {
 /**
  * The drawn surface over a level's heights.
  *
- * @param {{ heights: Uint8Array, smooth?: Uint8Array, crag?: Uint8Array, keepouts?: Float32Array, calm?: Float32Array }} level
- *   `heights` is the level .RAW; the rest is `buildReliefData`'s. Without it the drawn surface
+ * @param {{ heights: Uint8Array|Float32Array, smooth?: Uint8Array, crag?: Uint8Array, keepouts?: Float32Array, calm?: Float32Array }} level
+ *   `heights` is the level .RAW (or corner heights in feet, a Float32Array, on a finer level); the rest is `buildReliefData`'s. Without it the drawn surface
  *   is the game's own.
  */
 export function createRelief({ heights, smooth = null, crag = null, keepouts = new Float32Array(0), calm = new Float32Array(0) }) {
   const cells = GRID * GRID;
+  // A level finer than MTM's 2 ft steps (CART Precision Racing) gives its corner heights in feet.
+  const stepFt = heights instanceof Float32Array || heights instanceof Float64Array ? 1 : STEP_FT;
   if (heights.length !== cells) throw new RangeError(`relief needs ${cells} heights, got ${heights.length}`);
   smooth ??= new Uint8Array(cells);
   crag ??= new Uint8Array(cells);
-  const H = (row, col) => heights[(row & MASK) * GRID + (col & MASK)] * STEP_FT;
+  const H = (row, col) => heights[(row & MASK) * GRID + (col & MASK)] * stepFt;
   const at = (row, col) => (row & MASK) * GRID + (col & MASK);
 
   // The ground's slope at each corner, feet per cell, along x (columns) and z (rows).
@@ -374,7 +376,7 @@ export function createRelief({ heights, smooth = null, crag = null, keepouts = n
     for (let col = 0; col < GRID; col++) {
       const i00 = row * GRID + col, i01 = at(row, col + 1), i10 = at(row + 1, col), i11 = at(row + 1, col + 1);
       if (!smooth[i00] && !smooth[i01] && !smooth[i10] && !smooth[i11]) { plain[i00] = 1; heldCell[i00] = 1; continue; }
-      const h00 = heights[i00] * STEP_FT, h01 = heights[i01] * STEP_FT, h10 = heights[i10] * STEP_FT, h11 = heights[i11] * STEP_FT;
+      const h00 = heights[i00] * stepFt, h01 = heights[i01] * stepFt, h10 = heights[i10] * stepFt, h11 = heights[i11] * stepFt;
       if (h00 + h11 !== h01 + h10) continue;
       const sx = h01 - h00, sz = h10 - h00;
       // The quadratic may rise a third over its largest value, so this much under the start of detail is none anywhere in the cell.
@@ -390,7 +392,7 @@ export function createRelief({ heights, smooth = null, crag = null, keepouts = n
     const col = Math.floor(wx / CELL_FT) & MASK, row = Math.floor(wz / CELL_FT) & MASK;
     const col1 = (col + 1) & MASK, row1 = (row + 1) & MASK;
     return triangleHeight(
-      heights[row * GRID + col] * STEP_FT, heights[row * GRID + col1] * STEP_FT, heights[row1 * GRID + col] * STEP_FT, heights[row1 * GRID + col1] * STEP_FT,
+      heights[row * GRID + col] * stepFt, heights[row * GRID + col1] * stepFt, heights[row1 * GRID + col] * stepFt, heights[row1 * GRID + col1] * stepFt,
       wx / CELL_FT - col, wz / CELL_FT - row, ((row ^ col) & 1) === 0);
   }
 
@@ -470,7 +472,7 @@ export function createRelief({ heights, smooth = null, crag = null, keepouts = n
   /** The game's own height at the place last located. The same arithmetic as `simAt`, so that where the drawn ground is held to the game's the two agree to the last bit. */
   const simHere = () => {
     const i00 = q[4], i01 = q[5], i10 = q[6], i11 = q[7];
-    return triangleHeight(heights[i00] * STEP_FT, heights[i01] * STEP_FT, heights[i10] * STEP_FT, heights[i11] * STEP_FT, q[2], q[3], q[23]);
+    return triangleHeight(heights[i00] * stepFt, heights[i01] * stepFt, heights[i10] * stepFt, heights[i11] * stepFt, q[2], q[3], q[23]);
   };
 
   /** The smooth surface at game (x, z), before it is rounded: the cubic patch on the game's triangle there. */
@@ -482,7 +484,7 @@ export function createRelief({ heights, smooth = null, crag = null, keepouts = n
     const i1 = q[8], i2 = q[9], i3 = q[10];
     const x1 = q[11], z1 = q[12], x2 = q[13], z2 = q[14], x3 = q[15], z3 = q[16];
     const b1 = q[17], b2 = q[18], b3 = q[19];
-    const h1 = heights[i1] * STEP_FT, h2 = heights[i2] * STEP_FT, h3 = heights[i3] * STEP_FT;
+    const h1 = heights[i1] * stepFt, h2 = heights[i2] * stepFt, h3 = heights[i3] * stepFt;
     // The triangle as a cubic patch: each edge leaves its corners along the ground's slope there.
     const c12 = edgeControl(h1, h2, slopeX[i1] * (x2 - x1) + slopeZ[i1] * (z2 - z1)), c21 = edgeControl(h2, h1, slopeX[i2] * (x1 - x2) + slopeZ[i2] * (z1 - z2));
     const c23 = edgeControl(h2, h3, slopeX[i2] * (x3 - x2) + slopeZ[i2] * (z3 - z2)), c32 = edgeControl(h3, h2, slopeX[i3] * (x2 - x3) + slopeZ[i3] * (z2 - z3));

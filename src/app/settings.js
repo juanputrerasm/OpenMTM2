@@ -14,7 +14,7 @@ import { createStrings, msg } from "../game/strings.js";
 
 const KEY = "openmtm2.settings";
 /** The settings' format, stored with them and with an export (Options, Data). */
-export const SETTINGS_VERSION = 11;
+export const SETTINGS_VERSION = 13;
 
 /**
  * The physics a race can run under, as Options (Game) and the console's `physics` list them. A model is one more entry
@@ -25,12 +25,13 @@ export const SETTINGS_VERSION = 11;
  * vehicle. "auto" picks one by the player's vehicle, "track" by the track's game (`resolvePhysics`).
  */
 export const PHYSICS_MODELS = Object.freeze([
-  Object.freeze({ id: "auto", label: msg("Auto (by vehicle)"), note: msg("The model of the player's vehicle's game: 4x4 Evolution 2 or 4x4 Evolution for their vehicles, Monster Truck Madness for MTM1 trucks, Monster Truck Madness 2 for the rest") }),
-  Object.freeze({ id: "track", label: msg("Auto (by track)"), note: msg("The model of the track's game: 4x4 Evolution 2 or 4x4 Evolution on their tracks, Monster Truck Madness on MTM1 tracks, Monster Truck Madness 2 on the rest") }),
+  Object.freeze({ id: "auto", label: msg("Auto (by vehicle)"), note: msg("The model of the player's vehicle's game: 4x4 Evolution 2 or 4x4 Evolution for their vehicles, CART Precision Racing for its cars, Monster Truck Madness for MTM1 trucks, Monster Truck Madness 2 for the rest") }),
+  Object.freeze({ id: "track", label: msg("Auto (by track)"), note: msg("The model of the track's game: 4x4 Evolution 2 or 4x4 Evolution on their tracks, CART Precision Racing on its tracks, Monster Truck Madness on MTM1 tracks, Monster Truck Madness 2 on the rest") }),
   Object.freeze({ id: "mtm2", label: msg("Monster Truck Madness 2"), note: msg("The 1998 game's") }),
   Object.freeze({ id: "mtm1", label: msg("Monster Truck Madness"), note: msg("The 1996 game's: tires that touch throw trucks twice as hard, water stops a truck, no deep water, weather does not change the grip, no crash damage, and its own drag rules") }),
   Object.freeze({ id: "evo2", label: msg("4x4 Evolution 2"), note: msg("The 2001 game's vehicle model: each Evo vehicle on its own engine, gears, springs and tires; others on MTM2's figures. Airborne vehicles fall at 1.75 g, the centre of gravity sits 2 ft forward, hard steering at speed loosens the rear") }),
   Object.freeze({ id: "evo1", label: msg("4x4 Evolution"), note: msg("The 2000 game's vehicle model, as Evo 2's but floatier in the air, with the centre of gravity at the middle and bodies that slide further on the ground") }),
+  Object.freeze({ id: "cpr", label: msg("CART Precision Racing"), note: msg("The 1998 game's car model for its cars: six gears, springs and dampers from the Garage's setup, grip that falls with the load, wings that press the car down; other vehicles on MTM2's model. The torque curve and the wings' figures are the port's") }),
 ]);
 /** A physics model by id; an unknown id is MTM2's. */
 export const physicsModel = (id) => PHYSICS_MODELS.find((m) => m.id === id) ?? PHYSICS_MODELS.find((m) => m.id === "mtm2");
@@ -41,15 +42,24 @@ export const physicsModel = (id) => PHYSICS_MODELS.find((m) => m.id === id) ?? P
  */
 export function resolvePhysics(id, vehicle, trackGame = null) {
   const model = physicsModel(id).id;
-  const byGame = (game) => (game === "EVO2" ? "evo2" : game === "EVO1" ? "evo1" : game === "MTM1" ? "mtm1" : "mtm2");
+  const byGame = (game) => (game === "EVO2" ? "evo2" : game === "EVO1" ? "evo1" : game === "MTM1" ? "mtm1" : game === "CPR" ? "cpr" : "mtm2");
   if (model === "track") return byGame(String(trackGame ?? "").toUpperCase());
   if (model !== "auto") return model;
   return byGame(/^([A-Z0-9]+):/i.exec(String(vehicle ?? ""))?.[1]?.toUpperCase());
 }
 
+/**
+ * The `tileOverlap` a track build takes: false with Terrain overlap off; null (each track as its own game drew it, so an
+ * MTM1 track edge to edge) with "No overlap on MTM1 tracks" on; true otherwise.
+ */
+export function tileOverlapOf(settings) {
+  if (settings?.terrainOverlap === false) return false;
+  return settings?.mtm1NoOverlap !== false ? null : true;
+}
+
 export const DEFAULT_SETTINGS = Object.freeze({
   look: "enhanced",           // "classic" or "enhanced"
-  view: 1,                    // the camera view the race starts in (the exe's modes 0 to 9)
+  view: 2,                    // the camera view the race starts in (the exe's modes 0 to 9): Chase Far
   units: "mph",               // the gauges' speed unit: "mph" or "kph"
   dashboard: true,            // the chase view's speedometer and tachometer (the Dashboard key toggles them)
   finder: true,               // the checkpoint finder ring in the cockpit, BlimpCam and RaceCam views (the Finder key)
@@ -59,8 +69,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   laps: 3,
   weather: 0,                 // 0 Clear ... 8 Pitch Black, or "random" (a track may not allow it)
   opponents: 3,               // MONSTER.INI defaultOpponents (built-in default 3)
-  // Multiplayer (docs/MULTIPLAYER.md): the classic helper's port and pairing token, the last host typed, the room server.
-  net: Object.freeze({ helperPort: 47650, helperToken: "", lastHost: "", serverUrl: "", latencyDisplay: true, chat: true, classicKind: "dplay", cp3Port: 2350 }),
+  // Multiplayer (docs/MULTIPLAYER.md): the classic helper's port and pairing token, the last host typed, the room server and
+  // the room servers used before.
+  net: Object.freeze({ helperPort: 47650, helperToken: "", lastHost: "", serverUrl: "", recentServers: Object.freeze([]), latencyDisplay: true, chat: true, classicKind: "dplay", cp3Port: 2350 }),
   opponentTrucks: Object.freeze([]), // explicitly selected CPU truck files from the Races dialog
   gameMode: "default",        // a core mode id, or an id registered by the extension loader
   extensions: Object.freeze(extensionSettingDefaults()), // settings owned by shipped extensions
@@ -81,6 +92,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   mtm1Sounds: false,          // MTM1's skid sounds (game/sound-model.js mtm1CornerSample and the rest)
   mtm1EarthSky: false,        // MTM1's flat sky on every track: an MTM1 track's own, any other EARTHSKY (worker/track-build.js loadSky)
   terrainOverlap: true,       // MTM2's two-pixel overlap of the ground tiles, on every track; off, they meet edge to edge as MTM1's do
+  mtm1NoOverlap: true,        // with Terrain overlap on: MTM1 tracks still meet edge to edge, as MTM1 draws them (`tileOverlapOf`)
   vsync: true,                // draw with the display's refresh; off draws as fast as the browser allows
   aa: "msaa",                 // anti-aliasing (game/aa.js): off, msaa, fxaa, smaa or taa. The next race takes it up
   fpsLimit: false,            // hold the frame rate to `fpsLimitValue`
@@ -94,6 +106,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
   aiNames: Object.freeze([]), // the computer drivers' own names, by place; an empty one is the game's (game/race-setup.js `cpuNames`)
   zModeCameras: false,        // Z mode's zoom and cameras in any race, without GOLD or slew mode, and the Inertia view
   fullAutopilot: false,       // the game's "Full Autopilot": the player's truck drives itself
+  cprSkill: "rookie",         // CART Precision Racing's Skill Level under its physics (game/cpr-driver.js `cprAids`): rookie, intermediate, professional
+  freeLook: true,             // the mouse looks round the external cameras (game/camera-look.js); the wheel zooms either way
+  freeLookInvert: false,      // the mouse's look turned the other way
+  freeLookHold: false,        // a look stays where it is left, without easing back after two seconds
   autoStage: true,            // drag races: the player's truck stages itself (off: stage it by hand, or press the Auto Stage key)
   dustEffects: true,          // MONSTER.INI smokeEffectFlag: dust puffs behind the wheels on soft ground
   tireTracks: true,           // MONSTER.INI tireTrackFlag: treads left on soft ground (the game reads it but never draws them)
@@ -125,6 +141,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   rainPuddles: false,         // wet ground and standing water in Rain (game/ground-maps.js)
   snowCover: false,           // snow settling on the ground in Snow (render/ground-surface.js)
   groundDetail: false,        // grain over the ground's textures, which are filtered for the distance (render/ground-detail.js)
+  groundBoxGrain: false,      // with Ground detail: the grain on the ground boxes too (walls, buildings and signs made of them)
   naturalLight: false,        // the sun's colour, sky and ground light, terrain shadows and the tone curve (render/light-rig.js)
   glossyPaint: false,         // trucks mirror the sky and glint in the sun (render/gloss.js)
   lensEffects: false,         // bright lights glow, on the flat screen (render/lens.js)
@@ -133,7 +150,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   replayEffects: false,       // dust, tracks, sparks and sun shadows in replays, read off the recorded film (game/replay-effects.js)
   vr: Object.freeze({}),      // the headset's preferences, see game/vr/settings.js (docs/VR.md)
   offline: true,              // keep a copy of the app in the browser, to start without a server (app/offline.js)
-  physics: "mtm2",            // the physics model, one of PHYSICS_MODELS
+  physics: "auto",            // the physics model, one of PHYSICS_MODELS: by default the player's vehicle's game
   flyControls: "traxx",       // how the fly-by camera is flown: "traxx" (JSTrackViewer's), "tv" (Terminal Velocity) or "hb" (Hellbender)
   language: null,             // the app's language, one of LANGUAGES by id; null until Setup picks it from the browser's (detectLanguage)
 });
@@ -194,6 +211,14 @@ export function migrateSettings(stored) {
   if (!(stored.version >= 10)) delete stored.cameraClearance;
   // Version 11 moved optional mode settings into the extension namespace. Keep values saved by 0.5.3.
   if (!(stored.version >= 11)) stored.extensions = migrateExtensionSettings(stored);
+  // Version 12 drives each vehicle on its own game's physics by default; the "mtm2" saved before it was the old default.
+  if (!(stored.version >= 12) && stored.physics === "mtm2") stored.physics = "auto";
+  // Version 13 starts races in Chase Far and leaves the ground boxes' grain off by default; the Chase Near and the grain
+  // saved before it were the old defaults.
+  if (!(stored.version >= 13)) {
+    if (stored.view === 1) delete stored.view;
+    delete stored.groundBoxGrain;
+  }
   stored.version = SETTINGS_VERSION;
   delete stored.showHiddenTrucks;
   // "MTM1 no terrain overlap" became "Terrain overlap", for every track.
@@ -261,7 +286,7 @@ export function applyMtm1Classic(settings) {
 
 /** Every MTM1 choice off: MTM2's sky, tile overlap, particles, sounds and physics, and a truck name to the archive mounted first. */
 const NO_MTM1 = Object.freeze({
-  mtm1EarthSky: false, terrainOverlap: true, mtm1TrucksApart: false, mtm1Particles: false, mtm1Sounds: false, physics: "mtm2",
+  mtm1EarthSky: false, terrainOverlap: true, mtm1TrucksApart: false, mtm1Particles: false, mtm1Sounds: false, physics: "auto",
 });
 
 /**
@@ -271,7 +296,7 @@ const NO_MTM1 = Object.freeze({
  */
 export function applyMtm2Classic(settings) {
   Object.assign(settings, NO_MTM1, {
-    originalBackdrops: true, greyDust: true, hdWeather: false, reflections: false, waterSplash: false,
+    physics: "mtm2", originalBackdrops: true, greyDust: true, hdWeather: false, reflections: false, waterSplash: false,
     dustAmount: 1, dustEffects: true, sparkAmount: 0, sparks: false,
     waterReflections: true, truckReflections: true, backdrops: true, graphics: "off", cameraClearance: true,
   });
@@ -288,7 +313,7 @@ export function applyOpenMtm2(settings) {
     mtm1TrucksApart: true, originalBackdrops: false, greyDust: false, waterReflections: false, truckReflections: false, backdrops: false,
     tireTracks: true, waterSplash: true, dustAmount: 2, dustEffects: true, sparkAmount: 2, sparks: true,
     ...GRAPHICS_FLAGS.max, glossyPaint: true, graphics: "max", look: "enhanced",
-    terrainDetail: true, hdWeather: true, reflections: true, cameraClearance: true,
+    terrainDetail: true, hdWeather: true, reflections: true, cameraClearance: true, groundBoxGrain: false,
   });
   return settings;
 }

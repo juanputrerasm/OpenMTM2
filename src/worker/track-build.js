@@ -13,6 +13,7 @@ import { BOX_LIGHT, BOX_MOVING } from "../vendor/openphotex/mtm/sit.js";
 import { decodeActPalette } from "../vendor/openphotex/texture/act.js";
 import { decodeRawTexture, rawTextureSide } from "../vendor/openphotex/texture/raw.js";
 import { isEvoSit } from "../vendor/openphotex/evo/sit.js";
+import { parseEvoLte } from "../vendor/openphotex/evo/lte.js";
 import { normalizePodPath, podPathTitle } from "../vendor/openphotex/pod/paths.js";
 import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
 import { buildEvoSky, buildEvoTrackRender } from "./evo-track-build.js";
@@ -124,6 +125,17 @@ function mtm1StadiumCells(ra0, ra1) {
   return col1 - col0 > 2 && row1 - row0 > 2 ? { col0: col0 + 1, col1: col1 - 1, row0: row0 + 1, row1: row1 - 1 } : null;
 }
 
+/**
+ * MTM1 draws the ground only within about 11 cells of the view's cell (`0x4a9990`, `0x4a9750` / `0x4a9320`: dx^2 + dz^2
+ * under 0x7a), and a ground box at its own cell, never wrapped beside the view (`0x4a5dd0`; MTM1_MONSTER_EXE_ANALYSIS.md
+ * 6.8). A box on the map's outer two cells (ISLAND's 400 ft fence) is never seen in the game, not even the stretch a north
+ * beach comes within reach of (seen in play; why that stretch is not drawn either is not traced). This filter (for
+ * `buildGroundBoxMesh`) leaves every such box undrawn. They stay solid in the simulation.
+ */
+export function mtm1EdgeBoxDrawn() {
+  return (box) => !(box.x <= 1 || box.y <= 1 || box.x >= 254 || box.y >= 254);
+}
+
 /** How many trucks a race takes: a track of another game may list more slots (CART Precision Racing has 37). */
 const MAX_GRID = 8;
 /** How high over the ground MTM2's own grids hold a truck (Farm Road 29's slots), in feet. */
@@ -191,6 +203,14 @@ const KEEPOUT_CLEAR_FT = 15;
  * What stands on the ground, for the drawn ground to stay the game's under it (game/terrain-relief.js):
  * every drawn object by its model's reach, and every ramp by its box.
  */
+/** The port's margin past a CPR road's edges inside which the drawn ground stays the game's, feet. */
+const CPR_ROAD_KEEPOUT_FT = 10;
+
+/** A CPR road's footprint as keepouts (game/terrain-relief.js): one circle a centreline point, as wide as the road there. */
+export function cprRoadKeepouts(line) {
+  return (line ?? []).filter((p) => p?.pos).map((p) => ({ x: p.pos[0], z: p.pos[2], radius: Math.max(p.left ?? 0, p.right ?? 0) + CPR_ROAD_KEEPOUT_FT }));
+}
+
 export function groundKeepouts({ objects, boxes, ramps, models, groundAt }) {
   const out = [];
   for (const object of objects) {
@@ -253,12 +273,22 @@ export async function loadRex(mtm, truckPalettes) {
  *   and the weather, `puddles` the map of where rain stands, `snow` the depth of settled snow
  *   on every vertex of the terrain.
  */
+/** The VFS with the archive that holds `sitPath` looked through first, for a track of another game than MTM. */
+export function trackHome(vfs, sitPath) {
+  const home = vfs.find?.(sitPath)?.mount;
+  return home && (home.family ?? "MTM") !== "MTM" ? vfs.preferMount?.(home.name) ?? vfs : vfs;
+}
+
 export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType = "circuit", truckFiles = [], weather = 0, mtm1 = MTM1_DEFAULTS, tileOverlap, visuals = {}, smoothTiles = false, hdWeather = false, originalBackdrops = false, evoForest = true, sunShadows = false } = {}) {
   // A Terminal Velocity, Fury3 or Hellbender level has no SIT: it is named by its LVL (worker/tv-track-build.js).
   if (/\.LVL$/i.test(sitPath)) return withMtm1Sky(vfs, await buildTvTrackRender(vfs, sitPath, { truckFiles, tileOverlap }), weather, mtm1);
+  // Another game's track reads its own archive first: every CART Precision Racing track POD has art of the same names
+  // (LAGSAND3, AA4DARK3, the road and wall tiles), each its own, and the first CPR archive mounted must not lend its
+  // own to Laguna's road and walls. MTM tracks keep the game's mount order.
+  vfs = trackHome(vfs, sitPath);
   // A 4x4 Evolution track is another kind of level altogether (worker/evo-track-build.js).
-  const sitBytes = await vfs.read(sitPath);
-  if (sitBytes && isEvoSit(sitBytes)) return withMtm1Sky(vfs, await buildEvoTrackRender(vfs, sitPath, sitBytes, { detailLevel, raceType, truckFiles, weather, hdWeather, tileOverlap, forest: evoForest, sunShadows, smoothTerrain: !!visuals.smoothing }), weather, mtm1);
+  const { sitBytes, lite } = await readTrackScript(vfs, sitPath);
+  if (sitBytes && isEvoSit(sitBytes)) return withMtm1Sky(vfs, await buildEvoTrackRender(vfs, sitPath, sitBytes, { detailLevel, raceType, truckFiles, weather, hdWeather, tileOverlap, forest: evoForest, sunShadows, smoothTerrain: !!visuals.smoothing, lite }), weather, mtm1);
   const level = await loadLevel(vfs, sitPath, sitBytes);
   const { sit } = level;
   // A CART Precision Racing track (docs/PLAN.md F3): its own art and palettes, a finer heightfield and a road layer.
@@ -308,7 +338,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   // MTM2 overlaps its ground tiles by two pixels; MTM1 does not. `tileOverlap` (Options, Game, "Terrain overlap", or the
   // console's `overlap`) says which for this race, whatever the track; unsaid, a track draws as its own game did.
   const tileInset = (tileOverlap ?? sit.origin !== "MTM1") ? 2 : 0;
-  const groundBoxes = cpr ? null : buildGroundBoxMesh(level.groundBoxes, atlas, level.lte, level.heights, cells);
+  const groundBoxes = cpr ? null : buildGroundBoxMesh(level.groundBoxes, atlas, level.lte, level.heights, cells,
+    { drawn: sit.origin === "MTM1" && !cells ? mtm1EdgeBoxDrawn() : null });
   const road = cpr ? await buildCprRoadLayer(vfs, level) : null;
   // The ground of a CPR track as the simulation has it: the terrain, and the road layer over it.
   const cprTerrain = cpr ? mtm2Sim.createTerrainGround(mtm2Sim.createTerrainFt(level.heightsFt), null, 0, null) : null;
@@ -484,9 +515,10 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   // The ground itself, once what stands on it is known: the game's own two triangles a cell, or with
   // "Smooth terrain" the drawn ground (game/terrain-relief.js), which keeps to the game's under all of that.
   // For a race in Snow the mesh also carries the snow that will lie on it (game/snow-cover.js), whatever ground is drawn.
-  // (A CART Precision Racing level, finer than the byte heightfield they are built from, has none of them.)
-  if (cpr) visuals = {};
-  let mesh, reliefData = null, snowData = null, drawnGround = cpr ? null : createRelief({ heights: level.heights });
+  // A CART Precision Racing level (finer than the byte heightfield, its heights in feet) takes Smooth terrain only, and its
+  // road keeps the ground under it the game's (the road layer is drawn over the terrain at the game's heights).
+  if (cpr) visuals = { smoothing: !!visuals.smoothing };
+  let mesh, reliefData = null, snowData = null, drawnGround = createRelief({ heights: level.heights ?? level.heightsFt });
   // What stands over the ground and keeps the rain and the snow off it (game/ground-maps.js): the ground boxes, and
   // every placed model that stays where it is and is wide enough to be a roof. Camera-facing pictures are not.
   let cover = null, sampledGround = null;
@@ -509,16 +541,16 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   if (visuals.smoothing || visuals.snow) {
     const data = buildReliefData({
       clr: level.clr, textureValues: level.textureValues, ra0: level.groundBoxes.ra0, ra1: level.groundBoxes.ra1, footprint: cells,
-      objects: groundKeepouts({ objects, boxes: sit.boxes, ramps, models, groundAt: drawnGround.simAt }),
+      objects: [...groundKeepouts({ objects, boxes: sit.boxes, ramps, models, groundAt: drawnGround.simAt }), ...cprRoadKeepouts(road?.sim.line)],
       courses,
     });
     if (visuals.smoothing) {
       reliefData = data;
-      drawnGround = createRelief({ heights: level.heights, ...data });
+      drawnGround = createRelief({ heights: level.heights ?? level.heightsFt, ...data });
     }
     if (visuals.snow) snowData = { calm: data.calm, held: data.smooth, shelter: cover?.shelter ?? null };
     const snow = snowData ? createSnowCover({ relief: drawnGround, ...snowData }) : null;
-    const relief = buildReliefMesh({ heights: level.heights, clr: level.clr, lte: level.lte, atlas, footprint: cells, relief: drawnGround, snow, sunVector: level.lvl.sunVector, courses, tileInset });
+    const relief = buildReliefMesh({ heights: level.heights ?? level.heightsFt, clr: level.clr, lte: cpr ? null : level.lte, atlas, footprint: cells, relief: drawnGround, snow, sunVector: level.lvl.sunVector, courses, tileInset });
     mesh = { relief: { fine: relief.fine, coarse: relief.coarse }, hasLte: relief.hasLte };
     // The ground map's samples lie on the mesh's own: it reads the heights the mesh was cut from.
     sampledGround = relief.heightAtSample;
@@ -682,6 +714,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       /** CPR: the road's triangles with their surface values, and its walls as boxes (worker/cpr-road.js). */
       road: road?.sim.road ?? null,
       walls: road?.sim.walls ?? null,
+      cprLine: road?.sim.line ?? null,
       // A Summit Rumble whose slots all stand far from its zone starts inside the zone (game/race-setup.js `rumbleGrid`).
       grid: sit.trackTypeCode === 4 && !cpr ? rumbleGrid(grid, checkpoints[0]?.gate) : grid,
       /** The checkpoints, gate and detector (MONSTER_EXE_ANALYSIS.md 6.2), sized by their models. */
@@ -716,10 +749,21 @@ export async function originalBackdrop(vfs, name) {
   return null;
 }
 
+/**
+ * A track's script: its SIT bytes, or for a 4x4 Evolution 1 Lite track (`.LTE`, docs/EVO2_EXE_ANALYSIS.md 5b) the SIT it
+ * holds and the track itself (`lite`: its base world and terrain grids).
+ */
+async function readTrackScript(vfs, sitPath) {
+  const bytes = await vfs.read(sitPath);
+  if (!bytes || !/\.LTE$/i.test(sitPath)) return { sitBytes: bytes, lite: null };
+  const lite = parseEvoLte(bytes, sitPath);
+  return { sitBytes: lite.sitBytes, lite };
+}
+
 /** Just a track's sky for a weather, when the weather changes in a race (GOLD mode). */
 export async function buildSky(vfs, sitPath, weather, mtm1 = MTM1_DEFAULTS, { hdWeather = false } = {}) {
   if (/\.LVL$/i.test(sitPath)) return (await withMtm1Sky(vfs, { sky: await buildTvSky(vfs, sitPath) }, weather, mtm1)).sky;
-  const sitBytes = await vfs.read(sitPath);
+  const { sitBytes } = await readTrackScript(vfs, sitPath);
   if (sitBytes && isEvoSit(sitBytes)) return (await withMtm1Sky(vfs, { sky: await buildEvoSky(vfs, sitPath, sitBytes, weather, { hdWeather }) }, weather, mtm1)).sky;
   const level = await loadLevel(vfs, sitPath);
   return loadSky(level.sit.origin === "CPR" ? vfs.scoped?.("MTM") ?? vfs : vfs, level, weather, mtm1, { hdWeather });

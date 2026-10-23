@@ -1,12 +1,13 @@
 # OpenMTM2 extensions
 
 Extensions add optional game modes without making them part of the original game simulation. OpenMTM2
-currently ships with Hockey and Tag. They appear in the Races screen and in Options, but their rules,
+currently ships with Hockey, Soccer, Tag, Cops & Robbers and Race & Rumble. They appear in the Races screen and in Options, but their rules,
 settings, rendering and worker state stay behind extension loader contracts.
 
 ## Ownership boundary
 
-Hockey and Tag were not modes in Monster Truck Madness or Monster Truck Madness 2. They must never be
+None of these were modes in Monster Truck Madness or Monster Truck Madness 2 (Cops & Robbers and Race & Rumble
+were played by the community under hand-kept rules). They must never be
 implemented in OpenPhotex. OpenPhotex owns TRI file formats and behavior found in the original games.
 An OpenMTM2 extension may call public OpenPhotex simulation primitives, but its rules and adapters belong
 in this repository:
@@ -19,6 +20,7 @@ in this repository:
 - `src/render/extensions/loader.js` creates optional scene objects.
 
 Core modules may import those loaders. They must not import Hockey, Tag or another concrete extension.
+`race-loader.js` keeps one adapter per mode in its `ADAPTERS` table; a new mode adds an entry there, not a branch.
 A new extension should require a registry entry and its own modules, not a new mode branch in `flow.js`,
 `settings.js`, `race-select.js`, `race.js`, `results.js` or `sim-worker.js`.
 
@@ -54,14 +56,17 @@ export const MY_EXTENSION = Object.freeze({
   ],
   acceptsTrack(track) { return true; },
   trackLocked: false,             // true when the mode owns the track choice
+  keepsRace: false,               // true to play on the track's own race: checkpoints, laps and its ending
   minEntrants: 2,                 // trucks the mode needs (the player counts unless spectating); omit for none
   weather: null,                  // null uses the player's weather; a number locks it
   detailLevel: null,              // null uses the normal setting
 });
 ```
 
-Register the manifest in `game/extensions/loader.js`. Add a race adapter in `race-loader.js` that returns
-only the pieces the mode needs:
+Settings may be `type: "number"` or `type: "boolean"` (a checkbox). Register the manifest in
+`game/extensions/loader.js`. Add an entry to `ADAPTERS` in `race-loader.js`. Its `prepare` returns only the pieces
+the mode needs; the other members (labels and their colours, map marks and points, the arrow's truck, the finder's
+target, the result time, the HUD, the network state) are listed at the top of that file:
 
 ```js
 {
@@ -80,8 +85,11 @@ Register a factory in `session-loader.js`. Its runtime can implement these gener
 {
   id: "my-mode",
   held(index) { return false; },
+  heliAllowed(index) { return true; },   // false refuses the Helicopter key
+  heliSpot(index) { return null; },      // where the helicopter sets the truck down, or null for the course
+  keepsRace: false,                      // finishing runs the trucks on for their times, then finish()
   tick() {},
-  drive(truck, index) {},
+  drive(truck, index) {},                // return false to leave the truck to the course's autopilot
   touch(a, b) {},
   afterTruckStep(truck) {},
   specialBox: null,
@@ -97,7 +105,21 @@ Hooks are optional except for those the mode uses. The runtime owns mode state. 
 timing, trucks, collisions and race transport. Data returned by `view` must be structured-clone safe.
 
 If the extension draws anything, register one scene adapter in `render/extensions/loader.js`. It returns
-`updateMarker` and `dispose`; a replay receives the same plain `dress` data. Rendering modules are the only
+`updateMarker` and `dispose`; a replay receives the same plain `dress` data. A `marker` colour in the dress asks
+for the arrow over one truck (the adapter's `markerTarget`).
+
+## Shared presentation
+
+- **Names (N key):** shown over every truck at any distance, past the camera's far plane too; only a truck behind
+  the camera or off the screen has none. Labels are not hidden by terrain.
+- **The arrow** (Tag's It, the robber): drawn over everything, so it is found from anywhere on the track. Far
+  away it keeps at least 3.5 percent of the picture's height, and past 90 percent of the far plane it is drawn on
+  the same line of sight just inside it. It is hidden from inside that truck's cab.
+- **The overlay map:** a mode may colour each truck's dot (its team) and mark one truck with a larger blinking
+  diamond (`marker: "arrow"`), which stays at the map's edge, on the line to it, when the truck is off the map.
+  It may add points of its own (the ball, in white).
+- **The checkpoint finder:** a mode may point it somewhere else (It, the robber, the ball, a rival racer), without a
+  number, or hide it; Race & Rumble's racers keep the checkpoints. Rendering modules are the only
 extension modules that may import three.js.
 
 Keep rules pure where practical and test them under Node. Add an integration test that starts a worker
@@ -131,6 +153,11 @@ What each shipped mode sends:
 
 - **Tag:** It, the points, the time as It, the opening hold, who may not be tagged back and until
   when, the last tag, the end.
+- **Soccer:** as Hockey, the ball for the puck.
+- **Cops & Robbers:** the robber, the points and captures, the time safe, the last capture, the count of
+  captures and where the robber was set down (a follower that drives the robber sets its own truck down there),
+  the end.
+- **Race & Rumble:** the sides, and the end; the times come from the results exchange as in a race.
 - **Hockey:**
   - the teams, the score, each truck's goals, the phase and its timer, the last touch, the last
     event, the number of face-offs and the end;
@@ -201,22 +228,90 @@ One truck is selected as It. It remains in Park for 5 seconds after the countdow
 away, although another truck can still shove it. A hull contact passes It to the touched truck. There is
 no hold after a tag. The new It cannot tag the previous It back for 10 seconds.
 
-Every truck starts with 100 points. After the opening hold, each whole second gives every free truck 1
-point and removes 1 from It. A tag transfers at least 8 and at most 28 points from the victim to the
+Every truck starts with 100 points. After the opening hold, each whole second gives a free truck within
+150 ft of It (on the ground) `ceil(5 x (1 - d / 150))` points, 1 at the edge to 5 alongside, and nothing
+farther off; It loses 1. A tag transfers at least 8 and at most 28 points from the victim to the
 tagger, capped by the victim's points and scaled by the victim's shared place. Places sort by points and
-then entry order. The HUD lists scores like a Rumble and tracks each truck's time as It.
+then entry order. The HUD lists scores like a Rumble, the player's rate now ("+3 a second" or "too far from
+It") and each truck's time as It.
 
-An orange arrow hangs above It, faces the camera, and remains a world object so terrain or a wall can
-hide it. It is hidden from inside that truck's cab. Normal truck names still follow the Names key.
+An orange arrow hangs above It and faces the camera (see "Shared presentation"). It is marked on the overlay
+map. A free truck's finder points at It; It's finder at the nearest truck it may tag. Normal truck names still
+follow the Names key.
 
 Computer It pursues a legal target, favoring distance with a 55 ft divided by place bias, and leads the
 target by travel time over 80 ft/s up to 1.5 seconds. It can route around a tall solid object, approach a
 target 14 ft higher by a slope step, and use a ramp facing the target when still at least 140 ft away.
 With no legal target it wanders.
 
-Free computer trucks do not drive laps. Their roaming rectangle is the course extent plus 700 ft, or a
-1400 ft area around the grid when no course covers ground. When It is beyond 180 ft, about 62 percent of
-new aims wander, about 30 percent seek high ground, a ridge, cover or a ramp away, and the rest flee.
-When It is closer, about 55 percent hide and the rest flee. Aims last 4 to 8 seconds or until reached.
-Dry points are preferred when possible. A truck calls the helicopter after failing to move 12 ft in 6
-seconds, except while It is deliberately held.
+Free computer trucks do not drive laps. They shadow It: a point 60 to 130 ft from It on the truck's own
+side, turned up to 0.8 radians round it, which follows It as it moves, at up to 80 ft/s slowing as they reach
+it. When It comes within 45 ft, about 55 percent hide (high ground, a ridge, cover or a ramp away) and the
+rest flee, until It is 130 ft behind. Aims last 4 to 8 seconds. Their roaming rectangle is the course extent
+plus 700 ft, or a 1400 ft area around the grid when no course covers ground. A truck calls the helicopter
+after failing to move 12 ft in 6 seconds, except while It is deliberately held.
+
+## Shipped extension: Soccer
+
+Soccer runs only on Monster Truck Madness's Highlands Rally (`CASTLE.SIT` in MTM1's `GAME.POD`), in any weather.
+Goals to win range from 1 to 99, with 3 as the default. It plays Hockey's rules (goals, face-offs, teams, places,
+computer trucks, unsticking, the Helicopter key) on a pitch read from the level:
+
+- The ball is the level's `SOCCER.BIN`, a pushable type 4 box of 3.108 slugs at about (4420, 263, 4992) ft. The
+  goals are its four `GOALTEST.BIN` posts, each paired with the post nearest it: one goal at z 4868, one at z
+  5114, about 40 ft between post centres. Goal 0 (red) is the one at the lower z. A mouth spans the posts' inner
+  faces; the top is the posts' top.
+- The pitch runs from goal line to goal line and 80 ft either side of the line joining the goals (the level
+  marks no touchlines). The ground keeps its own grip.
+- The trucks may leave the pitch; the ball may not. Walls 60 ft high that only the ball meets stand on the
+  touchlines and on the goal lines either side of each goal, and a net 14 ft deep closes each goal. They are
+  drawn as faint glass. A ball over the goal line outside a goal (over the bar) or over a touchline is out at once,
+  and so is a ball hanging still more than 3 ft up for 2 s (caught on a wall); play then faces off again.
+- The posts are tinted in the teams' colours. The ball is a white dot on the map, and every truck's finder points
+  at it.
+- The Helicopter key (H) sets the truck down at the centre spot facing the other goal, 30 ft short of the ball
+  when it is still there.
+- The computer trucks play the grass, not the ice (`SOCCER_TUNE`, `SOCCER_DRIVE` in soccer.js): they stand 10 ft
+  behind the ball rather than 14, drive straight through it from within 35 ft when it lies toward the goal they
+  attack, and a wing or defender within 45 ft of it plays it too. They slow to no less than 0.35 of their speed in
+  a turn (Hockey's 0.12 suits sliding trucks), may back up to a target close behind, and a truck that keeps
+  circling the ball inside its turning circle (within 40 ft, more than 1 radian off its nose, under 15 ft/s, for
+  1.5 s) backs up, turning the other way, and comes at it again.
+
+## Shipped extension: Cops & Robbers
+
+After the community's rules (mtm2.com/~mtmg/cnr.php), judged by the game instead of the host. Any track, any
+weather, 1 to 99 minutes with 20 as the default, at least two trucks.
+
+- One truck, picked at random, is the robber; the others are cops. The cops are held 5 s after the countdown.
+- A capture is a cop's hull touching the robber while the robber cannot drive: off its wheels (its up axis less
+  than half upward) or stuck (under 3 ft/s for 3 s). A robber that turned over by itself is still captured by
+  the first cop to reach it.
+- After a capture the robber is set down at least 400 ft from every cop, on dry ground in the roaming
+  rectangle, held 1 s, and cannot be captured for 5 s.
+- The robber may call the helicopter only from deep water (3 ft or more under the water level); a cop may call
+  it as usual.
+- A capture is 60 points to its cop; the robber gains 1 point each whole second it is free. Places by points,
+  then entry order. The HUD shows the time left, the points, the robber, and the captures or the time safe.
+- The robber carries a red arrow and is marked on the map; labels name each truck Cop (blue) or Robber (red).
+  The cops' finder points at the robber, the robber's at the nearest cop.
+- Computer robbers hide while the nearest cop is beyond 220 ft and run or hide when it is closer (Tag's
+  `shy` driving); computer cops chase as Tag's It does.
+
+## Shipped extension: Race & Rumble
+
+After the community's rules (mtm2.com/~mtmg/rnr.php). Circuit tracks only, the laps as the length (3 by
+default), at least two trucks. The race is the track's own (`keepsRace`): checkpoints, laps, the countdown,
+the final lap and the ending.
+
+- Two sides, the Racers and the Blockers (a truck's side is its role). The player races, or blocks with "Play as
+  blocker"; the others alternate from the other side, so the sides differ by at most one.
+- Racers drive the course (computer racers on the course's autopilot). Blockers roam and need not finish a lap:
+  computer blockers drive at 95 ft/s for a point ahead of the nearest racer still racing (its velocity times the
+  distance over 90 ft/s, at most 2 s).
+- The race is over as soon as any racer finishes, and the Racers win. A race left with no racer home goes to the
+  Blockers.
+- Places: the winning side first; racers by their finish (a finished racer by its time, ahead of those still
+  racing, those by race place), blockers by race place. Points: 10 a truck on the winning side, 4 on the other.
+- Labels and map dots in the sides' colours (red Racers, blue Blockers), with the side. A blocker's finder points
+  at the nearest racer.

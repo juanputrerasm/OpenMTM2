@@ -83,7 +83,7 @@ async function boot() {
   // MONSTER.EXE's version, read when the folder was picked: only the retail builds get the classic menus.
   // An install made before the version was recorded (no `exeVersion` key at all) is taken as the retail build it was made for.
   context.exeVersion = manifest && !("exeVersion" in manifest) ? "2.00.42" : manifest?.exeVersion ?? null;
-  mountWatermark(installed ? context.assets : null);
+  mountWatermark(context.assets ?? null, router);
   if (installed) {
     await loadStrings(context);
     // Menu and race sounds share one unlocked audio context; the menu music stops during a race.

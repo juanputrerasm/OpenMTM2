@@ -9,10 +9,10 @@ import {
   hockeyHeliSpot, hockeyPlaces, hockeyRink, hockeyRoles, hockeySpot, hockeyStep, hockeyTeams, isHockeyTrack, outsideRink, rinkBoxes, rinkGround, toLocal, toWorld,
 } from "../src/game/extensions/hockey.js";
 import {
-  AIM_MIN_S, AIM_MAX_S, CALM_COVER_SHARE, COVER_REACH_FT, FLANK_FT, HIDE_STANDOFF_FT, IT_ARROW, IT_START_HOLD_S,
-  PRESS_FT, PRESSED_COVER_SHARE, ROAM_FT, ROAM_MARGIN_FT, TAG_BACK_S, WANDER_SHARE, chasePoint, clampToRect,
+  AIM_MIN_S, AIM_MAX_S, BREAK_FT, COVER_REACH_FT, FLANK_FT, HIDE_STANDOFF_FT, IT_ARROW, IT_START_HOLD_S,
+  PRESSED_COVER_SHARE, ROAM_FT, ROAM_MARGIN_FT, SHADOW_MAX_FT, SHADOW_MIN_FT, TAG_BACK_S, TAG_ZONE_FT, chasePoint, clampToRect,
   coverBetween, coverOf, createTag, createTagDriver, fleePoint, flankPoint, hideBehind, hideScore, rampAway, rampLaunch,
-  roamRect, routePoint, tagDrivePoint, tagHeld, tagItDrain, tagPlaces, tagRanks, tagSafe, tagStep, tagTransfer, wanderPoint,
+  roamRect, routePoint, tagDrivePoint, tagHeld, tagItDrain, tagPlaces, tagRanks, tagSafe, tagStep, tagTransfer, tagZoneRate, wanderPoint,
 } from "../src/game/extensions/tag.js";
 import { WORLD_FT } from "../src/shared/scene-frame.js";
 import { GAME_MODES, raceLengthLabel } from "../src/game/menu-data.js";
@@ -22,6 +22,11 @@ import { createSession } from "../src/worker/sim-worker.js";
 import { buildTrackRender } from "../src/worker/track-build.js";
 import { mtm2Sim as S } from "../src/vendor/openphotex/index.js";
 import { skipWithoutStock, stockVfs } from "./helpers/stock.mjs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { parsePod, readPodEntry } from "../src/vendor/openphotex/index.js";
+import { createVfs } from "../src/worker/vfs.js";
+import { soccerPitch, pitchBoxes } from "../src/game/extensions/soccer.js";
 
 const ICE = 28.5;
 /** A lake 460 x 340 ft about (4000, 5000), under the water level, in ground that rises round it. */
@@ -167,39 +172,50 @@ test("on the rink the trucks take the frozen water as gravel; the rest of the gr
 
 test("Tag: It is held 5 s at the start without draining, a touch hands it on with no post-tag hold, and may not tag back for 10 s", () => {
   const tag = createTag(3, () => 0.5);
+  // Three trucks 140 ft apart: each free truck is at the zone's edge and scores 1 a second.
+  const P = [[0, 0, 0], [140, 0, 0], [70, 0, 140 * Math.sqrt(3) / 2]];
   assert.equal(tag.it, 1);
   assert.ok(tagHeld(tag, 1, IT_START_HOLD_S - 0.1) && !tagHeld(tag, 0, IT_START_HOLD_S - 0.1));
-  assert.equal(tagStep(tag, IT_START_HOLD_S - 0.1, 1, [[0, 1]]), null, "no tag while It is held at the start");
+  assert.equal(tagStep(tag, IT_START_HOLD_S - 0.1, 1, [[0, 1]], P), null, "no tag while It is held at the start");
   assert.deepEqual(tag.points, [100, 100, 100], "no point change during the opening hold");
   // At IT_START_HOLD_S with dt=1: trucks 0 and 2 gain +1 (101, tied for rank 1), truck 1 loses -1 (99, rank 3), then truck 1 tags truck 2 for 28.
-  assert.deepEqual(tagStep(tag, IT_START_HOLD_S, 1, [[2, 0], [1, 2]]), { kind: "tag", from: 1, to: 2, points: 28 });
+  assert.deepEqual(tagStep(tag, IT_START_HOLD_S, 1, [[2, 0], [1, 2]], P), { kind: "tag", from: 1, to: 2, points: 28 });
   assert.equal(tag.it, 2);
   assert.deepEqual(tag.points, [101, 127, 73]);
   assert.deepEqual(tagRanks(tag), [2, 1, 3]);
   assert.ok(!tagHeld(tag, 2, IT_START_HOLD_S + 0.1), "the new It is not held after a tag");
   assert.ok(tagSafe(tag, 1, IT_START_HOLD_S + TAG_BACK_S - 0.1));
-  assert.equal(tagStep(tag, IT_START_HOLD_S + 5, 1, [[2, 1]]), null, "no tag-backs");
+  assert.equal(tagStep(tag, IT_START_HOLD_S + 5, 1, [[2, 1]], P), null, "no tag-backs");
   // Next step (dt=1): trucks 0 and 1 gain +1 (102, 128), truck 2 loses -1 (71), then truck 2 tags truck 0 (rank 2 -> 18 points).
-  assert.deepEqual(tagStep(tag, IT_START_HOLD_S + 5, 1, [[2, 0]]), { kind: "tag", from: 2, to: 0, points: 18 });
+  assert.deepEqual(tagStep(tag, IT_START_HOLD_S + 5, 1, [[2, 0]], P), { kind: "tag", from: 2, to: 0, points: 18 });
   // Time as It: truck 1 for the first two steps, truck 2 for the next two.
   assert.deepEqual(tag.itTime, [0, 2, 2]);
-  assert.deepEqual(tag.points, [85, 129, 89], "two tags plus +1/s free and -1/s while It after the start hold");
+  assert.deepEqual(tag.points, [85, 129, 89], "two tags plus +1/s free (near It) and -1/s while It after the start hold");
   assert.deepEqual(tagPlaces(tag), [3, 1, 2]);
 });
 
-test("Tag scores +1/s for free trucks and -1/s for It on whole seconds after the start hold", () => {
-  const tag = createTag(2, () => 0);
+test("Tag scores a free truck by its distance from It (1 to 5 a second inside 150 ft, nothing beyond) and -1/s for It", () => {
+  assert.equal(TAG_ZONE_FT, 150);
+  assert.equal(tagZoneRate(0), 5);
+  assert.equal(tagZoneRate(40), 4);
+  assert.equal(tagZoneRate(100), 2);
+  assert.equal(tagZoneRate(149), 1);
+  assert.equal(tagZoneRate(150), 0);
+  assert.equal(tagZoneRate(Infinity), 0);
+  const tag = createTag(3, () => 0);
   assert.equal(tag.it, 0);
-  tagStep(tag, 0, 5, []);
-  assert.deepEqual(tag.points, [100, 100], "no score change during the 5 s start hold");
-  tagStep(tag, IT_START_HOLD_S, 0.4, []);
-  tagStep(tag, IT_START_HOLD_S + 0.4, 0.4, []);
-  assert.deepEqual(tag.points, [100, 100], "under 1 s accumulated: no whole second ticked yet");
-  tagStep(tag, IT_START_HOLD_S + 0.8, 0.4, []);
-  assert.deepEqual(tag.points, [99, 101], "1 s crossed: It loses 1, free gains 1");
-  tagStep(tag, IT_START_HOLD_S + 1.2, 4, []);
+  // Truck 1 right beside It, truck 2 far away.
+  const P = [[0, 0, 0], [10, 0, 0], [900, 0, 0]];
+  tagStep(tag, 0, 5, [], P);
+  assert.deepEqual(tag.points, [100, 100, 100], "no score change during the 5 s start hold");
+  tagStep(tag, IT_START_HOLD_S, 0.4, [], P);
+  tagStep(tag, IT_START_HOLD_S + 0.4, 0.4, [], P);
+  assert.deepEqual(tag.points, [100, 100, 100], "under 1 s accumulated: no whole second ticked yet");
+  tagStep(tag, IT_START_HOLD_S + 0.8, 0.4, [], P);
+  assert.deepEqual(tag.points, [99, 105, 100], "1 s crossed: It loses 1, the close truck gains 5, the far one nothing");
+  tagStep(tag, IT_START_HOLD_S + 1.2, 4, [], P);
   assert.equal(tagItDrain(5), 5);
-  assert.deepEqual(tag.points, [95, 105]);
+  assert.deepEqual(tag.points, [95, 125, 100]);
 });
 
 test("Tag's point transfer scales with the victim's place and takes at most what the victim has left", () => {
@@ -290,28 +306,33 @@ test("Tag's trucks treat high ground, a ridge and a solid object as an advantage
   assert.ok(building.reach >= COVER_REACH_FT && building.tall >= 8 && building.pos[0] === 5);
 });
 
-test("a free truck mostly wanders; close to It it hides or runs, and a cover pulls the hiding spot behind it", () => {
+test("a free truck shadows It where the points are; close to It it hides or runs, and a cover pulls the hiding spot behind it", () => {
   const base = { rect: ROAM, covers: [], ramps: [], heightAt: flat, water: null };
-  let wander = 0;
   const random = mulberry(3);
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < 40; i++) {
     const driver = createTagDriver();
-    tagDrivePoint(driver, "free", { ...base, clock: 0, pos: [800, 0, 700], itPos: [100, 0, 100], random });
-    if (driver.kind === "wander") wander++;
+    tagDrivePoint(driver, "free", { ...base, clock: 0, pos: [800, 0, 700], itPos: [500, 0, 500], random });
+    assert.equal(driver.kind, "shadow", "away from It a truck comes back toward it");
+    const d = Math.hypot(driver.point[0] - 500, driver.point[2] - 500);
+    assert.ok(d >= SHADOW_MIN_FT - 1e-6 && d <= SHADOW_MAX_FT + 1e-6, `it keeps ${d.toFixed(0)} ft from It, inside the zone`);
+    assert.ok(d < TAG_ZONE_FT);
   }
-  assert.ok(wander > 40, `${wander} of 80 aims wandered, which is the common choice`);
+  // The shadow's place moves with It.
+  const follower = createTagDriver();
+  tagDrivePoint(follower, "free", { ...base, clock: 0, pos: [800, 0, 700], itPos: [500, 0, 500], random: mulberry(4) });
+  tagDrivePoint(follower, "free", { ...base, clock: 1, pos: [800, 0, 700], itPos: [600, 0, 500], random: () => { throw new Error("repicked"); } });
+  assert.ok(Math.hypot(follower.point[0] - 600, follower.point[2] - 500) <= SHADOW_MAX_FT + 1e-6);
   for (let i = 0; i < 30; i++) {
     const driver = createTagDriver();
     tagDrivePoint(driver, "free", { ...base, clock: 0, pos: [40, 0, 0], itPos: [0, 0, 0], random: mulberry(10 + i) });
-    assert.notEqual(driver.kind, "wander", "within PRESS_FT a truck does not wander");
-    assert.ok(Math.hypot(40, 0) < PRESS_FT);
+    assert.ok(driver.kind === "cover" || driver.kind === "flee", "within BREAK_FT a truck breaks away");
+    assert.ok(Math.hypot(40, 0) < BREAK_FT);
   }
+  // A shy truck (Cops & Robbers' robber) hides while the chaser is away.
   const barn = [{ pos: [500, 6, 500], reach: 30, tall: 24 }];
   const driver = createTagDriver();
-  // 0.7 is past the wander share and inside the cover share.
-  assert.ok(WANDER_SHARE < 0.7 && 0.7 < WANDER_SHARE + CALM_COVER_SHARE);
   const point = tagDrivePoint(driver, "free", {
-    ...base, covers: barn, clock: 0, pos: [400, 0, 400], itPos: [100, 0, 100], random: scripted([0.7]),
+    ...base, covers: barn, clock: 0, pos: [400, 0, 400], itPos: [100, 0, 100], random: scripted([0.7]), shy: true,
   });
   assert.equal(driver.kind, "cover");
   const behind = hideBehind(barn[0], [100, 0, 100]);
@@ -321,20 +342,15 @@ test("a free truck mostly wanders; close to It it hides or runs, and a cover pul
   assert.ok(Math.hypot(point[0] - driver.point[0], point[2] - driver.point[2]) > 5, "the barn is on the way, so the truck steers wide of it");
   // The same aim is kept until it is time, or the truck arrives.
   const held = tagDrivePoint(driver, "free", {
-    ...base, covers: barn, clock: 1, pos: [400, 0, 400], itPos: [100, 0, 100], random: () => { throw new Error("repicked"); },
+    ...base, covers: barn, clock: 1, pos: [400, 0, 400], itPos: [100, 0, 100], random: () => { throw new Error("repicked"); }, shy: true,
   });
   assert.ok(Math.hypot(held[0] - point[0], held[2] - point[2]) < 1e-6);
   assert.ok(driver.until >= AIM_MIN_S && driver.until <= AIM_MAX_S);
-  const arrived = tagDrivePoint(driver, "free", {
-    ...base, covers: [], clock: 1, pos: [driver.point[0], 0, driver.point[2]], itPos: [100, 0, 100], random: scripted([0.1, 0.2, 0.3, 0]),
-  });
-  assert.equal(driver.kind, "wander");
-  assert.ok(Math.hypot(arrived[0] - driver.point[0], arrived[2] - driver.point[2]) < 1);
   // Pressed: 0.8 is past the cover share, so it runs.
   assert.ok(0.8 > PRESSED_COVER_SHARE);
   const runner = createTagDriver();
   const fled = tagDrivePoint(runner, "free", {
-    ...base, clock: 0, pos: [400, 0, 400], itPos: [450, 0, 400], random: scripted([0.8, 0.5, 0]),
+    ...base, clock: 0, pos: [400, 0, 400], itPos: [430, 0, 400], random: scripted([0.8, 0.5, 0]),
   });
   assert.equal(runner.kind, "flee");
   assert.ok(fled[0] < 400, "a run goes away from It");
@@ -388,8 +404,11 @@ test("the It marker is an arrow pointing down, wound so its +Z face is the front
 
 test("the Races screen's modes and their length box", () => {
   assert.deepEqual(GAME_MODES.map((m) => m.id), ["default", "freeroam", "flyby"]);
-  assert.deepEqual(EXTENSIONS.map((m) => m.id), ["hockey", "tag"]);
+  assert.deepEqual(EXTENSIONS.map((m) => m.id), ["hockey", "soccer", "tag", "cops-robbers", "race-rumble"]);
   assert.equal(lengthLabel("circuit", "hockey"), "Goals");
+  assert.equal(lengthLabel("circuit", "soccer"), "Goals");
+  assert.equal(lengthLabel("circuit", "cops-robbers"), "Minutes");
+  assert.equal(lengthLabel("circuit", "race-rumble"), "Laps");
   assert.equal(lengthLabel("rally", "tag"), "Minutes");
   assert.equal(raceLengthLabel("rally"), "Laps");
   assert.equal(raceLengthLabel("circuit", "freeroam"), "Laps");
@@ -551,4 +570,63 @@ test("Tag and Hockey need two trucks at least: the player counts unless spectati
     assert.equal(entrantsShortfall(extension, ["A.TRK", "B.TRK"], true), null, `${id} watching two`);
   }
   assert.equal(entrantsShortfall(null, [], false), null);
+});
+
+const MTM1_GAME_POD = join(process.env.OPENMTM2_GAMES ?? join(process.env.HOME ?? "", "games"), "mtm1", "GAME.POD");
+const skipWithoutCastle = () => skipWithoutStock("POD.INI") || (existsSync(MTM1_GAME_POD) ? false : `no Monster Truck Madness 1 GAME.POD at ${MTM1_GAME_POD}`);
+
+test("Soccer on Highlands Rally: the computer trucks keep going for the ball, and score", { skip: skipWithoutCastle() }, async () => {
+  const bytes = new Uint8Array(readFileSync(MTM1_GAME_POD));
+  const vfs = createVfs([{ name: "GAME.POD", family: "MTM", game: "MTM1", archive: parsePod(bytes), readEntry: async (entry) => readPodEntry(bytes, entry) }, ...stockVfs().allMounts]);
+  const build = await buildTrackRender(vfs, "WORLD\\CASTLE.SIT");
+  const terrain = S.createTerrain(build.heights, build.waterLevelFt);
+  const pitch = soccerPitch(pitchBoxes(build), (x, z) => S.groundHeightAt(terrain, x, z));
+  assert.ok(pitch, "CASTLE has the pitch");
+  const models = Object.keys(build.truckModels).filter((f) => build.truckModels[f]?.anchors);
+  // Two a side, every truck driven by the computer.
+  const files = [0, 1, 2, 3].map((i) => models[i % models.length]);
+  const teams = hockeyTeams(4, () => 0.2);
+  const session = createSession({
+    heights: build.heights.buffer, clr: build.sim.clr.buffer, textureValues: build.sim.textureValues.buffer,
+    ra0: build.sim.ra0?.buffer, ra1: build.sim.ra1?.buffer, boxes: build.sim.boxes, ramps: build.sim.ramps,
+    waterLevelFt: build.waterLevelFt, weather: 0, difficulty: 1, course: [], walls: [],
+    trucks: files.map((f, i) => ({
+      truck: { anchors: build.truckModels[f].anchors, scrapePoints: build.truckModels[f].scrapePoints },
+      start: hockeySpot(pitch, teams, i), autopilot: true,
+    })),
+    race: { checkpoints: [], laps: 1, mode: "circuit" }, extension: { mode: "soccer", rink: pitch, teams, goals: 99 },
+  });
+  const ball = session.extension.puck;
+  // With Hockey's ice driving the trucks circled the ball at a walk: it lay untouched for 20 s at a time, 2 goals in 3 minutes.
+  let last = [...ball.pos], still = 0, longest = 0, r;
+  for (let t = 0; t < 180; t += 0.25) {
+    r = session.advance(t, {});
+    const moved = Math.hypot(ball.pos[0] - last[0], ball.pos[2] - last[2]);
+    last = [...ball.pos];
+    still = moved < 0.5 ? still + 0.25 : 0;
+    longest = Math.max(longest, still);
+  }
+  const goals = r.race.extension.score[0] + r.race.extension.score[1];
+  assert.ok(longest < 12, `the ball lay untouched for ${longest} s`);
+  assert.ok(goals >= 3, `${goals} goals in 3 minutes`);
+});
+
+test("Soccer: a ball hanging still in the air (caught on a wall) or over a touchline is out, and play faces off again", async () => {
+  const { SOCCER_STUCK_S } = await import("../src/game/extensions/soccer.js");
+  const rink = {
+    frame: { centre: [0, 0], u: [0, 1], v: [-1, 0] }, iceFt: 0, boards: [],
+    goals: [{ team: 0, along: -120, out: -1, mouth: [-12, 12], top: 20 }, { team: 1, along: 120, out: 1, mouth: [-12, 12], top: 20 }],
+    extent: { minA: -120, maxA: 120, minB: -80, maxB: 80 }, outPast: 8, sideOutPast: 8, stuckS: SOCCER_STUCK_S,
+    puck: { radius: 4, start: [0, 4, 0] },
+  };
+  const h = createHockey(rink, [0, 1], 3);
+  let action = null;
+  for (let t = 0; t < SOCCER_STUCK_S - 0.2; t += 1 / 60) action = hockeyStep(h, [79, 30, 0], 1 / 60) ?? action;
+  assert.equal(action, null, "not yet");
+  for (let t = 0; t < 0.4; t += 1 / 60) action = hockeyStep(h, [79, 30, 0], 1 / 60) ?? action;
+  assert.equal(action, "reset");
+  const g = createHockey(rink, [0, 1], 3);
+  assert.equal(hockeyStep(g, [0, 4, 0], 1 / 60), null);
+  // Across the pitch's b (v = [-1, 0]): x -90 is b 90, past the touchline at 80 by more than 8.
+  assert.equal(hockeyStep(g, [-90, 4, 0], 1 / 60), "reset");
 });

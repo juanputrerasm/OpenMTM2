@@ -7,7 +7,16 @@
 import { nextDelay, objectHitSound } from "../game/sound-model.js";
 import { weatherMaskIncludes } from "../vendor/openphotex/mtm/sound.js";
 
+/**
+ * A tracker module's extra gain over a WAV loop. A rendered module averages about -16 dBFS RMS (SEX.MOD) while the
+ * engine's loops reach -2.5 to -12 dBFS (ACCEL3B, M1-2-M2, STARTIDL): even after the effects' trim the engine sat some
+ * 9 dB over the music. About 7 dB more brings the module to the engine's level; the master's limiter takes the peaks.
+ */
+export const MOD_MUSIC_GAIN = 2.2;
+
 const THUNDER = ["THUNDR3B", "THUNDR5", "THUNDR6B", "THUNDR9B"];
+/** The slowest a truck may close on an object for its sound, ft/s (the port's floor; the game has none). */
+export const HIT_MIN_SPEED = 2;
 
 /**
  * @param {ReturnType<import("./audio-engine.js").createAudio>} audio
@@ -46,8 +55,8 @@ export function createWorldAudio(audio, { ambient, weather, music, random = Math
 
   function startMusic() {
     if (!music) return;
-    // A level may name a tracker module instead of a WAV loop.
-    musicVoice = /\.mod$/i.test(music) ? audio.playMod(music, { gain: 0.8 }) : audio.play(music, { loop: true, gain: 1, bus: "music" });
+    // A level may name a tracker module instead of a WAV loop; the module is raised to the engine's level (MOD_MUSIC_GAIN).
+    musicVoice = /\.mod$/i.test(music) ? audio.playMod(music, { gain: MOD_MUSIC_GAIN }) : audio.play(music, { loop: true, gain: 1, bus: "music" });
   }
 
   // The port plays SOUNDnnn.TXT as one ambience programme for the track. Pick one
@@ -149,12 +158,14 @@ export function createWorldAudio(audio, { ambient, weather, music, random = Math
       later(0.4 + random() * 2.2, () => { if (!disposed) audio.play(THUNDER[Math.floor(random() * THUNDER.length)], { gain: 0.9 }); });
     },
     /**
-     * A truck hit an object: the object's own sound, from where it is. As in the game (0x428bc0 asks 0x464450 whether
+     * A truck touched an object: the object's own sound, from where it is. As in the game (0x428bc0 asks 0x464450 whether
      * the object's last sound still plays), a truck that stays against it does not start it again over itself.
+     * `speed` is how fast the truck closed on it, ft/s; the game has no floor, the port asks for `HIT_MIN_SPEED` so a
+     * truck resting against a fence does not set it off again each time its sound ends.
      */
-    hit(sitIndex, force, position) {
+    hit(sitIndex, speed, position) {
       const info = hitInfo.get(sitIndex);
-      if (!info || force < 600 || sounding.has(sitIndex)) return;
+      if (!info || !(speed >= HIT_MIN_SPEED) || sounding.has(sitIndex)) return;
       const sound = objectHitSound(info);
       if (!sound) return;
       sounding.add(sitIndex);

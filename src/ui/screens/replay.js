@@ -9,7 +9,7 @@ import { terrainOfBuild } from "../../shared/build-terrain.js";
 import * as THREE from "three";
 import { el } from "../dom.js";
 import { mergeBindings } from "../../game/input/bindings.js";
-import { DENT_STEPS, FRAME_SECONDS, RATES, createPlayback, damageZones, levelPath } from "../../game/replay.js";
+import { DENT_STEPS, FRAME_SECONDS, RATES, createPlayback, damageZones, levelPath, ringReplay } from "../../game/replay.js";
 import { parseMtmReplay, writeMtmReplay } from "../../vendor/openphotex/mtm/replay.js";
 import * as mtm2Sim from "../../vendor/openphotex/sim/mtm2/index.js";
 import { COCKPIT_EYE, CAMERA_MODES, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, createChaseCamera, fovFor, groundHeightFn, nextMode, raceCamera, zoomToFov } from "../../game/cameras.js";
@@ -36,7 +36,10 @@ import { graphicsHardware } from "../../app/graphics-hardware.js";
 import { createScenery } from "../../render/scenery.js";
 import { setLightsInFog } from "../../render/atmosphere.js";
 import { createFpsCounter } from "../fps-counter.js";
-import { saveSettings } from "../../app/settings.js";
+import { saveSettings, tileOverlapOf } from "../../app/settings.js";
+import { liftWatermark } from "../watermark.js";
+import { createFlyController } from "../fly-controller.js";
+import { LOOK_BACK_KEY, createCameraLook, lookOptions, turnedTarget } from "../../game/camera-look.js";
 import { enableSunShadows } from "../../render/sun-shadows.js";
 import { createExtensionScene } from "../../render/extensions/loader.js";
 import { GRASS_RADII, grassLevel } from "../../render/evo-grass.js";
@@ -74,7 +77,7 @@ export default async function mount(container, context, { replay }) {
   const replayFx = visualSettings(context.settings).replay;
   const build = await context.assets.call("trackRender", {
     evoForest: context.settings.evoForest !== false,
-    mtm1: { sky: context.settings.mtm1EarthSky === true }, tileOverlap: context.settings.terrainOverlap !== false,
+    mtm1: { sky: context.settings.mtm1EarthSky === true }, tileOverlap: tileOverlapOf(context.settings),
     path, scope: trackInfo.scope, detailLevel: replay.detailLevel ?? context.settings.detailLevel, raceType: trackInfo.raceType ?? "circuit", truckFiles, weather: replay.weather,
     // A replay's weather never changes, so the puddle map is built only for one recorded in Rain.
     visuals: trackVisuals(context.settings, { weather: replay.weather ?? 0, weatherMask: 0 }),
@@ -129,7 +132,7 @@ export default async function mount(container, context, { replay }) {
   const terrain = terrainOfBuild(build);
   // With "Smooth terrain" the ground drawn is not quite the ground the trucks were recorded on (game/terrain-relief.js):
   // what follows the ground follows the drawn one, and the drawn trucks are seated on it.
-  const relief = build.relief ? createRelief({ heights: build.heights, ...build.relief }) : null;
+  const relief = build.relief ? createRelief({ heights: build.heights ?? build.heightsFt, ...build.relief }) : null;
   const bareGround = relief ? relief.heightAt : groundHeightFn(terrain);
   const iceLevel = (replay.weather ?? 0) === 5 ? build.waterLevelFt ?? null : null;
   let seat = null;
@@ -202,7 +205,7 @@ export default async function mount(container, context, { replay }) {
   // The list names each driver with its truck ("Mark, Bigfoot").
   const truckTitle = (file) => catalog.trucks.find((item) => item.file.toUpperCase() === String(file ?? "").toUpperCase())?.name ?? String(file ?? "").replace(/\.TRK$/i, "");
   let focus = Math.max(0, Math.min(drawn.length - 1, 0));
-  let viewMode = CAMERA_MODES[context.settings.view]?.id ?? 1;
+  let viewMode = CAMERA_MODES[context.settings.view]?.id ?? 2;
   if (viewMode === 0) viewMode = 1;
   let turn = 0, zoom = 1;
   let clock = 0, rate = 1, playing = true;
@@ -256,8 +259,14 @@ export default async function mount(container, context, { replay }) {
     ...names.map((n, i) => el("option", { value: i }, `${i + 1}. ${n}, ${truckTitle(replay.vehicles[i].truck)}`)));
   const viewSelect = el("select", { "aria-label": t("Camera"), onchange: (e) => { viewMode = Number(e.target.value); announceView(); } },
     ...CAMERA_MODES.map((m) => el("option", { value: m.id, selected: m.id === viewMode }, t(m.name))));
-  const save = () => {
-    const link = el("a", { href: URL.createObjectURL(new Blob([writeMtmReplay(replay)], { type: "text/plain" })), download: `${replay.level.replace(/\.sit$/i, "")}.rpl` });
+  /**
+   * Save the whole replay, or (`ring`) only its last 2240 records, as many as the game's own replay holds. A longer file
+   * overruns MTM2's ring (its reader trusts the count, 0x565050); Community Patch 3's holds 524,288. Either way the
+   * 16 Hz samples go after the records, where neither game reads.
+   */
+  const save = (ring = false) => {
+    const out = ring ? ringReplay(replay) : replay;
+    const link = el("a", { href: URL.createObjectURL(new Blob([writeMtmReplay(out)], { type: "text/plain" })), download: `${replay.level.replace(/\.sit$/i, "")}.rpl` });
     document.body.append(link); link.click(); link.remove();
     say(t("Replay saved"));
   };
@@ -271,15 +280,24 @@ export default async function mount(container, context, { replay }) {
     button("⏭", msg("To the end (End)"), () => { clock = playback.duration; }),
     button("−", msg("Slower ([)"), () => setRate(-1)), button("+", msg("Faster (])"), () => setRate(1)),
     scrub, time, speed, truckSelect, viewSelect,
-    button(t("Save"), msg("Save the replay as a .rpl file"), save),
+    button(t("Free camera"), msg("Fly the camera free, as a spectator (B)"), (e) => { setFlying(!flyer.enabled); e.currentTarget.blur(); }),
+    button(t("Save for CP3"), msg("Save the whole replay as a .rpl file: Community Patch 3 and OpenMTM2 play it all back; Monster Truck Madness 2 itself cannot load one this long"), () => save(false)),
+    button(t("Save for MTM2"), msg("Save the last 2240 records, as much as Monster Truck Madness 2 itself plays back"), () => save(true)),
     button(t("Close"), msg("Back (Esc)"), back));
   view.append(controls);
   refreshButtons();
+  // The version mark sits over the controls' bar, not under it.
+  const controlsSize = new ResizeObserver(() => liftWatermark(controls.offsetHeight));
+  controlsSize.observe(controls);
+  cleanups.push(() => { controlsSize.disconnect(); liftWatermark(0); });
 
   const keyMap = mergeBindings(context.settings.bindings);
   const held = new Set();
   const onKey = (e) => {
     held.add(e.code);
+    if (e.code === LOOK_BACK_KEY) e.preventDefault();
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.code === "KeyB" && !e.repeat) { setFlying(!flyer.enabled); return; }
     if (e.code === "Escape") back();
     else if (e.code === "Space") { e.preventDefault(); toggle(); }
     else if (e.code === "Comma") stepFrame(-1);
@@ -301,8 +319,36 @@ export default async function mount(container, context, { replay }) {
   window.addEventListener("keydown", onKey);
   window.addEventListener("keyup", onKeyUp);
   cleanups.push(() => { window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKeyUp); });
-  const onWheel = (e) => { zoom = Math.max(0.4, Math.min(6, zoom * (e.deltaY > 0 ? 1.1 : 1 / 1.1))); };
-  canvas.addEventListener("wheel", onWheel, { passive: true });
+  /*
+    The mouse as in a race (game/camera-look.js): moving it looks round, the wheel zooms each view, Backspace held looks
+    back. B flies the camera free, as a watched race's spectator does (ui/fly-controller.js).
+  */
+  const mouseLook = createCameraLook(() => lookOptions(context.settings));
+  const flyer = createFlyController({
+    canvas, settings: context.settings, save: () => saveSettings(context.settings), course: build.sim.course ?? [], courseOpen: !!build.sim.courseOpen,
+    groundAt: bareGround, say, baseFov: fovFor(1), font: messageFont, t,
+  });
+  view.append(flyer.element);
+  cleanups.push(() => flyer.dispose());
+  const flyTarget = new THREE.Vector3();
+  const setFlying = (on) => {
+    if (flyer.enabled === !!on) return;
+    if (on) {
+      camera.getWorldDirection(flyTarget);
+      flyer.place([camera.position.x, camera.position.y, -camera.position.z], Math.atan2(flyTarget.x, -flyTarget.z), Math.asin(Math.max(-1, Math.min(1, flyTarget.y))));
+      flyer.setEnabled(true);
+      flyer.announce();
+    } else {
+      flyer.setEnabled(false);
+      lastView = -1;
+      announceView();
+    }
+  };
+  const onWheel = (e) => { if (!flyer.enabled && viewMode !== 0) { e.preventDefault(); mouseLook.wheel(viewMode, e.deltaY); } };
+  const onLookMove = (e) => { if (!flyer.enabled && viewMode !== 0) mouseLook.move(e.movementX ?? 0, e.movementY ?? 0); };
+  canvas.addEventListener("wheel", onWheel, { passive: false });
+  canvas.addEventListener("pointermove", onLookMove);
+  cleanups.push(() => { canvas.removeEventListener("wheel", onWheel); canvas.removeEventListener("pointermove", onLookMove); });
 
   const resize = () => {
     const { clientWidth: w, clientHeight: h } = canvas;
@@ -318,17 +364,26 @@ export default async function mount(container, context, { replay }) {
 
   let lastView = -1, waterClock = 0, last = performance.now(), frameId = 0;
   const placeCamera = (pose, dt) => {
+    if (flyer.enabled) {
+      flyer.step(dt);
+      if (flyer.apply(camera, flyTarget)) camera.updateProjectionMatrix();
+      return;
+    }
     if (viewMode !== lastView) {
       lastView = viewMode;
       chase.reset();
+      mouseLook.reset();
       camera.fov = fovFor(viewMode);
       camera.updateProjectionMatrix();
     }
+    mouseLook.setBack(held.has(LOOK_BACK_KEY));
+    mouseLook.step(dt);
     if (viewMode === 0) {
       const body = new THREE.Matrix4().fromArray(toSceneMatrix(pose.matrix, pose.pos));
       body.decompose(cockpitEye.position, cockpitEye.quaternion, scratchScale);
       camera.position.set(COCKPIT_EYE[0], COCKPIT_EYE[1], -COCKPIT_EYE[2]).applyMatrix4(body);
       camera.quaternion.copy(cockpitEye.quaternion);
+      if (mouseLook.back) camera.rotateY(Math.PI);
       return;
     }
     const yaw = pose.euler[2];
@@ -336,8 +391,9 @@ export default async function mount(container, context, { replay }) {
     const sim = [wrapFt(pose.pos[0]), pose.pos[1], wrapFt(pose.pos[2])], off = [pose.pos[0] - sim[0], 0, pose.pos[2] - sim[2]];
     const stood = viewMode === 3 ? (centroid ? blimpCamera(sim, centroid) : blimpCameraNoCourse(sim, yaw, ground))
       : viewMode === 4 ? (raceCamera(straights, sim, pose.course ?? 0, ground) ?? blimpCameraNoCourse(sim, yaw, ground)) : null;
-    const special = stood && { ...stood, position: stood.position.map((v, k) => v + off[k]), target: stood.target.map((v, k) => v + off[k]) };
-    const result = special ?? chase.update(viewMode, pose.pos, yaw, ground, dt, { turn, scale: zoom });
+    const placed = stood && { ...stood, position: stood.position.map((v, k) => v + off[k]), target: stood.target.map((v, k) => v + off[k]) };
+    const special = placed && { ...placed, target: turnedTarget(placed.position, placed.target, mouseLook.yaw, mouseLook.pitch), zoom: placed.zoom * mouseLook.zoom(viewMode) };
+    const result = special ?? chase.update(viewMode, pose.pos, yaw, ground, dt, { turn, scale: zoom * mouseLook.zoom(viewMode), look: { yaw: mouseLook.yaw, pitch: mouseLook.pitch } });
     if (special) {
       const fov = zoomToFov(special.zoom);
       if (Math.abs(camera.fov - fov) > 1e-3) { camera.fov = fov; camera.updateProjectionMatrix(); }

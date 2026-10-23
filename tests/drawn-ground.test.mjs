@@ -108,3 +108,14 @@ test("a mesh whose triangles do not come cell after cell cannot be read this way
   assert.equal(drawn.heightAt(5000, 5000), null);
   assert.equal(drawn.snowAt(5000, 5000), 0);
 });
+
+test("the drawn ground over heights in feet (a CART Precision Racing level) is the game's where nothing smooths it", async () => {
+  const { createRelief } = await import("../src/game/terrain-relief.js");
+  const feet = new Float32Array(256 * 256).map((_, i) => (i % 256) * 0.5);
+  const relief = createRelief({ heights: feet });
+  // Corner (row 0, col 10) is 5 ft: heights in feet are read as feet, not as 2 ft steps.
+  assert.ok(Math.abs(relief.simAt(320, 0) - 5) < 1e-6, `${relief.simAt(320, 0)}`);
+  const { cprRoadKeepouts } = await import("../src/worker/track-build.js");
+  assert.deepEqual(cprRoadKeepouts([{ pos: [100, 0, 200], left: 20, right: 25 }]), [{ x: 100, z: 200, radius: 35 }]);
+  assert.deepEqual(cprRoadKeepouts(null), []);
+});

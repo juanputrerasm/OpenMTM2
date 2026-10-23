@@ -2,7 +2,8 @@
   Archives added beside the MTM2 install, as kept in OPFS (asset worker only).
 
     addons/f<n>/<NAME>         the archives of an added game folder, as its POD.INI lists them
-    addons/m<n>/<NAME>         an archive added by hand in the POD manager
+    addons/m<n>/<NAME>         an archive added by hand in the POD manager, or a 4x4 Evolution 1 Lite
+                               track (`.LTE`), mounted as an archive of that one file
     addons/manifest.json       what is there, and the mount order of every archive
 
   OpenMTM2 reads tracks of Monster Truck Madness 1 and 2, CART Precision Racing and 4x4 Evolution
@@ -19,6 +20,7 @@ import { detectSitOrigin } from "../vendor/openphotex/mtm/sit.js";
 import { isEvoSit, parseEvoSit } from "../vendor/openphotex/evo/sit.js";
 import { parseTruckManifest } from "../vendor/openphotex/truck/manifest.js";
 import { parseTvLvl } from "../vendor/openphotex/tv/lvl.js";
+import { parseEvoLte } from "../vendor/openphotex/evo/lte.js";
 import { podPathTitle } from "../vendor/openphotex/pod/paths.js";
 import { copyFile, installMounts, reapplyPodIni, unmountInstallArchive } from "./install-store.js";
 import { indexPodFile, readPodEntryBytes } from "./pod-index.js";
@@ -96,9 +98,32 @@ export async function detectArchiveGame(archive, read) {
 
 const archiveGame = (file, archive) => detectArchiveGame(archive, (entry) => readPodEntryBytes(file, entry));
 
-/** Copy one archive to `path` and describe it; throws when it is not a POD. */
+/** Where a Lite track's one file is found in its mount, as the game keeps them. */
+export const litePath = (name) => `CUSTOMTRACKS\\${name.toUpperCase()}`;
+const isLiteName = (name) => /\.LTE$/i.test(name);
+
+/**
+ * A 4x4 Evolution 1 Lite track (docs/EVO2_EXE_ANALYSIS.md 5b) as an archive of its one file, `CUSTOMTRACKS\<NAME>`, for
+ * the Evo 1 family: the catalogue lists it and the track build reads it like a track script.
+ */
+export function liteArchive(name, size) {
+  const path = litePath(name);
+  return { format: "lte", entries: [{ name: path, normalizedName: path, title: name.toUpperCase(), size, offset: 0 }] };
+}
+
+/** Copy one archive to `path` and describe it; throws when it is not a POD (or a Lite track). */
 async function store(file, path, name, onChunk) {
   await copyFile(file, path, onChunk);
+  if (isLiteName(name)) {
+    try {
+      const bytes = new Uint8Array(await (await readFile(path)).arrayBuffer());
+      parseEvoLte(bytes, name);
+      return { path, name, size: file.size, modified: file.lastModified ?? null, game: "EVO1", kind: "lite" };
+    } catch (error) {
+      await removePath(path);
+      throw new Error(`${name} is not a 4x4 Evolution Lite track (${error.message}).`);
+    }
+  }
   try {
     const stored = await readFile(path);
     const archive = await indexPodFile(stored);
@@ -223,6 +248,13 @@ export async function mountAll(installManifest) {
   const added = await Promise.all(addons.archives.map(async (a) => {
     try {
       const file = await readFile(a.path);
+      if (a.kind === "lite") {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        return {
+          key: a.key, name: a.name, archive: liteArchive(a.name, bytes.length), readEntry: async () => bytes, blob: () => file,
+          family: gameFamily("EVO1"), game: "EVO1", source: "Added by hand", size: a.size, removable: true,
+        };
+      }
       const archive = await indexPodFile(file);
       // An archive stored before its kind could be told (trucks alone, another game's levels) is looked at again.
       if (!a.game) {
@@ -244,7 +276,7 @@ export async function mountAll(installManifest) {
 export function describeMounts(vfs) {
   return vfs.allMounts.map((m) => ({
     key: m.key, name: m.name, game: m.game ?? null, source: m.source ?? "", format: m.archive.format ?? "",
-    entries: m.archive.entries.length, tracks: m.archive.entries.filter(isTrackScript).length,
+    entries: m.archive.entries.length, tracks: m.archive.entries.filter((e) => isTrackScript(e) || isLiteName(e.normalizedName)).length,
     trucks: m.archive.entries.filter(isVehicle).length, size: m.size ?? null, removable: !!m.removable, install: !!m.install,
   }));
 }

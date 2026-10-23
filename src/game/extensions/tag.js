@@ -4,17 +4,17 @@
 
   It is picked at random and held where it stands for 5 s after the countdown; a truck made It is
   not held, and may not tag back the truck that tagged it for 10 s. Each truck starts with the same
-  points; once the start hold is over, free trucks gain 1 point per whole second while It loses 1, and
-  a tag moves points from the truck tagged to the one that tagged it, more when the victim is higher
-  in the standings. Places go by points, the most the best. The rules (`createTag`, `tagStep`) run in
+  points; once the start hold is over, each whole second a free truck within 150 ft of It gains 1 to 5
+  points, the closer the more, and nothing farther off, while It loses 1; a tag moves points from the
+  truck tagged to the one that tagged it, more when the victim is higher in the standings. Places go by
+  points, the most the best. The rules (`createTag`, `tagStep`) run in
   the simulation worker after the race tick, with the hull touches of the step before.
 
   Computer trucks do not drive the course. It chases a truck it may tag, nearer first but with a bias
   toward those higher in the standings, going around a
-  solid object and up a slope, and taking a ramp that faces its quarry. The others mostly wander
-  the ground around the course; the rest of the time they head for high ground, a ridge, or the far
-  side of an object, and they do that instead of wandering while It is close. Pure, so it runs under
-  Node.
+  solid object and up a slope, and taking a ramp that faces its quarry. The others shadow It, keeping
+  60 to 130 ft from it where the points are, and break away (a run, or the far side of an object)
+  when It comes within 45 ft. Pure, so it runs under Node.
 */
 import { byVehicle, fromVehicles, localIndex, vehicleIndex } from "./net-wire.js";
 import { WORLD_FT } from "../../shared/scene-frame.js";
@@ -64,9 +64,15 @@ export const TAG_TRANSFER_MIN = 8;
 export const TAG_TRANSFER_MAX = 28;
 /** It treats a leader as this many feet closer when picking a quarry (not always the leader). */
 export const CHASE_RANK_FT = 55;
-/** Points lost per whole second while a truck is It, and gained per whole second while free, after the opening hold. */
+/** Points lost per whole second while a truck is It, after the opening hold. */
 export const TAG_IT_DRAIN_PS = 1;
-export const TAG_FREE_GAIN_PS = 1;
+/** A free truck this near It (feet, on the ground) scores each whole second, up to `TAG_ZONE_MAX_PS` right beside it. */
+export const TAG_ZONE_FT = 150;
+export const TAG_ZONE_MAX_PS = 5;
+/** A shadowing computer truck keeps this far from It, and breaks away when It comes nearer than `BREAK_FT`. */
+export const SHADOW_MIN_FT = 60, SHADOW_MAX_FT = 130, BREAK_FT = 45;
+/** A shy truck (`ctx.shy`, Cops & Robbers' robber) runs once the chaser is this near, and hides otherwise. */
+export const SHY_PRESS_FT = 220;
 /** Without a course to drive, a truck runs this far ahead of itself, away from It, and keeps within `HOME_FT` of home. */
 const FLEE_FT = 150;
 export const HOME_FT = 500;
@@ -75,17 +81,13 @@ const WANDER_RATE = 0.8, WANDER_MAX = 0.8;
 /** How far a truck roams from the start when the course covers no ground, and how far past a real course. */
 export const ROAM_FT = 1400;
 export const ROAM_MARGIN_FT = 700;
-/** It this close, and a truck stops wandering and hides or runs. */
-export const PRESS_FT = 180;
 /** A new aim lasts about this long, and is dropped once the truck arrives. */
 export const AIM_MIN_S = 4, AIM_MAX_S = 8;
 export const ARRIVE_FT = 48;
-/** Of the aims taken while It is away: wander, then a search for cover or high ground, then a run. */
-export const WANDER_SHARE = 0.62, CALM_COVER_SHARE = 0.30;
-/** While It is close, this share look for cover. The rest run. None wander. */
+/** When It comes within `BREAK_FT`, this share of the computer trucks look for cover. The rest run. */
 export const PRESSED_COVER_SHARE = 0.55;
 /** Cruise, a run for cover, a flat-out run, the chase, and a ramp taken on the way. */
-export const TAG_SPEED = Object.freeze({ wander: 64, cover: 82, flee: 92, chase: 90, ramp: 90 });
+export const TAG_SPEED = Object.freeze({ wander: 64, shadow: 80, cover: 82, flee: 92, chase: 90, ramp: 90 });
 /** A box counts as cover once it reaches this far and stands this tall, feet. Checkpoints and props that never collide do not. */
 export const COVER_REACH_FT = 8, COVER_TALL_FT = 8;
 /** How far past a cover a truck aims when it hides, and how far wide of one it aims when it goes round. */
@@ -116,13 +118,25 @@ export function tagItDrain(seconds) {
   return TAG_IT_DRAIN_PS * seconds;
 }
 
+/** Points per whole second for a free truck `distance` feet from It: 1 to 5 inside `TAG_ZONE_FT`, the closer the more, else 0. */
+export function tagZoneRate(distance) {
+  if (!(distance < TAG_ZONE_FT)) return 0;
+  return Math.max(1, Math.ceil(TAG_ZONE_MAX_PS * (1 - distance / TAG_ZONE_FT)));
+}
+
+/** Truck `i`'s distance from It on the ground, feet, from `positions` (`[x, y, z]` each); Infinity without them. */
+export function itDistance(tag, positions, i) {
+  const p = positions?.[i], q = positions?.[tag.it];
+  return p && q ? Math.hypot(p[0] - q[0], p[2] - q[2]) : Infinity;
+}
+
 /**
  * One step once the countdown has ended: `clock` the seconds since, `touches` the pairs of trucks
- * whose hulls met in the step before. It's time grows; once the opening hold is over, each whole
- * second free trucks gain points and It loses points, and a touch with It moves points from the
- * other truck and makes it It. Returns the tag, or null.
+ * whose hulls met in the step before, `positions` each truck's position. It's time grows; once the
+ * opening hold is over, each whole second a free truck near It gains `tagZoneRate` points and It loses
+ * points, and a touch with It moves points from the other truck and makes it It. Returns the tag, or null.
  */
-export function tagStep(tag, clock, dt, touches = []) {
+export function tagStep(tag, clock, dt, touches = [], positions = null) {
   tag.itTime[tag.it] += dt;
   if (clock < tag.holdUntil) return null;
   tag.second += dt;
@@ -130,9 +144,8 @@ export function tagStep(tag, clock, dt, touches = []) {
   if (ticks > 0) {
     tag.second = Math.max(0, tag.second - ticks);
     const drain = tagItDrain(ticks);
-    const gain = TAG_FREE_GAIN_PS * ticks;
     for (let i = 0; i < tag.points.length; i++) {
-      tag.points[i] = i === tag.it ? Math.max(0, tag.points[i] - drain) : tag.points[i] + gain;
+      tag.points[i] = i === tag.it ? Math.max(0, tag.points[i] - drain) : tag.points[i] + tagZoneRate(itDistance(tag, positions, i)) * ticks;
     }
   }
   for (const [a, b] of touches) {
@@ -446,17 +459,6 @@ export function rampAway(pos, itPos, ramps) {
   return best;
 }
 
-function dryWander(rect, itPos, heightAt, water, random) {
-  const bad = (p) => {
-    const near = Math.hypot(p[0] - itPos[0], p[2] - itPos[2]) < 120;
-    const wet = water !== null && water !== undefined && heightAt(p[0], p[2]) < water + 1.5;
-    return near || wet;
-  };
-  let p = wanderPoint(rect, random);
-  for (let i = 0; i < 6 && bad(p); i++) p = wanderPoint(rect, random);
-  return p;
-}
-
 function bestHide(ctx) {
   const { rect, itPos, pos, heightAt, covers, ramps, water, random } = ctx;
   let best = null, bestS = -Infinity;
@@ -475,21 +477,24 @@ function bestHide(ctx) {
   return best ?? wanderPoint(rect, random);
 }
 
+/** A point `distance` feet from It, on the side the truck is on, turned by `angle`. */
+export function shadowPoint(pos, itPos, angle = 0, distance = (SHADOW_MIN_FT + SHADOW_MAX_FT) / 2) {
+  const base = Math.atan2(pos[0] - itPos[0], pos[2] - itPos[2]) + angle;
+  return [itPos[0] + Math.sin(base) * distance, itPos[1], itPos[2] + Math.cos(base) * distance];
+}
+
 function pickFree(driver, ctx, pressed) {
-  const roll = ctx.random();
-  if (pressed) {
-    if (roll < PRESSED_COVER_SHARE) {
-      driver.point = bestHide(ctx);
-      driver.kind = "cover";
-    } else {
-      driver.angle = wander(driver.angle, 1, ctx.random);
-      driver.point = clampToRect(fleePoint(ctx.pos, ctx.itPos, driver.angle), ctx.rect);
-      driver.kind = "flee";
-    }
-  } else if (roll < WANDER_SHARE) {
-    driver.point = dryWander(ctx.rect, ctx.itPos, ctx.heightAt, ctx.water, ctx.random);
-    driver.kind = "wander";
-  } else if (roll < WANDER_SHARE + CALM_COVER_SHARE) {
+  if (!pressed && ctx.shy) {
+    // A truck that wants no company (Cops & Robbers' robber) hides while the chaser is away.
+    driver.point = bestHide(ctx);
+    driver.kind = "cover";
+  } else if (!pressed) {
+    // The points are near It: keep a distance from it, on the truck's own side, moving round it now and then.
+    driver.angle = (ctx.random() - 0.5) * 1.6;
+    driver.shadow = SHADOW_MIN_FT + ctx.random() * (SHADOW_MAX_FT - SHADOW_MIN_FT);
+    driver.point = clampToRect(shadowPoint(ctx.pos, ctx.itPos, driver.angle, driver.shadow), ctx.rect);
+    driver.kind = "shadow";
+  } else if (ctx.random() < PRESSED_COVER_SHARE) {
     driver.point = bestHide(ctx);
     driver.kind = "cover";
   } else {
@@ -500,9 +505,17 @@ function pickFree(driver, ctx, pressed) {
   driver.until = ctx.clock + AIM_MIN_S + ctx.random() * (AIM_MAX_S - AIM_MIN_S);
 }
 
+/** How fast a computer truck drives for its aim, ft/s: a shadow slows as it reaches its place beside It. */
+export function tagSpeed(driver, pos, point) {
+  const top = TAG_SPEED[driver.kind] ?? TAG_SPEED.wander;
+  if (driver.kind !== "shadow" || !point) return top;
+  return Math.min(top, Math.hypot(point[0] - pos[0], point[2] - pos[2]) * 0.8);
+}
+
 /**
  * The point this computer truck steers toward, and the kind of aim on `driver` (`createTagDriver`).
- * `role` is `"it"` or `"free"`. `ctx` is `{ clock, pos, itPos, quarry, rect, covers, ramps, heightAt, water, random }`.
+ * `role` is `"it"` or `"free"`. `ctx` is `{ clock, pos, itPos, quarry, rect, covers, ramps, heightAt, water, random, shy? }`;
+ * a `shy` free truck runs and hides from It instead of shadowing it.
  * `quarry` is the list `chasePoint` takes. The point it returns may be a step around a cover or up a slope;
  * `driver.point` stays the place it means to reach.
  */
@@ -520,14 +533,21 @@ export function tagDrivePoint(driver, role, ctx) {
       return routePoint(ctx.pos, aim, covers, heightAt);
     }
   }
-  const pressed = Math.hypot(ctx.pos[0] - ctx.itPos[0], ctx.pos[2] - ctx.itPos[2]) < PRESS_FT;
+  const itNear = Math.hypot(ctx.pos[0] - ctx.itPos[0], ctx.pos[2] - ctx.itPos[2]);
+  const pressed = itNear < (ctx.shy ? SHY_PRESS_FT : BREAK_FT);
   const arrived = driver.point && Math.hypot(driver.point[0] - ctx.pos[0], driver.point[2] - ctx.pos[2]) < ARRIVE_FT;
   const pressEdge = pressed && !driver.wasPressed;
   const stale = driver.kind === "chase" || driver.kind === "ramp";
   driver.wasPressed = pressed;
-  if (!driver.point || stale || ctx.clock >= driver.until || arrived || (pressEdge && driver.kind === "wander")) {
+  // A run is over once It is left behind past the shadow's distance; a shadow breaks away when It comes close.
+  const clear = !ctx.shy && (driver.kind === "flee" || driver.kind === "cover") && itNear > SHADOW_MAX_FT;
+  // A shadow's place moves with It, so reaching it does not end it; its time does.
+  const done = arrived && driver.kind !== "shadow";
+  if (!driver.point || stale || ctx.clock >= driver.until || done || clear || (pressEdge && driver.kind === "shadow")) {
     pickFree(driver, ctx, pressed);
   }
+  // A shadow follows It as it moves.
+  if (driver.kind === "shadow") driver.point = clampToRect(shadowPoint(ctx.pos, ctx.itPos, driver.angle, driver.shadow), ctx.rect);
   return routePoint(ctx.pos, driver.point, covers, heightAt);
 }
 

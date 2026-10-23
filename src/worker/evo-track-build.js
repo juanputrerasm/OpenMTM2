@@ -161,6 +161,8 @@ async function loadEvoLevel(vfs, sitPath, sitBytes) {
   const stem = stemOf(title);
   const lvlName = sit.lvlName ? podPathTitle(sit.lvlName) : `${stem}.LVL`;
   const lvlBytes = (await vfs.read(`LEVELS\\${lvlName}`)) ?? (await vfs.read(`LEVELS\\${stem}.LVL`));
+  // A Lite track borrows its level from a stock world, which has to be installed.
+  if (!lvlBytes && /\.LTE$/i.test(title)) throw new Error(`This Lite track is built on ${stemOf(lvlName)} from 4x4 Evolution: add the POD that holds LEVELS\\${lvlName}.`);
   if (!lvlBytes) throw new Error(`LEVELS\\${lvlName} is missing.`);
   return { title, stem, sit, lvl: parseEvoLvl(lvlBytes, lvlName) };
 }
@@ -220,21 +222,27 @@ function scaled(matrix, sx, sy, sz) {
  * @param {string} sitPath
  * @param {Uint8Array} sitBytes
  */
-export async function buildEvoTrackRender(vfs, sitPath, sitBytes, { truckFiles = [], weather = 0, hdWeather = false, tileOverlap = true, forest = true, sunShadows = false, smoothTerrain = false } = {}) {
+/**
+ * `lite`: a 4x4 Evolution 1 Lite track (OpenPhotex `parseEvoLte`, docs/EVO2_EXE_ANALYSIS.md 5b), whose heights and tiles
+ * stand in for the .RAW and .CLR, and whose base world gives the .TEX.
+ */
+export async function buildEvoTrackRender(vfs, sitPath, sitBytes, { truckFiles = [], weather = 0, hdWeather = false, tileOverlap = true, forest = true, sunShadows = false, smoothTerrain = false, lite = null } = {}) {
   const { title, stem, sit, lvl } = await loadEvoLevel(vfs, sitPath, sitBytes);
   const game = `EVO${sit.game}`;
   const mtm = vfs.scoped?.("MTM") ?? vfs;
   const missing = new Set();
 
   // Terrain.
-  const rawHeights = await readGrid(vfs, lvl.heightName, stem, ".RAW");
-  if (!rawHeights) throw new Error(`${lvl.heightName || `${stem}.RAW`}: not a 256 x 256 heightfield.`);
-  const rawCorners = Uint16Array.from({ length: GRID * GRID }, (_, i) => rawHeights[i * 2] | (rawHeights[i * 2 + 1] << 8));
+  const rawHeights = lite ? null : await readGrid(vfs, lvl.heightName, stem, ".RAW");
+  if (!lite && !rawHeights) throw new Error(`${lvl.heightName || `${stem}.RAW`}: not a 256 x 256 heightfield.`);
+  const rawCorners = lite ? lite.heights : Uint16Array.from({ length: GRID * GRID }, (_, i) => rawHeights[i * 2] | (rawHeights[i * 2 + 1] << 8));
   const heightsFt = Float32Array.from(rawCorners, (v) => v / HEIGHT_DIVISOR);
-  const clrBytes = await readGrid(vfs, lvl.clrName, stem, ".CLR");
-  const clr = new Uint16Array(GRID * GRID);
+  const clrBytes = lite ? null : await readGrid(vfs, lvl.clrName, stem, ".CLR");
+  const clr = lite ? Uint16Array.from(lite.tiles) : new Uint16Array(GRID * GRID);
   if (clrBytes) for (let i = 0; i < clr.length; i++) clr[i] = clrBytes[i * 2] | (clrBytes[i * 2 + 1] << 8);
-  const texBytes = (lvl.texName ? await vfs.read(`DATA\\${podPathTitle(lvl.texName)}`) : null) ?? (await vfs.read(`DATA\\${stem}.TEX`));
+  // A Lite track's tiles are its base world's (`<base>.tex`).
+  const texBytes = (lite ? await vfs.read(`DATA\\${lite.baseWorld.toUpperCase()}.TEX`) : null)
+    ?? (lvl.texName ? await vfs.read(`DATA\\${podPathTitle(lvl.texName)}`) : null) ?? (await vfs.read(`DATA\\${stem}.TEX`));
   const tex = texBytes ? parseEvoTex(texBytes, `${stem}.TEX`) : { ordinary: [] };
   const tiles = [];
   for (const record of tex.ordinary) {

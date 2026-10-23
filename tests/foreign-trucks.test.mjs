@@ -2,6 +2,7 @@
 // Stage 3.1). The tests with real files skip without the games under ~/games.
 
 import test from "node:test";
+import { cprAnchorsForSag } from "../src/shared/cpr-anchors.js";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -80,7 +81,10 @@ test("a CPR car and an Evolution truck of each game build, with art, and the sim
     assert.ok(truck.tire.radiusFt > 0.5 && truck.tire.radiusFt < 2.5, `${id}: tire radius ${truck.tire.radiusFt} ft`);
     assert.equal(truck.suspension, null);
     // Driven by MTM2's model on its own tires: it settles, upright, lower than a monster truck.
-    const p = S.createTruckParams({ wheelAnchors: truck.anchors, scrapePoints: truck.scrapePoints, tireRadiusFt: truck.tire.radiusFt, tireWidthFt: truck.tire.widthFt });
+    const figures = { wheelAnchors: truck.anchors, scrapePoints: truck.scrapePoints, tireRadiusFt: truck.tire.radiusFt, tireWidthFt: truck.tire.widthFt };
+    let p = S.createTruckParams(figures);
+    // A CPR car's anchors for MTM2's springs, as the simulation worker sets them.
+    if (truck.restHubs) p = S.createTruckParams({ ...figures, wheelAnchors: cprAnchorsForSag(truck.restHubs, p.sagFt) });
     const s = S.createTruckState([1000, 106, 1000], 0, S.GEAR.NEUTRAL, p);
     const ctx = { ground, human: false, difficulty: S.DIFFICULTY.INTERMEDIATE, sonicTrack: false };
     for (let i = 0; i < 300; i++) { S.stepTruck(s, p, ctx, 1 / 60); S.postStepTruck(s, p, ground, 1 / 60); }

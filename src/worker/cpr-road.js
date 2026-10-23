@@ -20,7 +20,7 @@
   from CPR's STARTUP.POD. Without it the fence is drawn as a grey veil.
 */
 import { CPR_CATCH_FENCE_NAMES, parseCprTrk, parseCprTtx } from "../vendor/openphotex/cpr/track.js";
-import { buildCprRoad } from "../vendor/openphotex/cpr/road.js";
+import { buildCprRoad, cprCentreline } from "../vendor/openphotex/cpr/road.js";
 import { decodeActPalette } from "../vendor/openphotex/texture/act.js";
 import { decodeRawTexture, rawTextureSide } from "../vendor/openphotex/texture/raw.js";
 import { podPathTitle } from "../vendor/openphotex/pod/paths.js";
@@ -81,6 +81,24 @@ function roadMask(quads) {
   return { data, width, height, bounds: [minX, minZ, width / scale, height / scale] };
 }
 
+/**
+ * A stand-in for the catch fence (ART\CATCH3D.RAW) when CPR's STARTUP.POD is not mounted, drawn as the game's is laid
+ * out: a 64 x 64 cutout, a post down each side, a rail at the top and the bottom and four cables between, the rest open.
+ */
+export function catchFenceStandIn(side = 64) {
+  const rgba = new Uint8Array(side * side * 4);
+  const cables = [0, 1, side * 0.22, side * 0.4, side * 0.58, side * 0.76, side - 2, side - 1].map(Math.round);
+  for (let y = 0; y < side; y++) {
+    for (let x = 0; x < side; x++) {
+      const post = x < 2 || x >= side - 2, cable = cables.includes(y);
+      if (!post && !cable) continue;
+      const shade = post ? 150 : 185, o = (y * side + x) * 4;
+      rgba[o] = shade; rgba[o + 1] = shade; rgba[o + 2] = shade + 6; rgba[o + 3] = 255;
+    }
+  }
+  return { width: side, height: side, rgba };
+}
+
 /** MTM2 surface values (TTY: type * 100 + depth) by the `.TTX` surface type: Road, Curb, Grass, Dirt, Rocks. */
 export const CPR_SURFACE_VALUES = Object.freeze([100, 100, 600, 200, 1200]);
 /** How thick a wall is as a collision box, in feet. */
@@ -96,17 +114,28 @@ function bucket(buckets, texture, wall = false) {
   return b;
 }
 
+/**
+ * A quad's normal for the winding `o`, taken over all four corners (Newell's method). A slot that narrows to nothing at
+ * one record is a quad with two corners in one place: a normal from its first three corners alone came out as none,
+ * and lit, that triangle of road drew black.
+ */
+export function quadNormal(s, o = [0, 1, 2, 3]) {
+  const n = [0, 0, 0];
+  for (let i = 0; i < 4; i++) {
+    const a = s[o[i]], c = s[o[(i + 1) % 4]];
+    n[0] += (a[1] - c[1]) * (a[2] + c[2]);
+    n[1] += (a[2] - c[2]) * (a[0] + c[0]);
+    n[2] += (a[0] - c[0]) * (a[1] + c[1]);
+  }
+  const len = Math.hypot(n[0], n[1], n[2]);
+  return len > 0 ? n.map((v) => v / len) : [0, 1, 0];
+}
+
 /** A quad in scene coordinates, its normal the winding's; `up` turns it to face upwards. */
 function addQuad(b, corners, uvs, up = false) {
   let order = [0, 1, 2, 3];
   const s = corners.map((p) => [p[0], p[1], -p[2]]);
-  const normalOf = (o) => {
-    const [a, c, d] = [s[o[0]], s[o[1]], s[o[2]]];
-    const ux = c[0] - a[0], uy = c[1] - a[1], uz = c[2] - a[2], vx = d[0] - a[0], vy = d[1] - a[1], vz = d[2] - a[2];
-    const n = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
-    const len = Math.hypot(n[0], n[1], n[2]) || 1;
-    return n.map((v) => v / len);
-  };
+  const normalOf = (o) => quadNormal(s, o);
   let n = normalOf(order);
   if (up && n[1] < 0) { order = [3, 2, 1, 0]; n = normalOf(order); }
   const base = b.positions.length / 3;
@@ -150,6 +179,8 @@ export async function buildCprRoadLayer(vfs, level) {
       fence = await roadTexture(vfs, podPathTitle(name), level.palette, true);
       if (fence) break;
     }
+    // Without CPR's STARTUP.POD the fence is still a fence: posts, rails and cables over nothing, not a grey veil.
+    fence ??= catchFenceStandIn();
   }
 
   const buckets = new Map();
@@ -166,20 +197,20 @@ export async function buildCprRoadLayer(vfs, level) {
   const walls = [];
   for (const wall of road.walls) {
     const { from, to } = wall;
-    // The face a driver sees: a wall seen from behind would show its art mirrored, so U runs the other way there.
-    const section = trk.surfaces[wall.segment].points;
-    const across = [section[section.length - 1][0] - section[0][0], -(section[section.length - 1][2] - section[0][2])];
-    const normalX = -(-to[2] + from[2]), normalZ = to[0] - from[0];
-    const behind = (normalX * across[0] + normalZ * across[1]) * wall.facing < 0;
-    const uLo = behind ? wall.uRepeat : 0, uHi = behind ? 0 : wall.uRepeat;
+    // Each side of a wall is a face of its own, its art reading left to right from that side: a pit wall is seen from
+    // the track and from the pit lane, and one face seen from behind showed its signs mirrored ("ATOYOT").
     for (const panel of wall.panels) {
-      const corners = [
-        [from[0], from[1] + panel.baseFt, from[2]], [to[0], to[1] + panel.baseFt, to[2]],
-        [to[0], to[1] + panel.topFt, to[2]], [from[0], from[1] + panel.topFt, from[2]],
+      const b = bucket(buckets, panel.fence ? "fence" : panel.texture, true);
+      const uvs = [[0, panel.vBottom], [wall.uRepeat, panel.vBottom], [wall.uRepeat, panel.vTop], [0, panel.vTop]];
+      const face = (a, z) => [
+        [a[0], a[1] + panel.baseFt, a[2]], [z[0], z[1] + panel.baseFt, z[2]],
+        [z[0], z[1] + panel.topFt, z[2]], [a[0], a[1] + panel.topFt, a[2]],
       ];
-      addQuad(bucket(buckets, panel.fence ? "fence" : panel.texture, true), corners,
-        [[uLo, panel.vBottom], [uHi, panel.vBottom], [uHi, panel.vTop], [uLo, panel.vTop]]);
+      addQuad(b, face(from, to), uvs);
+      addQuad(b, face(to, from), uvs);
     }
+    // A tree is a 60 ft card that no car meets (CPR_PHYSICS.md 10.1): drawn, never a box.
+    if (wall.solid === false) continue;
     const dx = to[0] - from[0], dz = to[2] - from[2];
     const length = Math.hypot(dx, dz);
     if (length < 0.01) continue;
@@ -201,7 +232,11 @@ export async function buildCprRoadLayer(vfs, level) {
         uvs: new Float32Array(b.uvs), indices: new Uint32Array(b.indices),
       })),
     },
-    sim: { road: { positions: new Float32Array(simPositions), surfaceValues: new Int32Array(simValues) }, walls },
+    sim: {
+      road: { positions: new Float32Array(simPositions), surfaceValues: new Int32Array(simValues) }, walls,
+      // The centreline the computer cars follow (game/cpr-driver.js), a point per section in the file's order.
+      line: cprCentreline(trk.surfaces),
+    },
   };
 }
 

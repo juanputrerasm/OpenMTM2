@@ -342,12 +342,12 @@ export default async function mount(container, context) {
     title: msg("Races"), backdrop: "RACES", current: "races",
     regions: {
       list: [42, 141, 274, 189], lengthLabel: [48, 350, 58, 24], length: [106, 350, 38, 24],
-      opponents: [343, 81, 132, 38], preview: [342, 124, 258, 210], weather: [300, 349, 109, 27], weatherLabel: [237, 349, 58, 24],
-      // Length, weather and mode share one row, with mode at the far right.
-      selected: [42, 88, 296, 24], mode: [489, 349, 109, 24], modeLabel: [427, 349, 58, 24],
+      opponents: [343, 81, 132, 38], preview: [342, 124, 258, 210], mode: [300, 349, 109, 27], modeLabel: [237, 349, 58, 24],
+      // Length, mode and weather share one row, with weather at the far right.
+      selected: [42, 88, 296, 24], weather: [489, 349, 109, 24], weatherLabel: [427, 349, 58, 24],
     },
-    // Without the art: the list takes its own column headings, and Weather sits beside Laps under the list, in the same type.
-    modernRegions: { opponents: [343, 84, 200, 32], list: [42, 122, 274, 208], weatherLabel: [150, 350, 70, 24], weather: [222, 350, 94, 24], modeLabel: [427, 350, 58, 24], mode: [489, 350, 109, 24] },
+    // Without the art: the list takes its own column headings, and Mode sits beside Laps under the list, in the same type.
+    modernRegions: { opponents: [343, 84, 200, 32], list: [42, 122, 274, 208], modeLabel: [150, 350, 70, 24], mode: [222, 350, 94, 24], weatherLabel: [427, 350, 58, 24], weather: [489, 350, 109, 24] },
   });
   ui.regions.list.parentElement.append(weekendButton, tourneyButton);
   if (ui.classic) {
@@ -368,7 +368,7 @@ export default async function mount(container, context) {
   } else {
     ui.regions.list.append(selectedLabel, listHead, table,
       el("div", { class: "form-row" },
-        el("label", {}, lengthLabel, " ", laps), el("label", {}, `${t("Weather")} `, weather), el("label", {}, modeLabel, " ", modeSelect), opponentsButton),
+        el("label", {}, lengthLabel, " ", laps), el("label", {}, modeLabel, " ", modeSelect), el("label", {}, `${t("Weather")} `, weather), opponentsButton),
       el("div", { class: "track-preview-modern" }, preview, info, previewFoot),
       el("div", { class: "screen-actions" }, goButton));
   }

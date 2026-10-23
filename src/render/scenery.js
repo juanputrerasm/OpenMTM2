@@ -85,7 +85,7 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
   // The snow the track was built with, for a race that began in Snow (game/snow-cover.js): how deep it lies, and how thin
   // the course keeps it.
   const settled = on.snow && build.snowCover
-    ? createSnowCover({ relief: relief ?? createRelief({ heights: build.heights, ...(build.relief ?? {}) }), ...build.snowCover }) : null;
+    ? createSnowCover({ relief: relief ?? createRelief({ heights: build.heights ?? build.heightsFt, ...(build.relief ?? {}) }), ...build.snowCover }) : null;
   // A ground box's top along the course is the course (a bridge's deck): its snow is as thin as the road's. Each point of
   // the boxes says how much of the open ground's snow lies there (render/ground-surface.js `snowShare`).
   if (settled) {
@@ -102,7 +102,7 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
   const groundSurface = on.puddles || on.snow
     ? createGroundSurface({ world, puddleTexture, shelterTexture, puddles: on.puddles, snow: on.snow, sun, ripples, puddleMap: build.puddles ?? null, groundTone }) : null;
   const groundDetail = on.detail && renderer && build.terrain?.atlas
-    ? createGroundDetail({ world, atlas: build.terrain.atlas, textureValues: build.terrain.atlas.slotValues ?? build.sim?.textureValues ?? null, renderer, sun, look }) : null;
+    ? createGroundDetail({ world, atlas: build.terrain.atlas, textureValues: build.terrain.atlas.slotValues ?? build.sim?.textureValues ?? null, renderer, sun, look, boxes: settings.groundBoxGrain !== false }) : null;
   // Without the detail the ground is still mipmapped, in either picture: its tiles from a stack, each filtered down by itself.
   const groundTiles = !groundDetail && renderer && build.terrain?.atlas ? createGroundTiles({ world, atlas: build.terrain.atlas, renderer, look }) : null;
   // MSAA is what the picture already did, so that choice makes nothing more: the scene is drawn straight onto the screen's

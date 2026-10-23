@@ -61,8 +61,8 @@ The short answers:
 
 - Engine globals: `0xb548d8` the car array (stride 0x1aac, count at `0xac7bd8`), `0x63a7f4` the
   player's car, `0xa4518c` the substep dt, `0xa45250` air density, `0xa45244` the weather, `0x5e7024`
-  the assistance level (**hypothesis**: it is `mAssistance` of the Driving Aids, 0 to 2, read where the
-  game treats 2 as the hardest), `0x5e7334` a global grip factor (1.0).
+  the Skill Level of the Driving Aids dialog (0 Rookie, 1 Intermediate, 2 Professional; 14.3), `0x5e7334` the player's
+  grip factor (1.0 on Rookie, 0.8 otherwise; 14.3).
 
 ## 1. Units, frames and step
 
@@ -105,6 +105,34 @@ Offsets in the car record (all floats unless said):
 Per tire (from the axle's tire record): +0x88 compound, +0xa0 damper force, +0xa8 normal load,
 +0x110 the load on the contact patch, +0x13c spin rate, +0x140 surface (type << 16), +0x198 slip
 ratio, +0x19c combined slip, +0x1a0 temperature, +0x1a4 wear (grip factor), +0x84 rolling radius.
+
+### 2.1 The stock car (the constructor, `0x4b2b00`)
+
+`CGarage::defaultSettings` (`0x4abf20`) builds a `pacwest.car` and copies its setup, so the constructor's values are
+the stock car and the stock setup:
+
+- Weight 1,675 lb without fuel (+0x164c, 0x44d16000) and 1,911.25 lb with it (+0x1654); fuel 35 gallons (+0x8f8),
+  236.25 lb (+0x900, 6.75 lb a gallon); mass 59.40 slug (+0x1650).
+- Inertia 200, 400, 400 slug ft² (+0x1660, +0x1664, +0x1668); drag reference area 15 ft² (+0x167c); side area
+  150 ft² (+0x1678).
+- Rev limit 15,000 rpm (+0x3dc, +0x79c), upshift 14,500 (+0x7f0).
+- Gears, overall (road course branch): reverse -20 (+0x8b8), then 19.0, 12.4, 9.3, 7.6, 6.4, 5.5 (+0x8c0..+0x8d4);
+  final drive 1.0 (+0x8d8).
+- Springs 14,723.37 lb/ft front (+0x3d0) and 20,870.38 rear (+0x790); dampers 3.5 x sqrt(k) / 3 (`0x5b6b70`,
+  `0x5b6b80`). Every damper setting 3 clicks; wing type 3 (+0x910, +0x950), angles 12 front and 15 rear (+0x91c, +0x95c;
+  0 in the other branch, an oval's).
+
+The game's own sample setups (`garage\*.gar`) use the same layout (14.1).
+
+**Where the port puts the wheels (the port's rule).** Every stock `.CAR` gives the same `static_bpos`: x 2.87 front
+and 2.64 rear, y -0.333, z 5 and -5. Measured against the `.CMD` body as drawn (floor at y 0, nose at -z in the model),
+they do not fit it: the suspension groups `RFSUSP`, `LFSUSP`, `RRSUSP`, `LRSUSP` end at x 2.32 front and 1.98 rear, at
+z 4.42 and -5.38, and 0.48 to 1.54 ft up, so a car on the manifest's anchors stood about 1.3 ft high with its wheels
+clear of the arms. Whether CART.EXE reads `static_bpos` against another origin (its CG) is not traced. The port stands
+each wheel at its arm (the arm's end plus half the wheel's width, the arm's middle along the car) with its height putting
+the floor at the stock static ride height (0.125 ft front, 0.208 rear) under the car's weight, and rolls the simulation
+on the rear tire (1.15 ft; the fronts are 1.03 ft and drawn lower by the difference): `worker/foreign-truck-build.js`
+`cprWheelPlaces`.
 
 ## 3. One step (`0x463810`, `0x46fe40`)
 
@@ -192,7 +220,7 @@ course).
   x1.1), compound 1 x0.95, the rain tire (4) x0.7 (wears x2); in rain, compound 0 x0.6, compound 1 x0.5,
   the rain tire x0.9.
 - **Surface** (the `.TTX` type under the tire): Road x1.0, Curb x0.9, Grass x0.6, Dirt x0.7, Rocks x0.7.
-  At assistance level 2 Grass, Dirt and Rocks are all x0.4. Off the road the tire wears at a quarter of
+  On Professional (Skill Level 2, 14.3) Grass, Dirt and Rocks are all x0.4. Off the road the tire wears at a quarter of
   the rate.
 - **Wear** (+0x1a4) multiplies the grip, from 1.0 down to no less than 0.7, when Tire Wear is on.
 - **Camber**: lateral grip x cos^5(camber + 4 degrees) (`0x5b2458`).
@@ -286,6 +314,11 @@ course).
 - Short 4 ft; Wall med 8 ft; Tall 12 ft; Very tall 16 ft; Short wall with catch fencing: a 4 ft wall
   with fence from 4 to 12 ft; Wall-catch-wall: wall 0 to 4, fence 4 to 12, wall 12 to 16 ft.
 - **Tree** (`0x449de0`): a card 60 ft tall (0x3c of the 256ths), drawn only with trackside trees on.
+- **One panel** (`0x448a80`, called per layer by `0x44a1a0`): a quad from this record's point to the next record's,
+  `4 * layer` to `4 * layer + 4` ft up, **drawn twice**: once with the wall's normal and once with it reversed, U running
+  from texel 1 to 255 on the first and from 255 to 1 on the second, so the art reads left to right from either side. U
+  spans the texture **once a stretch**, whatever its length; V is the strip the texture reference names (bits 6 and
+  up), its rows 1 to 63 of 64. The catch fence (`0x448fd0`, `0x449990`) is drawn by its own functions.
 
 ## 11. Other cars (`0x46d550`)
 
@@ -336,16 +369,171 @@ The options the game keeps (`0x5467a0` prints them):
 - **Driving aids**: assistance, steer on line, anti-lock brakes, traction control, steer on track,
   show the driving line, auto shift, cued shift, braking cones, spin control.
 
-The autopilot (`0x468620`) follows the SIT's courses as MTM2's does (records of 0x4c bytes, 1 straight
-and 2 curve, the segment at car word 0x389) and drives every car. For the player it carries the aids.
+The autopilot (`0x468620`, 14.2) drives every computer car and, through the aids (14.3), part or all of the player's.
+
+### 14.2 The autopilot (`0x468620`)
+
+Every car runs it at the start of each step (3). Car fields below are dword indexes into the car (x4 for the byte
+offset); constants are given with their addresses.
+
+**The course.** A SIT holds five courses: the `*** Course ***` section (course 0) and four `[Course n]` sections after
+`Extended Course Definitions` (the reader `0x412500`, the writer `0x4129a0`). OpenPhotex `CPR_COURSE_PURPOSES` names
+them: 1 to 3 the AI lines, 4 pit road, 5 pit row (as courses 1 to 4 here, the extended ones). The car's course is word
+0x51b (`0x4132e0` points `0xa45198` at it); racing uses course 1 (back to 1 after the pits, `0x46eb80`; a 2 found at the
+start of a step is turned to 1), the pits 3 and 4. At load each course gets its arcs between the straights
+(`0x412cd0`, the arc builder `0x413330`), as MTM2's do (MTM2_PHYSICS.md 12): records of 0x4c bytes alternating straight
+(type 1) and arc (type 2), the first straight number 1. A straight's +0x34 is its heading (atan2(dx, dz)), +0x38 its
+unit direction, +0x44 its length; an arc's +0x8 is its centre, +0x14 and +0x18 its entry and exit angle, +0x1c its
+radius, +0x34 its sweep (exit less entry; its sign is the turn's way), +0x44 its length |sweep| x radius. On Laguna
+Seca courses 0, 1 and 2 are the same 25 straights, so the course's `cspeed` (0 there) plays no part: the speeds come
+from the car.
+
+**The segment** (word 0x389). On a straight the car is past it when its distance to the straight's end along the
+straight is under 0.1 s of its forward speed (`0x5ec5a0`; 0.2 s for the player, `0x5b1a28`); on an arc, when it has
+crossed the start of the next straight. The last segment is followed by number 1. A car more than twice the road's width
+(`0x4b5920`, the track's width at its position) off the line picks the straight nearest to it (`0x466fe0`).
+
+**The corner speed** (words 0x520 and 0x38a). From the tires and the wings at the car's forward speed v (word 0x57a):
+
+- each axle's grip: the load on one tire, L = (W + 0.5 rho A C_L v^2 x draft) / 4 (W the weight, word 0x595; A the
+  reference area 0x59f; C_L the lift sum 0x5a0, negative for downforce; the draft factor 0x55c, 7), looked up in the
+  load tables (`0x5ec430` front, `0x5ec488` rear, every 100 lb, held at the 20th entry), x 1.1875 (`0x5b1a60`) x the
+  share of that axle's tires on the ground; mu the mean of the two axles;
+- the speed of an arc of radius R: v_c^2 = 0.5625 x mu g R / (1 - d), d = mu x 0.5 rho A |C_L| R / m (held to 0.95,
+  `0x5b1a80`; m the mass 0x594), so m v^2 / R = mu (m g + downforce), times **0.5625 (`0x5b1a98`): the computer drives
+  at 75% of the car's cornering limit**; never under 30 ft/s (v^2 at least 900, `0x44610000`).
+
+**Braking for it.** The deceleration at a speed u, a(u) = (-mu (W + 0.5 rho A |C_L| u^2 draft) / 2 - 0.5 rho A C_D u^2
+draft + grade) / m (word 0x51d at the corner speed; 0x51e the same with the weight less word 0x5a3 and a drag term 0x5a4
+in place of the aerodynamics; the grade is -W x rise / length on a straight); the deceleration used is
+a_b = a(v_c) + 0.75 x max(0, 0x51e - 0x51d) (word 0x52c, `0x5b1a78`). Then:
+
+- on a straight, with r the distance left to its end: target^2 = v_c^2 - 2 a_b r for the next arc (a_b is negative);
+- and for the arc after that (looked up on course 2): if its speed is lower, and the room to it (the next arc's length,
+  the straight after it and r) is less than the distance needed to slow from v to it, target^2 is held to what braking
+  over that room allows;
+- on an arc the target is its own corner speed, held in the same way for the next arc (the room: the straight between
+  them and the angle left, word 0x515, times the radius);
+- on an arc, a car outside its line (radial error e > 0, word 0x538) slows by min(e, 15) x 1.75 ft/s, or 26.25
+  past 15 (`0x5b1b08`, `0x5b1b18`, `0x5b1b10`);
+- behind another car (word 0xea4, the car being drafted, `0x4661a0`) the target is at most
+  sqrt(u_lead^2 - 2 a_b (gap - 26.2 ft)) (`0x5b1860`).
+
+Word 0x4f0 scales the target; it is 1 while racing (set in the pits only), so the computer cars have **no skill
+factor**: they differ by their setups.
+
+**Throttle and brakes** (word 0x38e): c = 0.1 (target - v) - 0.005 max(0, a_fwd) (`0x5b1b30`, `0x5b1b38`; a_fwd the
+forward acceleration smoothed by a quarter each step, word 0x396), eased in by min(12 dt, 0.8) of the difference each
+step (`0x5b1b40`, `0x5b1b48`) and held to -1..1. Positive is the throttle (word 0x201), negative both brakes (0xfa,
+0x1ea), split by the proportioning.
+
+**Steering on a straight.** With e the car's distance left of the line (word 0x528) and h the straight's heading:
+
+- the line term e / 100 (`0x5ec5a8`; e / 300 for the player, `0x5b1bc0`), held to +-0.1745 (10 degrees, `0x5b1bd0`),
+  times 250 / max(v, 250) (`0x5b1bf0`): it fades at speed;
+- the heading term wrap(h - heading) x k, k = max(0.75, (2 - min(|e| / 20, 2)) / 2) (`0x5ec5b4`, `0x5ec5ac`,
+  `0x5ec5b0`): 1 on the line, 0.75 from 10 ft off;
+- the wheel eases toward their sum by min(10 dt, 0.75) a step (`0x5ec5b8`; 0.75 for the player), held to the setup's
+  steering lock (word 0x22b).
+
+**Steering on an arc.** With e the distance from the centre less the line's radius (positive outside):
+
+- the radius term e / 80 (`0x5ec590`; e / 100 for the player, `0x5b1a58`);
+- the arc's own steer, wheelbase / R (words 0x18 and 0x108, the axles), plus an understeer term from the tires' loads and
+  stiffnesses (word 0x555; not mapped);
+- the heading term wrap(t - heading) x k, t the tangent (the heading from the centre to the car plus or minus a quarter
+  turn by the sweep), k = max(0.5, 1.5 - |min(e / 20, 1.5)|) with e / 20 no lower than -0.5 (`0x5ec59c`, `0x5ec594`,
+  `0x5ec598`);
+- the terms change sign on a left-hand arc; no 10 degree hold and no fade; the wheel eases by min(10 dt, 0.75)
+  (`0x5ec5a4`).
+
+**Lines through traffic** (`0x4671a0`, `0x467f00`). A car moves across the road by lane fractions, -1 to 1 of the
+room either side (half the road's width less the car's half width, word 0x597): at a corner's entry, middle and exit
+(words 0x50b to 0x50d), from a table of three times 500 floats at `0xa1dff8` (`0x5eaea8`). That table is in the
+zero-filled data and nothing writes it, so every corner's own line is the course's; the fractions move only to pass:
+by 0.75 (`0x5b1948`) toward the side away from the car being passed (word 0x3ad) or followed (0x3a8), held to -1..0.75.
+`0x467f00` then fits a circle through the shifted entry, middle and exit (word 0x4f1 the radius change, 0x13dc the new
+radius) and a straight takes the shift as an offset (0x506).
+
+### 14.3 Driving aids and the Skill Level
+
+The Driving Aids dialog (`CART.EXE` resources: Skill Level, Stay on Line, Auto-Brake, Auto-Throttle, Auto-Shift, Stay
+on track, Spin Correction, Driving Cones, Show Racing Line, Cued Shifting, Anti-lock Brakes, Traction Control) fills the
+aids record `0x5eb774` (cart.ini names, `0x456eb0`): +0x34 `controlflag`, +0x38 `steeringHelp`, +0x3c
+`antiLockBrake`, +0x40 `tractionControl`, +0x44 `nonLinearSteer`, +0x48 `speedSensitiveSteer`, +0x4c `autoClutch`,
++0x50 `cuedShift`, +0x54 `autoShift`, +0x58 `spinCorrection`, +0x5c `showCones`. `0x516510` applies the dialog:
+
+- **Skill Level** (`0x5e7024`): Rookie, Intermediate, Professional. Rookie keeps every aid; Intermediate clears
+  `controlflag` (no Auto-Brake, Auto-Throttle or Stay on Line); Professional clears them all.
+- **controlflag** (`0xa451a8` while driving, `0x457510`): 1 Auto-Brake (the autopilot's brake replaces the player's
+  when it is harder, and the throttle is shut), 2 Auto-Throttle as well (the autopilot works both pedals), 3 the
+  autopilot also steers. The aids key steps it 0, 1, 2, 3 and round (Rookie only, `0x480c20`).
+- **steeringHelp** (car word 0x530): 1 Stay on track, 2 Stay on Line (Rookie only). The player's wheel is held in a
+  window round the autopilot's own steer (its heading term, with the arc's steer on an arc): 0.1 rad wide toward the line
+  and (1 - |e| / (room - 1)) x 0.1 toward the near edge, where e is the distance off the line and room the half road
+  (Stay on track) or 6 ft (Stay on Line, with no car being passed); past the edge the window's centre moves back by
+  (|e| - room) / 300 on a straight and / 75 on an arc (`0x5b1bc0`, `0x5b1b98`). Steering past it moves the wheel to its
+  side at once.
+- **Spin Correction** (+0x58): a player car facing more than 72 degrees (`0x5b1b70`) off the course with its velocity
+  against it is turned to the course's heading (pitch and roll kept).
+- **Anti-lock brakes** (car +0x14c4, `0x477ae0`; always on for computer cars, and with any `controlflag`): above
+  10 ft/s a braked wheel is held at no less than 80% of its rolling speed (`0x5b2500`): the brake torque is limited to
+  what brings it there.
+- **Traction control** (car +0x14c8, `0x475580`; also with `controlflag` 2 or 3): in a gear, when a rear tire's slip
+  passes 0.15 (`0x5b20f8`; x0.5 for the player), the rev limit drops to the rpm of the rear wheels turning 15% faster
+  than the ground (`0x5b2108`), and the governor cuts the torque.
+- **Grip** (`0x5e7334`, the player's tires in `0x476e00`): x1.0 on Rookie, x0.8 on Intermediate and Professional
+  (`0x5e72f0`). On Professional the grass, dirt and rocks grip x0.4 (6.2). The computer cars' tire model
+  (`0x476550`) reads neither.
+- Below Professional a wall hit cuts the player's speed by 10% (10.2).
+
+### 14.1 The garage setup (`Garage.cpp`, writer `0x4ab7f0`)
+
+A setup is a `.gar` text file ("Garage Files (*.gar)", `0x4c7e40`), label then values, in this order, read from
+the setup object's dwords (the offsets are dword indexes; the four-value rows are one value per corner, FL, FR, RL, RR
+as the car's debug print `0x463810` lists them; the two-value rows front then rear):
+
+| Label | Values | Fields |
+|---|---|---|
+| `tireCompound` | 4 int | 0-3 |
+| `tirePressure` | 4 float | 4-7 |
+| `tireStagger` | 2 float | 8-9 |
+| `brakeProportioning` | 1 float | 10 |
+| `springRate` | 4 float | 0xb-0xe |
+| `dampingFastBump`, `dampingSlowBump`, `dampingFastRebound`, `dampingSlowRebound` | 4 int each (clicks) | 0xf-0x1e |
+| `camber` | 4 float | 0x1f-0x22 |
+| `installationRatio` | 4 float | 0x23-0x26 |
+| `thirdSpringRate`, `thirdSpringFreePlay` | 4 float each | 0x27-0x2e |
+| `antiRollBar` | 2 float | 0x2f-0x30 |
+| `steeringLock` | 1 float | 0x31 |
+| `toeIn` | 2 float | 0x32-0x33 |
+| `wingType` | 2 int | 0x34-0x35 |
+| `wingAngle`, `gurneyFlapSize`, `staticRideHeight` | 2 float each | 0x36-0x3b |
+| `fuelAmount`, `ballastPosition` | 1 float each | 0x3c, 0x3d |
+| `gearRatio` | 6 float | 0x3e-0x43 |
+| `finalDriveRatio` | 1 float | 0x44 |
+| `differentialType` | 1 int (section 5: 1 limited slip, 2 locked, 3 open) | 0x46 |
+| `pitStopCount`, then per stop `pitLapMin,pitLapMax,pitFuelAmount,pitStopType` | int, then 3 int and a float each | 0x47.. |
+| `leftMirrorAngle,rightMirrorAngle` | 2 float | 0x70-0x71 |
+
+The defaults (`CGarage::defaultSettings`, `0x4abf20`, which also names `pacwest.car`) and the road, oval and short
+oval default files (`defaultGarageSetupFilename`, `0x4b8a90`) are not read yet (16.5).
+
+**For OpenMTM2's Garage** (port's plan): only meaningful under the CPR model (16.2), so the Garage screen lists
+these for a CPR car but keeps them disabled until that model exists. In rough order of effect on the planned model:
+wings (type, angle, Gurney flap: downforce and drag, 7), springs and anti-roll bars, the four damper clicks,
+ride height, camber and toe (6), the six gears, final drive and differential (5), tire compound, pressure and
+stagger (6.2), brake proportioning, fuel load and ballast. The installation ratio, third spring free play, steering
+lock, pit stops and mirror angles would stay at their defaults. The profile keeps one CPR setup per driver, as the
+MTM2 and Evo settings are kept.
 
 ## 15. Where OpenMTM2 differs from the game today
 
 | Today (port's rule) | CART.EXE | Under MTM physics | Under CPR physics |
 |---|---|---|---|
-| Wall panel 4.5 ft (`CPR_WALL_PART_HEIGHT_FT`, a screenshot calibration) | 4 ft (10.3) | fix: draw and collide 4 ft panels | 4 ft, drawing only |
-| Tree wall 9 units (40.5 ft) and **solid** (`buildCprRoad` emits type 7 walls; `cpr-road.js` turns every wall into a box): 470 tree segments at Elkhart, 212 at Mid-Ohio, 118 at Portland | 60 ft card, never solid (10.1, 10.3) | fix: draw 60 ft, no box | same |
-| A wall may stand on a tree point | the reader clears it (10.1) | fix in `parseCprTrk` | same |
+| Wall panel 4 ft (`CPR_WALL_PART_HEIGHT_FT`; 4.5 ft, a screenshot calibration, before Phase 0) | 4 ft (10.3) | done | 4 ft, drawing only |
+| Tree wall 60 ft and not solid (before Phase 0: 40.5 ft and a box; 470 tree segments at Elkhart, 212 at Mid-Ohio, 118 at Portland) | 60 ft card, never solid (10.1, 10.3) | done (drawn as a wall panel, not a card) | same |
+| A wall on a tree point is cleared by `parseCprTrk` | the reader clears it (10.1) | done | same |
 | Wall boxes as tall as their panels: a jumping truck clears them | infinitely tall (10.2) | port's choice: keep, or raise the boxes | 2D segment test |
 | Surfaces mapped to MTM2 ground types (`CPR_SURFACE_VALUES`) | Road 1.0, Curb 0.9, Grass 0.6, Dirt 0.7, Rocks 0.7 (6.2) | keep MTM2's types (the trucks' tires are MTM2's) | CPR's factors |
 | Road counts only where it is not below the terrain (OpenPhotex `world/road.ts`) | road wins inside the ribbon (9) | port's choice: either | CPR's rule |
@@ -355,9 +543,12 @@ and 2 curve, the segment at car word 0x389) and drives every car. For the player
 
 ## 16. Implementation suggestion
 
-### 16.1 Phase 0: track fixes, independent of the physics (OpenPhotex, then vendor)
+### 16.1 Phase 0: track fixes, independent of the physics (OpenPhotex, then vendor): built
 
-Small, testable, and they improve CPR tracks under every model:
+Small, testable, and they improve CPR tracks under every model. Built as listed: `CPR_WALL_PART_HEIGHT_FT` is 4,
+a tree is 15 panels (60 ft) and `solid: false`, `parseCprTrk` clears the tree points, and `worker/cpr-road.js`
+makes no box of a tree (it is still drawn, as a 60 ft wall of its texture, not yet as a camera-facing card). Tests:
+OpenPhotex `test/levels.test.ts`, "CPR walls".
 
 1. `CPR_WALL_PART_HEIGHT_FT` 4.5 to **4.0**; `CPR_WALL_LAYERS[7]` becomes a 60 ft card
    (`{ part: 0, units: 15 }`, or a `treeHeightFt` of its own), and `docs/LEVELS.md` says where both come
@@ -370,7 +561,22 @@ Small, testable, and they improve CPR tracks under every model:
    `sim.walls` at Elkhart, Mid-Ohio or Portland; a tree point in a synthetic `.TRK` with type 2 reads
    back 0.
 
-### 16.2 Phase 1: the CPR model in OpenPhotex (`src/sim/cpr/`, `cprSim`)
+### 16.2 Phase 1: the CPR model in OpenPhotex (`src/sim/cpr/`, `cprSim`): built, to be tested
+
+Built as `cprSim` (`rules.ts`, `step.ts`) with the `.gar` reader and writer (`src/cpr/garage.ts`), shaped like the Evo
+model: MTM2's tire geometry, probes, hull contacts, integration and post-step, CPR's forces. From the facts above: the
+car's weight, inertia and areas (2.1), the stock setup, the six overall gears and the limited slip differential's 0.3 to
+0.7 split (5), wheel rates from the springs and installation ratios, the four-way dampers (6.1), mu by load for each
+axle, compound, weather and surface (6.2), the force curve with a friction circle and the camber term (6.3), drag,
+downforce and side force (7), the angular acceleration clamp (3). **The port's**, until the second pass: the torque curve
+(about 850 hp at 14,000 rpm, no boost, pop-off valve or fuel use), the wing coefficients (set for about 3,000 lb of
+downforce and 225 mph with the stock setup), the slip stiffnesses (the curve peaks at 6 degrees and 12% slip), the
+weight split (45% front), the downshift rpm (9,500), the clutch at a standstill, and engine braking that fades out at a
+crawl. Not reproduced: anti-roll bars, third springs, tire pressure and stagger, ride height, temperature's effect on
+grip, wear, drafting between cars (`cprDraft` is there), endless walls and non-solid scenery, the lighter computer-car
+tire model. Tests: OpenPhotex `test/sim-cpr.test.ts`.
+
+The plan as first written:
 
 Shaped like `src/sim/evo/`, so the worker treats it the same way:
 
@@ -400,7 +606,24 @@ Shaped like `src/sim/evo/`, so the worker treats it the same way:
   curve's peak at 2.75; mu at 0, 650 and 2,000 lb for each axle; the pop-off latch at 0.99 and 0.95; a
   hull point crossing a wall is moved 0.5 ft off it with no normal speed; a tree never stops a car.
 
-### 16.3 Phase 2: the physics selector (OpenMTM2)
+### 16.3 Phase 2: the physics selector (OpenMTM2): built
+
+"CART Precision Racing" in `PHYSICS_MODELS`; "Auto (by vehicle)" picks it for a CPR car and "Auto (by track)" on a CPR
+track. Under it a CPR car drives on `cprSim` with the player's Garage setup (computer cars the stock one) and every
+other vehicle keeps MTM2's model (the port's rule, rather than `cprSpecFromMtm2`). The Garage offers the setup for a CPR
+car (`game/cpr-garage.js`): wings and Gurney flaps, springs, dampers and camber per axle, brake bias, final drive,
+steering lock, fuel, the differential and the tire compound, and loads and saves the game's `.gar` files.
+
+**The computer drivers (CART.EXE's).** Under CPR physics a computer-driven CPR car drives by CART.EXE's autopilot
+(14.2, `game/cpr-driver.js`) on the SIT course the track already has, MTM2's arcs built between its straights: the
+corner speeds from the car's own grip, wings and weight at 75% of its limit, the two braking checks, the throttle and
+brake law, the steering gains on straights and arcs, the following limit and the passing shift. The port's parts: the
+road's width at the car is the `.TRK` centreline's (OpenPhotex `cprCentreline`) in place of `0x4b5920`; the arc's
+understeer term (word 0x555) is left out; the pass is a shift of the whole line by 0.75 of the room rather than
+`0x467f00`'s refitted circle; the pits are not driven. The player's car takes the aids of 14.3 from Options, Advanced,
+"CPR skill level" (Rookie, Intermediate, Professional, with each level's aids switched on).
+
+The plan as first written:
 
 - `app/settings.js`: one more entry in `PHYSICS_MODELS`,
   `{ id: "cpr", label: "CART Precision Racing", note: "The 1998 game's car model: turbo engine, six

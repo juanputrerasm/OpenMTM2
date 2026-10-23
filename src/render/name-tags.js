@@ -2,20 +2,21 @@
   Names written over the trucks in the world: one small label per truck, placed over the truck's roof by
   projecting its position onto the screen each frame. Written in the game's own bitmap font (render/bitmap-text.js)
   when the install has it, in white with a black edge; a label of two lines (game/names.js, the driver and the truck)
-  has its second line in red.
+  has its second line in red. The font is drawn pixel for pixel on the screen's own pixels, at a whole scale for the
+  screen's height (`nameTagScale`): one font pixel a screen pixel up to about 1,600 pixels tall, about the size of the
+  13 px text shown without the font.
 */
 import * as THREE from "three";
 import { el } from "../ui/dom.js";
 import { drawText, textWidth } from "./bitmap-text.js";
-import { nameTagLineColour, nameTagPaintKey } from "./name-tag-style.js";
+import { nameTagLineColour, nameTagPaintKey, nameTagScale } from "./name-tag-style.js";
 
-export { NAME_COLOURS } from "./name-tag-style.js";
+export { NAME_COLOURS, nameTagScale } from "./name-tag-style.js";
 
-/** Labels farther than this from the camera are hidden, in feet. */
-const RANGE_FT = 700;
 /** Feet above the truck's origin where its label hangs. */
 const ABOVE_FT = 9;
-export function createNameTags(count, font = null, scale = 1) {
+
+export function createNameTags(count, font = null) {
   const root = el("div", { class: "name-tags", "aria-hidden": "true" });
   const tags = Array.from({ length: count }, () => {
     const tag = font ? el("canvas", { class: "name-tag name-tag-font" }) : el("span", { class: "name-tag" });
@@ -24,17 +25,22 @@ export function createNameTags(count, font = null, scale = 1) {
     return tag;
   });
   const shown = tags.map(() => "");
+  // The screen the tags were drawn for: a new size or pixel ratio draws them again.
+  let drawnFor = "";
   /** Write a label's lines on its tag: the font's glyphs with a one-pixel black edge, or plain text without the font. */
   const write = (tag, lines, extensionColour) => {
     if (!font) {
       tag.replaceChildren(...lines.map((line, k) => el("span", { class: "name-tag-line", style: `color: ${nameTagLineColour(k, extensionColour)}` }, line)));
       return;
     }
+    const ratio = window.devicePixelRatio || 1;
+    const scale = nameTagScale(Math.round(window.innerHeight * ratio));
     const lineH = (font.lineHeight + 2) * scale, edge = scale;
     tag.width = Math.ceil(Math.max(1, ...lines.map((line) => textWidth(font, line, scale)))) + 2 * edge;
     tag.height = lines.length * lineH + 2 * edge;
-    tag.style.width = `${tag.width}px`;
-    tag.style.height = `${tag.height}px`;
+    // One canvas pixel a device pixel.
+    tag.style.width = `${tag.width / ratio}px`;
+    tag.style.height = `${tag.height / ratio}px`;
     const ctx = tag.getContext("2d");
     ctx.clearRect(0, 0, tag.width, tag.height);
     lines.forEach((line, k) => {
@@ -44,31 +50,39 @@ export function createNameTags(count, font = null, scale = 1) {
     });
   };
   const v = new THREE.Vector3();
+  const inView = new THREE.Vector3();
   return {
     element: root,
     /**
      * `labels[i]` is the text, two lines as `[first, second]`, or null; `positions[i]` the truck in game feet;
      * `hidden[i]` skips a truck (the one you sit in). `width` and `height` are the view's size in pixels.
-     * `marks[i]`, when given, is an extension indicator (`{ color, far }`): the label in that colour,
-     * and with `far` at any distance.
+     * `marks[i]`, when given, is an extension indicator (`{ color }`): the label in that colour.
      */
     update(camera, width, height, labels, positions, hidden = [], marks = []) {
+      const screen = `${window.innerHeight}@${window.devicePixelRatio || 1}`;
+      if (screen !== drawnFor) { drawnFor = screen; shown.fill(""); }
       tags.forEach((tag, i) => {
         const label = labels[i];
         const p = positions[i];
         const mark = marks[i] ?? null;
         if (!label || !p || hidden[i]) { tag.hidden = true; return; }
         v.set(p[0], p[1] + ABOVE_FT, -p[2]);
-        if (!mark?.far && v.distanceTo(camera.position) > RANGE_FT) { tag.hidden = true; return; }
+        // Shown at any distance, past the far plane too: only a truck behind the camera or off the screen has no label.
+        inView.copy(v).applyMatrix4(camera.matrixWorldInverse);
+        if (inView.z > -0.5) { tag.hidden = true; return; }
         v.project(camera);
-        if (v.z > 1 || v.z < -1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) { tag.hidden = true; return; }
+        if (Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) { tag.hidden = true; return; }
         tag.hidden = false;
         const color = mark?.color ?? "";
         const lines = (Array.isArray(label) ? label : [label]).filter(Boolean).map(String), key = nameTagPaintKey(lines, color);
         if (shown[i] !== key) { shown[i] = key; write(tag, lines, color); }
         if (tag.dataset.color !== color) { tag.dataset.color = color; tag.style.color = color; }
         tag.classList.toggle("name-tag-mark", !!mark);
-        tag.style.transform = `translate(${((v.x * 0.5 + 0.5) * width).toFixed(1)}px, ${((-v.y * 0.5 + 0.5) * height).toFixed(1)}px) translate(-50%, -100%)`;
+        // The label's top left on a whole device pixel, so its glyphs stay sharp.
+        const ratio = window.devicePixelRatio || 1;
+        const w = tag.width / ratio, h = tag.height / ratio;
+        const x = Math.round(((v.x * 0.5 + 0.5) * width - w / 2) * ratio) / ratio, y = Math.round(((-v.y * 0.5 + 0.5) * height - h) * ratio) / ratio;
+        tag.style.transform = font ? `translate(${x}px, ${y}px)` : `translate(${((v.x * 0.5 + 0.5) * width).toFixed(1)}px, ${((-v.y * 0.5 + 0.5) * height).toFixed(1)}px) translate(-50%, -100%)`;
       });
     },
   };

@@ -28,7 +28,11 @@ export function loadFont(assets, stem) {
       for (let i = 0; i < data.mask.length; i++) { rgba.fill(255, i * 4, i * 4 + 3); rgba[i * 4 + 3] = data.mask[i]; }
       sheet.getContext("2d").putImageData(new ImageData(rgba, data.width, data.height), 0, 0);
       return { glyphs, lineHeight: data.lineHeight, sheet, tinted: new Map() };
-    }).catch(() => null));
+    }).catch(() => null).then((font) => {
+      // Not cached when missing: the archives may not be mounted yet (the first start), so a later call asks again.
+      if (!font) loaded.delete(stem);
+      return font;
+    }));
   }
   return loaded.get(stem);
 }

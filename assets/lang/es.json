@@ -224,16 +224,8 @@
   "text": "Automático (según el vehículo)"
  },
  {
-  "tag": "The model of the player's vehicle's game: 4x4 Evolution 2 or 4x4 Evolution for their vehicles, Monster Truck Madness for MTM1 trucks, Monster Truck Madness 2 for the rest",
-  "text": "El modelo del juego del vehículo del jugador: 4x4 Evolution 2 o 4x4 Evolution para sus vehículos, Monster Truck Madness para los camiones de MTM1 y Monster Truck Madness 2 para el resto"
- },
- {
   "tag": "Auto (by track)",
   "text": "Automático (según la pista)"
- },
- {
-  "tag": "The model of the track's game: 4x4 Evolution 2 or 4x4 Evolution on their tracks, Monster Truck Madness on MTM1 tracks, Monster Truck Madness 2 on the rest",
-  "text": "El modelo del juego de la pista: 4x4 Evolution 2 o 4x4 Evolution en sus pistas, Monster Truck Madness en las pistas de MTM1 y Monster Truck Madness 2 en el resto"
  },
  {
   "tag": "Monster Truck Madness 2",
@@ -2548,10 +2540,6 @@
   "text": "Más rápido (])"
  },
  {
-  "tag": "Save the replay as a .rpl file",
-  "text": "Guardar la repetición como archivo .rpl"
- },
- {
   "tag": "Back (Esc)",
   "text": "Volver (Esc)"
  },
@@ -3416,10 +3404,6 @@
   "text": "Salas en línea"
  },
  {
-  "tag": "Rooms on an OpenMTM2 server: a list of games, room codes and invite links.",
-  "text": "Salas en un servidor de OpenMTM2: una lista de partidas, códigos de sala y enlaces de invitación."
- },
- {
   "tag": "Server",
   "text": "Servidor"
  },
@@ -3712,10 +3696,6 @@
   "text": "No hay salas abiertas; creando una…"
  },
  {
-  "tag": "<<1>>'s room",
-  "text": "Sala de <<1>>"
- },
- {
   "tag": "Room name",
   "text": "Nombre de la sala"
  },
@@ -3756,16 +3736,8 @@
   "text": "Código de sala"
  },
  {
-  "tag": "if it has one",
-  "text": "si tiene"
- },
- {
   "tag": "Room password",
   "text": "Contraseña de la sala"
- },
- {
-  "tag": "Make a room",
-  "text": "Crear una sala"
  },
  {
   "tag": "Show it in the list (otherwise by code only)",
@@ -3798,5 +3770,441 @@
  {
   "tag": "4x4 Evolution tracks: how far around the camera the grass is drawn, on every tile its .TEX marks for vegetation, pressed down under the trucks. Near is about the game's own. From the next race",
   "text": "Pistas de 4x4 Evolution: hasta qué distancia de la cámara se dibuja el pasto, en cada baldosa que su .TEX marca para vegetación, aplastado bajo los camiones. Cerca es más o menos lo del juego original. Desde la próxima carrera"
+ },
+ {
+  "tag": "Cops & Robbers",
+  "text": "Policías y ladrones"
+ },
+ {
+  "tag": "One truck is the robber; the cops capture it by touching it once it is off its wheels or stuck.",
+  "text": "Un camión es el ladrón; los policías lo capturan tocándolo cuando ha volcado o está atascado."
+ },
+ {
+  "tag": "Robber",
+  "text": "Ladrón"
+ },
+ {
+  "tag": "Cop",
+  "text": "Policía"
+ },
+ {
+  "tag": "+<<1>> a second",
+  "text": "+<<1>> por segundo"
+ },
+ {
+  "tag": "too far from It",
+  "text": "demasiado lejos del que la lleva"
+ },
+ {
+  "tag": "Scoring:",
+  "text": "Puntuando:"
+ },
+ {
+  "tag": "<<1>> is It! Stay close to score.",
+  "text": "¡<<1>> la lleva! Quédate cerca para puntuar."
+ },
+ {
+  "tag": "Robber:",
+  "text": "Ladrón:"
+ },
+ {
+  "tag": "Safe for:",
+  "text": "A salvo durante:"
+ },
+ {
+  "tag": "Captures:",
+  "text": "Capturas:"
+ },
+ {
+  "tag": "<<1>> captured you! The helicopter takes you away.",
+  "text": "¡<<1>> te ha capturado! El helicóptero te lleva lejos."
+ },
+ {
+  "tag": "You captured the robber!",
+  "text": "¡Has capturado al ladrón!"
+ },
+ {
+  "tag": "<<1>> captured <<2>>!",
+  "text": "¡<<1>> ha capturado a <<2>>!"
+ },
+ {
+  "tag": "You're the robber! Get away!",
+  "text": "¡Eres el ladrón! ¡Escapa!"
+ },
+ {
+  "tag": "<<1>> is the robber. Turn it over, then touch it!",
+  "text": "<<1>> es el ladrón. ¡Vuélcalo y luego tócalo!"
+ },
+ {
+  "tag": "Racer",
+  "text": "Corredor"
+ },
+ {
+  "tag": "Blocker",
+  "text": "Bloqueador"
+ },
+ {
+  "tag": "Race & Rumble",
+  "text": "Carrera y choque"
+ },
+ {
+  "tag": "Play as blocker",
+  "text": "Jugar como bloqueador"
+ },
+ {
+  "tag": "Soccer",
+  "text": "Fútbol"
+ },
+ {
+  "tag": "Two teams play for goals with the ball on Highlands Rally's pitch.",
+  "text": "Dos equipos juegan a marcar goles con el balón en el campo de Highlands Rally."
+ },
+ {
+  "tag": "Green",
+  "text": "Verde"
+ },
+ {
+  "tag": "Yellow",
+  "text": "Amarillo"
+ },
+ {
+  "tag": "Add POD files, ZIP files (every POD a ZIP holds is added) or 4x4 Evolution Lite tracks (.LTE)",
+  "text": "Añadir archivos POD, archivos ZIP (se añaden todos los POD que contenga) o pistas Lite de 4x4 Evolution (.LTE)"
+ },
+ {
+  "tag": "Save for MTM2",
+  "text": "Guardar para MTM2"
+ },
+ {
+  "tag": "Save the last 2240 records, as much as Monster Truck Madness 2 itself plays back",
+  "text": "Guardar los últimos 2240 registros, lo que el propio Monster Truck Madness 2 puede reproducir"
+ },
+ {
+  "tag": "Ball out of play. Kick-off!",
+  "text": "Balón fuera. ¡Saque inicial!"
+ },
+ {
+  "tag": "Studded",
+  "text": "Con clavos"
+ },
+ {
+  "tag": "Stiff",
+  "text": "Dura"
+ },
+ {
+  "tag": "How stiff the springs and dampers are. Soft rides over bumps and keeps the tires down; stiff answers the steering sooner.",
+  "text": "La dureza de muelles y amortiguadores. Blanda pasa sobre los baches y mantiene las ruedas en el suelo; dura responde antes a la dirección."
+ },
+ {
+  "tag": "Stock",
+  "text": "De serie"
+ },
+ {
+  "tag": "Axle Ratio",
+  "text": "Relación del eje"
+ },
+ {
+  "tag": "Acceleration",
+  "text": "Aceleración"
+ },
+ {
+  "tag": "Top speed",
+  "text": "Velocidad punta"
+ },
+ {
+  "tag": "The final drive. Left for acceleration on tight, twisty tracks; right for top speed on fast ones.",
+  "text": "La relación final. A la izquierda, aceleración para pistas cerradas y sinuosas; a la derecha, velocidad punta para las rápidas."
+ },
+ {
+  "tag": "Brake Balance",
+  "text": "Reparto de frenada"
+ },
+ {
+  "tag": "Front",
+  "text": "Delante"
+ },
+ {
+  "tag": "Rear",
+  "text": "Detrás"
+ },
+ {
+  "tag": "More front braking is stable but hard to turn while braking; more rear braking turns easily but is unstable.",
+  "text": "Más freno delante es estable pero cuesta girar frenando; más freno detrás gira con facilidad pero es inestable."
+ },
+ {
+  "tag": "Torque Split",
+  "text": "Reparto de par"
+ },
+ {
+  "tag": "How the engine's torque is shared between the axles in four-wheel drive. Front helps steering; rear accelerates harder but spins sooner.",
+  "text": "Cómo se reparte el par del motor entre los ejes con tracción a las cuatro ruedas. Delante ayuda a girar; detrás acelera más pero patina antes."
+ },
+ {
+  "tag": "Handling Balance",
+  "text": "Equilibrio de manejo"
+ },
+ {
+  "tag": "Understeer",
+  "text": "Subviraje"
+ },
+ {
+  "tag": "Oversteer",
+  "text": "Sobreviraje"
+ },
+ {
+  "tag": "Toward understeer the vehicle is easy to control but hard to turn; toward oversteer it turns quickly but can get sideways.",
+  "text": "Hacia el subviraje el vehículo es fácil de controlar pero cuesta girar; hacia el sobreviraje gira rápido pero puede cruzarse."
+ },
+ {
+  "tag": "Used when the race runs on a 4x4 Evolution physics model (Options, Physics).",
+  "text": "Se usa cuando la carrera emplea un modelo físico de 4x4 Evolution (Opciones, Física)."
+ },
+ {
+  "tag": "Tire Type",
+  "text": "Tipo de neumático"
+ },
+ {
+  "tag": "The vehicle's own setting",
+  "text": "El ajuste propio del vehículo"
+ },
+ {
+  "tag": "Default Settings",
+  "text": "Ajustes predeterminados"
+ },
+ {
+  "tag": "4x4 Evolution settings",
+  "text": "Ajustes de 4x4 Evolution"
+ },
+ {
+  "tag": "CART Precision Racing setup",
+  "text": "Reglaje de CART Precision Racing"
+ },
+ {
+  "tag": "Room servers",
+  "text": "Servidores de salas"
+ },
+ {
+  "tag": "Join or create an online room on an OpenMTM2 server.",
+  "text": "Únete o crea una sala en línea en un servidor de OpenMTM2."
+ },
+ {
+  "tag": "Save for CP3",
+  "text": "Guardar para CP3"
+ },
+ {
+  "tag": "Save the whole replay as a .rpl file: Community Patch 3 and OpenMTM2 play it all back; Monster Truck Madness 2 itself cannot load one this long",
+  "text": "Guardar la repetición entera como archivo .rpl: Community Patch 3 y OpenMTM2 la reproducen completa; el propio Monster Truck Madness 2 no puede cargar una tan larga"
+ },
+ {
+  "tag": "<<1>>'s Truckin' Game",
+  "text": "Partida camionera de <<1>>"
+ },
+ {
+  "tag": "Code",
+  "text": "Código"
+ },
+ {
+  "tag": "Create a room",
+  "text": "Crear una sala"
+ },
+ {
+  "tag": "The model of the player's vehicle's game: 4x4 Evolution 2 or 4x4 Evolution for their vehicles, CART Precision Racing for its cars, Monster Truck Madness for MTM1 trucks, Monster Truck Madness 2 for the rest",
+  "text": "El modelo del juego del vehículo del jugador: 4x4 Evolution 2 o 4x4 Evolution para sus vehículos, CART Precision Racing para sus coches, Monster Truck Madness para los camiones de MTM1 y Monster Truck Madness 2 para el resto"
+ },
+ {
+  "tag": "The model of the track's game: 4x4 Evolution 2 or 4x4 Evolution on their tracks, CART Precision Racing on its tracks, Monster Truck Madness on MTM1 tracks, Monster Truck Madness 2 on the rest",
+  "text": "El modelo del juego de la pista: 4x4 Evolution 2 o 4x4 Evolution en sus pistas, CART Precision Racing en sus pistas, Monster Truck Madness en las pistas de MTM1 y Monster Truck Madness 2 en el resto"
+ },
+ {
+  "tag": "CART Precision Racing",
+  "text": "CART Precision Racing"
+ },
+ {
+  "tag": "The 1998 game's car model for its cars: six gears, springs and dampers from the Garage's setup, grip that falls with the load, wings that press the car down; other vehicles on MTM2's model. The torque curve and the wings' figures are the port's",
+  "text": "El modelo de coche del juego de 1998 para sus coches: seis marchas, muelles y amortiguadores del reglaje del Garaje, agarre que baja con la carga, alerones que aprietan el coche contra el suelo; los demás vehículos con el modelo de MTM2. La curva de par y las cifras de los alerones son del port"
+ },
+ {
+  "tag": "Front wing",
+  "text": "Alerón delantero"
+ },
+ {
+  "tag": "Wings",
+  "text": "Alerones"
+ },
+ {
+  "tag": "Rear wing",
+  "text": "Alerón trasero"
+ },
+ {
+  "tag": "Front Gurney flap",
+  "text": "Gurney flap delantero"
+ },
+ {
+  "tag": "Rear Gurney flap",
+  "text": "Gurney flap trasero"
+ },
+ {
+  "tag": "Front springs",
+  "text": "Muelles delanteros"
+ },
+ {
+  "tag": "Rear springs",
+  "text": "Muelles traseros"
+ },
+ {
+  "tag": "Front dampers",
+  "text": "Amortiguadores delanteros"
+ },
+ {
+  "tag": "Rear dampers",
+  "text": "Amortiguadores traseros"
+ },
+ {
+  "tag": "Front camber",
+  "text": "Caída delantera"
+ },
+ {
+  "tag": "Rear camber",
+  "text": "Caída trasera"
+ },
+ {
+  "tag": "Brake bias",
+  "text": "Reparto de frenada"
+ },
+ {
+  "tag": "Car",
+  "text": "Coche"
+ },
+ {
+  "tag": "Final drive",
+  "text": "Relación final"
+ },
+ {
+  "tag": "Steering lock",
+  "text": "Ángulo de dirección"
+ },
+ {
+  "tag": "Fuel",
+  "text": "Combustible"
+ },
+ {
+  "tag": "Limited slip",
+  "text": "Deslizamiento limitado"
+ },
+ {
+  "tag": "Locked",
+  "text": "Bloqueado"
+ },
+ {
+  "tag": "Open",
+  "text": "Abierto"
+ },
+ {
+  "tag": "Primary",
+  "text": "Principal"
+ },
+ {
+  "tag": "Alternate",
+  "text": "Alternativo"
+ },
+ {
+  "tag": "Ground box grain",
+  "text": "Grano en las cajas de suelo"
+ },
+ {
+  "tag": "With Ground detail on: its grain on the ground boxes too, the walls, buildings and signs built of them. Off, they keep their textures plain. From the next race",
+  "text": "Con Detalle del suelo activado: su grano también en las cajas de suelo, los muros, edificios y carteles hechos con ellas. Desactivado, conservan sus texturas lisas. Desde la próxima carrera"
+ },
+ {
+  "tag": "Used when the race runs on the CART Precision Racing physics model (Options, Physics).",
+  "text": "Se usa cuando la carrera emplea el modelo físico de CART Precision Racing (Opciones, Física)."
+ },
+ {
+  "tag": "Differential",
+  "text": "Diferencial"
+ },
+ {
+  "tag": "Tires",
+  "text": "Neumáticos"
+ },
+ {
+  "tag": "Load Settings",
+  "text": "Cargar ajustes"
+ },
+ {
+  "tag": "Save Settings",
+  "text": "Guardar ajustes"
+ },
+ {
+  "tag": "You are a Racer: be the first home.",
+  "text": "Eres Corredor: llega primero a la meta."
+ },
+ {
+  "tag": "You are a Blocker: stop the Racers finishing.",
+  "text": "Eres Bloqueador: impide que los Corredores terminen."
+ },
+ {
+  "tag": "<<1>> win!",
+  "text": "¡Ganan los <<1>>!"
+ },
+ {
+  "tag": "Racers",
+  "text": "Corredores"
+ },
+ {
+  "tag": "Blockers",
+  "text": "Bloqueadores"
+ },
+ {
+  "tag": "Racers against Blockers: the first racer home wins it for the Racers; the Blockers need not finish.",
+  "text": "Corredores contra Bloqueadores: el primer corredor en llegar da la victoria a los Corredores; los Bloqueadores no necesitan terminar."
+ },
+ {
+  "tag": "No overlap on MTM1 tracks",
+  "text": "Sin solapamiento en pistas de MTM1"
+ },
+ {
+  "tag": "With Terrain overlap on: the ground tiles of a Monster Truck Madness 1 track still meet edge to edge, as MTM1 draws them; the other tracks keep the two-pixel overlap. From the next race",
+  "text": "Con el solapamiento del terreno activado: las baldosas del suelo de una pista de Monster Truck Madness 1 siguen tocándose borde con borde, como las dibuja MTM1; las demás pistas mantienen el solapamiento de dos píxeles. Desde la próxima carrera"
+ },
+ {
+  "tag": "Free camera",
+  "text": "Cámara libre"
+ },
+ {
+  "tag": "Fly the camera free, as a spectator (B)",
+  "text": "Vuela la cámara libremente, como un espectador (B)"
+ },
+ {
+  "tag": "CPR skill level",
+  "text": "Nivel de habilidad CPR"
+ },
+ {
+  "tag": "Under the CART Precision Racing physics, how much the game helps the player's car, as its Driving Aids. Rookie: full grip, Auto-Brake, Stay on track, anti-lock brakes, traction control and Spin Correction. Intermediate: four fifths of the grip, with Stay on track, anti-lock brakes, traction control and Spin Correction. Professional: four fifths of the grip, less still on grass, dirt and rocks, and no aids",
+  "text": "Con la física de CART Precision Racing, cuánto ayuda el juego al coche del jugador, como sus Ayudas a la conducción. Novato: agarre completo, frenado automático, mantenerse en la pista, frenos antibloqueo, control de tracción y corrección de trompos. Intermedio: cuatro quintos del agarre, con mantenerse en la pista, frenos antibloqueo, control de tracción y corrección de trompos. Profesional: cuatro quintos del agarre, aún menos en hierba, tierra y rocas, y sin ayudas"
+ },
+ {
+  "tag": "Free look",
+  "text": "Vista libre"
+ },
+ {
+  "tag": "On the external cameras the mouse looks round, easing back after two seconds; the wheel zooms either way",
+  "text": "En las cámaras externas el ratón mira alrededor y vuelve suavemente tras dos segundos; la rueda acerca y aleja en cualquier caso"
+ },
+ {
+  "tag": "Reverse free look",
+  "text": "Vista libre invertida"
+ },
+ {
+  "tag": "The mouse's look turns the other way, up and down and left and right",
+  "text": "La vista del ratón gira al revés, arriba y abajo y a izquierda y derecha"
+ },
+ {
+  "tag": "Hold free look",
+  "text": "Mantener vista libre"
+ },
+ {
+  "tag": "A look stays where the mouse leaves it, without easing back",
+  "text": "La vista se queda donde la deja el ratón, sin volver"
  }
 ]

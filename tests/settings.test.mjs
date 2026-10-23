@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createChaseCamera } from "../src/game/cameras.js";
+import { SETTINGS_VERSION } from "../src/app/settings.js";
 
 test("old saved settings move to the enhanced look and the listed hidden tracks once, and drop hidden trucks", async () => {
   const store = new Map([["openmtm2.settings", JSON.stringify({ look: "classic", showHiddenTracks: false, showHiddenTrucks: true, laps: 5 })]]);
@@ -27,7 +28,7 @@ test("the track backdrops stay off by default, and a saved choice sticks", async
   const first = loadSettings();
   assert.equal(first.backdrops, false);
   assert.equal(first.look, "classic", "what an earlier version settled is left alone");
-  assert.equal(first.version, 11);
+  assert.equal(first.version, SETTINGS_VERSION);
   saveSettings({ ...first, backdrops: true });
   assert.equal(loadSettings().backdrops, true);
   delete globalThis.localStorage;
@@ -40,7 +41,7 @@ test("a save from before the scenery presets takes Off, and one that turned a pa
   store.set("openmtm2.settings", JSON.stringify({ version: 6, aa: "taa", look: "classic" }));
   const plain = loadSettings();
   assert.equal(plain.graphics, "off");
-  assert.equal(plain.version, 11);
+  assert.equal(plain.version, SETTINGS_VERSION);
   assert.equal(plain.lensEffects, false);
   assert.equal(plain.aa, "taa");
   assert.equal(plain.look, "classic");
@@ -124,6 +125,23 @@ test("version 8 keeps MTM1's trucks apart by default, over the off an older save
   const { migrateSettings } = await import("../src/app/settings.js");
   assert.equal(migrateSettings({ version: 7, mtm1TrucksApart: false }).mtm1TrucksApart, true);
   assert.equal(migrateSettings({ version: 8, mtm1TrucksApart: false }).mtm1TrucksApart, false);
+  // Version 12: the old default physics becomes the vehicle's own; a choice saved since stays.
+  assert.equal(migrateSettings({ version: 11, physics: "mtm2" }).physics, "auto");
+  assert.equal(migrateSettings({ version: 12, physics: "mtm2" }).physics, "mtm2");
+  assert.equal(migrateSettings({ version: 11, physics: "evo2" }).physics, "evo2");
+});
+
+test("version 13 starts races in Chase Far and leaves the ground boxes' grain off, over the old defaults an older save carried", async () => {
+  const { DEFAULT_SETTINGS, migrateSettings } = await import("../src/app/settings.js");
+  assert.equal(DEFAULT_SETTINGS.view, 2, "Chase Far");
+  assert.equal(DEFAULT_SETTINGS.groundBoxGrain, false);
+  const old = migrateSettings({ version: 12, view: 1, groundBoxGrain: true });
+  assert.equal(old.view ?? DEFAULT_SETTINGS.view, 2, "the old default Chase Near gives way to the new one");
+  assert.equal(old.groundBoxGrain ?? DEFAULT_SETTINGS.groundBoxGrain, false);
+  assert.equal(migrateSettings({ version: 12, view: 3 }).view, 3, "another view was a choice");
+  assert.equal(migrateSettings({ version: 13, view: 1, groundBoxGrain: true }).groundBoxGrain, true);
+  assert.equal(DEFAULT_SETTINGS.cprSkill, "rookie");
+  assert.equal(DEFAULT_SETTINGS.freeLook, true);
 });
 
 test("the MTM1 Classic preset turns every MTM1 choice and the backdrops on, dust and sparks off, the 1996 physics, smooth textures and the enhanced graphics off", async () => {
@@ -167,11 +185,12 @@ test("the OpenMTM2 preset: no MTM1 or MTM2 choice, the port's effects with norma
   const settings = applyOpenMtm2(applyMtm1Classic({ waterReflections: true, truckReflections: true, greyDust: true }));
   for (const key of ["mtm1EarthSky", "mtm1Particles", "mtm1Sounds", "originalBackdrops", "greyDust", "waterReflections", "truckReflections"]) assert.equal(settings[key], false, key);
   for (const key of ["tireTracks", "waterSplash", "terrainDetail", "hdWeather", "reflections"]) assert.equal(settings[key], true, key);
-  assert.equal(settings.physics, "mtm2");
+  assert.equal(settings.physics, "auto");
   assert.equal(settings.dustAmount, 2);
   assert.equal(settings.sparkAmount, 2);
   assert.equal(settings.graphics, "max");
   for (const option of VISUAL_OPTIONS) assert.equal(settings[option.key], true, option.key);
+  assert.equal(applyOpenMtm2({ groundBoxGrain: true }).groundBoxGrain, false, "the ground boxes keep their textures plain");
 });
 
 test("version 10 keeps the chase camera clear of the ground by default, over older saves, and every preset turns it on", async () => {

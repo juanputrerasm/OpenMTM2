@@ -19,7 +19,7 @@ function pickPodFiles() {
     const input = document.createElement("input");
     input.type = "file";
     input.multiple = true;
-    input.accept = ".pod,.epd,.zip";
+    input.accept = ".pod,.epd,.zip,.lte";
     input.addEventListener("change", () => resolve(input.files?.length ? [...input.files] : null), { once: true });
     input.addEventListener("cancel", () => resolve(null), { once: true });
     input.click();
@@ -33,7 +33,7 @@ export async function openPodManager(context) {
   let busy = false;
   const body = el("tbody");
   const status = el("span", { class: "muted options-status" });
-  const addButton = el("button", { "data-menu-sound": "STARTOFF", onclick: add, title: t("Add POD files, or ZIP files: every POD a ZIP holds is added") }, t("Add PODs"));
+  const addButton = el("button", { "data-menu-sound": "STARTOFF", onclick: add, title: t("Add POD files, ZIP files (every POD a ZIP holds is added) or 4x4 Evolution Lite tracks (.LTE)") }, t("Add PODs"));
   const dialog = el("dialog", { class: "options-modal pod-manager", "aria-label": t("POD manager") },
     el("div", { class: "options-modal-title" }, el("h1", {}, t("POD manager"))),
     el("div", { class: "options-modal-panel" },

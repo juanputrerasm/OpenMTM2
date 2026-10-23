@@ -45,13 +45,14 @@ const NORMALS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0,
  * The game's ground boxes for a level, or null when it has none. `atlas` is the terrain's
  * (buildTerrainAtlas), whose tiles are the texture slots the faces name.
  */
-export function buildGroundBoxMesh({ ra0, ra1, cl0 }, atlas, lte = null, heights = null, cells = null, { stepFt = STEP_FT, heightsFt = null } = {}) {
+export function buildGroundBoxMesh({ ra0, ra1, cl0 }, atlas, lte = null, heights = null, cells = null, { stepFt = STEP_FT, heightsFt = null, drawn = null } = {}) {
   if (!ra0 || !ra1) return null;
   // `stepFt`, `heightsFt`: a level whose height step is not MTM's 2 ft (Hellbender's 1.5), its ground given in feet.
   const STEP = stepFt;
   // Ground boxes are drawn with their terrain cell, so a stadium's footprint limits them too.
-  const boxes = decodeGroundBoxes(ra0, ra1, cl0, 256).filter((b) => !cells
-    || (b.x >= cells.col0 && b.x < cells.col1 && b.y >= cells.row0 && b.y < cells.row1));
+  // `drawn(box)`: false for a box the game never draws (track-build.js `mtm1EdgeBoxDrawn`).
+  const boxes = decodeGroundBoxes(ra0, ra1, cl0, 256).filter((b) => (!cells
+    || (b.x >= cells.col0 && b.x < cells.col1 && b.y >= cells.row0 && b.y < cells.row1)) && (!drawn || drawn(b)));
   if (!boxes.length) return null;
   const quads = boxes.length * 6;
   const positions = new Float32Array(quads * 4 * 3);

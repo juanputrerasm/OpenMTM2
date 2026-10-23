@@ -79,7 +79,11 @@ What is the game's and what is the port's, in one place:
 The game's ground is a 256 x 256 grid of 32 ft cells with heights in 2 ft steps, each cell two
 flat triangles (`MTM2_PHYSICS.md` 2.1). The simulation stands on exactly that, always. With
 Smooth terrain the renderer draws a second surface, built from the first when the track loads
-(`src/game/terrain-relief.js`):
+(`src/game/terrain-relief.js`), on MTM1, MTM2 and CART Precision Racing tracks alike. A CPR track's heights come in
+feet (a finer grid than 2 ft steps), and its road keeps the game's ground under it and 10 ft either side (keepouts
+along the `.TRK` centreline, `worker/track-build.js` `cprRoadKeepouts`), since the road layer is drawn over the
+terrain at the game's own heights; the ground maps (water, puddles, snow) are not built for a CPR track. The drawn
+surface:
 
     drawn = game + w * (round(smooth) - game) + w * detail
 

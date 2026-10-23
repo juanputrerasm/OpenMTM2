@@ -19,6 +19,8 @@ export function simGroundOfBuild(build) {
     fineFt: build.fineFt ? build.fineFt.slice().buffer : null,
     road: build.sim.road ?? null,
     walls: build.sim.walls ?? null,
+    // CPR: the track's centreline, which its cars' computer drivers follow (game/cpr-driver.js).
+    cprLine: build.sim.cprLine ?? null,
     meshGround: build.sim.meshGround ?? null,
     faces: build.sim.faces ?? null,
   };

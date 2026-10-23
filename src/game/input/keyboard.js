@@ -14,6 +14,8 @@ export function createKeyboardInput(target = window, saved = {}) {
   let shiftUp = false, shiftDown = false, helicopter = false, autoStage = false, driveMode = false;
   const onDown = (e) => {
     if (e.repeat) return;
+    // A combination (Ctrl, Alt or Cmd with a key) is never a single key's action.
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
     down.add(e.code);
     if (SHIFT_UP.includes(e.code)) shiftUp = true;
     if (SHIFT_DOWN.includes(e.code)) shiftDown = true;

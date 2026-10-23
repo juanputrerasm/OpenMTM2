@@ -30,8 +30,9 @@ import { createConsole, distanceCommand } from "../console.js";
 import { simGroundOfBuild, terrainOfBuild } from "../../shared/build-terrain.js";
 import * as THREE from "three";
 import { el } from "../dom.js";
-import { PHYSICS_MODELS, physicsModel, resolvePhysics, saveSettings } from "../../app/settings.js";
+import { PHYSICS_MODELS, physicsModel, resolvePhysics, saveSettings, tileOverlapOf } from "../../app/settings.js";
 import { createFlyController } from "../fly-controller.js";
+import { LOOK_BACK_KEY, createCameraLook, lookOptions, turnedTarget } from "../../game/camera-look.js";
 import { WorkerClient } from "../../shared/worker-client.js";
 import { currentDriver, getProfiles } from "../../app/profile-store.js";
 import { createKeyboardInput } from "../../game/input/keyboard.js";
@@ -39,7 +40,7 @@ import { mergeBindings } from "../../game/input/bindings.js";
 import { SunFlare, sunBlocked } from "../../render/sun-flare.js";
 import { enableSunShadows } from "../../render/sun-shadows.js";
 import * as mtm2Sim from "../../vendor/openphotex/sim/mtm2/index.js";
-import { COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, CAMERA_PITCH_MAX, CAMERA_PITCH_RATE, INERTIA_MODE, cameraMode, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, createChaseCamera, fovFor, groundHeightFn, nextInList, nextMode, raceCamera, shortViews, zoomToFov } from "../../game/cameras.js";
+import { COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, CAMERA_PITCH_MAX, CAMERA_PITCH_MIN, CAMERA_TILT_RATE, INERTIA_MODE, cameraMode, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, createChaseCamera, fovFor, groundHeightFn, nextInList, nextMode, raceCamera, shortViews, zoomToFov } from "../../game/cameras.js";
 import { createBlimp, hasBlimp } from "../../game/blimp.js";
 import { soundRange, surfaceFamily } from "../../game/sound-model.js";
 import { createTireEffects } from "../../render/tire-effects.js";
@@ -60,7 +61,7 @@ import { beamAir, headlightPool, lampsAtStart, toggleLamps } from "../../game/tr
 import { createGoldMode } from "../gold-mode.js";
 import { createGamepadInput } from "../../game/input/gamepad.js";
 import { createTextPanel, hudFontScale, loadFont } from "../../render/bitmap-text.js";
-import { createRaceGauges } from "../../render/race-gauges.js";
+import { createRaceGauges, gearLabel } from "../../render/race-gauges.js";
 import { createWaterEffects, createWaterSurface } from "../../render/water-effects.js";
 import { createReplayRecorder } from "../../game/replay.js";
 import { createRaceEnd } from "../../game/race-end.js";
@@ -91,12 +92,17 @@ import { SEAT_STEP_FT } from "../../game/vr/seat.js";
 import { CAB_STYLES, VIEW_DISTANCES, VR_VIEWS } from "../../game/vr/settings.js";
 import { createRaceVr } from "../../render/xr/race-vr.js";
 import { vrButton } from "../vr-button.js";
-import { extensionHud, extensionMarkerTarget, extensionNetFromWire, extensionNetToWire, extensionResultTime, extensionTruckLabels, extensionTruckMarks, prepareExtensionRace, resolveRaceExtension } from "../../game/extensions/race-loader.js";
+import {
+  extensionFinderTarget, extensionHud, extensionKeepsRace, extensionMapMarks, extensionMapPoints, extensionMarkerTarget, extensionNetFromWire,
+  extensionNetToWire, extensionResultTime, extensionTruckLabels, extensionTruckMarks, prepareExtensionRace, resolveRaceExtension,
+} from "../../game/extensions/race-loader.js";
+import { settingsForExtension } from "../../game/extensions/loader.js";
 import { createExtensionScene } from "../../render/extensions/loader.js";
 import { GRASS_RADII, grassLevel } from "../../render/evo-grass.js";
 import { createNetRace } from "../../net/net-race.js";
 
 /** The race HUD text is a light grey with a one-pixel black shadow (the game's own look). */
+const DRIVE_MODES = ["2WD", "4WD High", "4WD Low"];
 const HUD_GREY = "#cfcfcf";
 /** A headset draws everything twice: the smoothed ground is drawn fine less far out than on the flat screen (render/track-scene.js). */
 const HEADSET_FINE_RANGE_FT = 800;
@@ -107,8 +113,8 @@ const DEMO_CAPTION = msg("Demo mode. Press any key to begin"), DEMO_CAMERA_S = 8
 /** Before the race's clock starts, this many frames in a row must each take less than `WARM_FRAME_S`; `WARM_LIMIT_MS` at most. */
 const WARM_FRAMES = 6, WARM_FRAME_S = 0.08, WARM_LIMIT_MS = 15000;
 
-/** How much of the race the pause menu's instant replay shows. */
-const INSTANT_REPLAY_S = 60;
+/** How much of the race the pause menu's instant replay shows: as much as the recorder keeps, an hour. */
+const INSTANT_REPLAY_S = 3600;
 
 /** A terrain cell's side: the draw distance is set in cells. */
 const TERRAIN_CELL_FT = 32;
@@ -196,6 +202,8 @@ async function mountRace(container, context, params, owned = []) {
   /** Optional race behavior supplied by the extension loader, or null for the track's own race. */
   const extension = !params.demo ? resolveRaceExtension(params.gameMode, track) : null;
   const gameMode = extension?.id ?? null;
+  /** An extension played on the track's own race (Race & Rumble): checkpoints, laps and the race's ending. */
+  const keepsRace = extensionKeepsRace(extension);
   /** Free roam: the track with no race on it (no checkpoints, laps, places or results) and the player alone. */
   const freeRoam = !!params.freeRoam && !params.demo && !gameMode;
   const opponents = freeRoam ? [] : params.opponents;
@@ -254,7 +262,7 @@ async function mountRace(container, context, params, owned = []) {
   const buildRequest = context.assets.call("trackRender", {
     evoForest: context.settings.evoForest !== false,
     path: track.path, scope: track.scope, detailLevel: extension?.detailLevel ?? context.settings.detailLevel, raceType: track.raceType,
-    truckFiles: raceTruckFiles, weather: weatherId, mtm1: mtm1Options, tileOverlap: params.tileOverlap ?? context.settings.terrainOverlap !== false,
+    truckFiles: raceTruckFiles, weather: weatherId, mtm1: mtm1Options, tileOverlap: params.tileOverlap ?? tileOverlapOf(context.settings),
     // The port's own scenery, each part as Options has it (game/visuals.js; docs/VISUALS.md).
     visuals: trackVisuals(context.settings, { weather: weatherId, weatherMask: track.weatherMask }),
     smoothTiles: context.settings.look === "enhanced",
@@ -278,6 +286,10 @@ async function mountRace(container, context, params, owned = []) {
   const flyHud = createTextPanel(lcdFont ?? hudFont, { fit: true, scale, rowHeight: 15, labelColor: HUD_GREY, valueColor: HUD_GREY });
   flyHud.element.classList.add("race-fly-hud");
   flyHud.element.hidden = true;
+  // 4x4 Evolution's transfer case for an Evo vehicle (Evo physics): 2WD, 4WD High or 4WD Low, over the gear strip.
+  const driveHud = createTextPanel(hudFont, { fit: true, scale, color: HUD_GREY });
+  driveHud.element.classList.add("race-drive-hud");
+  driveHud.element.hidden = true;
   const gauges = createRaceGauges(hudFont, { needle, units: context.settings.units });
   gauges.setVisible(context.settings.dashboard !== false);
   /*
@@ -304,7 +316,7 @@ async function mountRace(container, context, params, owned = []) {
   // The Names key (game/names.js): what the course map and the labels over the trucks say.
   let namesMode = 0;
   const enterVr = vrButton(context, "race-vr");
-  const view = el("section", { class: "race-view" }, canvas, ...(cockpit ? [cockpit.dashboard, cockpit.mirror, cockpit.finder] : []), hud.element, flyHud.element, dragTree.element, fpsCounter.element, gauges.element, caption.element, enterVr.element, pauseMenu, loading);
+  const view = el("section", { class: "race-view" }, canvas, ...(cockpit ? [cockpit.dashboard, cockpit.mirror, cockpit.finder] : []), hud.element, flyHud.element, driveHud.element, dragTree.element, fpsCounter.element, gauges.element, caption.element, enterVr.element, pauseMenu, loading);
   container.append(view);
 
   let disposed = false;
@@ -356,13 +368,13 @@ async function mountRace(container, context, params, owned = []) {
     : seatDrivers(drivers.filter((d) => build.truckModels[d.file]), grid.length);
   const extensionTerrain = extension ? terrainOfBuild(build) : null;
   const extensionRace = prepareExtensionRace(extension, {
-    build, entrants, length: laps,
+    build, entrants, length: laps, settings: settingsForExtension(context.settings, extension),
     groundHeightAt: (x, z) => mtm2Sim.groundHeightAt(extensionTerrain, x, z),
   });
   /** What an extension draws, and what its replay draws again. */
   const extensionDress = extensionRace?.dress ?? null;
-  // A little smaller than the HUD's text, in whole pixels so the glyphs stay sharp.
-  const nameTags = createNameTags(entrants.length, hudFont, Math.max(1, Math.round(scale * 0.75)));
+  // Pixel for pixel on the screen, at the size the plain-text labels had (render/name-tags.js `nameTagScale`).
+  const nameTags = createNameTags(entrants.length, hudFont);
   view.append(nameTags.element);
   if (!grid.length || !build.truckModels[playerTruck]) {
     loadingText.textContent = `${track.name} has no start grid, or ${truckName(playerTruck)} could not be built.`;
@@ -451,7 +463,7 @@ async function mountRace(container, context, params, owned = []) {
   const forwardVector = new THREE.Vector3();
   const terrain = terrainOfBuild(build);
   // With "Smooth terrain" the ground drawn is not quite the ground driven on (game/terrain-relief.js).
-  const relief = build.relief ? createRelief({ heights: build.heights, ...build.relief }) : null;
+  const relief = build.relief ? createRelief({ heights: build.heights ?? build.heightsFt, ...build.relief }) : null;
   let shadows = null, flare = null, flareBlocked = () => false;
   audio.setRange?.(soundRange(weatherId));
   // The port's own weather, ground and water, each where its switch is on (render/scenery.js; docs/VISUALS.md).
@@ -530,6 +542,8 @@ async function mountRace(container, context, params, owned = []) {
     ...simGroundOfBuild(build),
     startOnNearestSegment: !!build.sim.startOnNearestSegment,
     opponentFps: context.settings.opponentFps ?? 30,
+    // CART Precision Racing's Skill Level: the player's aids under its physics (game/cpr-driver.js `cprAids`).
+    cprSkill: context.settings.cprSkill ?? "rookie",
     clr: build.sim.clr.buffer,
     textureValues: build.sim.textureValues.buffer,
     groundBoxStepFt: build.sim.groundBoxStepFt ?? null,
@@ -555,7 +569,8 @@ async function mountRace(container, context, params, owned = []) {
       const model = build.truckModels[e.file];
       return {
         // `evo`: an Evo vehicle's own figures, for the 4x4 Evolution physics (worker/foreign-truck-build.js).
-        truck: { anchors: model.anchors, scrapePoints: model.scrapePoints, tire: model.tire ?? null, evo: model.evoSpec ?? null },
+        // `cpr`: a CART Precision Racing car, which the CPR physics model drives on its own figures.
+        truck: { anchors: model.anchors, scrapePoints: model.scrapePoints, tire: model.tire ?? null, evo: model.evoSpec ?? null, cpr: model.game === "CPR", restHubs: model.restHubs ?? null },
         start: extensionRace?.start(entrants.indexOf(e), { pos: grid[e.slot].pos, heading: grid[e.slot].heading })
           ?? { pos: grid[e.slot].pos, heading: grid[e.slot].heading },
         autopilot: !e.remote && (!e.player || !!context.settings.fullAutopilot || demo),
@@ -569,7 +584,7 @@ async function mountRace(container, context, params, owned = []) {
         setup: e.player ? setup : undefined,
       };
     }),
-    race: freeRoam ? null : gameMode ? { checkpoints: [], laps: 1, mode: "circuit" }
+    race: freeRoam ? null : gameMode && !keepsRace ? { checkpoints: [], laps: 1, mode: "circuit" }
       : {
         checkpoints: build.sim.checkpoints, laps: dragRace ? 1 : laps, mode: summit ? "summit" : dragRace ? "drag" : "circuit",
         // A drag pass: lane 1's course (the SIT's course 2), and whether the player's truck stages itself.
@@ -652,9 +667,11 @@ async function mountRace(container, context, params, owned = []) {
 
   // The Inertia view (the Z-mode cameras option) comes after the game's ten.
   const zCameras = () => !!context.settings.zModeCameras;
+  /** Whether the player drives a 4x4 Evolution vehicle (its own figures), which has the 4WD indicator. */
+  const playerEvo = !!build.truckModels[entrants.find((e) => e.player)?.file]?.evoSpec;
   /** The transfer case last shown (Evo physics), so that a Drive Mode press is answered in the caption. */
   let shownTransfer = null;
-  let viewMode = demo || spectator ? 4 : (zCameras() ? cameraMode(context.settings.view) : CAMERA_MODES[context.settings.view])?.id ?? 1, paused = false, finishing = false;
+  let viewMode = demo || spectator ? 4 : (zCameras() ? cameraMode(context.settings.view) : CAMERA_MODES[context.settings.view])?.id ?? 2, paused = false, finishing = false;
   // Each truck's lamp switch (game/truck-lights.js) and the clock the blinking lamps and beacons run on.
   const lamps = entrants.map(() => lampsAtStart(WEATHER_LOOK[weatherId]?.headlights));
   let lampClockMs = 0;
@@ -701,7 +718,7 @@ async function mountRace(container, context, params, owned = []) {
     }, t("End race")),
   );
   /**
-   * The pause menu's instant replay: the last minute of the race, played over the paused race in the replay screen's own
+   * The pause menu's instant replay: up to the last hour of the race, played over the paused race in the replay screen's own
    * scene. Its Back returns to the pause menu, the race as it was.
    */
   let replaying = null;
@@ -813,9 +830,12 @@ async function mountRace(container, context, params, owned = []) {
     }
     if (netChat?.typing) return;
     if (net && e.key === "Enter" && !e.repeat) { e.preventDefault(); netChat.open(); return; }
+    // A combination (Ctrl, Alt or Cmd with a key) is never a single key's action: Ctrl + Y is no YeeHaw.
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
     if (keyMap.horn.includes(e.code) && !e.repeat) { truckAudio.horn(0, playerPosition()); netSend("horn"); }
     if (keyMap.yeehaw.includes(e.code) && !e.repeat) { truckAudio.yeehaw(0, playerPosition()); netSend("yeehaw"); }
-    const shortcut = modeForShortcut(e);
+    // 1 to 9 and 0 pick the ten views (game/cameras.js), unless GOLD mode takes the key for its screenshot.
+    const shortcut = gold?.claims?.(e) ? null : modeForShortcut(e);
     if (shortcut !== null) e.preventDefault();
     if ((keyMap.camera.includes(e.code) || shortcut !== null) && !e.repeat) nextView(shortcut, e.shiftKey);
     if (keyMap.recenter.includes(e.code) && !e.repeat) host.recenter();
@@ -839,7 +859,7 @@ async function mountRace(container, context, params, owned = []) {
       saveSettings(context.settings);
     }
     // The Headlights key (L) switches the player's lamps; every other truck keeps what the weather gave it.
-    if (keyMap.headlights.includes(e.code) && !e.repeat && !e.ctrlKey) { lamps[0] = toggleLamps(lamps[0]); netSend("lights", { lamps: lamps[0] }); }
+    if (keyMap.headlights.includes(e.code) && !e.repeat) { lamps[0] = toggleLamps(lamps[0]); netSend("lights", { lamps: lamps[0] }); }
     if (keyMap.crashDamage.includes(e.code) && !e.repeat && physics === "mtm1") flash(t("No crash damage in Monster Truck Madness 1 physics"), performance.now(), 3);
     else if (keyMap.crashDamage.includes(e.code) && !e.repeat) {
       const on = crash.toggle((i) => drawn[i].repair());
@@ -863,7 +883,11 @@ async function mountRace(container, context, params, owned = []) {
   cleanups.push(() => window.removeEventListener("keydown", onKey));
   // The keys held down, for the Camera up and down keys, which tilt the chase camera while held.
   const held = new Set();
-  const onHold = (e) => { if (e.type === "keydown") held.add(e.code); else held.delete(e.code); };
+  const onHold = (e) => {
+    if (e.type === "keydown") held.add(e.code); else held.delete(e.code);
+    // Backspace looks back (game/camera-look.js); not in a box being typed in.
+    if (e.code === LOOK_BACK_KEY && e.type === "keydown" && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName ?? "")) e.preventDefault();
+  };
   const letGo = () => held.clear();
   window.addEventListener("keydown", onHold);
   window.addEventListener("keyup", onHold);
@@ -902,6 +926,9 @@ async function mountRace(container, context, params, owned = []) {
     // The board's canvas has 2 font pixels of margin before its first letter and above its first row.
     Object.assign(hud.element.style, { left: `${(Math.round((3 * width) / 640) - 2 * s) / ratio}px`, top: `${(Math.round((16 * height) / 480) - 2 * s) / ratio}px` });
     flyHud.element.style.top = hud.element.style.top;
+    // Centred over the gear strip (render/race-gauges.js GEAR_Y 461 of 480), on a whole device pixel.
+    driveHud.setScale(s, ratio);
+    driveHud.element.style.top = `${Math.round((436 * height) / 480) / ratio}px`;
     gauges.setSize(width, height, s);
     cockpit?.setFinderSize(width, height, s, ratio);
   };
@@ -1058,8 +1085,8 @@ async function mountRace(container, context, params, owned = []) {
   let drawAnchor = null;
   /** A drawn position (which may be worlds from the simulation's) as the simulation has it, for what is placed in the world. */
   const inWorld = (pos) => [wrapFt(pos[0]), pos[1], wrapFt(pos[2])];
-  // An extension race ends as a Rumble does, all at once.
-  const raceEnd = createRaceEnd({ summit: summit || !!gameMode, spectator });
+  // An extension race ends as a Rumble does, all at once; one played on the track's race ends as that race does.
+  const raceEnd = createRaceEnd({ summit: summit || (!!gameMode && !keepsRace), spectator });
   let cameraTarget = 0;
   // A watched race: the truck the camera is on is the spectator's to choose, and the camera can be flown free
   // (ui/fly-controller.js, the fly-by's own).
@@ -1101,19 +1128,33 @@ async function mountRace(container, context, params, owned = []) {
     if (gold?.zooming || held.has("ShiftLeft") || held.has("ShiftRight")) return;
     const down = (codes) => codes.some((code) => held.has(code));
     const way = (down(keyMap.cameraUp ?? []) ? 1 : 0) - (down(keyMap.cameraDown ?? []) ? 1 : 0);
-    if (way) pitchBy = Math.max(-base, Math.min(CAMERA_PITCH_MAX - base, pitchBy + way * CAMERA_PITCH_RATE * dt));
+    if (way) pitchBy = Math.max(CAMERA_PITCH_MIN - base, Math.min(CAMERA_PITCH_MAX - base, pitchBy + way * CAMERA_TILT_RATE * dt));
   };
+  /*
+    The mouse on the external views (game/camera-look.js): moving it looks round, the wheel zooms, and the look eases
+    back after two seconds. Not while the camera is flown free, which has the mouse to itself, nor in a headset.
+  */
+  const mouseLook = createCameraLook(() => lookOptions(context.settings));
+  const lookFree = () => !flyer?.enabled && !host.presenting && !paused && !context.optionsDialog?.isConnected;
+  const onLookMove = (e) => { if (lookFree() && viewMode !== 0) mouseLook.move(e.movementX ?? 0, e.movementY ?? 0); };
+  const onLookWheel = (e) => { if (lookFree() && viewMode !== 0) { e.preventDefault(); mouseLook.wheel(viewMode, e.deltaY); } };
+  canvas.addEventListener("pointermove", onLookMove);
+  canvas.addEventListener("wheel", onLookWheel, { passive: false });
+  cleanups.push(() => { canvas.removeEventListener("pointermove", onLookMove); canvas.removeEventListener("wheel", onLookWheel); });
   const cockpitEye = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion() }, scratchScale = new THREE.Vector3();
   // Switching views changes the camera at once, as the game does: only a chase camera's heading takes time to catch up (game/cameras.js).
   const placeCamera = (p, dt) => {
     if (viewMode !== lastView) {
       lastView = viewMode;
       pitchBy = 0;
+      mouseLook.reset();
       if (!cameraMode(viewMode).dist) chase.reset();
       camera.fov = fovFor(viewMode);
       camera.updateProjectionMatrix();
     }
     tiltCamera(dt);
+    mouseLook.setBack(held.has(LOOK_BACK_KEY) && !paused);
+    mouseLook.step(dt);
     // The BlimpCam and RaceCam set their own zoom each frame, from their distance to the truck.
     const zoom = placeCameraNow(p, dt);
     if (zoom !== null) {
@@ -1129,6 +1170,8 @@ async function mountRace(container, context, params, owned = []) {
       body.decompose(cockpitEye.position, cockpitEye.quaternion, scratchScale);
       camera.position.set(COCKPIT_EYE[0], COCKPIT_EYE[1], -COCKPIT_EYE[2]).applyMatrix4(body);
       camera.quaternion.copy(cockpitEye.quaternion);
+      // Backspace: the view out of the back of the cab.
+      if (mouseLook.back) camera.rotateY(Math.PI);
       cockpitEye.position.copy(camera.position);
       return null;
     }
@@ -1138,11 +1181,14 @@ async function mountRace(container, context, params, owned = []) {
     const sim = inWorld(p.pos), off = [p.pos[0] - sim[0], 0, p.pos[2] - sim[2]];
     const stood = mode === 3 ? (centroid ? blimpCamera(sim, centroid) : blimpCameraNoCourse(sim, yaw, ground))
       : mode === 4 ? (raceCamera(straights, sim, p.course ?? 0, ground) ?? blimpCameraNoCourse(sim, yaw, ground)) : null;
-    const special = stood && { ...stood, position: stood.position.map((v, k) => v + off[k]), target: stood.target.map((v, k) => v + off[k]) };
-    // Z mode's orbit swings the chase views; the Inertia view follows the watched truck's speed.
+    const placed = stood && { ...stood, position: stood.position.map((v, k) => v + off[k]), target: stood.target.map((v, k) => v + off[k]) };
+    // These two stand still: the mouse turns their gaze and the wheel their lens.
+    const special = placed && { ...placed, target: turnedTarget(placed.position, placed.target, mouseLook.yaw, mouseLook.pitch), zoom: placed.zoom * mouseLook.zoom(mode) };
+    // Z mode's orbit swings the chase views; the Inertia view follows the watched truck's speed; the mouse looks round.
     const view = special ?? chase.update(mode, p.pos, yaw, ground, dt, {
       turn: gold?.cameraTurn ?? 0, speedFt: latest?.poses[cameraTarget]?.current.speed ?? latest?.poses[0]?.current.speed ?? 0,
       pitchBy, clearFt: context.settings.cameraClearance ? CAMERA_CLEAR_FT : 0,
+      look: { yaw: mouseLook.yaw, pitch: mouseLook.pitch }, scale: mouseLook.zoom(mode),
     });
     // Game feet to the scene: z is mirrored.
     camera.position.set(view.position[0], view.position[1], -view.position[2]);
@@ -1171,11 +1217,13 @@ async function mountRace(container, context, params, owned = []) {
   };
   const showExtension = (race, state, now) => {
     const view = extensionHud(state, race, entrants, { t, formatRaceTime, summitBoard }, { events: extensionEvents, phase: extensionPhase });
-    if (!view) return;
-    setHud(view.rows);
+    if (!view) return false;
     for (const message of view.flashes) flash(message, now);
     extensionEvents = view.events;
     extensionPhase = view.phase;
+    if (!view.rows) return false;
+    setHud(view.rows);
+    return true;
   };
   const summitSounds = createSummitSounds((sample, options) => audio.play(sample, options));
   const showRace = (race, now) => {
@@ -1196,7 +1244,8 @@ async function mountRace(container, context, params, owned = []) {
         ? [[t("Time Remaining:"), formatRaceTime(race.summit?.left ?? 0)]]
         : [[t("[lap count]Lap:"), `${Math.min(leader.lap, race.laps)}/${race.laps}`], [t("Clock:"), formatRaceTime(race.clock)]]);
     }
-    if (race.extension) { showExtension(race, race.extension, now); return; }
+    // An extension shows its own HUD; one that keeps the race's (Race & Rumble) only adds its messages.
+    if (race.extension && showExtension(race, race.extension, now)) return;
     // A watched race shows the watched truck's times.
     const me = race.trucks[spectator ? cameraTarget : 0] ?? race.trucks[0];
     // The level's own sounds for passing a checkpoint and closing a lap (SOUNDnnn.TXT).
@@ -1251,6 +1300,10 @@ async function mountRace(container, context, params, owned = []) {
 
   const finish = async () => {
     finishing = true;
+    // The game leaves the race for a silent loading screen: every engine, loop and level sound stops here.
+    truckAudio.dispose();
+    worldAudio.dispose();
+    audio.stopAll?.();
     // The game leaves the race for its loading screen while it works out the times; a headset keeps the message.
     const determining = t("Determining times for remaining trucks...");
     caption.clear();
@@ -1271,7 +1324,7 @@ async function mountRace(container, context, params, owned = []) {
       if (disposed) return;
       race.trucks.forEach((rt, i) => {
         // An extension's places and points came from the room owner's machine already (docs/EXTENSIONS.md).
-        const r = !gameMode && entrants[i].remote && reported.get(entrants[i].vehicle);
+        const r = (!gameMode || keepsRace) && entrants[i].remote && reported.get(entrants[i].vehicle);
         if (!r) return;
         Object.assign(rt, { raceTime: r.total, laps: r.laps, led: r.lapsLed, finished: r.laps > 0 || summit, ...(summit ? { score: r.best } : { best: r.best }) });
       });
@@ -1280,7 +1333,7 @@ async function mountRace(container, context, params, owned = []) {
     const rows = race.trucks.map((t, i) => ({
       ...t, name: entrants[i].name, file: entrants[i].file, truckName: truckName(entrants[i].file), player: entrants[i].player,
       // An extension supplies the result time shown in the Winner's Circle.
-      ...(gameMode ? { raceTime: extensionResultTime(gameMode, laps, race) } : {}),
+      ...(gameMode && extensionResultTime(gameMode, laps, race) !== undefined ? { raceTime: extensionResultTime(gameMode, laps, race) } : {}),
     }));
     if (eventPass) {
       // What each truck made of the pass, by its driver in the event (game/drag-race.js `DQ_CODE`; not finished is the timeout).
@@ -1488,9 +1541,9 @@ async function mountRace(container, context, params, owned = []) {
       const listener = [camera.position.x, camera.position.y, -camera.position.z];
       const raceNow = latest.race;
       const clock = raceNow ? (raceNow.started ? 3 + raceNow.clock : 3 - raceNow.countdown) : null;
-      truckAudio.update(dt, latest.poses.map((p, i) => ({ ...p, current: shown[i] === undefined ? p.current : { ...p.current, pos: shown[i].pos } })), listener, clock, entrants.map((_, i) => crash.damaged(i)));
+      if (!finishing) truckAudio.update(dt, latest.poses.map((p, i) => ({ ...p, current: shown[i] === undefined ? p.current : { ...p.current, pos: shown[i].pos } })), listener, clock, entrants.map((_, i) => crash.damaged(i)));
       // The level's own sounds are placed in the simulation's world.
-      worldAudio.update(dt, inWorld(listener), movedPositions);
+      if (!finishing) worldAudio.update(dt, inWorld(listener), movedPositions);
       {
         const now = performance.now() / 1000;
         if (raceNow && !paused && !finishing) {
@@ -1519,24 +1572,38 @@ async function mountRace(container, context, params, owned = []) {
       const mine = latest.poses[0].current;
       // The Drive Mode key's answer (worker/sim-worker.js): the transfer case as it now is.
       if (mine.transfer !== null && mine.transfer !== undefined && mine.transfer !== shownTransfer) {
-        if (shownTransfer !== null) flash(["2WD", "4WD High", "4WD Low"][mine.transfer] ?? "", now, 2);
+        if (shownTransfer !== null) flash(DRIVE_MODES[mine.transfer] ?? "", now, 2);
         shownTransfer = mine.transfer;
+      }
+      // The indicator: an Evo vehicle's transfer case, shown all along (not in a headset, nor with the camera flown free).
+      const driveShown = playerEvo && shownTransfer !== null && !host.presenting && !flyer?.enabled;
+      driveHud.element.hidden = !driveShown;
+      if (driveShown) {
+        driveHud.set([DRIVE_MODES[shownTransfer] ?? ""]);
+        // Centred on a whole device pixel, so the font's pixels stay sharp.
+        const ratio = window.devicePixelRatio || 1, panel = driveHud.element;
+        panel.style.left = `${Math.round((view.clientWidth * ratio - (panel.width || panel.offsetWidth * ratio)) / 2) / ratio}px`;
       }
       gauges.setVisible(viewMode === 0 ? dashMode() === 1 : context.settings.dashboard !== false);
       gauges.set(mine);
       if (cockpit) {
         cockpit.setDashboard({ visible: viewMode === 0 && dashMode() === 0 && !host.presenting, speed: mine.speed, rpm: mine.rpm, gear: mine.gear, steer: mine.steer });
         const next = build.sim.checkpoints[latest.race?.trucks[0].checkpoint ?? 0];
+        // An extension may point the finder at something else (Tag's It, the ball) or hide it.
+        const modeTarget = latest.race?.extension ? extensionFinderTarget(latest.race.extension, 0, shown.map((p) => inWorld(p.pos))) : undefined;
+        const target = modeTarget !== undefined ? modeTarget : (!gameMode || keepsRace) && next ? next.gate.position : null;
         cockpit.setFinder({
-          visible: context.settings.finder !== false && !!next && !summit && !freeRoam && !gameMode,
-          angle: next ? finderAngle(inWorld(shown[0].pos), shown[0].euler[2], next.gate.position) : 90,
-          number: (latest.race?.trucks[0].checkpoint ?? 0) + 1,
+          visible: context.settings.finder !== false && !!target && !summit && !freeRoam,
+          angle: target ? finderAngle(inWorld(shown[0].pos), shown[0].euler[2], target) : 90,
+          number: modeTarget !== undefined ? "" : (latest.race?.trucks[0].checkpoint ?? 0) + 1,
         });
       }
       if (minimap.visible) {
         const focus = spectator ? cameraTarget : 0;
-        minimap.set(shown.map((p, i) => ({ pos: inWorld(p.pos), heading: p.euler[2], place: latest.race?.trucks[i]?.place ?? i + 1, label: nameLine(nameLabel(namesMode, entrants[i], truckName)) })), dt,
-          { focus, state: latest.race?.summit?.states?.[focus] ?? 0 });
+        const modeState = latest.race?.extension ?? null;
+        const mapMarks = extensionMapMarks(modeState, entrants.length);
+        minimap.set(shown.map((p, i) => ({ pos: inWorld(p.pos), heading: p.euler[2], place: latest.race?.trucks[i]?.place ?? i + 1, label: nameLine(nameLabel(namesMode, entrants[i], truckName)), ...(mapMarks[i] ?? {}) })), dt,
+          { focus, state: latest.race?.summit?.states?.[focus] ?? 0, points: extensionMapPoints(modeState) });
       }
       if (latest.race && !finishing) showRace(latest.race, now);
       // Free roam has only the clock.
@@ -1729,7 +1796,7 @@ async function mountRace(container, context, params, owned = []) {
           return [
             WATERMARK, summary(),
             t("Game: <<1>>, Type: <<2>>, Skill: <<3>>, Look: <<4>>", build.game ?? track.game ?? "MTM2", track.typeLabel ?? track.raceType, `${SKILLS[Math.min(2, Number(difficulty))]}${Number(difficulty) === 2 && context.settings.sonicTrucks ? " (sonic)" : ""}`, look),
-            t("Speed: <<1>> mph, Gear: <<2>>, RPM: <<3>>, Heading: <<4>> deg", Math.round((now?.speed ?? 0) * 0.6818), now?.gear ?? "-", Math.round(now?.rpm ?? 0), Math.round((((shownPoses?.[0]?.euler[2] ?? 0) * 180) / Math.PI + 360) % 360)),
+            t("Speed: <<1>> mph, Gear: <<2>>, RPM: <<3>>, Heading: <<4>> deg", Math.round((now?.speed ?? 0) * 0.6818), now?.gear ? gearLabel(now.gear) || "-" : "-", Math.round(now?.rpm ?? 0), Math.round((((shownPoses?.[0]?.euler[2] ?? 0) * 180) / Math.PI + 360) % 360)),
             t("Clock: <<1>>, Place: <<2>>, Checkpoint: <<3>>", formatRaceTime(latest?.race?.clock ?? latest?.time ?? 0), me ? `${me.place}/${latest.race.trucks.length}` : "-", me ? `${me.checkpoint + 1}/${build.sim.checkpoints.length}` : "-"),
             t("Overlap: <<1>>, Music: <<2>>, Sound: <<3>>, Trucks: <<4>>, Objects: <<5>>", said(build.tileOverlap !== false), said((sound.music ?? 0.8) > 0), said(!sound.muted), entrants.length, build.objects?.length ?? 0),
           ].join("\n");

@@ -247,7 +247,9 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
         const axle = pose.axles[i < 2 ? 0 : 1];
         const a = axle.articulation;
         const [ax, , az] = t.hub;
-        t.pivot.position.set(ax * Math.cos(a), ax * Math.sin(a) + axle.travel, -az);
+        // A wheel drawn bigger or smaller than the simulation's tire stands higher or lower by the difference (a CPR car's
+        // front wheels: worker/foreign-truck-build.js `cprWheelPlaces`).
+        t.pivot.position.set(ax * Math.cos(a), ax * Math.sin(a) + axle.travel + (truck.tireLift?.[i] ?? 0), -az);
         const steer = i < 2 ? pose.steer : pose.rearSteer;
         t.pivot.rotation.set(0, -steer, a, "ZYX");
         t.spin.rotation.x = -pose.tires[i].angle;

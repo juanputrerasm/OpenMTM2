@@ -4,10 +4,32 @@
   stored as JSON in OPFS (`userdata/profiles.json`). Pure, so it runs under Node.
 */
 import { msg } from "./strings.js";
+import { cleanCprSetup } from "./cpr-garage.js";
 
 export const MAX_NAME_LENGTH = 16;
+/**
+ * A 4x4 Evolution vehicle's Garage (EVO2_PHYSICS.md 2.2): the tread (0 Shallow to 3 Studded) and the game's sliders,
+ * each 0..1 as the game's setters take them. `springs` and `torqueSplit` null keep the vehicle's own springs and split;
+ * the axle ratio, brake balance and handling start at the game's defaults, 0.5.
+ */
+export const DEFAULT_EVO_GARAGE = Object.freeze({ tread: 1, springs: null, axleRatio: 0.5, brakeBalance: 0.5, torqueSplit: null, handling: 0.5 });
 /** A new driver's Garage: Medium suspension and a Medium tire cut (MTM2's own start is Soft and Shallow). */
-export const DEFAULT_GARAGE = Object.freeze({ suspension: 1, transferSetting: 1500, tireCut: 1 });
+/** `cpr`: a CART Precision Racing car's setup (game/cpr-garage.js), null for the stock one. */
+export const DEFAULT_GARAGE = Object.freeze({ suspension: 1, transferSetting: 1500, tireCut: 1, evo: DEFAULT_EVO_GARAGE, cpr: null });
+
+/** An Evo Garage with out-of-range values brought back in. */
+export function cleanEvoGarage(evo) {
+  const unit = (v, fallback) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(1, Math.round(v * 100) / 100)) : fallback);
+  const tread = Number(evo?.tread);
+  return {
+    tread: Number.isInteger(tread) && tread >= 0 && tread <= 3 ? tread : DEFAULT_EVO_GARAGE.tread,
+    springs: unit(evo?.springs, null),
+    axleRatio: unit(evo?.axleRatio, DEFAULT_EVO_GARAGE.axleRatio),
+    brakeBalance: unit(evo?.brakeBalance, DEFAULT_EVO_GARAGE.brakeBalance),
+    torqueSplit: unit(evo?.torqueSplit, null),
+    handling: unit(evo?.handling, DEFAULT_EVO_GARAGE.handling),
+  };
+}
 
 /** A name trimmed to the limit, or "" when nothing is left. */
 export function cleanName(name) {
@@ -23,15 +45,20 @@ export function cleanGarage(garage) {
     tireCut: pick(garage?.tireCut, DEFAULT_GARAGE.tireCut),
     transferSetting: Number.isFinite(transfer) && transfer >= 600 && transfer <= 2000
       ? Math.round(transfer / 100) * 100 : DEFAULT_GARAGE.transferSetting,
+    evo: cleanEvoGarage(garage?.evo),
+    cpr: cleanCprSetup(garage?.cpr),
   };
 }
 
+/** The name a new driver takes, as MTM2's Driver Check-in offers it. */
+export const DEFAULT_DRIVER_NAME = "DriverX";
+
 export function newDriver(name) {
-  return { name: cleanName(name) || "Player", garage: { ...DEFAULT_GARAGE }, lastTruck: null, races: 0, wins: 0 };
+  return { name: cleanName(name) || DEFAULT_DRIVER_NAME, garage: { ...DEFAULT_GARAGE, evo: { ...DEFAULT_EVO_GARAGE } }, lastTruck: null, races: 0, wins: 0 };
 }
 
 export function emptyProfiles() {
-  return { version: 1, current: 0, drivers: [newDriver("Player")] };
+  return { version: 1, current: 0, drivers: [newDriver(DEFAULT_DRIVER_NAME)] };
 }
 
 /** Stored data brought into shape; anything unusable becomes the default profile. */

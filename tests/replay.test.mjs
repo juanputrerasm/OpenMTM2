@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { REPLAY_RING_RECORDS, parseMtmReplay, writeMtmReplay } from "../src/vendor/openphotex/index.js";
-import { FRAME_SECONDS, RATES, createPlayback, createReplayRecorder, damageZones, levelPath } from "../src/game/replay.js";
+import { FRAME_SECONDS, RATES, REPLAY_KEEP_SECONDS, createPlayback, createReplayRecorder, damageZones, levelPath, ringReplay } from "../src/game/replay.js";
 
 const snap = (x, psi = 0, extra = {}) => ({
   pos: [x, 10, 100], euler: [0, 0, psi], bvel: [0, 0, 20], rates: [0, 0, 0], steer: 0.1, rearSteer: 0,
@@ -28,13 +28,27 @@ test("the recorder takes a frame every quarter second: a record per truck, and p
   assert.deepEqual(replay.objects[1], [4, 5, 6, 0, 0, 0]);
 });
 
-test("the ring keeps the newest 2240 records", () => {
+test("the recorder keeps the last hour; cut to the game's ring, a replay keeps its newest 2240 records", () => {
   const rec = createReplayRecorder({ level: "x.sit", vehicles: [{ truck: "A.TRK", driver: "A" }, { truck: "B.TRK", driver: "B" }], originals: [] });
   for (let f = 1; f <= 2000; f++) rec.update(f * FRAME_SECONDS, [snap(f), snap(f)], [], () => 0);
-  const r = rec.build();
+  const whole = rec.build();
+  assert.equal(whole.records.length, 4000, "500 s is well inside the hour");
+  const r = ringReplay(whole);
   assert.equal(r.records.length, REPLAY_RING_RECORDS);
   assert.equal(r.records.at(-1).time, Math.round(2000 * 0x4000));
   assert.equal(r.records[0].time, Math.round((2000 - 1119) * 0x4000));
+});
+
+test("past the hour the oldest frames go, and an hour of eight trucks plays back", () => {
+  assert.equal(REPLAY_KEEP_SECONDS, 3600);
+  const rec = createReplayRecorder({ level: "x.sit", vehicles: Array.from({ length: 8 }, () => ({ truck: "A.TRK", driver: "A" })), originals: [] });
+  const frames = 3600 * 4 + 40;
+  const eight = Array.from({ length: 8 }, () => snap(1));
+  for (let f = 1; f <= frames; f++) rec.update(f * FRAME_SECONDS, eight, [], () => 0);
+  const r = rec.build();
+  assert.equal(r.records.length, (3600 * 4 + 1) * 8);
+  const playback = createPlayback(r);
+  assert.ok(Math.abs(playback.duration - 3600) < 1e-6);
 });
 
 test("playback interpolates positions, takes the short way round for angles, and holds gear and damage", () => {
@@ -99,4 +113,41 @@ test("a truck recorded either side of the world's seam is played back across it,
   const mid = play.at(0.125).trucks[0].pos[0];
   assert.ok(Math.abs(mid - 2) < 1e-6, `halfway at x ${mid}`);
   assert.ok(Math.abs(play.at(0.25).trucks[0].pos[0] - 6) < 1e-9);
+});
+
+test("the recorder takes the trucks at 16 Hz: the game's records every quarter second, samples between them", async () => {
+  const { REPLAY_SAMPLE_TICKS } = await import("../src/game/replay.js");
+  assert.equal(REPLAY_SAMPLE_TICKS, 0x1000);
+  const replay = record(2).build();
+  assert.equal(replay.records.filter((r) => r.type === 0).length, 8, "the records are the game's, four a second");
+  assert.equal(replay.samples.length, 24, "three samples between each two records");
+  assert.ok(replay.samples.every((p) => p.time % 0x4000 !== 0));
+  // Written and read back: the records counted as the games read them, the samples after them.
+  const back = parseMtmReplay(writeMtmReplay(replay));
+  assert.equal(back.records.length, replay.records.length);
+  assert.equal(back.samples.length, 24);
+  // The ring keeps the samples of the frames it keeps.
+  const ring = ringReplay(replay);
+  assert.ok(ring.samples.every((p) => p.time >= ring.records[0].time));
+});
+
+test("playback runs a curve through the frames: a jump is an arc, not straight chords", () => {
+  const rec = createReplayRecorder({ level: "x.sit", vehicles: [{ truck: "A.TRK", driver: "A" }] });
+  // A truck thrown up at 32 ft/s: y = 32 t - 16 t^2, recorded at the game's 4 Hz only.
+  for (const t of [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75]) rec.update(t, [{ ...snap(t * 20), pos: [t * 20, 32 * t - 16 * t * t, 100] }], [], () => 0);
+  const play = createPlayback(rec.build());
+  const t = 0.625, truth = 32 * (t + 0.25) - 16 * (t + 0.25) ** 2;
+  const y = play.at(t).trucks[0].pos[1];
+  const chord = (32 * 0.75 - 16 * 0.75 ** 2 + 32 * 1 - 16 * 1) / 2;
+  assert.ok(Math.abs(y - truth) < Math.abs(chord - truth) / 4, `on the arc: ${y} against ${truth} (a chord gives ${chord})`);
+  assert.ok(Math.abs(play.at(0.5).trucks[0].pos[1] - (32 * 0.75 - 16 * 0.75 ** 2)) < 1e-9, "and through every frame");
+});
+
+test("a wheel's angle turns the short way between frames, as the game blends it", () => {
+  const rec = createReplayRecorder({ level: "x.sit", vehicles: [{ truck: "A.TRK", driver: "A" }] });
+  const wheel = (angle) => ({ ...snap(0), tires: [0, 1, 2, 3].map(() => ({ angle })) });
+  rec.update(0.25, [wheel(3.0)], [], () => 0);
+  rec.update(0.5, [wheel(-3.0)], [], () => 0);
+  const mid = createPlayback(rec.build()).at(0.125).trucks[0].tires[0].angle;
+  assert.ok(Math.abs(Math.abs(mid) - Math.PI) < 0.01, `through pi, not back through zero: ${mid}`);
 });

@@ -31,6 +31,11 @@ const PUSH_SPEED = 30;
 const STUCK_SPEED = 3;
 const STUCK_S = 1.5;
 const REVERSE_S = 1.4;
+/**
+ * Circling: a truck whose target stays this near, this far off its nose, at under this speed, for this long, is going
+ * round it inside its turning circle; with `orbitBreak` it backs up, turning the other way, to come at it again.
+ */
+const ORBIT_RANGE_FT = 40, ORBIT_ERR = 1.0, ORBIT_SPEED = 15, ORBIT_S = 1.5;
 /** No headway: the path left must shrink this much within this time, or the truck backs off further. */
 const HEADWAY_FT = 12;
 const HEADWAY_S = 5;
@@ -305,7 +310,7 @@ export function rumbleControls(s, driver, zone, rivals, gears, dt, field = null)
  * speed kept in a sharp turn (lower on ice, where a fast truck slides wide). Also extension driving;
  * `driver` is a `createRumbleDriver` memory.
  */
-export function driveToPoint(s, driver, point, speed, left, gears, dt, { back = true, turnFloor = 0.35 } = {}) {
+export function driveToPoint(s, driver, point, speed, left, gears, dt, { back = true, turnFloor = 0.35, orbitBreak = false } = {}) {
   const c = s.controls;
   const forward = s.bvel[2];
   const dx = point[0] - s.pos[0], dz = point[2] - s.pos[2];
@@ -360,6 +365,18 @@ export function driveToPoint(s, driver, point, speed, left, gears, dt, { back = 
   } else {
     c.throttle = 0;
     c.brakeFront = c.brakeRear = Math.min(1, -u);
+  }
+
+  if (orbitBreak) {
+    const circling = near < ORBIT_RANGE_FT && Math.abs(err) > ORBIT_ERR && Math.abs(forward) < ORBIT_SPEED && speed > 0;
+    driver.orbit = circling ? (driver.orbit ?? 0) + dt : 0;
+    if (driver.orbit > ORBIT_S) {
+      driver.orbit = 0;
+      driver.mode = "reverse";
+      driver.timer = REVERSE_S;
+      driver.reverseSteer = err >= 0 ? -STEER_LOCK : STEER_LOCK;
+      return;
+    }
   }
 
   // Pinned against something: back out, turning the other way.

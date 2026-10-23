@@ -94,15 +94,15 @@ test("RaceCam stands a quarter of the way along the straight the truck is headin
   assert.equal(raceCamera([], [0, 0, 0], 0, flat), null);
 });
 
-test("Ctrl or Alt with a digit picks a view: 1 the cockpit, 0 the tenth", async () => {
+test("a number key picks a view: 1 the cockpit, 0 the tenth; with Ctrl, Alt or Cmd it picks none", async () => {
   const { modeForShortcut } = await import("../src/game/cameras.js");
-  assert.equal(modeForShortcut({ ctrlKey: true, code: "Digit1" }), 0);
-  assert.equal(modeForShortcut({ ctrlKey: true, code: "Digit2" }), 1);
-  assert.equal(modeForShortcut({ altKey: true, code: "Numpad5" }), 4);
-  assert.equal(modeForShortcut({ ctrlKey: true, code: "Digit0" }), 9);
-  assert.equal(modeForShortcut({ code: "Digit1" }), null);
-  assert.equal(modeForShortcut({ ctrlKey: true, code: "KeyA" }), null);
-  assert.equal(modeForShortcut({ ctrlKey: true, metaKey: true, code: "Digit1" }), null);
+  assert.equal(modeForShortcut({ code: "Digit1" }), 0, "1 the cockpit");
+  assert.equal(modeForShortcut({ code: "Digit2" }), 1, "2 Chase Near");
+  assert.equal(modeForShortcut({ code: "Digit3" }), 2, "3 Chase Far");
+  assert.equal(modeForShortcut({ code: "Numpad5" }), 4);
+  assert.equal(modeForShortcut({ code: "Digit0" }), 9);
+  assert.equal(modeForShortcut({ code: "KeyA" }), null);
+  for (const held of ["ctrlKey", "altKey", "metaKey"]) assert.equal(modeForShortcut({ [held]: true, code: "Digit1" }), null, `${held}: a combination is no view key`);
 });
 
 test("the short cycle steps through the player's views in order, the cockpit, Chase Near and Chase Far unless changed", async () => {
@@ -120,12 +120,14 @@ test("the short cycle steps through the player's views in order, the cockpit, Ch
 });
 
 test("the chase camera tilts by the player's keys within the game's pitches, and with clearance keeps off the ground", async () => {
-  const { CAMERA_CLEAR_FT, CAMERA_PITCH_MAX, CAMERA_PITCH_RATE, turnedPitch } = await import("../src/game/cameras.js");
+  const { CAMERA_CLEAR_FT, CAMERA_PITCH_MAX, CAMERA_PITCH_MIN, CAMERA_PITCH_RATE, CAMERA_TILT_RATE, turnedPitch } = await import("../src/game/cameras.js");
   // A quarter of the frame time a frame: 90 degrees a second; 0 to 0x3fff.
   assert.equal(CAMERA_PITCH_RATE, 0x4000);
   assert.equal(turnedPitch(2, 0x400), 0xc00);
-  assert.equal(turnedPitch(2, -0x2000), 0);
+  assert.equal(turnedPitch(2, -0x2000), -0x1800, "under the level, where the ground allows");
+  assert.equal(turnedPitch(2, -0x8000), CAMERA_PITCH_MIN);
   assert.equal(turnedPitch(2, 0x8000), CAMERA_PITCH_MAX);
+  assert.equal(CAMERA_TILT_RATE, 2 * CAMERA_PITCH_RATE, "the port's tilt is twice the game's, both ways");
   const flat = () => 0;
   const level = createChaseCamera().update(2, [0, 5, 0], 0, flat, 0.016).position;
   const up = createChaseCamera().update(2, [0, 5, 0], 0, flat, 0.016, { pitchBy: 0x800 }).position;
@@ -154,4 +156,63 @@ test("where the clearance cannot be had, the camera stays as the game places it,
   const clear = createChaseCamera().update(1, [0, 5, 0], 0, pit, 0.016, { clearFt: CAMERA_CLEAR_FT }).position;
   assert.deepEqual(clear, game);
   assert.ok(clear[2] < 0, "behind the truck (heading 0 is +z)");
+});
+
+test("tilted under the level over flat ground, the camera stands low but over the ground; tilted over a slope it is lifted only as far as it must", async () => {
+  const { CAMERA_PITCH_MIN } = await import("../src/game/cameras.js");
+  const flat = () => 0;
+  const low = createChaseCamera().update(2, [0, 5, 0], 0, flat, 0.016, { pitchBy: CAMERA_PITCH_MIN - 0x800 }).position;
+  assert.ok(low[1] >= 0 && low[1] < 5, `${low[1]} ft up`);
+});
+
+test("a chase camera with the clearance follows a tilt down at once, not at the settling rate", async () => {
+  const { CAMERA_CLEAR_FT } = await import("../src/game/cameras.js");
+  const flat = () => 0;
+  const cam = createChaseCamera();
+  cam.update(2, [0, 5, 0], 0, flat, 0.016, { pitchBy: 0x2000, clearFt: CAMERA_CLEAR_FT });
+  const after = cam.update(2, [0, 5, 0], 0, flat, 0.016, { pitchBy: 0, clearFt: CAMERA_CLEAR_FT }).position;
+  const fresh = createChaseCamera().update(2, [0, 5, 0], 0, flat, 0.016, { pitchBy: 0, clearFt: CAMERA_CLEAR_FT }).position;
+  assert.ok(Math.abs(after[1] - fresh[1]) < 1e-6);
+});
+
+test("the mouse look: it turns the camera at once, eases back after two seconds, and the wheel's zoom stays per view", async () => {
+  const { createCameraLook, LOOK_RETURN_S, turnedTarget } = await import("../src/game/camera-look.js");
+  const look = createCameraLook();
+  look.move(100, 0);
+  assert.ok(look.yaw < 0);
+  look.wheel(1, 1);
+  assert.ok(look.zoom(1) > 1 && look.zoom(2) === 1);
+  look.step(LOOK_RETURN_S - 0.1);
+  assert.ok(look.yaw < -0.5, "still looking");
+  for (let i = 0; i < 200; i++) look.step(0.05);
+  assert.equal(look.yaw, 0);
+  assert.ok(look.zoom(1) > 1, "the zoom stays");
+  look.setBack(true);
+  assert.ok(Math.abs(look.yaw - Math.PI) < 1e-9, "Backspace: half a turn");
+  const cam = createChaseCamera();
+  const behind = cam.update(1, [0, 5, 0], 0, () => 0, 0.016).position;
+  const front = createChaseCamera().update(1, [0, 5, 0], 0, () => 0, 0.016, { look: { yaw: Math.PI, pitch: 0 } }).position;
+  assert.ok(behind[2] < 0 && front[2] > 0, "looking back puts the camera ahead of the truck");
+  const t = turnedTarget([0, 0, 0], [0, 0, 10], Math.PI / 2, 0);
+  assert.ok(Math.abs(t[0] - 10) < 1e-9 && Math.abs(t[2]) < 1e-9);
+});
+
+test("free look's options: off leaves the mouse alone, reversed turns it the other way, held stays put", async () => {
+  const { createCameraLook, lookOptions, LOOK_RETURN_S } = await import("../src/game/camera-look.js");
+  assert.deepEqual(lookOptions({}), { enabled: true, invert: false, hold: false });
+  const off = createCameraLook(() => lookOptions({ freeLook: false }));
+  off.move(100, 0);
+  assert.equal(off.yaw, 0);
+  off.wheel(1, 1);
+  assert.ok(off.zoom(1) > 1, "the wheel still zooms");
+  const plain = createCameraLook(() => lookOptions({}));
+  const reversed = createCameraLook(() => lookOptions({ freeLookInvert: true }));
+  plain.move(50, 20);
+  reversed.move(50, 20);
+  assert.ok(Math.abs(plain.yaw + reversed.yaw) < 1e-12 && Math.abs(plain.pitch + reversed.pitch) < 1e-12);
+  const held = createCameraLook(() => lookOptions({ freeLookHold: true }));
+  held.move(80, 0);
+  const yaw = held.yaw;
+  for (let t = 0; t < LOOK_RETURN_S + 3; t += 0.1) held.step(0.1);
+  assert.equal(held.yaw, yaw);
 });

@@ -44,3 +44,32 @@ test("Sidewinder Canyon's bridges are ground boxes with no faces of their own, a
   assert.equal(decks.topAt(x, z, top + 3), top);
   assert.equal(decks.topAt(x, z, box.lower * 2 - 3), null);
 });
+
+// ---- MTM1: boxes at the world's edge (MTM1_MONSTER_EXE_ANALYSIS.md, "Ground boxes and the world's edge") ----
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { parsePod, readPodEntry, decodeGroundBoxes } from "../src/vendor/openphotex/index.js";
+import { createVfs } from "../src/worker/vfs.js";
+import { buildTrackRender, mtm1EdgeBoxDrawn } from "../src/worker/track-build.js";
+
+test("MTM1 leaves every box on the map's outer two cells undrawn, land near or not", () => {
+  const drawn = mtm1EdgeBoxDrawn();
+  assert.equal(drawn({ x: 0, y: 110 }), false);
+  assert.equal(drawn({ x: 255, y: 110 }), false);
+  assert.equal(drawn({ x: 110, y: 1 }), false, "even where a beach comes within reach");
+  assert.equal(drawn({ x: 50, y: 50 }), true, "a box inside the map is the level's own, drawn");
+});
+
+const MTM1_GAME_POD = join(process.env.OPENMTM2_GAMES ?? join(process.env.HOME ?? "", "games"), "mtm1", "GAME.POD");
+test("ISLAND: its 400 ft fence on the map's edge is solid but not drawn", {
+  skip: skipWithoutStock("POD.INI") || (existsSync(MTM1_GAME_POD) ? false : `no Monster Truck Madness 1 GAME.POD at ${MTM1_GAME_POD}`),
+}, async () => {
+  const bytes = new Uint8Array(readFileSync(MTM1_GAME_POD));
+  const vfs = createVfs([{ name: "GAME.POD", family: "MTM", game: "MTM1", archive: parsePod(bytes), readEntry: async (entry) => readPodEntry(bytes, entry) }, ...stockVfs().allMounts]);
+  const build = await buildTrackRender(vfs, "WORLD\\ISLAND.SIT");
+  const all = decodeGroundBoxes(build.sim.ra0, build.sim.ra1, null, 256);
+  const edge = all.filter((b) => b.x <= 1 || b.y <= 1 || b.x >= 254 || b.y >= 254);
+  assert.ok(edge.length >= 1000, `${edge.length} boxes on the edge, all still in the simulation`);
+  const hidden = all.length - build.groundBoxes.count;
+  assert.equal(hidden, edge.length, "every edge box undrawn");
+});

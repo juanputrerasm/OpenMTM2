@@ -66,6 +66,31 @@ export function trackPreviewBmp(track) {
   return track?.logoBmp || null;
 }
 
+/** The 4x4 Evolution tire cuts (EVO2_PHYSICS.md 11; the game's Tire Type). */
+export const EVO_TREADS = Object.freeze([msg("Shallow"), msg("Medium"), msg("Deep"), msg("Studded")]);
+
+/**
+ * The 4x4 Evolution Garage's sliders (EVO2_PHYSICS.md 2.2), in the game's order, each 0..1: the words at its two ends,
+ * and `show(value, t)` its reading as the game's garage shows it. `stock` sliders read the vehicle's own figure at null.
+ */
+export const EVO_GARAGE_SLIDERS = Object.freeze([
+  Object.freeze({ key: "springs", label: msg("Suspension"), ends: [msg("Stiff"), msg("Soft")], stock: true,
+    help: msg("How stiff the springs and dampers are. Soft rides over bumps and keeps the tires down; stiff answers the steering sooner."),
+    show: (v, t) => (v === null ? t("Stock") : String(Math.round(v * 100))) }),
+  Object.freeze({ key: "axleRatio", label: msg("Axle Ratio"), ends: [msg("Acceleration"), msg("Top speed")], stock: false,
+    help: msg("The final drive. Left for acceleration on tight, twisty tracks; right for top speed on fast ones."),
+    show: (v) => `x${((1 - v) * 1.5 + 0.25).toFixed(2)}` }),
+  Object.freeze({ key: "brakeBalance", label: msg("Brake Balance"), ends: [msg("Front"), msg("Rear")], stock: false,
+    help: msg("More front braking is stable but hard to turn while braking; more rear braking turns easily but is unstable."),
+    show: (v) => `F${Math.round((1 - v) * 100)}/${Math.round(v * 100)}R` }),
+  Object.freeze({ key: "torqueSplit", label: msg("Torque Split"), ends: [msg("Front"), msg("Rear")], stock: true,
+    help: msg("How the engine's torque is shared between the axles in four-wheel drive. Front helps steering; rear accelerates harder but spins sooner."),
+    show: (v, t) => (v === null ? t("Stock") : `F${Math.round((1 - v) * 100)}/${Math.round(v * 100)}R`) }),
+  Object.freeze({ key: "handling", label: msg("Handling Balance"), ends: [msg("Understeer"), msg("Oversteer")], stock: false,
+    help: msg("Toward understeer the vehicle is easy to control but hard to turn; toward oversteer it turns quickly but can get sideways."),
+    show: (v) => String(Math.round(v * 100)) }),
+]);
+
 export function garageSummary(setup) {
   const tire = ["s", "m", "d"][setup?.tireCut] ?? "s";
   const suspension = ["s", "m", "h"][setup?.suspension] ?? "s";

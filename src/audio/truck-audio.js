@@ -202,7 +202,8 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
           t.gearVoice = audio.play(gear, { gain: 0.8, position: i === player ? null : pose.current.pos });
           t.gearCooldown = 1;
         }
-        if (s.hit) onHit(s.hit.sitIndex, s.hit.force, pos, i);
+        // The object's sound comes from the object, `offset` feet from the truck.
+        if (s.hit) onHit(s.hit.sitIndex, s.hit.force, s.hit.offset ? [0, 1, 2].map((k) => pos[k] + s.hit.offset[k]) : pos, i);
         // The game starts a hull impact's sound only when the truck's last one has finished.
         // A new knock, not a truck lying on its hull: the game starts the sound whenever the last one has ended, so a rolled truck
         // resting on its roof crunched on to the end of the race. Here an impact must stand well above the level the truck has been

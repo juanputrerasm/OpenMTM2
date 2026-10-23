@@ -7,7 +7,7 @@
 import { el } from "../dom.js";
 import { frame } from "../frame.js";
 import { saveSettings } from "../../app/settings.js";
-import { roomServer, listRooms, createRoom, joinRoom } from "../../app/net.js";
+import { roomServer, listRooms, createRoom, joinRoom, rememberServer } from "../../app/net.js";
 import { getProfiles } from "../../app/profile-store.js";
 import { currentDriver } from "../../game/profile.js";
 import { msg } from "../../game/strings.js";
@@ -21,6 +21,8 @@ export default async function mount(container, context, params = {}) {
   const address = invite?.server || context.settings.net?.serverUrl || "";
   if (!address) { context.router.go("net-connect", {}, { replace: true }); return {}; }
   const driver = currentDriver(await getProfiles(context));
+  // The name MTM2 gives a hosted game (MONSTER_EXE_ANALYSIS.md 14.3, RC 11000).
+  const defaultName = t("<<1>>'s Truckin' Game", driver.name).slice(0, 40);
   let disposed = false, server = null, rooms = [], poll = null;
 
   const message = el("p", { class: "net-message", "aria-live": "polite" });
@@ -74,12 +76,12 @@ export default async function mount(container, context, params = {}) {
     const open = rooms.filter((r) => r.state === "lobby" && !r.locked && r.players < r.maxPlayers).sort((a, b) => b.players - a.players);
     if (open.length) return join(open[0].code, false);
     say(t("No open room; making one…"));
-    await createRoom(context, { name: roomName.value.trim() || t("<<1>>'s room", driver.name), maxPlayers: Number(maxPlayers.value) });
+    await createRoom(context, { name: roomName.value.trim() || defaultName, maxPlayers: Number(maxPlayers.value) });
     enter();
   }));
 
-  // ---- Make a room ----
-  const roomName = el("input", { type: "text", maxlength: 40, value: t("<<1>>'s room", driver.name), "aria-label": t("Room name") });
+  // ---- Create a room ----
+  const roomName = el("input", { type: "text", maxlength: 40, value: defaultName, "aria-label": t("Room name") });
   const password = el("input", { type: "text", maxlength: 32, placeholder: t("none"), autocomplete: "off", "aria-label": t("Password") });
   const maxPlayers = el("select", { "aria-label": t("Players") });
   const listed = el("input", { type: "checkbox", checked: true, "aria-label": t("Show in the list") });
@@ -94,13 +96,13 @@ export default async function mount(container, context, params = {}) {
   const createButton = el("button", { class: "primary", "data-menu-sound": "STARTOFF" }, t("Create Room"));
   createButton.addEventListener("click", busy(createButton, async () => {
     say(t("Making the room…"));
-    await createRoom(context, { name: roomName.value.trim() || t("<<1>>'s room", driver.name), password: password.value.trim(), maxPlayers: Number(maxPlayers.value), public: listed.checked, classic: classic.checked });
+    await createRoom(context, { name: roomName.value.trim() || defaultName, password: password.value.trim(), maxPlayers: Number(maxPlayers.value), public: listed.checked, classic: classic.checked });
     enter();
   }));
 
   // ---- Join by code ----
-  const code = el("input", { type: "text", maxlength: 6, placeholder: "ABC123", autocomplete: "off", spellcheck: "false", "aria-label": t("Room code"), class: "net-code" });
-  const codePassword = el("input", { type: "text", maxlength: 32, placeholder: t("if it has one"), autocomplete: "off", "aria-label": t("Room password") });
+  const code = el("input", { type: "text", maxlength: 6, placeholder: t("Code"), autocomplete: "off", spellcheck: "false", "aria-label": t("Room code"), class: "net-code" });
+  const codePassword = el("input", { type: "text", maxlength: 32, placeholder: t("Password"), autocomplete: "off", "aria-label": t("Room password") });
   const codeButton = el("button", { "data-menu-sound": "STARTOFF" }, t("Join"));
   codeButton.addEventListener("click", busy(codeButton, async () => {
     say(t("Joining <<1>>…", code.value.trim().toUpperCase()));
@@ -114,7 +116,7 @@ export default async function mount(container, context, params = {}) {
     motd,
     el("div", { class: "net-columns" },
       el("div", {},
-        el("h3", {}, t("Make a room")),
+        el("h3", {}, t("Create a room")),
         el("label", { class: "net-field" }, `${t("Name")} `, roomName),
         el("label", { class: "net-field" }, `${t("Password")} `, password),
         el("label", { class: "net-field" }, `${t("Players")} `, maxPlayers),
@@ -148,7 +150,7 @@ export default async function mount(container, context, params = {}) {
     const limit = server.info.limits?.maxPlayers ?? 8;
     maxPlayers.replaceChildren(...Array.from({ length: limit - 1 }, (_, i) => i + 2).map((n) => el("option", { value: n, selected: n === Math.min(8, limit) }, String(n))));
     if (invite?.server && context.settings.net?.serverUrl !== invite.server) {
-      context.settings.net = { ...context.settings.net, serverUrl: invite.server };
+      context.settings.net = { ...context.settings.net, serverUrl: invite.server, recentServers: rememberServer(context.settings.net?.recentServers, invite.server) };
       saveSettings(context.settings);
     }
   } catch (err) {

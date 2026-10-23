@@ -1664,7 +1664,7 @@ export function createTruck(truck, look) {
 
 /**
  * CART Precision Racing's road layer (worker/cpr-road.js): a mesh per texture, the road and curbs facing up, the walls
- * seen from both sides, the catch fence a cutout. Drawn a little towards the viewer in depth, since the road lies on
+ * a face for each side, the catch fence a cutout. Drawn a little towards the viewer in depth, since the road lies on
  * the ground it covers. The classic look draws it unlit, as it does the ground.
  */
 export function createRoad(road, look) {
@@ -1688,7 +1688,8 @@ export function createRoad(road, look) {
     const map = mapOf(mesh.texture);
     const fence = mesh.texture === "fence";
     const material = new Material({
-      map, color: map ? 0xffffff : fence ? 0x9a9a9a : 0x717178, side: THREE.DoubleSide,
+      // A wall has a face for each side (worker/cpr-road.js); the road may be seen from under a bridge.
+      map, color: map ? 0xffffff : fence ? 0x9a9a9a : 0x717178, side: mesh.wall ? THREE.FrontSide : THREE.DoubleSide,
       alphaTest: fence && map ? 0.5 : 0, transparent: fence && !map, opacity: fence && !map ? 0.3 : 1,
       polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -2,
     });

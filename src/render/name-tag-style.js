@@ -15,3 +15,6 @@ export function nameTagLineColour(line, extensionColour = "") {
 export function nameTagPaintKey(lines, extensionColour = "") {
   return `${extensionColour}\0${lines.join("\n")}`;
 }
+
+/** The name tags' font scale on a screen `deviceHeight` device pixels tall: whole, one font pixel a screen pixel to about 1,600. */
+export const nameTagScale = (deviceHeight) => Math.max(1, Math.round(deviceHeight / 1080));

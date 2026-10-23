@@ -1352,6 +1352,33 @@ reader 0x565050). The writer prints, per vehicle, the truck file then the driver
 pointer and count; records are written from the start of the ring. The port records the same
 frames (`game/replay.js`) and reads and writes the file with OpenPhotex.
 
+- **Timing.** The recorder adds each frame's time (16.16 ticks, `0x682d88`) to an accumulator (`0x65695c`) and takes a
+  snapshot when it passes 0x3fff, so the rate follows the clock, not the physics step. The ring's write pointer
+  (`0x656960`) wraps at 0x8bf and the count (`0x656964`) stops at 0x8c0. With eight trucks a snapshot is about eight
+  records, so the ring holds about 280 snapshots: some **70 s**.
+- **Playback.** A frame index (`0x566150`, at most 2240 entries, "Too many demo indicies!") pairs each new time with its
+  first record. The clock follows real time (`0x568040`); the VCR modes (`0xb36ce0`) are 1 half speed, 2 normal,
+  3 reverse, 4 double, 5 double reverse. Between frame i and i + 1 each record is blended with the record of the same
+  kind and number by `k = (clock - t_i) / (t_{i+1} - t_i)` (`0x566f00`): position, velocity and rates linearly, theta
+  linearly, and phi, psi, both steering angles and the four tire angles as 16-bit binary angles (the short way round);
+  throttle and brakes linearly; course, damage and gear from frame i. No curve, and the velocities are not used.
+- **Loading.** The reader (`0x565050`) reads `demoRecordCount` from the header and then exactly that many records, with
+  no check against the ring's 2240, and closes the file. A file of more than 2240 records writes past the ring, over
+  the vehicle number table (`0xb36b20`), the VCR mode, the vehicle count and the frame index: **MTM2 cannot load a
+  replay longer than its ring.** More than nine vehicle numbers stops the load ("Demo fixup hose").
+- **Community Patch 3** (read from its 64-bit executable in the same way; nothing from its author): the same 4 Hz
+  snapshots (`0x140150410`, the same 0x3fff test) and the same blending (`0x14014ca30`), in a ring of **0x80000
+  records** (524,288, about 4.5 hours of eight trucks; the pointer wraps at 0x7ffff, the frame index holds as many).
+  Its reader (`0x14014cfb0`) also reads exactly `demoRecordCount` records with no cap and ignores what follows, so CP3
+  loads the long replays the port saves. A new option, `replayWheelSpin` (`0x140724728`), leaves the recorded tire
+  angles unapplied.
+- **More frames, compatibly.** Both games stamp every record with its time and blend by those stamps, so records taken
+  more often would still play at the right speed, but MTM2's ring would then cover less time. Since neither reads past
+  `demoRecordCount`, the port keeps the game's 4 Hz records as they are and writes its own extra samples after them
+  (OpenPhotex `writeMtmReplay`, "OpenMTM2 samples"): a 16 Hz recording that both games load as their own 4 Hz one.
+  The port blends through the frames on a curve (Catmull-Rom) rather than straight lines, and its "Save for MTM2"
+  keeps the newest 2240 records.
+
 ---
 
 ### 11b. The truck's lamps
@@ -1461,7 +1488,17 @@ stereo separation, `UseRedBook` and `UseModMusic`.
     is smoothed with a product of the sounds' own scale factors.
   - The player's truck is not positioned; the other trucks play at 0.9 of the scale and their engine idle at 0.85.
   The port's `audio-engine.js` does the same: its own distance fade by `soundRange(weather)`, only the loudest 16 mixed,
-  and a compressor on the master standing in for the game's master smoothing. The effects bus sits at 0.65 under the music.
+  and a compressor on the master standing in for the game's master smoothing. The effects bus sits at 0.5 of the
+  effects setting, the music at 1.4 of the music setting (`EFFECTS_TRIM`, `MUSIC_TRIM`).
+- **Volumes** (`[Sound]` in `MONSTER.INI`, read by `0x570b50`, defaults in brackets): `MasterLVol`, `MasterRVol` (67),
+  `SfxVol` (75), `ModGameMusicVol` (50), `MasterStereoSeperation`, `ModSeperation` (70). `0x5715b0` turns `SfxVol` and
+  `ModGameMusicVol` into fractions and multiplies each by the master pair: one gain pair for effects (`0xb5fd88`) and
+  one for music (`0xb5ff10`), the second for sounds started with flag `0x400` (`0x525260`). So the game's MOD music
+  sits about 3.5 dB under its effects. Its MOD player (`0x5580f0`) loads each sample as a mixer sound; no division
+  by the channel count was found. OpenPhotex's offline `renderMod` scales each channel by 1.35 over the square root
+  of the channel count (about -16 dBFS RMS for `SEX.MOD`, 6 channels). The engine's loops are far hotter (`ACCEL3B`
+  -2.5, `M1-2-M2` -5.6, `STARTIDL` -12 dBFS RMS), so even past the effects' trim the engine sat about 9 dB over a
+  module. The port plays a MOD 2.2 times (about 7 dB) over a WAV track (`audio/world-audio.js` `MOD_MUSIC_GAIN`).
 - **Skids** (`0x41bbd0` each frame per truck, the physics triggers `0x47c480` and `0x477520`). Every name below is
   MTM2's own; `SOUND.POD` also carries MTM1's skid set (`corncem%d`, `corndir%d`, `cornice%d`, `spincem%d`,
   `spindir%d`, `skidcem%d`, `skiddir%d`, `skidice%d`, `skidroc%d`, picked by MTM1's `0x43cac0`, `0x43cd60`,
@@ -1530,6 +1567,14 @@ stereo separation, `UseRedBook` and `UseModMusic`.
   itself, looping (TPARK's train `TRAIN22.WAV`, a crossing's `cross5.wav`, a stand's `CROWD.WAV`).
   Gains by name prefix: `strike` becomes `strike1` x3, `hickz` x2, `flush` x1.5, `hay` x0.6,
   `dino` x2.2, `rock` x1.3, `barn1` x2, `cowpain` x4, `doctor` x2.5, `coffin` x2.8.
+  The contacts that call `0x428bc0`, with the body under test (`0x6f6074`) as the object, are the box tests
+  themselves, so only a real touch of the box the collision response uses makes the sound, never a hit beside it:
+  a hull point that goes deeper into the box than its stored depth (`0x4aad00`; not while the checkpoint test
+  `0x485af0` runs, which sets `0x6f60bc` to 1), a tire contact point inside it (`0x4a7fc0`), a wheel's
+  suspension on one of its faces (`0x4a5da0`), one of its corners inside a wheel (`0x49f920`), and `0x49c620`
+  (two calls, not traced further). No force or speed threshold is applied. The port reports the same contacts
+  from OpenPhotex's `collideTruckBox` with the truck's closing speed, and asks for at least 2 ft/s (port's rule)
+  so a truck resting against an object does not set it off again each time its sound ends.
 - **Horn and YeeHaw** (`0x429490`, `0x429350`): `horn1.wav` at the truck's horn volume, or with
   the kooky horn on one of `horn1`, `horn-a` and `horn-f` (the last two x1.5, never the same
   twice); `yeehaw.wav` at x1.8. High in the air with all four wheels off the ground (`0x41e030`)

@@ -118,6 +118,32 @@ modifiers at +0x68..+0x7C in that order), `Models` and the rules fields.
   - With a positive torque sum the menu's peak torque and power figures (+0x60C..+0x618) are
     recomputed from the curve (power = rpm * torque / 5252): display only.
 
+### 2.2 The garage's settings (`vehicle.cpp`, `0x5eca90` to `0x5ed020`)
+
+The garage (`0x563640` holds its help texts, the lobby `0x4b0070` its captions) offers Tire Type, Transmission,
+Suspension, Axle Ratio, Brake Balance, Torque Split and Handling Balance. Each slider gives the vehicle's setter a value
+s in [0, 1], held there (a value outside is reported as "bad value" and clamped); "Default Settings" calls every setter
+with 0.5 (`0x5a28d0`), and a computer vehicle gets handling 1.0 with its own
+suspension, brakes, split and axle figures from its AI file (`0x40c840`). In the game Suspension, Axle Ratio, Brake Balance
+and Torque Split need a part (race springs and dampers; a racing gear box or ring and pinion set; a brake proportioning
+valve; a racing transfer case): "Cannot modify" otherwise.
+
+| Setter | Address | Effect |
+|---|---|---|
+| `setSprings` | `0x5ecba0` | the springs of section 2, from the sag: 0 stiffest (sag 0.3 of the travel), 1 softest (0.7) |
+| `setShocks` | `0x5ecd60` | nothing ("not hooked up", `0x63a8d7`) |
+| `setTransferGear` (Axle Ratio) | `0x5eca90` | `final_drive` (+0x6B8) = (`(1 - s)` * 1.5 (`0x65d856`) + 0.25 (`0x65d85a`)) * the base final drive (+0x6BC); the effective ratio (+0x6C8) is redone. 0 is 1.75 times the vehicle's own (acceleration, "left"), 0.5 its own, 1 a quarter of it (top speed, "right") |
+| `setHandling` | `0x5ecdd0` | every tire's CF is reset to its base times 1 plus the parts' tire CF modifier (+0x12B4); then the two front tires' CF is raised by 0.75 (`0x65d926`) * s of itself. 0 understeer, 1 oversteer |
+| `setBrakeBalance` | `0x5ecf90` | `brakeBalance` (+0x1298) = s: 0 front, 1 rear |
+| `setTorqueSplit` | `0x5ed020` | front `torque_pct` (+0x2FC) = 1 - s, rear (+0x5B4) = s |
+
+So a vehicle with the default settings runs its front tires at 1.375 times their `.TRK` CF, and the AI's at 1.75.
+
+**The port** (OpenPhotex `applyEvoGarage`, `evoSprings`): the Garage screen offers these settings for an Evo vehicle
+with no part needed (the port's choice), plus the tire cut with Studded. A setting the player has not touched leaves the
+vehicle's own figure, except handling, which starts at the game's 0.5. They apply to the player's vehicle; computer
+vehicles keep their `.TRK` figures (the AI's handling 1.0 is not reproduced).
+
 ## 3. The step
 
 Each substep, per vehicle (`0x553920`, vtable slot +0x44 of the vehicle class at `0x667fd4`):
@@ -443,6 +469,5 @@ the new mode. MTM2's model has no transfer case: it drives all four wheels. The 
 Emergency Brake key (B, or the pad's A button), for an Evo vehicle only; under MTM physics it locks
 the rear brakes.
 
-**Still to do:** garage
-Springs and Brake balance for Evo vehicles; a hand check of the contact solvers' geometry against
-`0x548c00`.
+**Still to do:** a hand check of the contact solvers' geometry against `0x548c00`. The garage's settings are built
+(2.2).

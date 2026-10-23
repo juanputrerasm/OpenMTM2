@@ -373,6 +373,49 @@ The port (`OpenPhotex evoSim.evoSmoothHeights`, the terrain's fine grid; OpenMTM
 `worker/evo-track-build.js`) builds Evo 2's ground this way with "Smooth terrain" on, for the drawn
 ground and the simulation alike, and at the finest level of detail everywhere.
 
+## 5b. 4x4 Evolution 1: Lite tracks (`.LTE`)
+
+Read from `4x4LE.exe` (Evo 1, `re/evo1`). In Evo 1 a `.LTE` is not a light file (MTM2's `.LTE` and
+the FOG tables only share the extension): it is a **Lite track**, a custom track in one compressed
+file that borrows the level, the tile table, the art and the models of a stock world. The menu offers
+"Lite tracks (.LTE)" beside "Full custom tracks (.POD)"; the files live in `customtracks\` ("Lite
+level files must be customtracks\*.lte").
+
+- **Listing** (`0x4f7960`, `0x4f77c0`): a file of 0 bytes or more than 0x18800 (100,352) bytes is
+  refused. The decoded text must start `LTE <n>` with 1 <= n <= the build's version (1); the next line,
+  the base world, is kept (game + `0xb35ec`), then the SIT header is read (`0x4f7330`).
+- **Loading** (`CRace::loadCurrentLiteLevelIntoMemory` `0x4f7e40`, then `simobj.c` `0x51fba0`): the
+  whole file is read into memory and decoded; version 1 only; the base-world line; then the ordinary
+  SIT reader (`0x51fec0`) on the text that follows, and `CGround::load` (`0x45ecb0`) on the bytes after it.
+- **Compression** (`..\support\codec.cpp`, `CLZWDictionary`; reader `0x4203c0`, bits `0x41f160`):
+  an LZW stream with no header. Bits are taken least significant first within each byte. The
+  dictionary starts with the 256 single bytes and a code width of 8; adding an entry when the count is
+  a power of two widens the code by one bit. A code is read against the dictionary's count `n` (it
+  is below `n`): from the top bit of the width down, a bit where `n - 1` has a 0 is not stored (it is
+  0) until a stored 0 is read where `n - 1` has a 1; every lower bit is then stored (`0x41fec0`). As in
+  any LZW, the entry for the previous code plus the first byte of the current one is added after each
+  code (the code equal to the count is the previous string plus its own first byte). The dictionary
+  holds 0x8000 entries: the add that finds it full empties it back to the 256 bytes (`0x41fe20`) and
+  the next code starts afresh, with no previous string. The same coder packs the lobby data in
+  multiplayer (`EVO_MULTIPLAYER.md`).
+- **Decoded layout:**
+
+  | Part | Contents |
+  |---|---|
+  | `LTE 1\n` | the version |
+  | `<BASE>\n` | the stock world it borrows from (`ZONA`, `CON2`...): its `.TEX` is `<base>.tex` |
+  | Evo 1 SIT text | `version 6`, `<base>.lvl`, ... through `backdropModelName` and its `.smf` line |
+  | int32 LE, int32 LE | `hMin`, `hMax`, in `.RAW` units (1/32 ft) |
+  | 256 x 256 bytes | heights, rows along z: `hMin + floor(b * (hMax - hMin) / 255)`; when `hMin == hMax`, `hMin - 1 + floor(b / 255)` |
+  | 256 x 256 bytes | tile numbers, low bytes |
+  | 256 x 256 bytes | tile numbers, high bytes: tile `= (low + high * 256) & 0xFFF`, an index into `<base>.tex`; one past the table's end takes a default tile and is counted as an invalid ground index |
+
+  The terrain block is 8 + 3 x 65,536 = 196,616 bytes, so the SIT text is everything between the base
+  world's line and the last 196,616 bytes. The cell's tile goes where a stock track's `.CLR` puts it
+  (the cell record's `+0x20`); `+0x22` is set to 0x8000 in every cell.
+- **Samples:** `Caverav.lte` (31,009 bytes, base ZONA, decodes to 249,176) and `WORKAHEAD.LTE` (84,021
+  bytes, base CON2, 349,288; one dictionary reset). Both need their base world's POD to be played.
+
 ## 6. The vehicle
 
 ### 6.1 Lineage
