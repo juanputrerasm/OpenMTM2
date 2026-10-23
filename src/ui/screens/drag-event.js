@@ -9,6 +9,7 @@ import { canSimulate, chooseLane, currentPairing, finalOrder, roundName, simulat
 import { LEFT, RIGHT, runPass, takePass } from "../../app/drag-weekend.js";
 import { abandonTournament, takeDragWeekend } from "../../app/tournament.js";
 import { msg } from "../../game/strings.js";
+import { showConfirm } from "../dialogs.js";
 
 const seconds = (value) => (value === null || value === undefined ? "" : value.toFixed(2));
 const LANES = [msg("left"), msg("right")];
@@ -30,8 +31,8 @@ export default async function mount(container, context, { pass = null } = {}) {
   const name = (driver) => (driver === null ? "" : event.drivers[driver].name);
   const leaveForRaces = () => context.router.go("race-select", { mode: "drag" }, { replace: true });
   const button = (label, onclick, cls = null) => el("button", { class: cls, "data-menu-sound": "STARTOFF", onclick }, label);
-  const cancel = button(t("Cancel"), () => {
-    if (!window.confirm(t("Abandon the drag weekend?"))) return;
+  const cancel = button(t("Cancel"), async () => {
+    if (!await showConfirm(t, t("Abandon the drag weekend?"))) return;
     // Abandoning a tournament's drag event abandons the tournament.
     if (weekend.tournament) abandonTournament(context);
     context.dragWeekend = null;

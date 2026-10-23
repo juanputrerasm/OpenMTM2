@@ -9,6 +9,12 @@ export function playMenuSound(audio, settings, name, gain = 0.6) {
   audio.play(name, { gain });
 }
 
+/** The sound a press of `node` makes, as a click of it does: null for a control that is not a button. */
+export function menuSoundFor(node) {
+  const button = node?.closest?.("button:not(:disabled), .stage-hotspot:not(:disabled)");
+  return button ? button.dataset.menuSound ?? "CONOPTUP" : null;
+}
+
 export function attachMenuSounds(doc, audio, settings) {
   let lastHover = null;
   const isButton = (target) => target?.closest?.("button:not(:disabled), .stage-hotspot:not(:disabled)");
@@ -22,8 +28,8 @@ export function attachMenuSounds(doc, audio, settings) {
   const onOut = (e) => { if (!e.relatedTarget || !isButton(e.relatedTarget)) lastHover = null; };
   const onDown = () => audio.resume();
   const onUp = (e) => {
-    const button = isButton(e.target);
-    if (button) play(button.dataset.menuSound ?? "CONOPTUP", 0.6);
+    const name = menuSoundFor(e.target);
+    if (name) play(name, 0.6);
   };
   doc.addEventListener("pointerover", onOver);
   doc.addEventListener("pointerout", onOut);

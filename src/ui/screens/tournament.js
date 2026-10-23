@@ -13,6 +13,7 @@ import {
 import { raceTypeName } from "../../game/menu-data.js";
 import { ordinal } from "../../game/race-setup.js";
 import { msg } from "../../game/strings.js";
+import { showAlert, showConfirm } from "../dialogs.js";
 
 const eligible = (track) => !track.freeRoamOnly && !track.noTournament && ["circuit", "rally", "drag"].includes(track.raceType);
 
@@ -52,7 +53,7 @@ export default async function mount(container, context) {
       el("ol", { class: "tournament-events" }, ...run.events.map((e, i) => el("li", { class: i === run.current && !run.done ? "tournament-next" : null },
         `${eventLine(e)}${e.points ? ` (${t("run")})` : e.skipped ? ` (${t("passed over")})` : ""}`))));
     const abandon = button(run.done ? t("Close") : t("Abandon"), async () => {
-      if (!run.done && !window.confirm(t("Abandon the tournament?"))) return;
+      if (!run.done && !await showConfirm(t, t("Abandon the tournament?"))) return;
       await abandonTournament(context);
       show();
     });
@@ -60,7 +61,7 @@ export default async function mount(container, context) {
     actions.replaceChildren(...(run.done ? [abandon] : [
       abandon,
       button(context.dragWeekend?.tournament ? t("Resume the drag event") : t("Race: <<1>>", next.name), async () => {
-        try { await runEvent(context); } catch (error) { window.alert(t(error.message)); }
+        try { await runEvent(context); } catch (error) { await showAlert(t, t(error.message)); }
       }, "primary tournament-race"),
     ]));
   }
@@ -79,10 +80,10 @@ export default async function mount(container, context) {
       list.replaceChildren(...draft.events.map((e, i) => el("option", { value: i }, `${i + 1}. ${eventLine(e)}`)));
       list.selectedIndex = Math.min(at, draft.events.length - 1);
     };
-    const add = () => {
+    const add = async () => {
       const track = tracks.find((item) => item.file === available.value);
       if (!track) return;
-      if (draft.events.length >= MAX_EVENTS) { window.alert(t("The maximum number of events has already been added to this tournament.")); return; }
+      if (draft.events.length >= MAX_EVENTS) { await showAlert(t, t("The maximum number of events has already been added to this tournament.")); return; }
       draft.events.push({ file: track.file, name: track.name, raceType: track.raceType, problem: null,
         laps: track.raceType === "circuit" ? Math.max(1, Math.min(MAX_LAPS, Math.trunc(Number(laps.value)) || track.defaultLaps)) : 0 });
       draw();
@@ -110,7 +111,7 @@ export default async function mount(container, context) {
         Object.assign(draft, { name: name.value.trim() || t("Untitled Tournament"), description: description.value });
         draft.hasDrag = draft.events.some((e) => e.raceType === "drag");
         const others = tournaments.filter((item) => item !== original || original.stock);
-        if (others.length >= MAX_TOURNAMENTS) { window.alert(t("Unable to create a new tournament because too many tournaments exist. Please delete an existing tournament before adding a new tournament.")); return; }
+        if (others.length >= MAX_TOURNAMENTS) { await showAlert(t, t("Unable to create a new tournament because too many tournaments exist. Please delete an existing tournament before adding a new tournament.")); return; }
         tournaments = [...others, draft];
         await saveOwnTournaments(context, tournaments);
         picked = draft;
@@ -135,8 +136,8 @@ export default async function mount(container, context) {
     const edit = button(t("Edit"), () => showEditor(picked?.stock ? { ...picked, name: `${picked.name} 2` } : picked));
     const remove = button(t("Delete"), async () => {
       if (!picked) return;
-      if (picked.stock) { window.alert(t("This is a factory-default tournament and cannot be deleted.")); return; }
-      if (!window.confirm(t("Are you sure you wish to delete the currently selected tournament? This operation cannot be undone."))) return;
+      if (picked.stock) { await showAlert(t, t("This is a factory-default tournament and cannot be deleted.")); return; }
+      if (!await showConfirm(t, t("Are you sure you wish to delete the currently selected tournament? This operation cannot be undone."))) return;
       tournaments = tournaments.filter((item) => item !== picked);
       await saveOwnTournaments(context, tournaments);
       picked = tournaments[0] ?? null;
@@ -153,8 +154,8 @@ export default async function mount(container, context) {
       const file = open.files?.[0];
       if (!file) return;
       const read = tournamentFromText(new Uint8Array(await file.arrayBuffer()), tracks);
-      if (!read) { window.alert(t("<<1>> is not a tournament file.", file.name)); return; }
-      if (tournaments.length >= MAX_TOURNAMENTS) { window.alert(t("Unable to create a new tournament because too many tournaments exist.")); return; }
+      if (!read) { await showAlert(t, t("<<1>> is not a tournament file.", file.name)); return; }
+      if (tournaments.length >= MAX_TOURNAMENTS) { await showAlert(t, t("Unable to create a new tournament because too many tournaments exist.")); return; }
       tournaments = [...tournaments, read];
       await saveOwnTournaments(context, tournaments);
       picked = read;

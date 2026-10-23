@@ -18,6 +18,7 @@ import { getProfiles } from "./profile-store.js";
 import { currentDriver } from "../game/profile.js";
 import { resolveWeather } from "../game/weather.js";
 import { createStrings, msg } from "../game/strings.js";
+import { showAlert } from "../ui/dialogs.js";
 
 /** The chat pane keeps this many lines (the game's in-race buffer holds 20). */
 export const LOG_LINES = 60;
@@ -192,12 +193,12 @@ function attach(context, kind, session, transport, me) {
   session.on("chat", (c) => say({ name: c.name, text: c.text, private: !!c.private, own: !!c.own }));
   session.on("notice", (n) => say({ name: "", text: n.text, notice: true }));
   session.on("start", (e) => startNetRace(context, net, e));
-  session.on("left", ({ reason }) => {
+  session.on("left", async ({ reason }) => {
     if (context.net !== net) return;
     context.net = null;
     const text = reason === "removed" ? msg("You have been removed from the game.") : reason === "closed" ? msg("The room was closed.")
       : reason === "left" ? null : msg("The connection to the game was lost.");
-    if (text) window.alert((context.t ?? createStrings())(text));
+    if (text) { const t = context.t ?? createStrings(); await showAlert(t, t(text)); }
     if (reason !== "left") context.router.go(kind === "rooms" && context.netRooms ? "rooms" : "net-connect", {}, { replace: true });
   });
   const pinger = setInterval(() => session.update(), 1000);
@@ -264,7 +265,8 @@ async function startNetRace(context, net, e) {
   const catalog = net.catalog;
   const track = catalog.tracks.find((t) => t.file.toUpperCase() === String(e.sit).toUpperCase());
   if (!track) {
-    window.alert((context.t ?? createStrings())("You do not have this track: <<1>>.", e.track?.name ?? e.sit));
+    const t = context.t ?? createStrings();
+    await showAlert(t, t("You do not have this track: <<1>>.", e.track?.name ?? e.sit));
     net.session.raceLink()?.leave();
     return;
   }

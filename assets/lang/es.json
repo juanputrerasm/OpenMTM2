@@ -1484,6 +1484,50 @@
   "text": "Controles del sobrevuelo"
  },
  {
+  "tag": "Choosing a folder or a file needs a mouse, a keyboard or a touch: the browser opens its file window only for those. With a gamepad alone, play the free trial.",
+  "text": "Elegir una carpeta o un archivo requiere un ratón, un teclado o tocar la pantalla: el navegador solo abre su ventana de archivos con ellos. Solo con un mando, juega la prueba gratuita."
+ },
+ {
+  "tag": "You do not have this track: <<1>>.",
+  "text": "No tienes esta pista: <<1>>."
+ },
+ {
+  "tag": "Space",
+  "text": "Espacio"
+ },
+ {
+  "tag": "Shift",
+  "text": "Mayús"
+ },
+ {
+  "tag": "Keyboard",
+  "text": "Teclado"
+ },
+ {
+  "tag": "How steep the steering is. 10 is the game's own: a gamepad stick or wheel turns little near the centre and fast near the edge. Lower makes a stick turn more evenly; 0 is straight. From the next race",
+  "text": "Qué tan pronunciada es la dirección. 10 es la del juego: una palanca de mando o un volante gira poco cerca del centro y rápido cerca del borde. Menos hace que la palanca gire de forma más pareja; 0 es lineal. Desde la próxima carrera"
+ },
+ {
+  "tag": "Steering response",
+  "text": "Respuesta de la dirección"
+ },
+ {
+  "tag": "Triggers and left stick",
+  "text": "Gatillos y palanca izquierda"
+ },
+ {
+  "tag": "Left stick",
+  "text": "Palanca izquierda"
+ },
+ {
+  "tag": "Triggers",
+  "text": "Gatillos"
+ },
+ {
+  "tag": "Gamepad pedals",
+  "text": "Pedales del mando"
+ },
+ {
   "tag": "Extensions",
   "text": "Extensiones"
  },

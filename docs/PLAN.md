@@ -249,7 +249,7 @@ Things the port adds on purpose. They are marked here so the original game's spe
 - **Water drops** (done): drops thrown up and out where a wheel runs through water, more and higher with speed, and a burst on entering it; Options switches Water splashes. Wheel dust is drawn 2.2 times the game's size and a collision's dark grey smoke 3.2 times.
 - **Modern menus on the classic layout** (done): the modern skin lays every screen out as the classic one does on a plain 640 x 480 stage: the title, the labels the art would carry, the same panels, and the bottom bar drawn as real buttons (the current screen marked), plus a Back button on every screen but Start.
 - **Version-aware menus** (done): the picked folder's `MONSTER.EXE` version is read (its FileVersion resource) and kept in the install manifest; only 2.00.41 and 2.00.42 get the classic menu art, any other build (CP3 among them) the modern menus. An install made before this was recorded is taken as retail.
-- **Watermark** (done): "OpenMTM2 v0.6.0" in the game's font in the corner of every screen (`src/app/version.js`).
+- **Watermark** (done): "OpenMTM2 v0.6.1" in the game's font in the corner of every screen (`src/app/version.js`).
 - **Camera shortcuts** (done): 1 to 9 and 0 pick the ten views (1 cockpit, 2 Chase Near, 3 Chase Far, ...); a key with Ctrl, Alt or Cmd held does no single key's action (Ctrl + Y is no YeeHaw).
 - **Helicopter rotors** (done): the model has none; a spinning main and tail rotor are added.
 - **Instant helicopter** (done): the Helicopter key works at any time and at once; see the helicopter section of the exe analysis for how the original behaved.

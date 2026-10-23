@@ -118,7 +118,32 @@ These are the defaults; every driving key can be rebound in Options.
 | Console | The key left of 1 |
 | Pause | Esc or P |
 
-Gamepads use the browser's standard mapping. VR controllers follow the WebXR `xr-standard` layout.
+### Gamepad
+
+A standard gamepad (Xbox, PlayStation and the like) plays the whole game, menus included, with no mouse or keyboard:
+
+| Racing | Button |
+|---|---|
+| Steer | Left stick |
+| Throttle; brake and reverse | RT; LT |
+| Shift up; shift down | RB; LB |
+| Helicopter; camera | Y; X |
+| Dashboard gauges; overlay map | A; B |
+| Pause | Start |
+| Evo: drive mode; handbrake (held) | D-pad up; D-pad down |
+
+| Menus | Button |
+|---|---|
+| Move (lists such as the tracks included) | D-pad or left stick |
+| Press or pick; back | A; B |
+| Change a dropdown or slider | A, then the D-pad; A keeps it, B puts it back |
+| Options tabs | LB; RB |
+| Type in a text box | A opens an on-screen keyboard; Done keeps the text, B puts it back |
+
+Options, Keys has **Gamepad pedals** (the triggers, the left stick, or both) and **Steering response** (10 is the game's
+own steep curve; lower makes the stick steer more evenly). A pad without the standard mapping drives with its left
+stick. Choosing a game folder or an ISO needs a mouse, keyboard or touch once, since browsers open their file window only
+for those; the free trial installs with the pad alone. VR controllers follow the WebXR `xr-standard` layout.
 
 ## Feature details
 

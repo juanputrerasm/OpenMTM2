@@ -11,6 +11,7 @@ import { roomServer, listRooms, createRoom, joinRoom, rememberServer } from "../
 import { getProfiles } from "../../app/profile-store.js";
 import { currentDriver } from "../../game/profile.js";
 import { msg } from "../../game/strings.js";
+import { showPrompt } from "../dialogs.js";
 
 const STATE_TEXT = { lobby: msg("Waiting"), loading: msg("Loading"), racing: msg("Racing") };
 
@@ -42,7 +43,7 @@ export default async function mount(container, context, params = {}) {
   // ---- The list ----
   const table = el("table", { class: "results net-rooms" });
   async function join(code, locked) {
-    const password = locked ? window.prompt(t("This room has a password:")) : "";
+    const password = locked ? await showPrompt(t, t("This room has a password:")) : "";
     if (locked && password === null) return false;
     say(t("Joining <<1>>…", code));
     await joinRoom(context, code, password ?? "");

@@ -15,6 +15,7 @@ import { createOffline } from "./offline.js";
 import { offlineNote } from "../ui/offline-note.js";
 import { WorkerClient } from "../shared/worker-client.js";
 import { mountWatermark } from "../ui/watermark.js";
+import { startGamepadNav } from "../ui/gamepad-nav.js";
 import { missingRequiredPods } from "../install/required-pods.js";
 
 const screens = {
@@ -57,6 +58,8 @@ async function boot() {
   applyGraphics(context.settings, graphicsHardware());
   const router = new Router(container, context, screens);
   context.router = router;
+  // A gamepad works every screen, the install screen included (ui/gamepad-nav.js).
+  startGamepadNav(context);
 
   // The player's language comes first, so even this page is in it; the install's own wording is laid over it below.
   await loadStrings(context);

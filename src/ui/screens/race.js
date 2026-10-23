@@ -100,6 +100,7 @@ import { entrantTeamPicks, settingsForExtension } from "../../game/extensions/lo
 import { createExtensionScene } from "../../render/extensions/loader.js";
 import { GRASS_RADII, grassLevel } from "../../render/evo-grass.js";
 import { createNetRace } from "../../net/net-race.js";
+import { showPrompt } from "../dialogs.js";
 
 /** The race HUD text is a light grey with a one-pixel black shadow (the game's own look). */
 const DRIVE_MODES = ["2WD", "4WD High", "4WD Low"];
@@ -571,6 +572,7 @@ async function mountRace(container, context, params, owned = []) {
     rules: physics,
     difficulty,
     autoShift: context.settings.autoShift !== false,
+    steeringResponse: context.settings.steeringResponse ?? 10,
     trucks: entrants.map((e) => {
       const model = build.truckModels[e.file];
       return {
@@ -653,7 +655,7 @@ async function mountRace(container, context, params, owned = []) {
   cleanups.push(() => vr.dispose());
 
   const keys = createKeyboardInput(window, context.settings.bindings);
-  const pad = createGamepadInput();
+  const pad = createGamepadInput(navigator, () => context.settings.padPedals);
   cleanups.push(() => keys.dispose());
   let gold = null, gameConsole = null;
   /** The controllers' joystick, and their presses since the simulation last took the input. */
@@ -887,6 +889,10 @@ async function mountRace(container, context, params, owned = []) {
   };
   window.addEventListener("keydown", onKey);
   cleanups.push(() => window.removeEventListener("keydown", onKey));
+  // While the race is driven the gamepad's buttons are its keys; paused or in a menu, they work the menu (ui/gamepad-nav.js).
+  const padDriving = () => !paused && !replaying && !netMenuOpen && !netChat?.typing && !context.optionsDialog?.isConnected;
+  context.padDriving = padDriving;
+  cleanups.push(() => { if (context.padDriving === padDriving) context.padDriving = null; });
   // The keys held down, for the Camera up and down keys, which tilt the chase camera while held.
   const held = new Set();
   const onHold = (e) => {
@@ -1756,7 +1762,7 @@ async function mountRace(container, context, params, owned = []) {
     physicsLine: () => zPhysicsLine(latest?.poses[0]?.sound, physics),
     // Ctrl+L (Z mode): another track by its SIT's name, with the same trucks and settings.
     loadSit: async () => {
-      const name = window.prompt(t("Load a track by its .SIT name:"), track.file);
+      const name = await showPrompt(t, t("Load a track by its .SIT name:"), track.file);
       if (!name) return;
       const said = await loadTrackByName(name);
       if (said) flash(said, performance.now());

@@ -345,6 +345,8 @@ export function createSession(init) {
   }
   const nearFaces = [];
   const difficulty = init.difficulty ?? S.DIFFICULTY.INTERMEDIATE;
+  // MONSTER.INI steeringResponse, which the controls take as r = steeringResponse * 0.1 (MONSTER_EXE_ANALYSIS.md section 7).
+  const steeringResponse = Math.min(10, Math.max(0, Number(init.steeringResponse ?? 10) || 0)) * 0.1;
   const sonicTrack = !!init.sonicTrack;
   // The feet to a ground box's height step: MTM's 2, or a level's own (Hellbender's 1.5).
   const groundBoxStepFt = init.groundBoxStepFt > 0 ? init.groundBoxStepFt : 2;
@@ -1093,7 +1095,7 @@ export function createSession(init) {
         } else t.state.controls.throttle = 0;
       } else if (i === 0) {
         const controlCtx = {
-          dt: STEP, autoShift: t.params.autoShift, forwardSpeed: t.state.bvel[2], dragMode: !!drag, segments: drag ? 4 : 0, difficulty,
+          dt: STEP, autoShift: t.params.autoShift, forwardSpeed: t.state.bvel[2], dragMode: !!drag, segments: drag ? 4 : 0, difficulty, steeringResponse,
         };
         // The keyboard routine always runs; a joystick then overwrites it (MONSTER_EXE_ANALYSIS.md §7).
         S.applyKeyboard(t.state.controls, keys, controlCtx);

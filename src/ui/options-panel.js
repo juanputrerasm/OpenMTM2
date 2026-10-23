@@ -4,11 +4,13 @@ import { GRASS_LEVEL_NAMES, grassLevel } from "../render/evo-grass.js";
 import { FLY_SCHEMES, FLY_SCHEME_NAMES } from "../game/fly-camera.js";
 import { buildKind, defaultSkin } from "../install/exe-version.js";
 import { el } from "./dom.js";
+import { showAlert, showConfirm } from "./dialogs.js";
 import { LANGUAGES, PHYSICS_MODELS, applyMtm1Classic, applyMtm2Classic, applyOpenMtm2, clearSettings, languageOf, optionsFile, physicsModel, readOptionsFile, saveSettings } from "../app/settings.js";
 import { offlineStatusText } from "../app/offline.js";
 import { loadStrings } from "../app/strings-store.js";
 import { locName, msg } from "../game/strings.js";
 import { ACTIONS, DEFAULT_BINDINGS, codeLabel, conflictFor, mergeBindings } from "../game/input/bindings.js";
+import { PAD_PEDALS } from "../game/input/gamepad.js";
 import { CAB_STYLES, VIEW_DISTANCES, VR_VIEWS, vrSettings } from "../game/vr/settings.js";
 import { VOICE_COMMENTARY_ENABLED } from "../audio/commentary-audio.js";
 import { AA_HINT, AA_MODES, aaChoice } from "../game/aa.js";
@@ -60,9 +62,9 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
     }
   };
   const store = () => { use(settings); saveSettings(live); stored = JSON.stringify(live); save(); };
-  /** Close, warning first when there are changes: they are lost unless the player stays to save them. Returns whether it closed. */
-  const close = () => {
-    if (unsaved() && !window.confirm(t("The changes to the options are not saved.\n\nOK closes without them. Cancel goes back to save them."))) return false;
+  /** Close, warning first when there are changes: they are lost unless the player stays to save them. Resolves to whether it closed. */
+  const close = async () => {
+    if (unsaved() && !await showConfirm(t, t("The changes to the options are not saved.\n\nOK closes without them. Cancel goes back to save them."))) return false;
     closeNow();
     return true;
   };
@@ -272,26 +274,26 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       const file = input.files?.[0];
       if (!file) return;
       const read = readOptionsFile(await file.text(), t);
-      if (read.error) { window.alert(read.error); return; }
-      if (!window.confirm(`${t("Replace the settings with those in <<1>>?", file.name)}${unsaved() ? `\n\n${t("The changes not saved here are lost.")}` : ""}`)) return;
+      if (read.error) { await showAlert(t, read.error); return; }
+      if (!await showConfirm(t, `${t("Replace the settings with those in <<1>>?", file.name)}${unsaved() ? `\n\n${t("The changes not saved here are lost.")}` : ""}`)) return;
       use(read.settings);
       saveSettings(live);
       stored = JSON.stringify(live);
-      window.alert(t("Settings imported."));
+      await showAlert(t, t("Settings imported."));
       closeNow();
     });
     input.click();
   };
 
   // Leaving the options for another screen: the same warning as Close first.
-  const leaveFor = (go) => async () => { if (close()) await go(); };
+  const leaveFor = (go) => async () => { if (await close()) await go(); };
   const nav = (label, onclick) => el("button", { class: "nav", "data-menu-sound": "STARTOFF", onclick }, t(label));
   const navButtons = el("div", { class: "options-nav" },
     nav(msg("Hall of Fame"), leaveFor(() => context.router.go("hall"))),
     nav(msg("Instant Replay"), async () => {
       const { pickReplayFile } = await import("./screens/replay.js");
       const replay = await pickReplayFile();
-      if (!replay) { window.alert(t("That file is not a Monster Truck Madness 2 replay.")); return; }
+      if (!replay) { await showAlert(t, t("That file is not a Monster Truck Madness 2 replay.")); return; }
       await leaveFor(() => context.router.go("replay", { replay }))();
     }),
     nav(msg("Start screen"), leaveFor(() => context.router.go("start", {}, { replace: true }))));
@@ -343,7 +345,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
     const source = await pickInstallFolder();
     if (!source) return;
     const found = await inspectSource(source);
-    if (!found.files?.length) { window.alert(t(found.message, ...(found.messageArgs ?? []))); return; }
+    if (!found.files?.length) { await showAlert(t, t(found.message, ...(found.messageArgs ?? []))); return; }
     const label = target.textContent;
     target.disabled = true;
     const off = context.assets.on("install-progress", ({ copied, total, name }) => {
@@ -355,10 +357,10 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       if (done.added.length) lines.push(t("Read again: <<1>>.", done.added.join(", ")));
       if (done.removed.length) lines.push(t("Removed: <<1>>.", done.removed.join(", ")));
       if (found.missing?.length) lines.push(t("Listed but not in the folder: <<1>>.", found.missing.join(", ")));
-      window.alert(lines.join("\n"));
+      await showAlert(t, lines.join("\n"));
       window.location.reload();
     } catch (error) {
-      window.alert(t("Could not reload POD.INI: <<1>>", error.message));
+      await showAlert(t, t("Could not reload POD.INI: <<1>>", error.message));
       target.textContent = label;
       target.disabled = false;
     } finally {
@@ -444,7 +446,15 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
     ]],
     [msg("Keys"), [note, keyRows, el("div", { class: "opt-actions" }, button(msg("Reset keys"), () => {
       Object.assign(bindings, mergeBindings({})); settings.bindings = {}; save(); note.textContent = t("Keys reset."); showKeys();
-    })), choose(msg("Fly-by controls"), "flyControls", FLY_SCHEMES.map((id) => FLY_SCHEME_NAMES[id]), [...FLY_SCHEMES])]],
+    })), choose(msg("Fly-by controls"), "flyControls", FLY_SCHEMES.map((id) => FLY_SCHEME_NAMES[id]), [...FLY_SCHEMES]),
+      // The left stick as the pedals too makes a thumb that drifts while steering press them (game/input/gamepad.js).
+      choose(msg("Gamepad pedals"), "padPedals", [msg("Triggers"), msg("Left stick"), msg("Triggers and left stick")], [...PAD_PEDALS]),
+      // The game's steering response (MONSTER.INI [Control]): a stick's curve is x ^ (1 + 2r), the keys' x ^ (1 + r / 4), r a tenth of it.
+      slider(msg("Steering response"), {
+        min: 0, max: 10, step: 1, value: settings.steeringResponse ?? 10, format: (v) => String(v),
+        set: (v) => { settings.steeringResponse = v; save(); },
+        title: msg("How steep the steering is. 10 is the game's own: a gamepad stick or wheel turns little near the centre and fast near the edge. Lower makes a stick turn more evenly; 0 is straight. From the next race"),
+      })]],
     [msg("Extensions"), [
       el("p", { class: "muted" }, t("Optional game modes shipped with OpenMTM2. Each extension owns its settings and runtime rules.")),
       ...extensionPanels,
@@ -518,7 +528,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
           const source = await pickInstallFolder();
           if (!source) return;
           const found = await inspectGameFolder(source);
-          if (!found.ok) { window.alert(t(found.message, ...(found.messageArgs ?? []))); return; }
+          if (!found.ok) { await showAlert(t, t(found.message, ...(found.messageArgs ?? []))); return; }
           const label = target.textContent;
           target.disabled = true;
           const off = context.assets.on("install-progress", ({ copied, total, name }) => {
@@ -528,10 +538,10 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
             const done = await context.assets.call("addGameFolder", { label: found.label, files: found.files });
             const lines = [done.game ? t("<<1>> archives added from <<2>> (<<3>>).", done.added.length, found.label, done.game) : t("<<1>> archives added from <<2>>.", done.added.length, found.label)];
             if (found.missing?.length) lines.push(t("Listed but not in the folder: <<1>>.", found.missing.join(", ")));
-            window.alert(lines.join("\n"));
+            await showAlert(t, lines.join("\n"));
             window.location.reload();
           } catch (error) {
-            window.alert(t("Could not add the folder: <<1>>", error.message));
+            await showAlert(t, t("Could not add the folder: <<1>>", error.message));
             target.textContent = label;
             target.disabled = false;
           } finally {
@@ -549,8 +559,9 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         button(msg("Import settings"), () => importOptions())),
       el("div", { class: "opt-actions opt-data" },
         el("button", { class: "danger", onclick: async (event) => {
-          if (!window.confirm(t("Clear all OpenMTM2 data from this browser? This permanently removes the copied install, drivers, Hall of Fame entries and settings."))) return;
-          event.currentTarget.disabled = true;
+          const target = event.currentTarget;
+          if (!await showConfirm(t, t("Clear all OpenMTM2 data from this browser? This permanently removes the copied install, drivers, Hall of Fame entries and settings."))) return;
+          target.disabled = true;
           try {
             // The copy of the app goes too; a page that is opened again with a server makes a new one.
             await context.offline?.remove();
@@ -558,8 +569,8 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
             clearSettings();
             window.location.reload();
           } catch (error) {
-            event.currentTarget.disabled = false;
-            window.alert(t("Could not clear the browser data: <<1>>", error.message));
+            target.disabled = false;
+            await showAlert(t, t("Could not clear the browser data: <<1>>", error.message));
           }
         } }, t("Clear browser game data"))),
     ]],

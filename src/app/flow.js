@@ -6,6 +6,7 @@
 import { currentDriver, getProfiles } from "./profile-store.js";
 import { entrantsShortfall, extensionById } from "../game/extensions/loader.js";
 import { createStrings, msg } from "../game/strings.js";
+import { showAlert, showConfirm } from "../ui/dialogs.js";
 
 /**
  * Remember what the Races screen chose.
@@ -75,13 +76,14 @@ export async function goRace(context) {
   const short = entrantsShortfall(extension, watching ?? (Array.isArray(config.opponents) ? config.opponents : []), !!watching);
   if (short !== null) {
     const t = context.t ?? createStrings();
-    window.alert(t("<<1>> needs <<2>> trucks at least. Pick computer opponents on the Races screen.", t(extension.name), short));
+    await showAlert(t, t("<<1>> needs <<2>> trucks at least. Pick computer opponents on the Races screen.", t(extension.name), short));
     return context.router.go("race-select", { mode: config.mode }, { replace: true });
   }
   // Spectator mode: the computer's trucks alone, watched. Not in free roam, which has no race to watch.
   const watched = spectatorField(config, track, trucks);
   if (watched) {
-    if (!window.confirm((context.t ?? createStrings())(SPECTATOR_WARNING))) return undefined;
+    const ct = context.t ?? createStrings();
+    if (!await showConfirm(ct, ct(SPECTATOR_WARNING))) return undefined;
     return context.router.go("race", {
       track, mode: config.mode, laps: config.laps, difficulty: config.difficulty, opponents: watched.slice(1), weather: config.weather,
       gameMode, freeRoam: false, truck: watched[0], trucks, setup: undefined, spectator: true,

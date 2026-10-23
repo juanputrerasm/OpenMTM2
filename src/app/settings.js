@@ -85,6 +85,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   kookyHorn: false,           // MONSTER.INI kookyHorn: three horns instead of one
   crashDamage: true,          // MONSTER.INI allowCrashDamage (the game's own default is off): collisions dent the bodies
   autoShift: true,            // automatic gears (the game's default)
+  steeringResponse: 10,       // MONSTER.INI [Control] steeringResponse, 0 to 10 (the game's default 10): lower makes a stick's steering less steep
+  padPedals: "triggers",      // a gamepad's throttle and brake: "triggers", "stick" (the left stick's y) or "both" (game/input/gamepad.js)
   bindings: Object.freeze({}), // key code overrides by action, see game/input/bindings.js
   hdWeather: true,            // Community Patch 3's HD skies: the install's WeatherArt folder, else the port's copy (worker/weather-art.js)
   mtm1TrucksApart: true,      // MTM1 trucks that MTM2's shadow by file name listed too, as "Bigfoot (MTM1)" (worker/truck-build.js)

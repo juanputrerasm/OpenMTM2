@@ -16,6 +16,7 @@ import { statusText, latencyText, skillText, versionText } from "../../net/legac
 import { weatherName } from "../../game/weather.js";
 import { extensionById } from "../../game/extensions/loader.js";
 import { msg } from "../../game/strings.js";
+import { showConfirm, showPrompt } from "../dialogs.js";
 
 export default async function mount(container, context) {
   const { t } = context;
@@ -45,15 +46,15 @@ export default async function mount(container, context) {
   const inviteButton = el("button", { class: "net-small", title: t("Copy a link that opens this room") }, t("Copy invite"));
   inviteButton.addEventListener("click", async () => {
     const link = inviteLink(context, session.state().room.code);
-    try { await navigator.clipboard.writeText(link); addLine({ name: "", text: t("Invite link copied."), notice: true }); } catch { window.prompt(t("The invite link:"), link); }
+    try { await navigator.clipboard.writeText(link); addLine({ name: "", text: t("Invite link copied."), notice: true }); } catch { await showPrompt(t, t("The invite link:"), link); }
   });
   const computers = el("select", { class: "net-small", "aria-label": t("Computer opponents") }, ...Array.from({ length: 8 }, (_, n) => el("option", { value: n }, String(n))));
   computers.addEventListener("change", () => session.setComputers(Number(computers.value)));
   const kickButton = (p) => {
     const b = el("button", { class: "net-kick", title: t("Remove <<1>> from the game", p.name), "aria-label": t("Remove <<1>>", p.name) }, "✕");
-    b.addEventListener("click", (e) => {
+    b.addEventListener("click", async (e) => {
       e.stopPropagation();
-      if (window.confirm(t("Remove <<1>> from the game?", p.name))) session.kick(p.dpid);
+      if (await showConfirm(t, t("Remove <<1>> from the game?", p.name))) session.kick(p.dpid);
     });
     return b;
   };

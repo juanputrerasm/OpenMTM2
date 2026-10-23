@@ -94,8 +94,8 @@ export default async function mount(container, context, { requiredMissing = [] }
         el("h2", { class: "setup-heading" }, t("Have the game?")),
         el("div", { class: "screen-actions" },
           served ? el("button", { class: "primary", onclick: () => run(() => install(urlSource(servedUrl))) }, t("Install from this server")) : null,
-          el("button", { class: served ? "" : "primary", onclick: () => run(fromFolder) }, t("Choose MTM2 folder")),
-          el("button", { onclick: () => fileInput.click() }, t("Choose ISO or ZIP file")),
+          el("button", { class: served ? "" : "primary", onclick: () => { if (!pickerAllowed()) return; run(fromFolder); } }, t("Choose MTM2 folder")),
+          el("button", { onclick: () => { if (pickerAllowed()) fileInput.click(); } }, t("Choose ISO or ZIP file")),
           fileInput,
         ),
         el("p", { class: "muted setup-note" }, t("Use only files from a copy of the game you own. Your use stays subject to the game's End User License Agreement. Nothing is uploaded: the files are copied into this browser only.")),
@@ -270,6 +270,16 @@ export default async function mount(container, context, { requiredMissing = [] }
     progressLabel.textContent = label;
     cancelButton.hidden = !cancellable;
     cancelButton.disabled = false;
+  }
+
+  /**
+   * Whether the browser will open its file window now: only for a press of the mouse, a key or a touch, never for a
+   * gamepad's (ui/gamepad-nav.js). Otherwise the player is told so.
+   */
+  function pickerAllowed() {
+    if (!navigator.userActivation || navigator.userActivation.isActive) return true;
+    show(t("Choosing a folder or a file needs a mouse, a keyboard or a touch: the browser opens its file window only for those. With a gamepad alone, play the free trial."));
+    return false;
   }
 
   function show(message, kind = "muted") {

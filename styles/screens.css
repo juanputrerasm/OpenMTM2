@@ -111,7 +111,9 @@ table.results tr.player td { color: var(--accent); font-weight: 600; }
 
 /* The classic skin (src/ui/frame.js): the game's 640 x 480 menu art, scaled to fit. */
 .stage-view { position: fixed; inset: 0; background: #000; overflow: hidden; display: grid; place-items: center; }
-.stage { position: relative; flex: none; width: 640px; height: 480px; transform: scale(var(--stage-scale, 1)); transform-origin: center; color: #fff; font-size: 13px; }
+/* Centred on the view whatever its size: in a grid cell, a view smaller than 640 x 480 (a phone) would centre the stage
+   on the cell's own 640 x 480 and push it off to the right or the bottom. */
+.stage { position: absolute; left: 50%; top: 50%; width: 640px; height: 480px; transform: translate(-50%, -50%) scale(var(--stage-scale, 1)); transform-origin: center; color: #fff; font-size: 13px; }
 .stage-backdrop { position: absolute; inset: 0; width: 640px; height: 480px; user-select: none; }
 .stage-panel { position: absolute; overflow: auto; padding: 6px 8px; background: rgba(0, 0, 0, 0.62); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 3px; }
 .stage-panel h2 { font-size: 15px; margin: 6px 0; color: #f2c14e; }
@@ -591,3 +593,23 @@ input.race-off { background: #777; color: #222; }
   .setup-choices { grid-template-columns: 1fr; }
   .setup .screen-actions > button { flex: 1 1 100%; }
 }
+
+/* A gamepad's focus (ui/gamepad-nav.js): shown while the pad is in use, gone at the first mouse move or key. */
+body.pad-nav :focus { outline: 3px solid var(--accent, #f2c14e); outline-offset: 2px; }
+/* Fields fill their panels, which would clip an outline outside them: theirs is drawn inside. */
+body.pad-nav :is(select, input, textarea):focus { outline-offset: -3px; }
+/* A dropdown or slider taken to edit with A: the D-pad steps it, A keeps, B puts it back. */
+body.pad-nav .pad-editing:focus { outline-color: #4fd17a; background-color: rgba(79, 209, 122, 0.18); }
+/* A list's row under the pad's focus (the track list); the chosen row keeps its own colour. */
+body.pad-nav [role=option]:focus { outline: 2px solid var(--accent, #f2c14e); outline-offset: -2px; }
+body.pad-nav [role=option]:focus:not(.selected) td { background: rgba(242, 193, 78, 0.28); }
+/* The game's own message boxes (ui/dialogs.js). */
+.message-box-text { margin: 0 0 6px; white-space: pre-line; }
+.message-box-field { width: 100%; margin-top: 8px; }
+/* The on-screen keyboard (ui/pad-keyboard.js). */
+.pad-keyboard { width: min(560px, calc(100vw - 32px)); }
+.pad-keyboard-text { min-height: 1.6em; margin-bottom: 10px; padding: 6px 10px; border: 1px solid var(--panel-edge); border-radius: 6px; background: rgba(0, 0, 0, 0.3); overflow-wrap: anywhere; }
+.pad-keyboard-row { display: flex; gap: 4px; margin-bottom: 4px; }
+.pad-key { flex: 1 1 0; min-width: 0; padding: 8px 0; }
+.pad-key-wide { flex: 2 1 0; }
+.pad-key-space { flex: 5 1 0; }
