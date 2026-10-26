@@ -13,6 +13,11 @@ import { ROOM_PROTOCOL, ROOM_PATH, encodeState, decodeState } from "./vendor/mtm
 
 /** The default port of openmtm2d. */
 export const ROOM_PORT = 47660;
+/**
+ * A ping this often while connected, so the server knows we are still here: it drops a member silent for 2 minutes
+ * (its `idleTimeoutS`), and a Cloudflare Worker has no other way to tell a dead connection.
+ */
+export const KEEPALIVE_MS = 15000;
 
 /**
  * The WebSocket address for what a player typed: "rooms.example.org" is wss://rooms.example.org/play; this computer
@@ -50,6 +55,7 @@ export function connectRooms({ url, name, client = "OpenMTM2", WebSocketImpl = g
     let nextId = 1, opened = false, helloDone = false;
     // The server's clock minus ours, from the best (shortest) ping.
     let offset = 0, bestRtt = Infinity, rtt = null;
+    let keepalive = null;
 
     const request = (type, fields = {}) => new Promise((res, rej) => {
       if (ws.readyState !== 1) { rej(new Error("Not connected to the server.")); return; }
@@ -84,6 +90,7 @@ export function connectRooms({ url, name, client = "OpenMTM2", WebSocketImpl = g
       try {
         server.info = await request("hello", { protocol: ROOM_PROTOCOL, name: String(name ?? "Driver").slice(0, 24) || "Driver", client });
         helloDone = true;
+        keepalive = setInterval(() => { if (ws.readyState === 1) request("ping", { t: now() }).catch(() => {}); }, KEEPALIVE_MS);
         await server.ping().catch(() => {});
         resolve(server);
       } catch (err) {
@@ -93,8 +100,10 @@ export function connectRooms({ url, name, client = "OpenMTM2", WebSocketImpl = g
     };
     ws.onerror = () => { if (!opened) reject(new Error(`No OpenMTM2 server answers at ${href}.`)); };
     ws.onclose = (e) => {
+      clearInterval(keepalive);
       const why = e.code === 4003 ? "This address is banned from the server." : e.code === 4000 ? "The server speaks another version of the room protocol."
-        : e.code === 4004 ? "You were removed from the server." : e.code === 1001 ? "The server shut down." : "The connection to the server was lost.";
+        : e.code === 4004 ? "You were removed from the server." : e.code === 4010 ? "The server stopped hearing from this computer and closed the connection."
+        : e.code === 1001 ? "The server shut down." : "The connection to the server was lost.";
       for (const p of pending.values()) p.rej(new Error(why));
       pending.clear();
       if (!helloDone) reject(new Error(why));

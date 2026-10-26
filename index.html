@@ -47,7 +47,7 @@
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
     }
   </script>
-  <!-- Installable (Add to Home Screen, Install app): it then opens without the browser's bars (src/ui/fullscreen.js). -->
+  <!-- Installable (Add to Home Screen, Install app): it then opens without the browser's bars (src/ui/display-mode.js). -->
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -74,6 +74,46 @@
       Source code: <a href="https://github.com/juanputrerasm/OpenMTM2">github.com/juanputrerasm/OpenMTM2</a>.</p>
     <p>OpenMTM2 needs JavaScript, Web Workers and the Origin Private File System.</p>
   </noscript>
-  <script type="module" src="./src/app/main.js"></script>
+  <!--
+    The start watchdog: when the game's scripts do not load (an ad blocker's list matched one of them, so the whole
+    module graph fails) or it has not started after a while, a note says what to try. Plain script, so it works even
+    when the modules are what is blocked. src/app/main.js calls openmtm2Started() once its first screen is up.
+  -->
+  <script>
+    (function () {
+      var shown = false;
+      function warn() {
+        if (shown) return;
+        shown = true;
+        var es = /^es\b/i.test(navigator.language || "");
+        var box = document.createElement("div");
+        box.setAttribute("role", "alert");
+        box.style.cssText = "position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:9999;max-width:min(560px,calc(100vw - 32px));"
+          + "box-sizing:border-box;padding:14px 16px;border-radius:8px;background:#1c1d2b;color:#fff;border:2px solid #f2a516;"
+          + "font:15px/1.45 system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.5)";
+        var title = document.createElement("strong");
+        title.textContent = es ? "¿OpenMTM2 no carga?" : "OpenMTM2 not loading?";
+        var text = document.createElement("p");
+        text.style.margin = "6px 0 10px";
+        text.textContent = es
+          ? "Un bloqueador de anuncios (uBlock Origin, AdBlock, Brave Shields...) puede estar bloqueando algunos archivos del juego. OpenMTM2 no tiene anuncios ni rastreo: desactiva el bloqueador para este sitio y recarga la página."
+          : "An ad blocker (uBlock Origin, AdBlock, Brave Shields...) may be blocking some of the game's files. OpenMTM2 has no ads or tracking: turn the blocker off for this site and reload the page.";
+        var reload = document.createElement("button");
+        reload.textContent = es ? "Recargar" : "Reload";
+        reload.style.cssText = "font:inherit;padding:6px 14px;margin-right:8px;cursor:pointer";
+        reload.onclick = function () { location.reload(); };
+        var close = document.createElement("button");
+        close.textContent = es ? "Cerrar" : "Dismiss";
+        close.style.cssText = "font:inherit;padding:6px 14px;cursor:pointer";
+        close.onclick = function () { box.remove(); };
+        box.append(title, text, reload, close);
+        document.body.append(box);
+      }
+      var timer = setTimeout(warn, 20000);
+      window.openmtm2Started = function () { clearTimeout(timer); };
+      window.openmtm2LoadFailed = warn;
+    })();
+  </script>
+  <script type="module" src="./src/app/main.js" onerror="openmtm2LoadFailed()"></script>
 </body>
 </html>

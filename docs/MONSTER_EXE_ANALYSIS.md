@@ -1409,6 +1409,12 @@ reader 0x565050). The writer prints, per vehicle, the truck file then the driver
 pointer and count; records are written from the start of the ring. The port records the same
 frames (`game/replay.js`) and reads and writes the file with OpenPhotex.
 
+- **Object numbers.** A box record's number, and the line order of `Original object locations`, index the box table
+  (count `0xa31e84`), not the SIT's box list: the SIT loader puts type 99 boxes in the ramp table and the top-crush cars
+  in their own, so those are not counted. Where a SIT opens with ramps (Mud Pie `CIRC5.SIT` and the drag strips have
+  six, `DEMO.SIT` one) object n is a later SIT box: a Community Patch 3 replay of Mud Pie lists 289 originals for the
+  SIT's 295 boxes, original n at SIT box n + 6. The port records and plays numbers through this order
+  (worker/track-build.js `replayBoxOrder`).
 - **Timing.** The recorder adds each frame's time (16.16 ticks, `0x682d88`) to an accumulator (`0x65695c`) and takes a
   snapshot when it passes 0x3fff, so the rate follows the clock, not the physics step. The ring's write pointer
   (`0x656960`) wraps at 0x8bf and the count (`0x656964`) stops at 0x8c0. With eight trucks a snapshot is about eight

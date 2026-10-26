@@ -148,6 +148,12 @@ const CPR_TREE_TYPE = 3;
 const CHECKPOINT_TYPE = 6;
 const OLD_MTM_LEVEL = 4;
 
+/**
+ * The game's box table as SIT box indexes, in order: every box but the type 99 ramps and the top-crush cars, which the
+ * game keeps in tables of their own (MONSTER_EXE_ANALYSIS.md section 4). A replay's object numbers count this table.
+ */
+export const replayBoxOrder = (boxes) => boxes.flatMap((b, i) => (b.type === RAMP_TYPE || b.crushRole ? [] : [i]));
+
 /** Whether a checkpoint's model is a CKBOX-style marker (fourth letter O): only the gate it stands for, neither seen nor met. */
 const isCheckpointMarker = (modelName) => podPathTitle(modelName)[3] === "O";
 
@@ -637,6 +643,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     const b = boundsOf[podPathTitle(name)];
     return b ? [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]] : null;
   });
+  const replayBoxes = replayBoxOrder(sit.boxes);
   return {
     problems: [...missing].sort(),
     title: level.title,
@@ -679,8 +686,14 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     modelTextures,
     objects,
     blimp, heli, rex: await loadRex(mtm, truckPalettes),
-    /** Where each SIT box started (x, y, z feet, theta, phi, psi): the replay file's `Original object locations`. */
-    originals: sit.boxes.map((b) => (b.positionFt ? [b.positionFt[0], b.positionFt[1], b.positionFt[2], b.theta ?? 0, b.phi ?? 0, b.psi ?? 0] : [0, 0, 0, 0, 0, 0])),
+    /**
+     * The game's box table in order, as SIT box indexes: the replay's object numbers count these. The game keeps type 99
+     * ramps and top-crush cars in tables of their own (MONSTER_EXE_ANALYSIS.md section 4), so on Mud Pie, the drag strips
+     * and DEMO, whose SITs start with ramps, object n is not SIT box n.
+     */
+    replayBoxes,
+    /** Where each of those boxes started (x, y, z feet, theta, phi, psi): the replay file's `Original object locations`. */
+    originals: replayBoxes.map((i) => sit.boxes[i]).map((b) => (b.positionFt ? [b.positionFt[0], b.positionFt[1], b.positionFt[2], b.theta ?? 0, b.phi ?? 0, b.psi ?? 0] : [0, 0, 0, 0, 0, 0])),
     backdrops,
     truckModels,
     trucks,

@@ -533,7 +533,7 @@ async function mountRace(container, context, params, owned = []) {
   // Instant replay (game/replay.js): a frame every quarter second, kept for the results screen.
   const recorder = createReplayRecorder({
     level: track.path.split(/[\\/]/).pop().toLowerCase(), weather: weatherId, detailLevel: extension?.detailLevel ?? context.settings.detailLevel ?? 2,
-    vehicles: entrants.map((e) => ({ truck: e.file, driver: e.name })), originals: build.originals ?? [],
+    vehicles: entrants.map((e) => ({ truck: e.file, driver: e.name })), originals: build.originals ?? [], boxes: build.replayBoxes ?? null,
   });
 
   // The enhanced look (settings.look): the sun's shadows, and the sun, moon and lens flare.

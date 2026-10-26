@@ -16,7 +16,7 @@ import { offlineNote } from "../ui/offline-note.js";
 import { WorkerClient } from "../shared/worker-client.js";
 import { mountWatermark } from "../ui/watermark.js";
 import { startGamepadNav } from "../ui/gamepad-nav.js";
-import { startInstallTip } from "../ui/fullscreen.js";
+import { startInstallTip } from "../ui/display-mode.js";
 import { missingRequiredPods } from "../install/required-pods.js";
 
 const screens = {
@@ -61,7 +61,7 @@ async function boot() {
   context.router = router;
   // A gamepad works every screen, the install screen included (ui/gamepad-nav.js).
   startGamepadNav(context);
-  // On a phone's browser tab, once: how to play fullscreen (ui/fullscreen.js). The install prompt is caught from here on.
+  // On a phone's browser tab, once: how to play fullscreen (ui/display-mode.js). The install prompt is caught from here on.
   const showInstallTip = startInstallTip(context);
 
   // The player's language comes first, so even this page is in it; the install's own wording is laid over it below.
@@ -121,8 +121,10 @@ function takeInvite() {
 }
 
 if (typeof document !== "undefined") {
-  boot().catch((err) => {
+  // The page's start watchdog (index.html) stands down once a screen is up, and speaks when the start failed.
+  boot().then(() => globalThis.openmtm2Started?.(), (err) => {
     console.error(err);
     document.getElementById("app").textContent = `OpenMTM2 failed to start: ${err.message}`;
+    globalThis.openmtm2LoadFailed?.();
   });
 }

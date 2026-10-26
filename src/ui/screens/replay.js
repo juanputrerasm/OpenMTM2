@@ -125,7 +125,7 @@ export default async function mount(container, context, { replay }) {
   cleanups.push(() => { extensionScene.dispose(); disposeObject(scene); renderer.dispose(); });
 
   let shadows = null;
-  const playback = createPlayback(replay, {});
+  const playback = createPlayback(replay, { boxes: build.replayBoxes ?? null });
   const drawn = replay.vehicles.map((vehicle) => {
     const model = build.truckModels[vehicle.truck.toUpperCase()];
     if (!model) return null;

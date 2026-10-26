@@ -5,7 +5,7 @@ import { FLY_SCHEMES, FLY_SCHEME_NAMES } from "../game/fly-camera.js";
 import { buildKind, defaultSkin } from "../install/exe-version.js";
 import { el } from "./dom.js";
 import { showAlert, showConfirm } from "./dialogs.js";
-import { fullscreenButton } from "./fullscreen.js";
+import { fullscreenButton } from "./display-mode.js";
 import { LANGUAGES, PHYSICS_MODELS, applyMtm1Classic, applyMtm2Classic, applyOpenMtm2, clearSettings, languageOf, optionsFile, physicsModel, readOptionsFile, saveSettings } from "../app/settings.js";
 import { offlineStatusText } from "../app/offline.js";
 import { loadStrings } from "../app/strings-store.js";
@@ -390,7 +390,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       } }, ...[0, 1, 2, 3, 4, 5, 6, 7].map((n) => el("option", { value: n, selected: n === (settings.defaultOpponents ?? 3) }, String(n)))),
       msg("How many computer trucks race by default; the Races screen picks which")),
       menus,
-      // Fullscreen, where the browser can do it and the game is not installed (ui/fullscreen.js), at the page's foot.
+      // Fullscreen, where the browser can do it and the game is not installed (ui/display-mode.js), at the page's foot.
       ...(() => { const button = fullscreenButton(t, "opt-fullscreen-button"); return button ? [el("div", { class: "opt-actions opt-fullscreen" }, button)] : []; })(),
     ]],
     [msg("Display"), [

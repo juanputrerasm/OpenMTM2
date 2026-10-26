@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { REPLAY_RING_RECORDS, parseMtmReplay, writeMtmReplay } from "../src/vendor/openphotex/index.js";
+import { REPLAY_RING_RECORDS, parseMtmReplay, parseMtmSit, writeMtmReplay } from "../src/vendor/openphotex/index.js";
+import { openStockPod, skipWithoutStock } from "./helpers/stock.mjs";
 import { FRAME_SECONDS, RATES, REPLAY_KEEP_SECONDS, createPlayback, createReplayRecorder, damageZones, levelPath, ringReplay } from "../src/game/replay.js";
 
 const snap = (x, psi = 0, extra = {}) => ({
@@ -150,4 +151,28 @@ test("a wheel's angle turns the short way between frames, as the game blends it"
   rec.update(0.5, [wheel(-3.0)], [], () => 0);
   const mid = createPlayback(rec.build()).at(0.125).trucks[0].tires[0].angle;
   assert.ok(Math.abs(Math.abs(mid) - Math.PI) < 0.01, `through pi, not back through zero: ${mid}`);
+});
+
+test("object numbers count the game's box table, not the SIT's boxes: recorded and played through `boxes`", () => {
+  // SIT boxes 0 and 1 are ramps (out of the table): box 2 is object 0, box 5 object 3.
+  const boxes = [2, 3, 4, 5];
+  const rec = createReplayRecorder({ level: "circ5.sit", vehicles: [{ truck: "A.TRK", driver: "A" }], boxes });
+  for (let t = 0; t <= 1 + 1e-9; t += 1 / 60) {
+    rec.update(t, [snap(t)], t > 0.3 && t < 0.6 ? [{ sitIndex: 5, pos: [1, 2, 3], euler: [0, 0, 0] }, { sitIndex: 0, pos: [9, 9, 9] }] : []);
+  }
+  const replay = rec.build();
+  const numbers = [...new Set(replay.records.filter((r) => r.type === 1).map((r) => r.number))];
+  assert.deepEqual(numbers, [3], "box 5 is object 3; a ramp is not recorded");
+  assert.deepEqual(createPlayback(replay, { boxes }).at(1).objects.map((o) => o.sitIndex), [5]);
+  assert.deepEqual(createPlayback(replay).at(1).objects.map((o) => o.sitIndex), [3], "without the table a number is a SIT index");
+});
+
+test("stock Mud Pie: the game's box table leaves out the six ramps that open the SIT", { skip: skipWithoutStock("GAME.POD") }, async () => {
+  const { replayBoxOrder } = await import("../src/worker/track-build.js");
+  const pod = openStockPod("GAME.POD");
+  const sit = parseMtmSit(pod.read(pod.archive.entries.find((e) => e.normalizedName.toUpperCase() === "WORLD/CIRC5.SIT")));
+  const order = replayBoxOrder(sit.boxes);
+  assert.deepEqual(sit.boxes.slice(0, 6).map((b) => b.type), [99, 99, 99, 99, 99, 99]);
+  assert.equal(order.length, sit.boxes.length - 6);
+  assert.equal(order[0], 6, "object 0 is SIT box 6, as Community Patch 3's replays of Mud Pie say");
 });

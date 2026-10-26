@@ -69,7 +69,12 @@ export function vehicleRecord(ticks, number, c, damageCode = 0) {
 }
 
 /** The recorder: `update` on every simulation reply, `build` for the replay to play or save. */
-export function createReplayRecorder({ level, weather = 0, detailLevel = 2, vehicles, originals = [], keepSeconds = REPLAY_KEEP_SECONDS }) {
+/**
+ * `boxes`: the game's box table as SIT box indexes (worker/track-build.js `replayBoxes`), which the file's object numbers
+ * count; without it an object's number is its SIT index. A box outside the table (a ramp, a top-crush part) is not recorded.
+ */
+export function createReplayRecorder({ level, weather = 0, detailLevel = 2, vehicles, originals = [], boxes = null, keepSeconds = REPLAY_KEEP_SECONDS }) {
+  const numberOf = boxes ? new Map(boxes.map((sitIndex, n) => [sitIndex, n])) : null;
   /**
    * Each frame: `{ time, trucks, full, vehicles: Float32Array, objects: Float32Array }`, oldest first; a `full` one
    * (every 0x4000 ticks) holds the game's records, the others `SAMPLE_FLOATS` a truck and no objects.
@@ -85,7 +90,7 @@ export function createReplayRecorder({ level, weather = 0, detailLevel = 2, vehi
      * moved in this reply (`{ sitIndex, pos, euler }`); `damage(i)` a truck's damage code.
      */
     update(time, poses, boxes = [], damage = () => 0) {
-      for (const b of boxes) moved.set(b.sitIndex, b);
+      for (const b of boxes) if (!numberOf || numberOf.has(b.sitIndex)) moved.set(b.sitIndex, b);
       const ticks = Math.round(time * REPLAY_TICKS_PER_SECOND);
       if (ticks < next) return;
       next = ticks - (ticks % REPLAY_SAMPLE_TICKS) + REPLAY_SAMPLE_TICKS;
@@ -101,7 +106,7 @@ export function createReplayRecorder({ level, weather = 0, detailLevel = 2, vehi
       poses.forEach((c, i) => packVehicle(vehicleRecord(ticks, i, c, damage(i)), frame.vehicles, i * VEHICLE_FLOATS));
       let o = 0;
       for (const b of moved.values()) {
-        frame.objects[o] = b.sitIndex;
+        frame.objects[o] = numberOf ? numberOf.get(b.sitIndex) : b.sitIndex;
         frame.objects.set(b.pos, o + 1);
         frame.objects.set(b.euler ?? [0, 0, 0], o + 4);
         o += OBJECT_FLOATS;
@@ -224,7 +229,9 @@ const nearAngle = (a, ref) => ref + ((((a - ref) % (2 * Math.PI)) + 3 * Math.PI)
  * (the shape `render/truck-object.js` takes, the axles at `restTravel`), their damage codes, and the
  * poses of the objects that have moved by then.
  */
-export function createPlayback(replay, { restTravel = [-4, -4] } = {}) {
+export function createPlayback(replay, { restTravel = [-4, -4], boxes = null } = {}) {
+  // The file's object numbers count the game's box table; the scene knows SIT indexes (`boxes`, as the recorder's).
+  const sitIndexOf = (number) => (boxes ? boxes[number] : number);
   const { vehicles, objects } = timelines(replay);
   const count = Math.max(replay.vehicles.length, vehicles.size ? Math.max(...vehicles.keys()) + 1 : 0);
   const last = [...vehicles.values(), ...objects.values()].reduce((m, list) => Math.max(m, list.at(-1).t), 0);
@@ -264,14 +271,15 @@ export function createPlayback(replay, { restTravel = [-4, -4] } = {}) {
       }
       const moved = [];
       for (const [number, list] of objects) {
-        if (t < list[0].t) continue;
+        const sitIndex = sitIndexOf(number);
+        if (sitIndex === undefined || t < list[0].t) continue;
         const { a, b, k } = between(list, t);
         // An object that stopped and was hit again much later waits, then moves over the last frame.
         const gap = b.t - a.t > FRAME_SECONDS * 1.5;
         const kk = gap ? Math.max(0, 1 - (b.t - t) / FRAME_SECONDS) : k;
         const angles = [0, 1, 2].map((n) => lerpAngle(a.record.angles[n], b.record.angles[n], kk));
         mtm2Sim.eulerToMatrix(angles[0], angles[1], angles[2], matrix);
-        moved.push({ sitIndex: number, pos: lerpVec(nearestCopy(a.record.ipos, b.record.ipos), b.record.ipos, kk), matrix: [...matrix] });
+        moved.push({ sitIndex, pos: lerpVec(nearestCopy(a.record.ipos, b.record.ipos), b.record.ipos, kk), matrix: [...matrix] });
       }
       return { trucks, damage, objects: moved };
     },

@@ -31,7 +31,7 @@ export const ERROR = Object.freeze({
 });
 
 /** WebSocket close codes the server uses (besides 1000 and 1001). */
-export const CLOSE = Object.freeze({ PROTOCOL: 4000, BANNED: 4003, KICKED: 4004, RATE: 4008, TOO_MANY: 4009 });
+export const CLOSE = Object.freeze({ PROTOCOL: 4000, BANNED: 4003, KICKED: 4004, RATE: 4008, TOO_MANY: 4009, IDLE: 4010 });
 
 /** Room states. */
 export const ROOM_STATE = Object.freeze({ LOBBY: "lobby", LOADING: "loading", RACING: "racing" });

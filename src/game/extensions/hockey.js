@@ -190,8 +190,10 @@ export function hockeyRink(boxes, groundAt, iceFt) {
  * puck, the posts) and the goal frames, which never collide and so are only among the drawn objects.
  */
 export function rinkBoxes(build) {
-  const frames = (build.objects ?? []).filter((o) => o.model === GOAL_MODEL && build.originals?.[o.sitIndex]).map((o) => {
-    const [x, y, z, , , psi] = build.originals[o.sitIndex];
+  // `originals` follows the game's box table (`replayBoxes`), which may leave SIT boxes out.
+  const start = (o) => build.originals?.[build.replayBoxes ? build.replayBoxes.indexOf(o.sitIndex) : o.sitIndex];
+  const frames = (build.objects ?? []).filter((o) => o.model === GOAL_MODEL && start(o)).map((o) => {
+    const [x, y, z, , , psi] = start(o);
     return { modelName: o.model, type: o.type, sitIndex: o.sitIndex, positionFt: [x, y, z], psi, bounds: build.models?.[o.model]?.bounds ?? null };
   });
   return [...(build.sim?.boxes ?? []), ...frames];
