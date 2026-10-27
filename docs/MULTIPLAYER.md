@@ -147,6 +147,8 @@ How a room differs from a classic game:
 - Players whose copy of the track is missing or differs are marked in the Status column.
 - The owner may pick an extension mode (Hockey, Tag) on the Races screen. The owner's machine
   judges the mode, and the others follow its state (`docs/EXTENSIONS.md`, "Over the network").
+  Combat is judged truck by truck on the machine that drives it, and needs a server that knows
+  the `modeTruck` race event (OpenMTM2 Server after 0.1.1); an older server drops it.
 
 **Classic rooms.** On a server that runs the gateway (OpenMTM2 Server's `docs/GATEWAY.md`), Create
 Room offers **Open to classic MTM2 players**. The original game then joins the room by typing the

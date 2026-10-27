@@ -7,12 +7,19 @@ import assert from "node:assert/strict";
 import { hockeySpot, hockeyStep, hockeyTimeLeft, hockeyWinner, createHockey, toLocal } from "../src/game/extensions/hockey.js";
 import { BALL_WALL_HEIGHT_FT, PITCH_HALF_WIDTH_FT, isSoccerTrack, soccerPitch } from "../src/game/extensions/soccer.js";
 import {
-  CAPTURE_POINTS, ESCAPE_FT, GRACE_S, STUCK_S, cnrHeld, cnrHeliAllowed, cnrPlaces, cnrStep, createCnr, escapeSpot, offWheels,
+  COP_COLOUR, ROBBER_COLOUR, CAPTURE_POINTS, ESCAPE_FT, GRACE_S, STUCK_S, cnrHeld, cnrHeliAllowed, cnrPlaces, cnrStep, createCnr, escapeSpot, offWheels,
 } from "../src/game/extensions/cops-robbers.js";
 import {
-  BLOCKER, RACER, RNR_CLASSIC, RNR_TIMED, blockTarget, blockerTarget, racerHome, rnrPlaces, rnrTeamPlaces, rnrTeams, rnrWinner,
+  BLOCKER, CHASE_BUST_FT, CHASE_COOLDOWN_S, RACER, RNR_CHASE, RNR_CLASSIC, RNR_TIMED, blockTarget, blockerTarget, chaseBust, createChase,
+  racerHome, rnrPlaces, rnrTeamPlaces, rnrTeams, rnrWinner,
 } from "../src/game/extensions/race-rumble.js";
-import { extensionFinderTarget, extensionMapMarks, extensionNetFromWire, extensionNetToWire, extensionTruckLabels, prepareExtensionRace } from "../src/game/extensions/race-loader.js";
+import {
+  extensionFinderTarget, extensionMapMarks, extensionMarkerTarget, extensionNetFromWire, extensionNetToWire, extensionTruckLabels,
+  extensionTruckMarks, prepareExtensionRace,
+} from "../src/game/extensions/race-loader.js";
+import {
+  TAG64_BONUS, TAG64_COOLDOWN_S, TAG_MTM64, createTag, tag64Outside, tag64Rate, tagHeld, tagScoring, tagShadowBand, tagStep,
+} from "../src/game/extensions/tag.js";
 import { PLAYER_PICK, entrantTeamPicks, extensionById, setTeamPick, teamPickerFor } from "../src/game/extensions/loader.js";
 import { pickedTeams, teamsOf, twoTeams } from "../src/game/extensions/teams.js";
 import { fillGrid } from "../src/game/race-setup.js";
@@ -249,4 +256,105 @@ test("the race adapter: finder targets, map marks and the network state", () => 
   assert.equal(back.robber, 2);
   assert.deepEqual(back.points, [60, 0, 9]);
   assert.deepEqual(back.spot.pos, [1, 2, 3]);
+});
+
+// ---- Monster Truck Madness 64's Tag and Chase (docs/EXTENSIONS.md) ----
+
+test("Tag with MTM64's rules: free trucks score by closeness, 1 a second from 100 ft, 10 beside It", () => {
+  assert.equal(tag64Rate(0), 10);
+  assert.equal(tag64Rate(50), 7.5);
+  assert.ok(Math.abs(tag64Rate(99) - 0.199) < 1e-9, "the game's formula dips under 1 near 100 ft");
+  assert.equal(tag64Rate(100), 1);
+  assert.equal(tag64Rate(150), 1);
+  assert.equal(tag64Rate(Infinity), 1);
+  const settings = tagScoring({ rules: "mtm64" });
+  assert.equal(settings.rules, TAG_MTM64);
+  assert.equal(tagScoring({}).rules, "openmtm2", "OpenMTM2's rules by default");
+  assert.equal(extensionById("tag").settings.find((s) => s.key === "rules").default, "openmtm2");
+  const tag = createTag(3, () => 0, settings);
+  assert.deepEqual(tag.points, [0, 0, 0], "everyone starts at 0");
+  assert.equal(tag.holdUntil, 0, "It is not held");
+  assert.ok(!tagHeld(tag, 0, 0.1));
+  // It at 1000, truck 1 50 ft off, truck 2 200 ft off: 7.5 and 1 a second, It nothing.
+  const P = [[1000, 0, 1000], [1050, 0, 1000], [1200, 0, 1000]];
+  assert.equal(tagStep(tag, 0, 2, [[0, 1]], P), null, "touches do not tag");
+  assert.deepEqual(tag.points, [0, 15, 2]);
+  assert.deepEqual(tagShadowBand(settings), [35, 70]);
+});
+
+test("Tag with MTM64's rules: the nearest truck within 25 ft takes It, +50 to the old It, no pass for 3 s; out of bounds is It", () => {
+  const tag = createTag(4, () => 0, tagScoring({ rules: "mtm64" }));
+  const P = [[1000, 0, 1000], [1020, 0, 1000], [1010, 0, 1000], [1300, 0, 1000]];
+  const pass = tagStep(tag, 1, 0, [], P);
+  assert.deepEqual(pass, { kind: "tag", from: 0, to: 2, points: TAG64_BONUS }, "the nearest of the two within 25 ft");
+  assert.equal(tag.it, 2);
+  assert.equal(tag.points[0], 50);
+  assert.equal(tagStep(tag, 1 + TAG64_COOLDOWN_S - 0.01, 0, [], P), null, "no pass during the cooldown");
+  assert.equal(tagStep(tag, 1 + TAG64_COOLDOWN_S, 0, [], P).to, 0, "then It passes again");
+  // Truck 3 drives within 32 ft of the level's edge: It, no bonus.
+  const out = [[1000, 0, 1000], [2000, 0, 2000], [3000, 0, 3000], [20, 0, 4000]];
+  const before = [...tag.points];
+  assert.deepEqual(tagStep(tag, 10, 0, [], out), { kind: "out", from: 0, to: 3, points: 0 });
+  assert.deepEqual(tag.points, before);
+  assert.ok(tag64Outside([4000, 0, 8170]) && !tag64Outside([4000, 0, 8150]));
+  const tagged = createTag(2, () => 0, tagScoring({ rules: "mtm64" }));
+  tagStep(tagged, 1, 0, [], [[1000, 0, 1000], [1024, 0, 1000]]);
+  const wire = extensionNetFromWire("tag", extensionNetToWire("tag", { ...tagged, over: false }, (i) => i + 1), (v) => v - 1, 2);
+  assert.equal(wire.passUntil, 1 + TAG64_COOLDOWN_S);
+  assert.equal(wire.scoring.rules, TAG_MTM64);
+});
+
+test("Tag with MTM64's rules plays a 5 minute round whatever the length set", () => {
+  const race = prepareExtensionRace(extensionById("tag"), { length: 12, settings: { rules: "mtm64" } });
+  assert.equal(race.simulation.minutes, 5);
+  assert.equal(prepareExtensionRace(extensionById("tag"), { length: 12, settings: {} }).simulation.minutes, 12);
+});
+
+test("Chase: exactly one suspect, from the dialog or the player; the rest are cops", () => {
+  assert.deepEqual(rnrTeams(4, false, { variant: RNR_CHASE }).roles, [RACER, BLOCKER, BLOCKER, BLOCKER], "the player by default");
+  assert.deepEqual(rnrTeams(4, true, { variant: RNR_CHASE }).roles, [BLOCKER, RACER, BLOCKER, BLOCKER], "Play as cop: the first computer truck");
+  assert.deepEqual(rnrTeams(4, false, { variant: RNR_CHASE, picks: [null, null, { role: RACER }, null] }).roles, [BLOCKER, BLOCKER, RACER, BLOCKER]);
+  assert.deepEqual(rnrTeams(4, false, { variant: RNR_CHASE, picks: [null, { role: RACER }, { role: RACER }, null] }).roles, [BLOCKER, RACER, BLOCKER, BLOCKER],
+    "a second Suspect pick is a cop");
+  assert.deepEqual(rnrTeams(3, true, { variant: RNR_CHASE, picks: [null, { role: BLOCKER }, null] }).roles, [BLOCKER, BLOCKER, RACER], "the first on Auto");
+  const { teams, roles } = rnrTeams(3, false, { variant: RNR_CHASE });
+  assert.deepEqual(teams, roles);
+  const picker = teamPickerFor({ extensions: { "race-rumble": { variant: "chase" } } }, "race-rumble");
+  assert.deepEqual([picker.teams, picker.roles.length], [0, 2]);
+  assert.equal(picker.roles[RACER], "Suspect");
+});
+
+test("Chase: a cop within 30 ft busts the suspect, the nearest credited, none for 3 s after; the suspect home in time wins", () => {
+  assert.deepEqual([CHASE_BUST_FT, CHASE_COOLDOWN_S], [30, 3]);
+  const roles = [RACER, BLOCKER, BLOCKER];
+  const chase = createChase(3);
+  assert.equal(chaseBust(chase, 1, roles, [[0, 0, 0], [31, 0, 0], [500, 0, 0]]), null, "31 ft is too far");
+  assert.deepEqual(chaseBust(chase, 1, roles, [[0, 0, 0], [29, 0, 0], [20, 0, 0]]), { kind: "bust", by: 2, racer: 0 });
+  assert.equal(chaseBust(chase, 3.9, roles, [[0, 0, 0], [5, 0, 0], [20, 0, 0]]), null, "the cooldown");
+  assert.equal(chaseBust(chase, 4, roles, [[0, 0, 0], [5, 0, 0], [20, 0, 0]]).by, 1);
+  assert.equal(chaseBust(chase, 9, roles, [[0, 0, 0], [5, 0, 0], [20, 0, 0]], true), null, "the suspect is home");
+  chaseBust(chase, 9, roles, [[0, 0, 0], [50, 0, 0], [20, 0, 0]]);
+  assert.deepEqual(chase.busts, [0, 1, 2]);
+  const trucks = [{ finished: false, place: 1 }, { finished: false, place: 2 }, { finished: false, place: 3 }];
+  assert.equal(rnrWinner(roles, trucks, roles, RNR_CHASE), BLOCKER, "time up: the cops");
+  assert.deepEqual(rnrPlaces(roles, roles, trucks, RNR_CHASE, chase.busts), [3, 2, 1], "the cops first, by busts");
+  trucks[0].finished = true; trucks[0].raceTime = 250;
+  assert.equal(rnrWinner(roles, trucks, roles, RNR_CHASE), RACER);
+  assert.deepEqual(rnrPlaces(roles, roles, trucks, RNR_CHASE, chase.busts), [1, 3, 2]);
+});
+
+test("Chase's labels, colours and arrow: the suspect red with the arrow, the cops blue and pointed at it", () => {
+  const entrants = [{ name: "You", file: "A", player: true }, { name: "Mark", file: "B" }, { name: "Greg", file: "C" }];
+  const race = prepareExtensionRace(extensionById("race-rumble"), { entrants, length: 2, settings: { variant: "chase", minutes: 5 } });
+  assert.equal(race.dress.marker, ROBBER_COLOUR);
+  assert.deepEqual(extensionTruckLabels(race.dress, entrants, (e) => e.name).map((l) => l[1]), ["Suspect", "Cop", "Cop"]);
+  assert.equal(extensionMarkerTarget(race.dress), 0);
+  assert.equal(extensionMapMarks(race.dress, 3)[0].marker, "arrow");
+  assert.equal(extensionTruckMarks(race.dress, 3)[1].color, COP_COLOUR);
+  assert.deepEqual(extensionFinderTarget(race.dress, 1, [[0, 0, 0], [9, 0, 9], [5, 0, 5]]), [0, 0, 0], "a cop's finder at the suspect");
+  assert.equal(extensionFinderTarget(race.dress, 0, [[0, 0, 0], [9, 0, 9], [5, 0, 5]]), undefined, "the suspect's at the checkpoints");
+  assert.equal(extensionMarkerTarget({ mode: "race-rumble", variant: "timed", roles: [RACER, BLOCKER] }), -1);
+  const wire = extensionNetFromWire("race-rumble", extensionNetToWire("race-rumble",
+    { teams: [0, 1, 1], roles: [0, 1, 1], variant: "chase", events: 2, busts: [0, 1, 1], coolUntil: 7 }, (i) => i + 1), (v) => v - 1, 3);
+  assert.deepEqual([wire.busts, wire.coolUntil, wire.variant], [[0, 1, 1], 7, "chase"]);
 });

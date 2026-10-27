@@ -14,12 +14,14 @@ import * as Cp from "../vendor/openphotex/sim/cpr/index.js";
 import * as S from "../vendor/openphotex/sim/mtm2/index.js";
 import { createCrossingLog, raceGap, recordCrossings } from "../game/timing.js";
 import { buildRumbleField, createRumbleDriver, rumbleControls } from "../game/rumble-ai.js";
-import { REVERSE_SPEED, TREE_S, createDrag, dragCollision, dragLamps, dragOver, dragPlaces, dragTick, mirrorCourse, stageSpeed, stagingDistance, stillStaging } from "../game/drag-race.js";
+import { REVERSE_SPEED, TREE_S, createDrag, dragCollision, dragLamps, dragOver, dragPedals, dragPlaces, dragTick, mirrorCourse, stageSpeed, stagingDistance, stillStaging } from "../game/drag-race.js";
 import { createExtensionSession, extensionSessionGround } from "../game/extensions/session-loader.js";
 import { createEvoPathRunner } from "../game/evo-paths.js";
 import { applyCprAids, cprAids, cprCarFigures, cprCourse, createCprDriver, createWidthLookup, spinCorrection } from "../game/cpr-driver.js";
 import { cprAnchorsForSag } from "../shared/cpr-anchors.js";
 import { createFlight, departVisual, flightVisual, nearestCourseSpot, stepFlight, timerVisual } from "../game/heli-flight.js";
+import { createRacerRecovery, racerRecovering, racerRecoveryBefore, racerRecoveryStep } from "../game/racer-recovery.js";
+import { cpuControlBefore, cpuControlStep, createCpuControl } from "../game/cpu-control.js";
 
 export const STEP = 1 / 60;
 
@@ -501,22 +503,29 @@ export function createSession(init) {
   if (race?.summit) {
     // The ground, and the top of any ground box on it: as a second layer when it stands clear of the
     // ground (a table, a bridge), for the computer trucks' way up to the zone.
+    // A box's top is flagged (`box`), so its edges count as faces (rumble-ai.js `BOX_STEP_FT`).
     const layers = (x, z) => {
       const g = ground.height(x, z);
       if (!ra0 || !ra1) return [g];
       const i = (((Math.trunc(z * 256) >> 13) & 255) << 8) | ((Math.trunc(x * 256) >> 13) & 255);
       if (ra0[i] === ra1[i]) return [g];
       const lo = ra0[i] * 2, hi = ra1[i] * 2;
-      return lo > g + 12 ? [g, hi] : [Math.max(g, hi)];
+      const out = lo > g + 12 ? [g, hi] : [Math.max(g, hi)];
+      out.box = lo > g + 12 ? [false, true] : [hi > g + 0.5];
+      return out;
     };
     rumbleField = buildRumbleField(race.summit.zone, layers);
-    // Computer trucks hold the zone at walking pace, so the slow-truck helicopter only watches them off the summit.
     const aggression = [0.35, 0.6, 0.85][difficulty] ?? 0.6;
     for (const [i, t] of trucks.entries()) {
       t.recovery.summit = true;
       // Every truck gets a driver, so the player's full autopilot (Ctrl+T) drives a Rumble too.
       t.rumble = createRumbleDriver(Math.min(1, aggression + ((i * 0.37) % 0.3) - 0.15));
-      if (t.autopilot) t.recovery.autopilot = false;
+      // A computer truck recovers as the player does (an addition): set back on its wheels where it lies, never
+      // fetched by the helicopter, which a player cannot call in a Rumble either. Its driver backs out when stuck.
+      if (t.autopilot && !t.remote) {
+        t.recovery.player = true;
+        t.recovery.autopilot = false;
+      }
     }
   }
 
@@ -630,7 +639,37 @@ export function createSession(init) {
   const extensionSession = createExtensionSession(extensionPayload, {
     step: STEP, trucks, race, levelBoxes, dirty, wallsAround, walls: init.walls,
     ground, course, specs, ramps: allRamps, weather: () => weather, watchHeadway, net: netRole,
+    // The helicopter for a truck, set down on course segment `segment` (as for a missed checkpoint).
+    liftTo: (t, segment) => liftToSegment(t, segment),
   });
+  // An extension may give a truck a ground of its own (Combat's, which hides a lost wheel's ground: the wheel never touches).
+  if (extensionSession?.groundFor) {
+    trucks.forEach((t, i) => {
+      const own = extensionSession.groundFor(i, t.ctx.ground);
+      if (own) t.ctx.ground = own;
+    });
+  }
+  // A truck an extension keeps out of the race (Race & Rumble's blockers) has no checkpoint left to take: it never
+  // passes or misses one, and never closes a lap.
+  if (race && !race.summit && !drag && extensionSession?.outOfRace) {
+    race.trucks.forEach((rt, i) => {
+      if (!extensionSession.outOfRace(i)) return;
+      rt.outOfRace = true;
+      rt.checkpoint = race.checkpoints.length;
+    });
+  }
+  // Computer racers' own recovery (game/racer-recovery.js): on Professional they drive back through a missed
+  // checkpoint; an extension may have its racers get themselves out when stuck (Race & Rumble).
+  if (race && !race.summit && !drag && course.length) {
+    trucks.forEach((t, i) => {
+      if (!t.autopilot || t.remote || t.cprDriver || race.trucks[i].outOfRace) return;
+      const returns = difficulty === S.DIFFICULTY.PROFESSIONAL;
+      const unsticks = !!extensionSession?.selfRecovery?.(i);
+      if (returns || unsticks) t.racerRecovery = createRacerRecovery({ returns, unsticks });
+      // Every computer truck on the course keeps control of itself (game/cpu-control.js).
+      t.cpuControl = createCpuControl();
+    });
+  }
 
   /**
    * This frame's boxes (MTM2_PHYSICS.md 14.15): those within r + R + 10 ft on x and z of a truck
@@ -649,6 +688,8 @@ export function createSession(init) {
       const moving = Math.hypot(box.vel[0], box.vel[1], box.vel[2]) > 0.1;
       if (moving || nearTruck(box) || listed.some((o) => near(o.pos[0], o.pos[2], o.radius, box))) listed.push(box);
     }
+    // An extension's own loose objects (Combat's lost wheels) are always in the list: every truck meets them.
+    for (const box of extensionSession?.movableBoxes?.() ?? []) listed.push(box);
     ground.ramps.length = 0;
     for (const ramp of allRamps) {
       if (nearTruck(ramp) || listed.some((o) => near(o.pos[0], o.pos[2], o.radius, ramp))) ground.ramps.push(ramp);
@@ -755,12 +796,11 @@ export function createSession(init) {
     return { sitIndex: box.sitIndex, pos, matrix: Array.from(m), euler: Array.from(box.euler) };
   };
 
-  /** A truck's recovery context, aimed at its course segment when it has one (10.3). */
-  function recoveryOf(t) {
+  /** A truck's recovery context, aimed at its course segment (or segment `i`) when it has one (10.3). */
+  function recoveryOf(t, i = t.state.ap.segment) {
     const own = apOf(t).course;
     if (own.length) {
       const driven = S.orientedCourse(own, apCtx.reversed);
-      const i = t.state.ap.segment;
       t.recovery.segment = driven[i];
       t.recovery.previous = driven[apCtx.reversed ? (i + 1) % own.length : (i + own.length - 1) % own.length];
     }
@@ -777,8 +817,9 @@ export function createSession(init) {
     player.apLevel = level;
     player.autopilot = level === 2;
     player.ctx.human = level !== 2;
-    player.recovery.player = level !== 2;
-    player.recovery.autopilot = level === 2;
+    // In a Rumble every truck recovers as the player does (see the Rumble's drivers above).
+    player.recovery.player = level !== 2 || !!race?.summit;
+    player.recovery.autopilot = level === 2 && !race?.summit;
     if (race) race.trucks[0].player = level !== 2;
     return level;
   }
@@ -885,7 +926,7 @@ export function createSession(init) {
    */
   function remoteSplit({ truck, next, split }) {
     const rt = race?.trucks[truck];
-    if (!rt || rt.finished || !trucks[truck]?.remote || race.summit) return false;
+    if (!rt || rt.finished || rt.outOfRace || !trucks[truck]?.remote || race.summit) return false;
     const n = race.checkpoints.length;
     if (!n || ((rt.checkpoint + 1) % n) !== ((next % n) + n) % n) return false;
     rt.splits.push(Number.isFinite(split) ? split : 0);
@@ -933,6 +974,7 @@ export function createSession(init) {
     // An online room's extension race: the owner's mode state, and taking over when the owner left.
     if (name === "mode") return extensionSession?.applyNet ? (extensionSession.applyNet(value), true) : false;
     if (name === "modeAuthority") { netRole.authority = value ? "owner" : "follower"; return true; }
+    if (name === "modeOwn") return extensionSession?.applyNetOwn ? (extensionSession.applyNetOwn(value), true) : false;
     return undefined;
   }
 
@@ -1016,9 +1058,9 @@ export function createSession(init) {
   /**
    * A computer truck that makes no headway calls the helicopter (an addition: the game's own check is
    * the speed, which a truck rocking against a tree passes). It must leave a NO_HEADWAY_FT circle
-   * around where it was within NO_HEADWAY_S.
+   * around where it was within `patience` seconds (NO_HEADWAY_S unless a mode gives its trucks longer).
    */
-  function watchHeadway(t) {
+  function watchHeadway(t, patience = NO_HEADWAY_S) {
     const s = t.state;
     const w = t.headway ?? (t.headway = { pos: [s.pos[0], s.pos[2]], time: 0 });
     if (s.heliTimer > 0 || Math.hypot(s.pos[0] - w.pos[0], s.pos[2] - w.pos[1]) > NO_HEADWAY_FT) {
@@ -1027,10 +1069,75 @@ export function createSession(init) {
       return;
     }
     w.time += STEP;
-    if (w.time < NO_HEADWAY_S) return;
+    if (w.time < patience) return;
     w.time = 0;
+    liftStuck(t);
+  }
+
+  /** The helicopter for a stuck computer truck, at once. */
+  function liftStuck(t) {
+    const s = t.state;
     s.heliTimer = S.STUCK_LIMIT_S - 1;
     S.liftOff(s, t.params, ground, recoveryOf(t), s.contactCount ?? 0);
+  }
+
+  /**
+   * A computer truck that just missed a checkpoint (MTM2_PHYSICS.md 14.24): one that drives back through it itself
+   * (game/racer-recovery.js) is left to; any other is lifted as the race rules do, toward the segment it was on when
+   * it missed. (The port never sets it on the gate as the game does on Professional.)
+   */
+  function missedCheckpoint(t, segment) {
+    if (t.racerRecovery?.returns) return;
+    const s = t.state;
+    s.heliTimer = -6;
+    S.liftOff(s, t.params, ground, recoveryOf(t, segment), s.contactCount);
+  }
+
+  /** The helicopter for truck `t`, to course segment `segment`, the way the race rules lift a truck that missed a checkpoint. */
+  function liftToSegment(t, segment) {
+    const s = t.state;
+    if (s.heliTimer > 0 || t.flight) return false;
+    s.heliTimer = -6;
+    S.liftOff(s, t.params, ground, recoveryOf(t, segment), s.contactCount ?? 0);
+    s.ap.segment = segment;
+    return true;
+  }
+
+  /** Where the course goes from a truck's segment: the end of a straight, the exit of an arc. */
+  function segmentAim(seg) {
+    if (!seg) return null;
+    if (!S.isArc(seg)) return seg.end;
+    return [seg.centre[0] + Math.sin(seg.exitAngle) * seg.radius, seg.centre[1], seg.centre[2] + Math.cos(seg.exitAngle) * seg.radius];
+  }
+
+  /**
+   * A computer racer's own recovery after the course autopilot (game/racer-recovery.js). While it handles the truck
+   * the course's stuck timer is off and it alone calls the helicopter, as its last resort.
+   */
+  function recoverRacer(t, i) {
+    const r = t.racerRecovery, s = t.state, rt = race.trucks[i];
+    if (s.heliTimer > 0) return;
+    const cp = rt.state === 3 && !rt.finished ? race.checkpoints[rt.checkpoint] : null;
+    const verdict = racerRecoveryStep(r, {
+      state: s, dt: STEP, gears: S.GEAR,
+      missed: cp ? { pos: cp.gate.pos, psi: cp.psi, half: cp.gate.half } : null,
+      aim: segmentAim(recoveryOf(t).segment),
+      trucks: r.unsticks ? trucks.filter((o) => o !== t && o.state.heliTimer <= 0).map((o) => o.state.pos) : null,
+      threats: extensionSession?.threats?.(i) ?? null,
+    });
+    const own = r.unsticks || racerRecovering(r);
+    t.recovery.autopilot = !own;
+    if (own && s.heliTimer < 0) s.heliTimer = 0;
+    if (verdict === "course") keepControl(t);
+    if (verdict === "heli") { t.headway = null; liftStuck(t); }
+    else if (own) t.headway = null;
+    else watchHeadway(t);
+  }
+
+  /** A computer truck keeping control after the autopilot (game/cpu-control.js). */
+  function keepControl(t) {
+    if (!t.cpuControl || t.state.heliTimer > 0) return;
+    cpuControlStep(t.cpuControl, t.state, STEP, segmentAim(recoveryOf(t).segment), S.GEAR);
   }
 
   /**
@@ -1038,12 +1145,22 @@ export function createSession(init) {
    * step of a catch-up's is sent, so `advance` and `finishRace` ask for that one alone; a step made any other way keeps it.
    */
   let keepPrevious = true;
+  /** An extension's action waiting for the next step (`step`). */
+  let pendingAction = null;
   /** The listed boxes' poses before a step (`poseInto`), kept from step to step. */
   let before = new Float64Array(0);
 
   /** Step one fixed step with the held keys (the player's truck). */
   function step(input) {
-    const { joystick = null, helicopter = false, slew = null, ...held } = input ?? {};
+    const { joystick = null, helicopter = false, slew = null, modeAction = null, ...held } = input ?? {};
+    // An extension's own key (Combat's repair, on the Crash Damage key) and its menu's choices (leaving to watch): kept
+    // until a step takes it, as a tick may run none (the first after a pause).
+    if (modeAction) pendingAction = modeAction;
+    if (input) input.modeAction = null;
+    if (pendingAction && extensionSession?.action && (!race || S.raceStarted(race))) {
+      extensionSession.action(pendingAction, 0);
+      pendingAction = null;
+    }
     if (gold.slew) {
       if (slew) slewMove(slew);
       if (keepPrevious) for (const t of trucks) t.previous = snapshot(t.state);
@@ -1058,7 +1175,16 @@ export function createSession(init) {
     // The race tick comes first in the game's frame (0x487300): checkpoints, segments, the order.
     if (race) {
       const lapsBefore = race.trucks.map((rt) => rt.laps);
-      S.raceTick(race, STEP, raceAp, { ground, rc: (rt) => recoveryOf(trucks[race.trucks.indexOf(rt)]) });
+      // The missed-checkpoint helicopter is decided here (`missedCheckpoint`), not in the race rules, so a racer can
+      // drive back through the gate; the segment each truck was on is the one the rules would lift it toward.
+      const missedBefore = race.trucks.map((rt) => rt.state === 3);
+      const segmentBefore = trucks.map((t) => t.state.ap.segment);
+      // Each truck's recovery context follows its segment, as the rules' own call kept it.
+      if (S.raceStarted(race) && !race.summit) for (const t of trucks) recoveryOf(t);
+      S.raceTick(race, STEP, raceAp);
+      race.trucks.forEach((rt, i) => {
+        if (!rt.player && !missedBefore[i] && rt.state === 3) missedCheckpoint(trucks[i], segmentBefore[i]);
+      });
       // The game's `bonusLaps` (0x485afc): a lap closed in first place is a lap led, for the points.
       race.trucks.forEach((rt, i) => { if (rt.laps > lapsBefore[i] && rt.place === 1) lapsLed[i]++; });
       if (drag) dragStep();
@@ -1081,9 +1207,6 @@ export function createSession(init) {
         // An extension mode drives its trucks; one that answers false leaves the truck to the course's autopilot (Race & Rumble's racers).
         if (go && extensionSession && extensionSession.drive(t, i) !== false) { /* driven by the mode */ }
         else if (go && t.rumble) {
-          const onSummit = race.summit.trucks[i].state !== 0;
-          t.recovery.autopilot = !onSummit;
-          if (onSummit && t.state.heliTimer < 0) t.state.heliTimer = 0;
           const rivals = trucks.filter((o) => o !== t && o.state.heliTimer <= 0).map((o) => o.state.pos);
           rumbleControls(t.state, t.rumble, race.summit.zone, rivals, S.GEAR, STEP, rumbleField);
         } else if (go && drag && (drag.lanes[t.lane].dq || race.clock - race.startTime < (t.reaction ?? 0))) {
@@ -1093,8 +1216,17 @@ export function createSession(init) {
         } else if (go && t.cprDriver) {
           cprDrive(t);
           watchHeadway(t);
-        } else if (go) {
+        } else if (go && t.racerRecovery) {
+          racerRecoveryBefore(t.racerRecovery, t.state.controls);
+          if (t.cpuControl) cpuControlBefore(t.cpuControl, t.state.controls);
           S.applyAutopilot(t.state, t.params, apOf(t));
+          recoverRacer(t, i);
+        } else if (go) {
+          if (t.cpuControl) cpuControlBefore(t.cpuControl, t.state.controls);
+          S.applyAutopilot(t.state, t.params, apOf(t));
+          keepControl(t);
+          // A drag pass: flat out to the finish beam (game/drag-race.js `dragPedals`); the autopilot steers and stops it after.
+          if (drag && !race.trucks[i].finished && t.state.bvel[2] > 1) dragPedals(t.state.controls, -t.state.euler[0], Math.atan2(t.state.bvel[0], t.state.bvel[2]));
           watchHeadway(t);
         } else t.state.controls.throttle = 0;
       } else if (i === 0) {
@@ -1338,7 +1470,8 @@ export function createSession(init) {
       laps: race.laps,
       over: race.over,
       /** The HUD's Lead or Back gap for the player's truck (game/timing.js). */
-      gap: race.summit || (extensionSession && !extensionSession.keepsRace) ? null : raceGap(race.trucks, crossings, 0),
+      // A mode may show another truck's times (a Race & Rumble blocker sees its racer's).
+      gap: race.summit || (extensionSession && !extensionSession.keepsRace) ? null : raceGap(race.trucks, crossings, extensionSession?.timingTruck?.(0) ?? 0),
       /** Public state supplied by the active extension, else null. */
       extension: extensionSession?.view(since) ?? null,
       /** Summit Rumble: scores and the seconds left in the round (6.3), else null. */
@@ -1357,8 +1490,10 @@ export function createSession(init) {
         led: lapsLed[i],
         raceTime: rt.raceTime,
         finished: rt.finished,
-        missed: rt.state === 3,
-        checkpoint: rt.checkpoint,
+        missed: rt.state === 3 && !rt.outOfRace,
+        checkpoint: rt.outOfRace ? 0 : rt.checkpoint,
+        /** Out of the race (a Race & Rumble blocker): no checkpoints, no place while it runs. */
+        outOfRace: !!rt.outOfRace,
       })),
     };
   }
@@ -1385,6 +1520,7 @@ export function createSession(init) {
 
   /** Catch up with `seconds` of wall time; returns the states to interpolate between. */
   function advance(seconds, input) {
+    if (input?.modeAction) { pendingAction = input.modeAction; input.modeAction = null; }
     const target = Math.min(seconds, time + MAX_CATCH_UP);
     let steps = 0;
     try {
@@ -1397,7 +1533,8 @@ export function createSession(init) {
     } finally {
       keepPrevious = true;
     }
-    const boxes = [...dirty].map(boxPose);
+    // An extension's own objects are drawn by the extension (they are in its view), not as the level's.
+    const boxes = [...dirty].filter((box) => !box.extensionOwned).map(boxPose);
     dirty.clear();
     const messages = scriptMessages.splice(0);
     const poses = trucks.map((t) => ({ previous: t.previous, current: snapshot(t.state), sound: soundOf(t, ground), damage: damageOf(t), touch: takeTouch(t) }));
@@ -1414,6 +1551,8 @@ export function createSession(init) {
       // Multiplayer: the state of each truck this machine owns (the player's, and the computer trucks' on the host).
       net: init.net ? trucks.flatMap((t, i) => (t.remote ? [] : [netState(i)])) : null,
       modeNet: netRole.authority === "owner" ? extensionSession?.netState?.() ?? null : null,
+      // A mode that judges each truck where it is driven (Combat): this machine's trucks' state, from every machine.
+      modeOwn: init.net && extensionSession?.netOwn ? extensionSession.netOwn() : null,
     };
   }
 

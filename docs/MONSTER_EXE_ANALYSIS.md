@@ -1144,7 +1144,8 @@ CPU trucks and the player's autopilot use the same code.
   the same 0.33 rear counter-steer, integrated at 1/30.
 - **Difficulty** scales the gains (section 6.5). On a missed checkpoint a CPU truck is placed
   onto it (Professional) or helicoptered back (Rookie, Intermediate), section 6.2. (The port
-  always sends the helicopter, and also when a truck makes no headway for 6 s.)
+  sends the helicopter below Professional; on Professional the truck drives back through the gate itself,
+  the helicopter only after 45 s. It also sends it when a truck makes no headway for 6 s.)
 - Default CPU driver names (0x551f90): Mark, Greg, Rich, Brett, Gaither, Chuck, Terry, Joe
   (presumably the developers).
 - **Who races** (single player). `CRace::init` (0x417ad0) flags `defaultOpponents` catalogue

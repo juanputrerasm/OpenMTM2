@@ -1,13 +1,13 @@
 # OpenMTM2 extensions
 
 Extensions add optional game modes without making them part of the original game simulation. OpenMTM2
-currently ships with Hockey, Soccer, Tag, Cops & Robbers and Race & Rumble. They appear in the Races screen and in Options, but their rules,
+currently ships with Hockey, Soccer, Tag, Cops & Robbers, Race & Rumble and Combat. They appear in the Races screen and in Options, but their rules,
 settings, rendering and worker state stay behind extension loader contracts.
 
 ## Ownership boundary
 
 None of these were modes in Monster Truck Madness or Monster Truck Madness 2 (Cops & Robbers and Race & Rumble
-were played by the community under hand-kept rules). They must never be
+were played by the community under hand-kept rules; Combat is after Carmageddon's combat racing). They must never be
 implemented in OpenPhotex. OpenPhotex owns TRI file formats and behavior found in the original games.
 An OpenMTM2 extension may call public OpenPhotex simulation primitives, but its rules and adapters belong
 in this repository:
@@ -61,6 +61,8 @@ export const MY_EXTENSION = Object.freeze({
   teamPicker: null,               // a team mode: (settings) => { teams, teamNames, teamColours, roles, roleColours }
   weather: null,                  // null uses the player's weather; a number locks it
   detailLevel: null,              // null uses the normal setting
+  damageKey: null,                // "repair": the Crash Damage key is the mode's (adapter `keyAction`), damage always on
+  watchWhenOut: false,            // true: a player out of the race (adapter `out`) watches it on, as in spectator mode
 });
 ```
 
@@ -100,14 +102,25 @@ Register a factory in `session-loader.js`. Its runtime can implement these gener
   view(secondsSinceStart) { return { mode: "my-mode" }; },
   score(index) { return 0; },
   finish() {},
+  groundFor(index, ground) { return null; }, // a truck's own ground, set up once (Combat's hides a lost wheel's)
+  movableBoxes() { return []; },          // the mode's own loose objects, met by every truck (Combat's lost wheels)
+  selfRecovery(index) { return false; },  // a computer truck gets itself out of a jam (game/racer-recovery.js)
+  action(name, index) {},                 // the input's `modeAction` (the mode's key, its menu's choices), for truck 0
 }
 ```
+
+The environment a runtime is given also has `liftTo(truck, segment)`: the helicopter for that truck, set down on
+that course segment as for a missed checkpoint. A box from `movableBoxes` with `extensionOwned` set is not sent as
+a level object's pose: the mode draws it from its own view.
 
 Hooks are optional except for those the mode uses. The runtime owns mode state. The worker owns fixed-step
 timing, trucks, collisions and race transport. Data returned by `view` must be structured-clone safe.
 
 If the extension draws anything, register one scene adapter in `render/extensions/loader.js`. It returns
-`updateMarker` and `dispose`; a replay receives the same plain `dress` data. A `marker` colour in the dress asks
+`updateMarker`, `update` and `dispose`; a replay receives the same plain `dress` data. `update(frame)` runs each frame of
+a race (never in a replay) with `{ state, poses, drawn, dt, camera, effects, flags, near, floorAt }`: the mode's view,
+the trucks as drawn and their objects (`setTire(i, { hidden, wobble })`, `tireModel(i)`), the race's tire effects (its
+sparks), `near(pos)` the drawn copy of a world point and `floorAt(x, z, y)` the ground under it. A `marker` colour in the dress asks
 for the arrow over one truck (the adapter's `markerTarget`).
 
 ## Teams, start grid and names
@@ -167,12 +180,25 @@ machine sees slightly different copies of the other trucks. **The room owner's m
 What each shipped mode sends:
 
 - **Tag:** It, the points, the time as It, the opening hold, who may not be tagged back and until
-  when, the last tag, the end, and the owner's scoring rules.
+  when, the last tag, the end, and the owner's scoring rules (MTM64's rules add the pass cooldown).
 - **Soccer:** as Hockey, the ball for the puck.
 - **Cops & Robbers:** the robber, the points and captures, the time safe, the last capture, the count of
   captures and where the robber was set down (a follower that drives the robber sets its own truck down there),
   the end.
-- **Race & Rumble:** the mode, the teams and roles, and the end; the times come from the results exchange as in a race.
+- **Race & Rumble:** the mode, the teams and roles, the blockers' cheers or the chase's busts (the event and its
+  count), each cop's busts and the bust cooldown, and the end; the times come from the results exchange as in a race.
+- **Combat:** judged differently, as only the machine that drives a truck sees its own crashes (the others see a copy
+  smoothed from 20 states a second). Each machine judges the trucks it drives: its player's, and on the owner's the
+  computer trucks and any a player left. Its runtime's `netOwn()` (the worker returns it with each tick as
+  `modeOwn`) is their state: each pool as a share, the wheels lost, the credits, the damage dealt and wrecks, the
+  repairs, wrecked or left and by whom, and the credits owed to trucks judged elsewhere (running totals of hit points
+  dealt and wrecks). `net-race.js` sends it as a `modeTruck` event (OpenMTM2 Server's `docs/PROTOCOL.md`) under the
+  player's vehicle, 5 times a second and at once when a wheel comes off or goes back, a truck is wrecked or leaves, a
+  repair is made or a wreck is owed. Another machine takes it with `applyNetOwn` (the adapter's `ownToWire` and
+  `ownFromWire`): it shows a hit as debris, throws a lost wheel, tells wheels, wrecks and repairs, and adds the
+  credits owed to its own trucks once. The owner's `mode` state is the end, the winner, the order the trucks went
+  out in, and its rules (toughness, credits on or off, credits at the start), which every machine takes on the
+  first state.
 - **Hockey:**
   - the teams, the score, each truck's goals, the phase and its timer, the last touch, the last
     event, the number of face-offs, the time played, sudden death and the end;
@@ -272,8 +298,37 @@ the zone out from It when the edge pays more (240 to 368 ft by default), 40 to 8
 150 to 300 ft with the points off, on the truck's own side, turned up to 0.8 radians round it, which follows It as it moves, at up to 80 ft/s slowing as they reach
 it. When It comes within 45 ft, about 55 percent hide (high ground, a ridge, cover or a ramp away) and the
 rest flee, until It is 130 ft behind. Aims last 4 to 8 seconds. Their roaming rectangle is the course extent
-plus 700 ft, or a 1400 ft area around the grid when no course covers ground. A truck calls the helicopter
-after failing to move 12 ft in 6 seconds, except while It is deliberately held.
+plus 700 ft, or a 1400 ft area around the grid when no course covers ground.
+
+### Tag, Monster Truck Madness 64's rules
+
+Options' Rules select picks OpenMTM2's rules (above, the default) or Monster Truck Madness 64's, as read from the
+N64 game's code (`mtm64conversion/docs/MINIGAME_RULES.md`; no N64 code or data is used). With MTM64's rules the
+round length and the proximity settings are ignored:
+
+- The round is 300 s after the countdown (MTM64's 306 s clock includes its countdown). It is not held at the start.
+- Every truck starts with 0 points. Each free truck gains points all the time, by its ground distance `d` from It:
+  1 a second at 100 ft or more, `10 x (1 - d^2 / 10000)` a second closer (10 beside It). The formula is the game's,
+  so the rate dips under 1 between about 95 and 100 ft. It gains nothing. The HUD shows whole points.
+- Hull touches do not tag. When any truck is within 25 ft of It, the nearest such truck becomes It and the truck
+  that was It gains 50 points.
+- After a pass, It cannot be passed on for 3 s (no tag-back rule; this cooldown replaces it).
+- A free truck more than the level's edge less 32 ft out (its x or z under 32 ft or over 8160 ft; the terrain is
+  256 cells of 32 ft) becomes It, with no bonus to anyone; the 3 s cooldown starts.
+- Places by points, then entry order. It keeps the orange arrow (MTM64 hangs a chicken on it).
+- Computer free trucks shadow It 35 to 70 ft away, where the rate pays most outside the catch radius, and break
+  away when It comes within 32 ft. Computer It chases as with OpenMTM2's rules.
+
+Routes (Tag and Cops & Robbers, `routePoint` in tag.js): a computer truck drives round a cover or a movable object
+(any box with mass, its reach grown by 5 ft for the truck) on its line. It looks 140 ft ahead, every 14 ft: ground
+rising faster than 0.6 ft a foot (about 31 degrees) is too steep, and ground under the water level (plus 1.5 ft) is
+wet. Either way it takes the nearest heading that is clear, turned 0.35, 0.7, 1.05 or 1.4 radians either side,
+and drives for a point 112 ft along it. It goes into the water when its target is in it, or when the only way
+round a slope too steep is wet; a slope too steep everywhere is driven at all the same. A truck pinned against
+something backs out (after 1.5 s at full throttle under 3 ft/s, for 1.4 s, the wheel turned), then drives for
+2.4 s for a point 60 ft off, turned 1.1 radians to one side of its target: the target's side first, the other
+side when pinned again within 8 s. It calls the helicopter only after failing to move 12 ft in 15 seconds,
+except while It is deliberately held.
 
 ## Shipped extension: Soccer
 
@@ -325,23 +380,167 @@ weather, 1 to 99 minutes with 20 as the default, at least two trucks.
 ## Shipped extension: Race & Rumble
 
 Circuit tracks only, the laps as the length (3 by default), at least two trucks. The race is the track's own
-(`keepsRace`): checkpoints, laps, the countdown, the final lap and the ending. Options picks one of two modes:
+(`keepsRace`): checkpoints, laps, the countdown, the final lap and the ending. Options picks one of three modes:
 
 - **Classic**, after the community's rules (mtm2.com/~mtmg/rnr.php): teams of two, a Racer and a Blocker in each,
   one team for every two trucks (at least two, four at most: red, blue, green, yellow). The first racer home wins
   it for its team. Teams and roles come from the Computer Opponents dialog; a truck left on Auto joins the
-  smallest team in the role it lacks, a racer first (the player's role is Racer, or Blocker with "Play as blocker").
+  smallest team in the role it lacks, a racer first (the player's role is Racer, or Blocker with "Play as blocker or cop").
   Places: the teams in order (the winner, then by each team's racer: one home by its time, the others by race
   place), its racer ahead of its blocker.
 - **Timed block**: two sides, the Racers and the Blockers (a truck's side is its role, picked in the dialog). The
   Racers win as soon as any racer finishes within the time limit (1 to 99 minutes, 5 by default); when it runs out
-  first, the Blockers win. The HUD warns of the last minute. Places: the winning side first; racers by their finish,
-  blockers by race place.
+  first, the Blockers win. The HUD warns of the last minute. Places: the winning side first; racers by their finish
+  (those still racing by their place among the racers), blockers in entry order.
+- **Chase**, Monster Truck Madness 64's (`mtm64conversion/docs/MINIGAME_RULES.md`, read from the N64 game's code;
+  no N64 code or data is used): the timed block with one racer, the Suspect, and every other truck a Cop. Roles come
+  from the Computer Opponents dialog (Suspect or Cop). There is exactly one suspect: the first truck picked Suspect;
+  later Suspect picks become cops. With none picked the player is the suspect, or with "Play as blocker or cop" the
+  first computer truck left on Auto (the first computer truck when none is). The suspect races the laps against the
+  time limit (5 minutes by default, as in MTM64). A cop scores a bust whenever it is within 30 ft of the suspect
+  (ground distance, the nearest cop when several are), once the countdown is over and while the suspect has not
+  finished; after a bust none can be scored for 3 s. A bust does nothing else to the suspect. The suspect home in
+  time wins for the Suspect side, else the Cops win (MTM64 names no overall winner; this is the timed block's rule).
+  Places: the winning side first; the cops by busts, most first, then entry order. The Points column shows each
+  cop's busts (the suspect's 0). The suspect carries the red arrow and is marked on the map; labels say Suspect
+  (red) or Cop (blue). The HUD warns at 10 s left (MTM64 blinks its clock). A bust sounds the cop's horn. Blocks
+  are not cheered in a chase.
 
-Racers drive the course (computer racers on the course's autopilot). Blockers roam and need not finish a lap:
-a computer blocker drives at 95 ft/s for a point ahead of its target (its velocity times the distance over 90 ft/s,
-at most 2 s). Its target is the nearest racer of another team still racing, unless a blocker of another team is
-within 150 ft of its own racer and nearer to it than that racer: then it fights that blocker. With no racer left to
-stop it goes for the nearest enemy blocker. Points: 10 a truck on the winning team, 4 on the others. Labels say
-Racer or Blocker under each name, in the team's colour, as are the map dots. A blocker's finder points at the
-nearest racer of another team.
+Blockers are not in the race: they take no checkpoints (no checkpoint sounds, no missed checkpoint warning),
+close no laps and have no place while the race runs. Only the racers are placed, among themselves (eight trucks in
+four teams: places 1 to 4 of 4), on the timing board and on the map; a blocker's map dot has no number. The places
+of every truck come once the race is decided, for the results.
+
+The board: a racer sees its own times (place among the racers); a classic blocker sees its team's racer's lap, best,
+clock, gap and place, with a Racer row naming it; a timed blocker sees the time left, the lap the leading racer is
+on, and the leading racer's name. The timed block's racers see the time left above their times.
+
+Computer racers drive the course's autopilot and get out of trouble themselves (game/racer-recovery.js). Stuck
+(wanting to go, under 4 ft/s for 1.2 s, or within 12 ft for 4 s) a racer first shoves a truck within 28 ft in front
+of it for 1.2 s, at its side toward the course, then backs out for 1.5 s turning, then drives round for 2.6 s for a
+point 55 ft off, 0.9 radians to one side, and back to the course; the next try takes the other side. 70 ft from
+where it stuck it is free. The helicopter comes only after six tries or 30 s stuck, or once it has lain over for
+3 s; the course's own stuck timer is off for them. A racer minds the blockers against it: one within 150 ft,
+closing at over 10 ft/s, that would pass within 24 ft in the next 2.2 s makes it steer up to 0.22 off the
+autopilot's line, away from the side it comes from, at 0.9 throttle or more and no brake. Timed racers never
+block: they only race.
+
+Computer blockers drive at 95 ft/s for a point ahead of their target (its velocity times the distance over 90 ft/s,
+at most 2 s), and back out and go round what pins them (as Tag's trucks do), the helicopter after 15 s within
+12 ft. Their target (`blockerTarget`):
+
+- **Classic**: its own racer blocked first: a truck of another team within 22 ft of it, or within 45 ft while it is
+  under 25 ft/s, is attacked to free it. Otherwise the leading racer of the other teams (the best place). When
+  that one is more than 700 ft away and another racer is nearer than half its distance, that nearer racer. A
+  blocker never fights a blocker except one blocking its racer.
+- **Timed block**: the leading racer, or the nearer racer by the same rule; never another blocker.
+
+A block is cheered: when a blocker touches a racer it races against, and within 2.5 s that racer is rolled over
+(its up axis under 0.3) or, having been at 30 ft/s or more, is held under 8 ft/s, the blocker's truck sounds a
+YeeHaw (a roll-over) or its horn (a block), and the HUD says so. A blocker cheers at most once in 6 s. Online, the
+room owner's machine decides it and sends it with the mode's state.
+
+Points: 10 a truck on the winning team, 4 on the others. Labels say Racer or Blocker under each name, in the team's
+colour, as are the map dots. A blocker's finder points at the nearest racer of another team.
+
+## Shipped extension: Combat
+
+After Carmageddon's combat racing, with no power-ups. Any track raced through checkpoints: a circuit, with the laps as
+the length (3 by default), or a rally, always one run (not free roam, a Summit Rumble or a drag strip). At least two
+trucks. The race is the track's own (`keepsRace`). Crash damage is always on; the Crash Damage key (X)
+repairs instead. Rules in `game/extensions/combat.js`, the runtime in `combat-session.js`, the computer drivers in
+`combat-ai.js`, the ground under a lost wheel in `combat-ground.js`, the debris in `combat-debris.js`, the drawing in
+`render/extensions/combat-scene.js`. Options: the laps, the trucks' toughness (Soft 0.7, Normal 1, Tough 1.5 times
+every pool), credits on or off, the credits at the start (500), whether the computer trucks repair themselves (on), and the computer trucks' aggression (Low, Normal, High).
+
+**Hit points.** Every truck has a pool for the whole truck (1000 at Normal), the engine (300), the gearbox (300) and
+each wheel (250). A hit is measured by how much the truck's velocity changes in a step past 4 ft/s, summed over the
+steps of the hit (at most 8). Trucks are built for knocks, and fights between trucks matter most:
+
+- **A hit between trucks** counts 4.5 hit points per ft/s of that change, times a share by how fast the two closed on
+  each other: nothing under 15 ft/s (about 10 mph: trucks leaning on each other or tangled), all of it from 40 ft/s
+  (about 27 mph), in proportion between. The closing speed is each truck's speed toward the other along the line
+  between them, one going away counting against: two trucks the same way at the same speed close at nothing, however
+  fast, and a fast truck into a slower one hits only as hard as the difference. A meeting keeps the closing speeds of
+  its first contact for 0.25 s only; trucks still touching after that go by their closing speeds of the moment.
+- **A fight pushed on fades out.** Two trucks touching, or apart for less than 0.75 s, are in one fight: its hits count
+  in full for 0.5 s after the first contact, then less, down to nothing at 1.5 s. Pushing on cannot grind a truck
+  down; the attacker must back off and come again. A new contact after at least 0.2 s apart, closing at 40 ft/s or
+  more, is a new blow and starts a new fight.
+- **A hit with no other truck in it** (a fence, an object, a wall, a roll) counts only past 30 ft/s of change, 0.35
+  of the rate from there: crashing through a fence costs nothing, a wall at speed some.
+- **A landing** (a change mostly upward) counts only past 45 ft/s (a drop of about 30 ft), at 1.5 times the rate
+  from there: an ordinary jump costs nothing, a big one a lot.
+
+- **A flip** (the truck going past its side) costs 0.8 hit points per ft/s of its fastest in the last second past
+  30 ft/s, at most 50, off the whole truck only: a roll at full speed costs a few percent.
+
+One hit takes at most a fifth of the whole truck's pool. Every hit comes off the whole truck; from 12 hit points up
+some of it is shared out by where it came from:
+
+- **A head-on** (pushed back, or the other truck ahead): the engine 0.6 of it, the nearer front wheel 0.6, the other 0.2.
+- **From behind**: the gearbox 0.2, the nearer rear wheel 0.6, the other 0.2.
+- **From the side**: the wheel at that corner 0.8, the other wheel on that side 0.4.
+- **A landing**: the gearbox 0.15, each wheel 0.1.
+
+The gearbox is under the truck, out of the way, so it takes little. Once a wheel is gone it is bared: every hit of
+12 hit points or more also takes 0.35 of its amount from the gearbox.
+
+**Debris and sparks.** Every hit throws debris, the harder the more (up to 120 pieces): mostly small grey bits of
+metal in several shades, one in eight a bigger piece, some flecks of muted paint and glass, and a burst of sparks.
+
+**Wheels come off last.** A wheel loses at most 30 percent of its pool in a hit. It comes off only when its pool was
+already empty, the truck is at half its hit points or under, and that corner is hit again (a landing never takes
+one off). The truck drives on with a bare axle end, its stub: the ground under the lost wheel is lowered by the
+tire's radius less 0.6 ft, so the corner sags onto the stub (the simulation is not changed; `groundFor`), the stub has
+no grip and drags (5 ft/s per second each), and it throws plenty of sparks. The wheel flies off as a loose object
+(a box of the tire's size, 12 slugs, every truck hits it; 12 at most, the oldest goes), and a shock and a piece of
+axle bar fly off with a flash (drawn only).
+
+**Engine and gearbox.** The engine's throttle is held to 0.4 plus 0.6 of its share of hit points. A gearbox under
+half its hit points can miss an upshift (up to 60 percent of them at none left): out of gear for 0.5 s. Neither ends
+the race: with the engine or the gearbox dead the truck crawls, in first gear, the throttle at most 0.2 and held under
+12 ft/s (about 8 mph), enough to reach the checkpoints whose credits repair it. The player is told once. A hurt engine smokes, grey under half, black under a fifth, with flames near none;
+a wheel under 40 percent wobbles.
+
+**Wrecked.** A truck is wrecked when its hit points run out, or when its last wheel comes off and it has not the
+credits to put one back (200, or credits off). With them, it sits on its stubs until it repairs: the player is told
+that X puts a wheel back, a computer truck does it at once. A lost engine, gearbox or any wheel short of the last
+never wrecks a truck. A wreck stops where it lies (no
+helicopter, no turning it back over), smokes, and leaves the race. The player may also leave the fight from the pause
+menu ("Leave the fight and watch"). A player who is out watches the race on as in spectator mode (Left and Right: the
+truck watched, B: the free camera), to the results.
+
+**Rammer and victim.** When two trucks meet, the faster into the other (by 1.3 times, over 5 ft/s) is the rammer: it
+takes a quarter of its damage, and is credited with the other's. Meeting evenly, both take it all and each is credited.
+
+**Credits** (on by default): 50 a checkpoint, 200 a lap, 1 a hit point dealt, 1000 a wreck. X repairs as far as the
+credits go, however few. A lost wheel is put back first (200 each, with 30 percent of its pool); the rest is spread
+evenly over the damage, every pool (the whole truck, the engine, the gearbox, each wheel on) mended by the same share
+of what it lacks, at 2 credits a hit point. Not within 3 s of the last repair. A repair takes that truck's dents out.
+
+**The winner** is the first truck home, or the last truck running when every other is out. Places: those home, then
+those running by race place, then the wrecked, the last wrecked first. Points: the hit points dealt by tens, and 50 a
+wreck.
+
+**Computer trucks** race the course. Fit (at least 40 percent of their hit points, the engine at least
+30), after the first 15 s, they may ram a truck within 220 ft and 0.9 radians of their nose that is on their stretch
+of course or the next: the odds are 0.04, 0.12 or 0.35 a second by aggression. The weakest target first (fewest
+wheels, fewest hit points), then the leader. A ram aims where the target will be, 5 ft behind its middle, at
+110 ft/s, for at most 4 s, broken off when the target falls behind or leaves their line, then 10 s before the next.
+They get themselves out of a jam (`selfRecovery`). They repair with a wheel gone (with 200 credits), or under 35
+percent of their hit points or 30 of their engine, unless the setting "Computer trucks repair themselves" is off. A truck shoved past its next checkpoint without going through it
+(two stretches past, or one and 250 ft from the gate) is lifted back to that checkpoint's stretch (`liftTo`).
+
+Measured on the 12 stock circuits, 8 computer trucks for 400 s on Intermediate, Normal aggression (docs/PLAN.md): the
+field covers 85 to 100 percent of a plain race's checkpoints; 12 wheels off and 12 wrecks over the 12 races, 0 to 3
+of each a race.
+
+**HUD:** the lap, best and place, then the truck's hit points, engine, gearbox and wheels in percent (a lost wheel
+`--`), each coloured green (60 percent and up), yellow (35), orange (15) or red, and after a space the credits and what a
+full repair costs. Wheels lost, wrecks (with the wrecker's YeeHaw) and the player's
+repairs are told. The names over the trucks carry each truck's hit points in percent, in the same colours; Wrecked or
+Out under a truck that is out.
+
+Not in replays: a replay shows the trucks without the loose wheels, the debris and the smoke. Online rooms: see "Over the
+network" (each machine judges the trucks it drives; the owner decides the end).

@@ -1,4 +1,4 @@
-// Generated from openmtm2-server 0.1.0 protocol/room-messages.js. Do not edit; run its tools/vendor.mjs.
+// Generated from openmtm2-server 0.1.1 protocol/room-messages.js. Do not edit; run its tools/vendor.mjs.
 /*
   The online room protocol, version 1 (docs/PROTOCOL.md): what OpenMTM2 and the room server
   (openmtm2d) say to each other over one WebSocket.
@@ -37,7 +37,7 @@ export const CLOSE = Object.freeze({ PROTOCOL: 4000, BANNED: 4003, KICKED: 4004,
 export const ROOM_STATE = Object.freeze({ LOBBY: "lobby", LOADING: "loading", RACING: "racing" });
 
 /** Race events a client may send in `{ type: "race", e }`, relayed to the room as `{ type: "race", from, e }`. */
-export const RACE_EVENTS = Object.freeze(["positions", "go", "split", "damage", "lights", "horn", "yeehaw", "gone", "mode"]);
+export const RACE_EVENTS = Object.freeze(["positions", "go", "split", "damage", "lights", "horn", "yeehaw", "gone", "mode", "modeTruck"]);
 
 /** Room codes: six characters from an alphabet without look-alikes. */
 export const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -165,6 +165,9 @@ const RACE_EVENT_FIELDS = {
   gone: { vehicle: int(1, LIMITS.maxPlayers) },
   // An extension mode's state, from the room owner (docs/PROTOCOL.md "Extension modes"); its shape is the mode's.
   mode: { data: freeObj() },
+  // An extension mode's state for the trucks one client drives (its player's, and the owner's computer trucks), sent
+  // as that player's vehicle: in a mode where each client judges its own trucks (Combat).
+  modeTruck: { vehicle: int(1, LIMITS.maxPlayers), data: freeObj() },
 };
 /** Validate one race event (the `e` of a `race` message). */
 export function checkRaceEvent(e) {

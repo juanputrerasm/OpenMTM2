@@ -1,4 +1,4 @@
-// Generated from openmtm2-server 0.1.0 protocol/track-crc.js. Do not edit; run its tools/vendor.mjs.
+// Generated from openmtm2-server 0.1.1 protocol/track-crc.js. Do not edit; run its tools/vendor.mjs.
 /*
   The game's track checksum (OpenMTM2 docs/MONSTER_EXE_ANALYSIS.md 14.2, 0x569e50): CRC-32/MPEG-2
   over the whole POD that holds the track's SIT. Polynomial 0x04C11DB7, most significant bit

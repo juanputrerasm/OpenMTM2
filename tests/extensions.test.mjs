@@ -219,8 +219,8 @@ test("Tag scores a free truck by its distance from It (1 beside It to 5 at the z
 });
 
 test("Tag's proximity scoring comes from Options: off, its zone, its points either end and It's drain", () => {
-  assert.deepEqual(tagScoring({}), { proximity: true, zoneFt: 400, nearPoints: 1, farPoints: 5, itDrain: 1 });
-  assert.deepEqual(tagScoring({ zoneFt: 10, farPoints: 50, itDrain: -3 }), { proximity: true, zoneFt: 50, nearPoints: 1, farPoints: 20, itDrain: 0 }, "held to the ranges");
+  assert.deepEqual(tagScoring({}), { rules: "openmtm2", proximity: true, zoneFt: 400, nearPoints: 1, farPoints: 5, itDrain: 1 });
+  assert.deepEqual(tagScoring({ zoneFt: 10, farPoints: 50, itDrain: -3 }), { rules: "openmtm2", proximity: true, zoneFt: 50, nearPoints: 1, farPoints: 20, itDrain: 0 }, "held to the ranges");
   const off = tagScoring({ proximity: false });
   assert.equal(tagZoneRate(10, off), 0, "off: no proximity points");
   const close = tagScoring({ zoneFt: 150, nearPoints: 5, farPoints: 1, itDrain: 2 });
@@ -380,8 +380,8 @@ test("It goes around an object, up a slope, and up a ramp that faces its quarry"
   assert.ok(Math.abs(Math.abs(around[2]) - (barn.reach + FLANK_FT)) < 1e-6);
   const steered = routePoint(from, to, [barn], flat);
   assert.ok(Math.abs(steered[2]) > barn.reach, "the steer point is wide of the barn, not through it");
-  const climb = routePoint(from, [200, 0, 0], [], (x) => (x > 150 ? 40 : x > 40 ? 12 : 0));
-  assert.ok(Math.abs(climb[0] - 80) < 1e-6, "a quarry well above is approached part way up the slope");
+  const climb = routePoint(from, [200, 0, 0], [], (x) => Math.max(0, Math.min(40, (x - 40) * 0.3)));
+  assert.ok(Math.abs(climb[0] - 80) < 1e-6, "a quarry well above, up a slope a truck climbs, is approached part way up it");
   // Body +z along +x: the nose is the high end.
   const ramp = { pos: [150, 0, 0], length: 40, height: 12, matrix: [0, 0, 1, 0, 1, 0, 0, 0, 0] };
   const tail = rampLaunch(from, [400, 0, 0], [ramp]);
@@ -420,11 +420,12 @@ test("the It marker is an arrow pointing down, wound so its +Z face is the front
 
 test("the Races screen's modes and their length box", () => {
   assert.deepEqual(GAME_MODES.map((m) => m.id), ["default", "freeroam", "flyby"]);
-  assert.deepEqual(EXTENSIONS.map((m) => m.id), ["hockey", "soccer", "tag", "cops-robbers", "race-rumble"]);
+  assert.deepEqual(EXTENSIONS.map((m) => m.id), ["hockey", "soccer", "tag", "cops-robbers", "race-rumble", "combat"]);
   assert.equal(lengthLabel("circuit", "hockey"), "Goals");
   assert.equal(lengthLabel("circuit", "soccer"), "Goals");
   assert.equal(lengthLabel("circuit", "cops-robbers"), "Minutes");
   assert.equal(lengthLabel("circuit", "race-rumble"), "Laps");
+  assert.equal(lengthLabel("circuit", "combat"), "Laps");
   assert.equal(lengthLabel("rally", "tag"), "Minutes");
   assert.equal(raceLengthLabel("rally"), "Laps");
   assert.equal(raceLengthLabel("circuit", "freeroam"), "Laps");

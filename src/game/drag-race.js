@@ -232,6 +232,21 @@ export function dragResults(drag) {
 }
 
 /**
+ * A computer truck's pedals through its pass, once launched and until the finish beam (an addition: the autopilot's
+ * speed control holds the strip's course speed and brakes over its bumps, so a computer truck coasted much of the
+ * pass). On the straight (the autopilot's wheel within `DRAG_STRAIGHT` of centre, the truck sliding no more than
+ * `DRAG_SLIP` radians) the throttle stays down; only a nose stood up past `WHEELIE_PITCH` (radians, positive nose up)
+ * eases it to `WHEELIE_THROTTLE`, before the truck goes over backwards. Through a bend the autopilot's pedals stand:
+ * flat out there slides the truck out of its lane.
+ */
+export const WHEELIE_PITCH = 0.35, WHEELIE_THROTTLE = 0.5, DRAG_STRAIGHT = 0.08, DRAG_SLIP = 0.12;
+export function dragPedals(controls, pitch, slip = 0) {
+  if (Math.abs(controls.steer) > DRAG_STRAIGHT || Math.abs(slip) > DRAG_SLIP) return;
+  controls.throttle = pitch > WHEELIE_PITCH ? WHEELIE_THROTTLE : 1;
+  controls.brakeFront = controls.brakeRear = 0;
+}
+
+/**
  * The places: finishers by time, then trucks still running, then those that are out. `rows` are
  * `{ finished, raceTime, dq }`, one per truck.
  */

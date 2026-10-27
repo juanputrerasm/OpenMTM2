@@ -66,7 +66,7 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
     pivot.add(spin);
     pivot.userData.gloss = GLOSS.tire;
     root.add(pivot);
-    return { pivot, spin, hub };
+    return { pivot, spin, hub, wobble: 0 };
   });
   // An Evolution truck's own axle models, front and rear (game/evo-suspension.js), else MTM's one axle model for both.
   const axles = [0, 2].map((_, k) => {
@@ -182,6 +182,21 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
       }
       bodyChanged();
     },
+    /**
+     * A mode's say over tire `i` (Combat's): `hidden` takes the wheel off (the hub and its parts stay), `wobble` (0 to 1)
+     * makes it wobble on its hub as it turns.
+     */
+    setTire(i, { hidden = false, wobble = 0 } = {}) {
+      const t = tires[i];
+      if (!t) return;
+      t.pivot.visible = !hidden;
+      t.wobble = Math.max(0, Math.min(1, wobble));
+    },
+    /** A copy of tire `i`'s wheel to draw on its own (it shares the truck's geometry and materials), or null. */
+    tireModel(i) {
+      const t = tires[i];
+      return t ? t.spin.clone(true) : null;
+    },
     /** Where tire `i`'s hub is in the world, game feet `[x, y, z]` (after `update`). */
     tireHub(i) {
       ensureWorld();
@@ -251,7 +266,9 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
         // front wheels: worker/foreign-truck-build.js `cprWheelPlaces`).
         t.pivot.position.set(ax * Math.cos(a), ax * Math.sin(a) + axle.travel + (truck.tireLift?.[i] ?? 0), -az);
         const steer = i < 2 ? pose.steer : pose.rearSteer;
-        t.pivot.rotation.set(0, -steer, a, "ZYX");
+        // A damaged wheel (a mode's, Combat's `setTire`) wobbles on its hub as it turns.
+        const spin = pose.tires[i].angle, wob = t.wobble;
+        t.pivot.rotation.set(0, -steer + wob * 0.07 * Math.sin(spin), a + wob * 0.09 * Math.sin(spin + 1.3), "ZYX");
         t.spin.rotation.x = -pose.tires[i].angle;
       });
       axles.forEach((g, k) => {

@@ -164,6 +164,8 @@ export function parseMtmSit(input, sitTitle = "") {
         arena: parseArena(lines),
         backdropModelNames: parseBackdrop(lines),
         trucks: parseTrucks(lines),
+        cylinders: parseCylinders(lines),
+        longitudeLatitude: valueAfter("Track Longtitude, Latitude")?.trim() ?? null,
         warnings: [],
     };
     const trackType = valueAfter("Track Race Type");
@@ -281,11 +283,15 @@ function parseBoxBlock(lines, blockStart, isRamp) {
         box.hitSound = name(lines[soundIdx + 1]);
         box.loopSound = name(lines[soundIdx + 2]);
     }
-    if (box.type === BOX_LIGHT) {
-        // The header line starts with the block's letter, "Llight rad,hgt,..."; the values are the line after it.
-        const lightIdx = indexOfLinePrefix(lines, "Llight", blockStart, endIndex);
+    // The header line starts with the block's letter, "Llight rad,hgt,..."; the values are the line after it.
+    const lightIdx = indexOfLinePrefix(lines, "Llight", blockStart, endIndex);
+    if (lightIdx >= 0 && lightIdx + 1 < endIndex)
+        box.lightFields = lines[lightIdx + 1].split(",").map((v) => parseLeadingFloat(v));
+    if (box.type === BOX_LIGHT)
         box.light = parseSitLight(lightIdx >= 0 ? lines[lightIdx + 1] : null);
-    }
+    const ratesIdx = indexOfLinePrefix(lines, "p,q,r", blockStart, endIndex);
+    if (ratesIdx >= 0 && ratesIdx + 1 < endIndex)
+        box.rates = parseFloatTriplet(lines[ratesIdx + 1]);
     // Type 10 objects ("moving - use bvel" in Traxx's notes) travel along it: TPARK's train. Type 13 (Community Patch 3) too.
     const bvelIdx = indexOfLinePrefix(lines, "bvel", blockStart, endIndex);
     if (bvelIdx >= 0 && bvelIdx + 1 < lines.length)
@@ -377,6 +383,7 @@ function parseCourses(lines, sit) {
                 direction: c + 1 < lines.length ? parseLeadingInt(lines[c + 1].split(",")[1]) : 0,
             };
             const segCount = c + 1 < lines.length ? parseLeadingInt(lines[c + 1]) : 0;
+            course.slot = i;
             c = parseCourseBlocks(lines, c + 2, segCount, course);
             if (course.segments.length)
                 sit.extendedCourses.push(course);
@@ -445,6 +452,15 @@ function parseCourseBlocks(lines, startCursor, count, course) {
         cursor++;
     return cursor;
 }
+function parseCylinders(lines) {
+    const section = indexOfLine(lines, "*** Cylinders ***");
+    if (section < 0 || section + 1 >= lines.length)
+        return null;
+    let end = section + 2;
+    while (end < lines.length && !lines[end].startsWith("*** "))
+        end++;
+    return { count: parseLeadingInt(lines[section + 1]), lines: lines.slice(section + 2, end) };
+}
 /*
   *** Stadium *** - the arena. An arena track carries its model here rather than in the Backdrop
   block, and the writer then emits backdropCount 0 (TrackPODFile.cpp:5288-5318). Two line
@@ -470,7 +486,7 @@ function parseArena(lines) {
         const modelName = normalizePodPath(fields[5]);
         if (!modelName)
             return null;
-        return { modelName, x: parseLeadingInt(fields[1]), y: parseLeadingInt(fields[2]), sx: parseLeadingInt(fields[3]), sy: parseLeadingInt(fields[4]) };
+        return { modelName, x: parseLeadingInt(fields[1]), y: parseLeadingInt(fields[2]), sx: parseLeadingInt(fields[3]), sy: parseLeadingInt(fields[4]), placed: true };
     }
     if (header.startsWith("stadiumFlag")) {
         if (fields.length < 2)
@@ -478,7 +494,7 @@ function parseArena(lines) {
         const modelName = normalizePodPath(fields[1]);
         if (!modelName)
             return null;
-        return { modelName, x: 0, y: 0, sx: 0, sy: 0 };
+        return { modelName, x: 0, y: 0, sx: 0, sy: 0, placed: false };
     }
     return null;
 }
@@ -538,6 +554,13 @@ function parseTruckBlock(lines, startIdx) {
         truck.phi = a[1];
         truck.psi = a[2];
     }
+    // Within this record: the next one starts at a delimiter or a section header.
+    let end = startIdx;
+    while (end < lines.length && !lines[end].startsWith("****"))
+        end++;
+    const followIdx = indexOfLinePrefix(lines, "!ap.courseToFollow", startIdx, end);
+    if (followIdx >= 0 && followIdx + 1 < lines.length)
+        truck.courseToFollow = parseLeadingInt(lines[followIdx + 1]);
     return truck;
 }
 /** Parse an MTM-family .LVL. Returns null when it has fewer than six lines. */
@@ -550,13 +573,21 @@ export function parseMtmLvl(input) {
     const lvl = {
         lineCount: lines.length,
         levelType: parseLeadingInt(lines[0]),
+        textName: at(1),
         rawName: normalizePodPath(lines[2]),
         clrName: normalizePodPath(lines[3]),
         actName: normalizePodPath(lines[4]),
         texName: normalizePodPath(lines[5]),
+        zeroRawName: at(6),
+        pupName: at(7),
+        aniName: at(8),
+        tdfName: at(9),
         skyRawName: skyRaw && !skyRaw.startsWith("NULL") && skyRaw.endsWith(".RAW") ? skyRaw : null,
         skyActName: lines.length > 11 ? normalizePodPath(lines[11]) : null,
+        defName: at(12),
+        navName: at(13),
         musicName: at(14),
+        fogName: at(15),
         lteName: lines.length > 16 ? normalizePodPath(lines[16]) : null,
         sunVector: lines.length > 17 ? parseIntTriplet(lines[17]) : null,
         shadowIntensity: lines.length > 18 ? parseLeadingInt(lines[18]) : null,

@@ -7,10 +7,11 @@ import { SOCCER_EXTENSION } from "./soccer.js";
 import { TAG_EXTENSION } from "./tag.js";
 import { CNR_EXTENSION } from "./cops-robbers.js";
 import { RNR_EXTENSION } from "./race-rumble.js";
+import { COMBAT_EXTENSION } from "./combat.js";
 import { msg } from "../strings.js";
 
 /** Shipped extensions. A new extension is registered in this one place. */
-export const EXTENSIONS = Object.freeze([HOCKEY_EXTENSION, SOCCER_EXTENSION, TAG_EXTENSION, CNR_EXTENSION, RNR_EXTENSION]);
+export const EXTENSIONS = Object.freeze([HOCKEY_EXTENSION, SOCCER_EXTENSION, TAG_EXTENSION, CNR_EXTENSION, RNR_EXTENSION, COMBAT_EXTENSION]);
 
 /** An extension descriptor by id, or null for a core mode or an unknown id. */
 export function extensionById(id) {

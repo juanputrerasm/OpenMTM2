@@ -11,6 +11,7 @@
     { kind: "damage", vehicle, code }            { kind: "lights", vehicle, lamps }
     { kind: "horn", vehicle }                    { kind: "yeehaw", vehicle }
     { kind: "mode", data }                       an extension's state from the room owner (rooms only)
+    { kind: "modeTruck", vehicle, data }         an extension's state for the trucks one machine drives (rooms only)
 
   Vehicle numbers are the network's (the game's 1-based slots); local indexes are the race
   screen's trucks, the local player always 0. `receive` turns events into commands for the sim
@@ -23,7 +24,7 @@ export const MODE_HZ = 5;
 
 /**
  * @param {{ entrants: { vehicle: number, owned: boolean }[], rateHz: number, policy?: string,
- *   mode?: { toWire(state, vehicleOf), fromWire(data, localOf, count) } }} options
+ *   mode?: { toWire(state, vehicleOf), fromWire(data, localOf, count), ownToWire?(state, vehicleOf), ownFromWire?(data, localOf, count) } }} options
  *   `entrants` in local order (index 0 the local player); `owned` trucks are simulated here and sent (the player's, and
  *   the computer trucks' on the host). `mode`: an extension race in a room (game/extensions/race-loader.js).
  */
@@ -42,7 +43,7 @@ export function createNetRace({ entrants, rateHz, mode = null }) {
   const sentNext = entrants.map(() => null);
   const lastPass = entrants.map(() => 0);
   const gone = new Set();
-  let nextMode = -Infinity, modeMark = null;
+  let nextMode = -Infinity, modeMark = null, nextOwn = -Infinity, ownMark = null;
 
   const command = (name, value) => pending.push({ name, value });
 
@@ -78,6 +79,12 @@ export function createNetRace({ entrants, rateHz, mode = null }) {
         const state = mode?.fromWire(e.data, (v) => localOf.get(v), entrants.length);
         if (!state) return false;
         command("mode", state);
+        return true;
+      }
+      case "modeTruck": {
+        const state = mode?.ownFromWire?.(e.data, (v) => localOf.get(v), entrants.length);
+        if (!state) return false;
+        command("modeOwn", { ...state, from: local });
         return true;
       }
       case "damage":
@@ -121,6 +128,16 @@ export function createNetRace({ entrants, rateHz, mode = null }) {
         nextMode = now + 1000 / MODE_HZ;
         modeMark = mark;
         out.push({ kind: "mode", data: mode.toWire(s, (i) => vehicleOf[i] ?? 0) });
+      }
+    }
+    // The state of the trucks this machine judges (a mode that judges each where it is driven): at MODE_HZ, at once on
+    // a change that must be heard (`mark`), as this player's vehicle.
+    if (reply?.modeOwn && mode?.ownToWire) {
+      const s = reply.modeOwn;
+      if (now >= nextOwn || s.mark !== ownMark) {
+        nextOwn = now + 1000 / MODE_HZ;
+        ownMark = s.mark;
+        out.push({ kind: "modeTruck", vehicle: vehicleOf[0], data: mode.ownToWire(s, (i) => vehicleOf[i] ?? 0) });
       }
     }
     entrants.forEach((_, i) => {

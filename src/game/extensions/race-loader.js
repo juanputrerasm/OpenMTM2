@@ -4,22 +4,33 @@
 
   - `prepare(extension, ctx)`: the race data (`{ id, dress, course?, walls?, start, simulation }`); `ctx.picks[i]` is
     the team (and role) truck i was given in the Computer Opponents dialog, `{ team, role }` or null;
-  - `labels(state, entrants, baseLabel)` and `marks(state, count)`: the names over the trucks and their colours;
+  - `labels(state, entrants, baseLabel)` and `marks(state, count)`: the names over the trucks and their colours (a
+    label's line may be coloured pieces, `[{ text, color }]`, render/name-tag-style.js);
   - `mapMarks(state, count)` and `mapPoints(state)`: the trucks' colours and markers on the map, and other things on it;
   - `markerTarget(state)`: the truck the arrow hangs over, or -1;
   - `finderTarget(state, index, positions)`: where the checkpoint finder points for truck `index`, or null for
     nowhere (undefined keeps the checkpoints);
   - `resultTime(length, race)`: the Winner's Circle time, or undefined for each truck's own;
-  - `hud(state, race, entrants, helpers, previous)`: the HUD's rows and messages (rows null keeps the race's own);
-  - `toWire` and `fromWire`: the mode's state over the network.
+  - `hud(state, race, entrants, helpers, previous)`: the HUD's rows, messages and sounds (rows null keeps the race's
+    own; `sounds` are `{ kind: "horn" | "yeehaw", truck }`); `helpers.watched` is the truck the HUD is for; what it
+    returns as `memory` comes back in the next frame's `previous`;
+  - `toWire` and `fromWire`: the mode's state over the network (the owner's); `ownToWire` and `ownFromWire`, for a
+    mode that judges each truck on the machine that drives it (Combat), the state each machine sends of its trucks;
+  - `out(state, index)`: whether truck `index` is out of the race (wrecked, or left it): a player who is out watches on;
+  - `keyAction(state, index)`: what the Crash Damage key does in a mode that owns it (the manifest's `damageKey`):
+    `{ action, message }`, the action sent to the simulation (`modeAction`) and a line to show, either one optional.
 */
 import { extensionById } from "./loader.js";
 import { hockeyFromWire, hockeyRink, hockeySpot, hockeyTeams, hockeyToWire, rinkBoxes } from "./hockey.js";
 import { soccerPitch, pitchBoxes } from "./soccer.js";
-import { IT_COLOUR, tagFromWire, tagScoring, tagToWire } from "./tag.js";
+import { IT_COLOUR, TAG64_ROUND_S, TAG_MTM64, tagFromWire, tagScoring, tagToWire } from "./tag.js";
 import { COP_COLOUR, COP_NAME, ROBBER_COLOUR, ROBBER_NAME, cnrFromWire, cnrToWire } from "./cops-robbers.js";
-import { RACER, RNR_TIMED, ROLE_NAMES, SIDE_NAMES, rnrFromWire, rnrTeams, rnrToWire, rnrVariant } from "./race-rumble.js";
+import {
+  BLOCKER, CHASE_BUST_FT, CHASE_COLOURS, CHASE_ROLE_NAMES, RACER, RNR_CHASE, RNR_TIMED, ROLE_NAMES, SIDE_NAMES, rnrFromWire, rnrTeams,
+  rnrToWire, rnrVariant, timingTruck,
+} from "./race-rumble.js";
 import { TEAM_COLOURS, TEAM_NAMES, pickedTeams } from "./teams.js";
+import { OUT_LABEL, WHEEL_NAMES, WRECKED_LABEL, combatFromWire, combatOwnFromWire, combatOwnToWire, combatToWire } from "./combat.js";
 
 const none = (count) => Array.from({ length: count }, () => null);
 const nearest = (positions, from, pick) => {
@@ -127,20 +138,26 @@ const SOCCER = {
 // ---- Tag ----
 
 const TAG = {
-  prepare: (extension, { length, settings }) => ({
-    id: extension.id,
-    dress: { mode: extension.id, marker: IT_COLOUR },
-    start: (_index, fallback) => fallback,
-    simulation: { mode: extension.id, minutes: length, scoring: tagScoring(settings) },
-  }),
+  prepare: (extension, { length, settings }) => {
+    const scoring = tagScoring(settings);
+    return {
+      id: extension.id,
+      dress: { mode: extension.id, marker: IT_COLOUR },
+      start: (_index, fallback) => fallback,
+      // MTM64's rules play a fixed 5 minute round.
+      simulation: { mode: extension.id, minutes: scoring.rules === TAG_MTM64 ? TAG64_ROUND_S / 60 : length, scoring },
+    };
+  },
   mapMarks: (state, count) => Array.from({ length: count }, (_, i) => (i === state.it ? { color: IT_COLOUR, marker: "arrow" } : null)),
   markerTarget: (state) => state.it,
   // It looks for the nearest truck; the others for It.
   finderTarget: (state, index, positions) => (index === state.it
     ? nearest(positions, positions[index] ?? [0, 0, 0], (i) => i !== index && i !== state.safe)
     : positions[state.it] ?? null),
-  resultTime: (length) => length * 60,
-  hud(state, race, entrants, { t, formatRaceTime, summitBoard }, previous) {
+  resultTime: (length, race) => (race?.extension?.rules === TAG_MTM64 ? TAG64_ROUND_S : length * 60),
+  hud(state, race, entrants, helpers, previous) {
+    if (state.rules === TAG_MTM64) return tag64Hud(state, race, entrants, helpers, previous);
+    const { t, formatRaceTime, summitBoard } = helpers;
     const me = race.trucks[0];
     const nameOf = (index) => index === 0 ? t("You") : entrants[index]?.name ?? "";
     const flashes = [];
@@ -169,6 +186,34 @@ const TAG = {
   toWire: tagToWire,
   fromWire: tagFromWire,
 };
+
+/** Tag's HUD under MTM64's rules: whole points, the rate now, and the passes and out-of-bounds penalties. */
+function tag64Hud(state, race, entrants, { t, formatRaceTime, summitBoard }, previous) {
+  const me = race.trucks[0];
+  const nameOf = (index) => index === 0 ? t("You") : entrants[index]?.name ?? "";
+  const flashes = [];
+  let phase = previous.phase ?? null;
+  const rate = state.rates?.[0] ?? 0;
+  const rows = [
+    [t("Time Remaining:"), formatRaceTime(state.left)], [t("Points:"), t("<<1>> points", Math.floor(state.points[0]))],
+    [t("It:"), state.it === 0 ? t("You") : entrants[state.it]?.name ?? ""],
+    [t("Scoring:"), state.it === 0 ? "-" : t("+<<1>> a second", Math.round(rate * 10) / 10)],
+    [t("It time:"), formatRaceTime(state.itTime[0])], [t("Place:"), `${me.place}/${race.trucks.length}`], ["", ""],
+    ...summitBoard(race.trucks, entrants.map((entrant) => entrant.name)),
+  ];
+  if (state.events !== previous.events) {
+    const event = state.event;
+    if (event?.kind === "out") flashes.push(event.to === 0 ? t("Out of bounds: you're It!") : t("<<1>> went out of bounds and is It!", nameOf(event.to)));
+    else if (event?.from === 0) flashes.push(t("You passed It to <<1>>! +<<2>>", nameOf(event.to), event.points));
+    else if (event?.to === 0) flashes.push(t("<<1>> passed It to you!", nameOf(event.from)));
+    else if (event) flashes.push(t("<<1>> passed It to <<2>>!", nameOf(event.from), nameOf(event.to)));
+  }
+  if (phase === null && race.started) {
+    flashes.push(state.it === 0 ? t("You're It! Get within 25 ft of a truck to pass it on.") : t("<<1>> is It! Stay close, but not within 25 ft.", nameOf(state.it)));
+    phase = "started";
+  }
+  return { rows, flashes, events: state.events, phase };
+}
 
 // ---- Cops & Robbers ----
 
@@ -224,13 +269,72 @@ const CNR = {
 
 // ---- Race & Rumble ----
 
+/**
+ * A chase's HUD: the suspect sees the time left above its own times; a cop the time left, the suspect's lap and name,
+ * and its busts. The start says who is who, 10 s left is warned, a bust sounds the cop's horn, the end says how it went.
+ */
+function chaseHud(state, race, entrants, { t, formatRaceTime, watched = 0 }, previous) {
+  const flashes = [], sounds = [];
+  let phase = previous.phase ?? null;
+  const suspect = state.roles.indexOf(RACER);
+  const isSuspect = watched === suspect;
+  const nameOf = (index) => (index === 0 ? t("You") : entrants[index]?.name ?? "");
+  const left = state.left ?? 0;
+  if (phase === null) {
+    flashes.push(isSuspect
+      ? t("You are the suspect: finish the race within <<1>>.", formatRaceTime(left))
+      : t("Bust the suspect, <<1>>: get within <<2>> ft.", nameOf(suspect), CHASE_BUST_FT));
+    phase = "started";
+  }
+  if (phase === "started" && left > 0 && left <= 10 && !state.over) {
+    flashes.push(t("10 seconds!"));
+    phase = "ten";
+  }
+  const events = state.events ?? 0;
+  if (events !== (previous.events ?? 0) && state.event?.kind === "bust" && state.event.by >= 0) {
+    const by = state.event.by;
+    sounds.push({ kind: "horn", truck: by });
+    flashes.push(by === watched ? t("You busted the suspect!") : isSuspect ? t("<<1>> busted you!", nameOf(by)) : t("<<1>> busted the suspect!", nameOf(by)));
+  }
+  if (state.over && phase !== "over") {
+    const home = race?.trucks?.[suspect]?.finished && state.winner === RACER;
+    if (isSuspect) flashes.push(home ? t("Race complete! <<1>>", formatRaceTime(race.trucks[suspect].raceTime ?? 0)) : t("You did not complete the race in time."));
+    else flashes.push(home ? t("The suspect got away!") : t("The cops win!"));
+    phase = "over";
+  }
+  const done = { flashes, sounds, events, phase };
+  const trucks = race?.trucks;
+  if (!trucks?.length) return { rows: null, ...done };
+  const timeRow = [t("Time Remaining:"), formatRaceTime(left)];
+  if (!isSuspect) {
+    const runner = trucks[suspect];
+    return {
+      rows: [
+        timeRow, [t("Suspect:"), suspect >= 0 ? nameOf(suspect) : "-"],
+        [t("Suspect's lap:"), runner ? `${Math.min(runner.lap, race.laps)}/${race.laps}` : "-"],
+        [t("Busts:"), String(state.busts?.[watched] ?? 0)],
+      ],
+      ...done,
+    };
+  }
+  const me = trucks[watched];
+  return {
+    rows: [
+      timeRow, [t("Lap:"), formatRaceTime(me.lapTime)], [t("Best:"), formatRaceTime(me.best)],
+      [t("Place:"), `${t("[lap count]Lap:")} ${me.lap}/${race.laps}`, "-"],
+    ],
+    ...done,
+  };
+}
+
 const RNR = {
   prepare(extension, { entrants, length, settings, picks }) {
     const variant = rnrVariant(settings?.variant);
     const { teams, roles } = rnrTeams(entrants.length, !!settings?.blocker, { variant, picks: picks ?? [] });
     return {
       id: extension.id,
-      dress: { mode: extension.id, variant, teams, roles },
+      // A chase hangs the red arrow over the suspect.
+      dress: { mode: extension.id, variant, teams, roles, ...(variant === RNR_CHASE ? { marker: CHASE_COLOURS[RACER] } : {}) },
       start: (_index, fallback) => fallback,
       simulation: { mode: extension.id, variant, teams, roles, laps: length, minutes: settings?.minutes },
     };
@@ -238,28 +342,43 @@ const RNR = {
   // Each name says whether that truck races or blocks; the colour is its team's.
   labels: (state, entrants, baseLabel) => entrants.map((entrant, index) => {
     const label = baseLabel(entrant, index);
-    return label ? withLine(label, ROLE_NAMES[state.roles[index]]) : entrant.name;
+    const names = state.variant === RNR_CHASE ? CHASE_ROLE_NAMES : ROLE_NAMES;
+    return label ? withLine(label, names[state.roles[index]]) : entrant.name;
   }),
-  marks: teamMarks,
-  mapMarks: teamMarks,
+  // A chase colours the suspect red and the cops blue, and marks the suspect on the map; the others by team.
+  marks: (state, count) => (state.variant === RNR_CHASE
+    ? Array.from({ length: count }, (_, i) => ({ color: CHASE_COLOURS[state.roles[i]] }))
+    : teamMarks(state, count)),
+  mapMarks: (state, count) => (state.variant === RNR_CHASE
+    ? Array.from({ length: count }, (_, i) => (state.roles[i] === RACER ? { color: CHASE_COLOURS[RACER], marker: "arrow" } : { color: CHASE_COLOURS[BLOCKER] }))
+    : teamMarks(state, count)),
+  markerTarget: (state) => (state.variant === RNR_CHASE ? state.roles.indexOf(RACER) : -1),
   // A racer follows the checkpoints; a blocker looks for the nearest racer of another team.
   finderTarget: (state, index, positions) => (state.roles[index] === RACER
     ? undefined
     : nearest(positions, positions[index] ?? [0, 0, 0], (i) => state.roles[i] === RACER && state.teams[i] !== state.teams[index])),
   resultTime: () => undefined,
-  /** The race's own HUD; the start says who is who, the timed block warns of its last minute, and the end says who won. */
-  hud(state, _race, _entrants, { t, formatRaceTime }, previous) {
-    const flashes = [];
+  /**
+   * The race's board, for the racers alone (places among the racers). A racer sees its own times; a classic blocker
+   * its team's racer's, named under them; a timed blocker the time left, the racers' lap and the lead racer. The
+   * timed block's racers see the time left too. The start says who is who, the timed block warns of its last minute,
+   * a blocker's block or roll-over is cheered (a horn, a YeeHaw) and told, and the end says who won.
+   */
+  hud(state, race, entrants, helpers, previous) {
+    if (state.variant === RNR_CHASE) return chaseHud(state, race, entrants, helpers, previous);
+    const { t, formatRaceTime, watched = 0 } = helpers;
+    const flashes = [], sounds = [];
     let phase = previous.phase ?? null;
     const timed = state.variant === RNR_TIMED;
-    const racer = state.roles[0] === RACER;
+    const racer = state.roles[watched] === RACER;
+    const nameOf = (index) => (index === 0 ? t("You") : entrants[index]?.name ?? "");
     if (phase === null) {
       if (timed) {
         const time = state.left !== null && state.left !== undefined ? formatRaceTime(state.left) : "";
         flashes.push(racer ? t("You are a Racer: get one of the Racers home within <<1>>.", time) : t("You are a Blocker: hold the Racers off for <<1>>.", time));
       } else {
-        const team = t(TEAM_NAMES[state.teams[0]] ?? "");
-        flashes.push(racer ? t("You race for <<1>>: be the first racer home.", team) : t("You block for <<1>>: stop the other racers and guard your own.", team));
+        const team = t(TEAM_NAMES[state.teams[watched]] ?? "");
+        flashes.push(racer ? t("You race for <<1>>: be the first racer home.", team) : t("You block for <<1>>: stop the leading racer and free your own.", team));
       }
       phase = "started";
     }
@@ -267,19 +386,152 @@ const RNR = {
       flashes.push(t("One minute left!"));
       phase = "minute";
     }
+    const events = state.events ?? 0;
+    if (events !== (previous.events ?? 0) && state.event && state.event.by >= 0 && state.event.racer >= 0) {
+      const { kind, by, racer: hit } = state.event;
+      sounds.push({ kind: kind === "roll" ? "yeehaw" : "horn", truck: by });
+      flashes.push(kind === "roll" ? t("<<1>> rolled <<2>> over!", nameOf(by), nameOf(hit)) : t("<<1>> blocked <<2>>!", nameOf(by), nameOf(hit)));
+    }
     if (state.over && phase !== "over") {
       if (state.winner !== null && state.winner !== undefined) {
         flashes.push(timed ? t("<<1>> win!", t(SIDE_NAMES[state.winner])) : t("<<1>> wins!", t(TEAM_NAMES[state.winner])));
       }
       phase = "over";
     }
-    return { rows: null, flashes, events: previous.events ?? 0, phase };
+    const done = { flashes, sounds, events, phase };
+    const trucks = race?.trucks;
+    if (!trucks?.length) return { rows: null, ...done };
+    const racers = state.roles.map((_, i) => i).filter((i) => state.roles[i] === RACER);
+    const lead = racers.find((i) => trucks[i]?.place === 1) ?? racers[0] ?? -1;
+    const left = state.left !== null && state.left !== undefined ? [[t("Time Remaining:"), formatRaceTime(state.left)]] : [];
+    if (timed && !racer) {
+      const leader = trucks[lead];
+      return {
+        rows: [...left, [t("Racers' lap:"), leader ? `${Math.min(leader.lap, race.laps)}/${race.laps}` : "-"], [t("Lead racer:"), lead >= 0 ? nameOf(lead) : "-"]],
+        ...done,
+      };
+    }
+    const shown = timingTruck(watched, state.teams, state.roles, state.variant);
+    const me = trucks[shown] ?? trucks[watched];
+    const place = me.place === null || me.place === undefined || state.roles[shown] === BLOCKER ? "-" : `${me.place}/${racers.length}`;
+    const rows = [
+      ...(timed ? left : []),
+      [t("Lap:"), formatRaceTime(me.lapTime)], [t("Best:"), formatRaceTime(me.best)], ...(timed ? [] : [[t("Clock:"), formatRaceTime(race.clock)]]),
+      ["", ""], [race.gap?.kind === "lead" ? t("Lead:") : t("Back:"), formatRaceTime(race.gap?.seconds ?? 0)],
+      [t("Place:"), `${t("[lap count]Lap:")} ${me.lap}/${race.laps}`, place],
+    ];
+    if (!racer && shown !== watched) rows.push([t("Racer:"), nameOf(shown)]);
+    return { rows, ...done };
   },
   toWire: rnrToWire,
   fromWire: rnrFromWire,
 };
 
-const ADAPTERS = new Map([["hockey", HOCKEY], ["soccer", SOCCER], ["tag", TAG], ["cops-robbers", CNR], ["race-rumble", RNR]]);
+
+// ---- Combat ----
+
+/** A share (0 to 1) as a percentage; a lost wheel (-1) as dashes. */
+const percent = (share) => (share < 0 ? "--" : `${Math.max(0, Math.round(share * 100))}%`);
+/** A share's colour on the board: green, yellow, orange, red; a lost wheel dark red. */
+export const damageColour = (share) => (share < 0 ? "#b0202a" : share >= 0.6 ? "#4fe05a" : share >= 0.35 ? "#f2d22e" : share >= 0.15 ? "#ff8a1e" : "#ff3b30");
+/** A share as a coloured piece of a value (render/bitmap-text.js). */
+const shown = (share) => [{ text: percent(share), color: damageColour(share) }];
+const COMBAT = {
+  prepare(extension, { length, settings }) {
+    return {
+      id: extension.id,
+      dress: { mode: extension.id },
+      start: (_index, fallback) => fallback,
+      simulation: {
+        mode: extension.id, laps: length, toughness: settings?.toughness ?? "normal", credits: settings?.credits !== false,
+        startCredits: settings?.startCredits ?? 500, aggression: settings?.aggression ?? "normal",
+      },
+    };
+  },
+  // Each name with the truck's hit points, coloured as on the board; a wrecked truck's name says so instead.
+  labels: (state, entrants, baseLabel) => entrants.map((entrant, index) => {
+    const label = baseLabel(entrant, index) || entrant.name;
+    const me = state.trucks?.[index];
+    if (state.out?.[index]) return withLine(label, me?.quit ? OUT_LABEL : WRECKED_LABEL);
+    if (!me) return label;
+    const lines = Array.isArray(label) ? [...label] : [label];
+    lines[0] = [{ text: `${lines[0]} ` }, { text: percent(me.hp), color: damageColour(me.hp) }];
+    return lines;
+  }),
+  resultTime: () => undefined,
+  out: (state, index) => !!state?.out?.[index],
+  toWire: combatToWire,
+  fromWire: combatFromWire,
+  // Each machine's own trucks (combat-session.js `netOwn`).
+  ownToWire: combatOwnToWire,
+  ownFromWire: combatOwnFromWire,
+  keyAction(state, index) {
+    const me = state?.trucks?.[index];
+    if (!me || me.wrecked || me.quit) return {};
+    if (!state.credits) return { message: "No repairs: credits are off in Options" };
+    if (me.cost <= 0) return { message: "Your truck needs no repair" };
+    if (me.credits <= 0) return { message: "Not enough credits to repair" };
+    return { action: "repair" };
+  },
+  /**
+   * The truck's state under the race's times: its hit points, engine, gearbox and wheels, its credits and what a full
+   * repair costs. The start tells the keys; a wheel coming off, a wreck and the player's repairs are told (a wreck with
+   * the wrecker's YeeHaw), and the end says who won.
+   */
+  hud(state, race, entrants, { t, formatRaceTime, watched = 0 }, previous) {
+    const flashes = [], sounds = [], repaired = [];
+    let phase = previous.phase ?? null;
+    const nameOf = (index) => (index === watched ? t("You") : entrants[index]?.name ?? "");
+    const wheel = (w) => t(WHEEL_NAMES[w] ?? "");
+    if (phase === null) {
+      flashes.push(state.credits
+        ? t("Combat! Wreck the others and win the race. X repairs, with the credits you earn (<<1>>).", state.trucks?.[watched]?.credits ?? 0)
+        : t("Combat! Wreck the others and win the race."));
+      phase = "started";
+    }
+    const seen = previous.events ?? 0;
+    for (const e of state.log ?? []) {
+      if (e.id <= seen) continue;
+      if (e.kind === "repair") {
+        repaired.push(e.truck);
+        if (e.truck === watched) flashes.push(t("Repaired for <<1>> credits", e.spent));
+      } else if (e.kind === "wheel") {
+        flashes.push(e.truck === watched ? t("You lost your <<1>> wheel!", wheel(e.wheel)) : t("<<1>> lost its <<2>> wheel!", nameOf(e.truck), wheel(e.wheel)));
+        const me = state.trucks?.[e.truck];
+        if (e.truck === watched && me && !me.wrecked && me.wheels.every((w) => w < 0)) flashes.push(t("No wheels left: X puts one back on"));
+      } else if (e.kind === "wreck") {
+        if (e.by >= 0) sounds.push({ kind: "yeehaw", truck: e.by });
+        if (e.truck === watched) flashes.push(e.by >= 0 ? t("<<1>> wrecked you! Left and Right: watch another truck.", nameOf(e.by)) : t("You're wrecked! Left and Right: watch another truck."));
+        else flashes.push(e.by >= 0 ? t("<<1>> wrecked <<2>>!", nameOf(e.by), nameOf(e.truck)) : t("<<1>> is wrecked!", nameOf(e.truck)));
+      } else if (e.kind === "quit" && e.truck === watched) flashes.push(t("You left the fight. Left and Right: watch another truck."));
+    }
+    if (state.over && phase !== "over") {
+      if (state.winner >= 0) flashes.push(state.winner === watched ? t("Last truck standing: you win!") : t("<<1>> is the last truck standing!", nameOf(state.winner)));
+      phase = "over";
+    }
+    // A dead engine or gearbox is told once: the truck crawls on.
+    const watchedTruck = state.trucks?.[watched];
+    const crawl = !!watchedTruck && !watchedTruck.wrecked && (watchedTruck.engine <= 0 || watchedTruck.gearbox <= 0);
+    if (crawl && !previous.crawl) flashes.push(t("Your truck is crawling: reach the checkpoints for credits and repair it"));
+    const done = { flashes, sounds, repaired, events: state.events ?? seen, phase, memory: { crawl } };
+    const trucks = race?.trucks;
+    const mine = state.trucks?.[watched];
+    if (!trucks?.length || !mine) return { rows: null, ...done };
+    const me = trucks[watched];
+    const rows = [
+      [t("Lap:"), formatRaceTime(me.lapTime)], [t("Best:"), formatRaceTime(me.best)],
+      [t("Place:"), `${t("[lap count]Lap:")} ${Math.min(me.lap, race.laps)}/${race.laps}`, `${me.place}/${trucks.length}`], ["", ""],
+      [t("Truck:"), mine.wrecked ? [{ text: t("Wrecked"), color: damageColour(-1) }] : shown(mine.hp)], [t("Engine:"), shown(mine.engine)],
+      [t("Gearbox:"), shown(mine.gearbox)],
+      // The four wheels, front right to rear left, each in its own colour.
+      [t("Wheels:"), mine.wheels.flatMap((share, w) => [...(w ? [{ text: " " }] : []), { text: percent(share), color: damageColour(share) }])],
+    ];
+    if (state.credits) rows.push(["", ""], [t("Credits:"), String(mine.credits)], [t("Repair (X):"), mine.cost > 0 ? String(mine.cost) : "-"]);
+    return { rows, ...done };
+  },
+};
+
+const ADAPTERS = new Map([["hockey", HOCKEY], ["soccer", SOCCER], ["tag", TAG], ["cops-robbers", CNR], ["race-rumble", RNR], ["combat", COMBAT]]);
 const adapterOf = (stateOrId) => ADAPTERS.get(typeof stateOrId === "string" ? stateOrId : stateOrId?.mode) ?? null;
 
 export function resolveRaceExtension(id, track) {
@@ -348,6 +600,16 @@ export function extensionHud(state, race, entrants, helpers, previous = {}) {
   return adapterOf(state)?.hud?.(state, race, entrants, helpers, previous) ?? null;
 }
 
+/** Whether truck `index` is out of an extension race (a wrecked player watches on). */
+export function extensionTruckOut(state, index) {
+  return !!adapterOf(state)?.out?.(state, index);
+}
+
+/** What the Crash Damage key does in a mode that owns it: `{ action?, message? }` (adapter `keyAction`). */
+export function extensionKeyAction(state, index) {
+  return adapterOf(state)?.keyAction?.(state, index) ?? {};
+}
+
 /**
  * An online room's mode state (docs/EXTENSIONS.md, "Over the network"): the owner's runtime state as sent, truck
  * indexes as vehicle numbers, and back in this machine's truck order. Null for a mode that cannot be played online.
@@ -359,4 +621,13 @@ export function extensionNetToWire(id, state, vehicleOf) {
 export function extensionNetFromWire(id, data, localOf, count) {
   if (!data) return null;
   return adapterOf(id)?.fromWire?.(data, localOf, count) ?? null;
+}
+/** The state of the trucks one machine judges, in a mode that judges each where it is driven (Combat), and back. */
+export function extensionNetOwnToWire(id, state, vehicleOf) {
+  if (!state) return null;
+  return adapterOf(id)?.ownToWire?.(state, vehicleOf) ?? null;
+}
+export function extensionNetOwnFromWire(id, data, localOf, count) {
+  if (!data) return null;
+  return adapterOf(id)?.ownFromWire?.(data, localOf, count) ?? null;
 }

@@ -53,6 +53,12 @@ export function createCrashDamage(count, { enabled = true } = {}) {
       codes[i] = code >>> 0;
       return true;
     },
+    /** Truck `i` repaired (a mode's repair, Combat's): its code cleared and its body put right (`repair()`). */
+    repairOne(i, repair) {
+      if (!(i >= 0 && i < count)) return;
+      codes[i] = 0;
+      repair();
+    },
     /** The Crash Damage key: flips the switch; switching off repairs every truck (`repair(i)` for each). Returns the new state. */
     toggle(repair) {
       on = !on;

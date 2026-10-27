@@ -104,12 +104,16 @@ export const hudFontScale = (deviceHeight) => Math.max(1, Math.round(deviceHeigh
  * A canvas that shows rows of text in a bitmap font. Rows are strings, or `[label, value]`
  * pairs drawn at the left and right of `width` (`fit` makes it as wide as the text instead),
  * on a `background` colour with `padX` and `padY` sheet pixels around (the caption bar), or `[label, value, middle]` with a second value
- * set just after the label (the HUD's `Place: 1/4     Lap: 1/2`); `rowHeight` is the row pitch. Falls back to plain text when the font is
+ * set just after the label (the HUD's `Place: 1/4     Lap: 1/2`); a value may be pieces in their own colours,
+ * `[{ text, color }]` (Combat's damage, green to red), drawn one after the other. `rowHeight` is the row pitch. Falls back to plain text when the font is
  * missing. `set(rows)` redraws only when the text changes; `version` counts the redraws, for
  * whoever copies the canvas elsewhere (the headset's HUD, render/xr/vr-hud.js). `pixelRatio` is
  * device pixels per CSS pixel: the canvas is laid out at its size divided by it, so each of its
  * pixels is one device pixel and `scale` counts device pixels (`setScale` changes both).
  */
+/** A row's value as text: pieces (`[{ text, color }]`) joined. */
+const valueText = (value) => (Array.isArray(value) ? value.map((piece) => piece.text).join("") : value);
+
 export function createTextPanel(font, {
   width = 160, scale = 1, color = "#fff", labelColor = color, valueColor = color,
   align = "left", shadow = "#000", rowHeight = null, background = null, padX = 0, padY = 0, fit = false, backing = null,
@@ -140,7 +144,7 @@ export function createTextPanel(font, {
       if (!font) {
         canvas.replaceChildren(...rows.map((r) => {
           const line = document.createElement("div");
-          line.textContent = Array.isArray(r) ? r.join(" ") : r;
+          line.textContent = Array.isArray(r) ? r.map(valueText).join(" ") : r;
           return line;
         }));
         return;
@@ -148,7 +152,7 @@ export function createTextPanel(font, {
       const lineH = (rowHeight ?? font.lineHeight + 1) * scale;
       // Wide enough for the widest row, with a gap between a label and its value.
       const content = Math.max(0, ...rows.map((r) => (Array.isArray(r)
-        ? textWidth(font, r[0]) + textWidth(font, r[1]) + 10 : textWidth(font, r)) + 4));
+        ? textWidth(font, r[0]) + textWidth(font, valueText(r[1])) + 10 : textWidth(font, r)) + 4));
       const w = (Math.max(fit ? 0 : width, Math.ceil(content)) + 2 * padX) * scale;
       const h = rows.length * lineH + pad * 2 + 2 * padY * scale;
       const ctx = canvas.getContext("2d");
@@ -186,9 +190,13 @@ export function createTextPanel(font, {
           draw(row[2], x, valueColor);
         }
         if (right !== null) {
-          const x = canvas.width - pad - padX * scale - textWidth(font, right, scale);
-          if (shadow) draw(right, x + scale, shadow, scale);
-          draw(right, x, valueColor);
+          const pieces = Array.isArray(right) ? right : [{ text: right }];
+          let x = canvas.width - pad - padX * scale - textWidth(font, valueText(right), scale);
+          for (const piece of pieces) {
+            if (shadow) draw(piece.text, x + scale, shadow, scale);
+            draw(piece.text, x, piece.color ?? valueColor);
+            x += textWidth(font, piece.text, scale);
+          }
         }
       });
     },

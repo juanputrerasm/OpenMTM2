@@ -4372,12 +4372,32 @@
   "text": "Corres para <<1>>: sé el primer corredor en llegar."
  },
  {
-  "tag": "You block for <<1>>: stop the other racers and guard your own.",
-  "text": "Bloqueas para <<1>>: frena a los otros corredores y protege al tuyo."
+  "tag": "You block for <<1>>: stop the leading racer and free your own.",
+  "text": "Bloqueas para <<1>>: frena al corredor en cabeza y libera al tuyo."
  },
  {
   "tag": "One minute left!",
   "text": "¡Queda un minuto!"
+ },
+ {
+  "tag": "<<1>> rolled <<2>> over!",
+  "text": "¡<<1>> volcó a <<2>>!"
+ },
+ {
+  "tag": "<<1>> blocked <<2>>!",
+  "text": "¡<<1>> bloqueó a <<2>>!"
+ },
+ {
+  "tag": "Racers' lap:",
+  "text": "Vuelta de los corredores:"
+ },
+ {
+  "tag": "Lead racer:",
+  "text": "Corredor en cabeza:"
+ },
+ {
+  "tag": "Racer:",
+  "text": "Corredor:"
  },
  {
   "tag": "Racers and Blockers. Classic: teams of a racer and a blocker, the first racer home wins it for its team. Timed block: two sides, the Racers must get one of theirs home before the time runs out.",
@@ -4442,5 +4462,285 @@
  {
   "tag": "Role of <<1>>",
   "text": "Función de <<1>>"
+ },
+ {
+  "tag": "<<1>> points",
+  "text": "<<1>> puntos"
+ },
+ {
+  "tag": "Out of bounds: you're It!",
+  "text": "¡Fuera de los límites: ahora la llevas tú!"
+ },
+ {
+  "tag": "<<1>> went out of bounds and is It!",
+  "text": "¡<<1>> salió de los límites y ahora la lleva!"
+ },
+ {
+  "tag": "You passed It to <<1>>! +<<2>>",
+  "text": "¡Se la pasaste a <<1>>! +<<2>>"
+ },
+ {
+  "tag": "<<1>> passed It to you!",
+  "text": "¡<<1>> te la pasó!"
+ },
+ {
+  "tag": "<<1>> passed It to <<2>>!",
+  "text": "¡<<1>> se la pasó a <<2>>!"
+ },
+ {
+  "tag": "You're It! Get within 25 ft of a truck to pass it on.",
+  "text": "¡Tú la llevas! Acércate a menos de 25 pies de un camión para pasarla."
+ },
+ {
+  "tag": "<<1>> is It! Stay close, but not within 25 ft.",
+  "text": "¡<<1>> la lleva! Quédate cerca, pero no a menos de 25 pies."
+ },
+ {
+  "tag": "You are the suspect: finish the race within <<1>>.",
+  "text": "Eres el sospechoso: termina la carrera en menos de <<1>>."
+ },
+ {
+  "tag": "Bust the suspect, <<1>>: get within <<2>> ft.",
+  "text": "Atrapa al sospechoso, <<1>>: acércate a menos de <<2>> pies."
+ },
+ {
+  "tag": "10 seconds!",
+  "text": "¡10 segundos!"
+ },
+ {
+  "tag": "You busted the suspect!",
+  "text": "¡Atrapaste al sospechoso!"
+ },
+ {
+  "tag": "<<1>> busted you!",
+  "text": "¡<<1>> te atrapó!"
+ },
+ {
+  "tag": "<<1>> busted the suspect!",
+  "text": "¡<<1>> atrapó al sospechoso!"
+ },
+ {
+  "tag": "Race complete! <<1>>",
+  "text": "¡Carrera completada! <<1>>"
+ },
+ {
+  "tag": "You did not complete the race in time.",
+  "text": "No completaste la carrera a tiempo."
+ },
+ {
+  "tag": "The suspect got away!",
+  "text": "¡El sospechoso escapó!"
+ },
+ {
+  "tag": "The cops win!",
+  "text": "¡Gana la policía!"
+ },
+ {
+  "tag": "Suspect:",
+  "text": "Sospechoso:"
+ },
+ {
+  "tag": "Suspect's lap:",
+  "text": "Vuelta del sospechoso:"
+ },
+ {
+  "tag": "Busts:",
+  "text": "Capturas:"
+ },
+ {
+  "tag": "Suspect",
+  "text": "Sospechoso"
+ },
+ {
+  "tag": "Chase (MTM64): one suspect races, the cops bust it",
+  "text": "Persecución (MTM64): un sospechoso corre y la policía lo atrapa"
+ },
+ {
+  "tag": "Time limit (timed block and chase)",
+  "text": "Límite de tiempo (bloqueo contra reloj y persecución)"
+ },
+ {
+  "tag": "Play as blocker or cop",
+  "text": "Jugar como bloqueador o policía"
+ },
+ {
+  "tag": "Rules",
+  "text": "Reglas"
+ },
+ {
+  "tag": "OpenMTM2: touch to tag, points for keeping a distance",
+  "text": "OpenMTM2: toca para pasarla, puntos por mantener la distancia"
+ },
+ {
+  "tag": "Monster Truck Madness 64: pass It within 25 ft, points for staying close",
+  "text": "Monster Truck Madness 64: pásala a menos de 25 pies, puntos por quedarte cerca"
+ },
+ {
+  "tag": "Round length (OpenMTM2 rules)",
+  "text": "Duración de la ronda (reglas de OpenMTM2)"
+ },
+ {
+  "tag": "Combat",
+  "text": "Combate"
+ },
+ {
+  "tag": "Race and wreck the others: hits wear down the engine, the gearbox and the wheels, and a truck is out when it is wrecked. Earn credits and press X to repair. The first truck home, or the last one running, wins.",
+  "text": "Corre y destroza a los demás: los golpes desgastan el motor, la caja de cambios y las ruedas, y un camión queda fuera cuando queda destrozado. Gana créditos y pulsa X para reparar. Gana el primer camión en llegar, o el último que quede en marcha."
+ },
+ {
+  "tag": "Truck toughness",
+  "text": "Resistencia de los camiones"
+ },
+ {
+  "tag": "Soft: short fights",
+  "text": "Blanda: combates cortos"
+ },
+ {
+  "tag": "Tough: long fights",
+  "text": "Dura: combates largos"
+ },
+ {
+  "tag": "Earn credits and repair with X",
+  "text": "Ganar créditos y reparar con X"
+ },
+ {
+  "tag": "Credits at the start",
+  "text": "Créditos al empezar"
+ },
+ {
+  "tag": "Computer trucks repair themselves",
+  "text": "Los camiones de la computadora se reparan solos"
+ },
+ {
+  "tag": "Computer trucks' aggression",
+  "text": "Agresividad de los camiones de la computadora"
+ },
+ {
+  "tag": "Low: they mostly race",
+  "text": "Baja: sobre todo corren"
+ },
+ {
+  "tag": "High: they hunt",
+  "text": "Alta: salen a cazar"
+ },
+ {
+  "tag": "Wrecked",
+  "text": "Destrozado"
+ },
+ {
+  "tag": "Out",
+  "text": "Fuera"
+ },
+ {
+  "tag": "front right",
+  "text": "delantera derecha"
+ },
+ {
+  "tag": "front left",
+  "text": "delantera izquierda"
+ },
+ {
+  "tag": "rear right",
+  "text": "trasera derecha"
+ },
+ {
+  "tag": "rear left",
+  "text": "trasera izquierda"
+ },
+ {
+  "tag": "No repairs: credits are off in Options",
+  "text": "Sin reparaciones: los créditos están desactivados en Opciones"
+ },
+ {
+  "tag": "Your truck needs no repair",
+  "text": "Tu camión no necesita reparación"
+ },
+ {
+  "tag": "Not enough credits to repair",
+  "text": "No tienes créditos suficientes para reparar"
+ },
+ {
+  "tag": "Combat! Wreck the others and win the race. X repairs, with the credits you earn (<<1>>).",
+  "text": "¡Combate! Destroza a los demás y gana la carrera. X repara, con los créditos que ganes (<<1>>)."
+ },
+ {
+  "tag": "Combat! Wreck the others and win the race.",
+  "text": "¡Combate! Destroza a los demás y gana la carrera."
+ },
+ {
+  "tag": "Repaired for <<1>> credits",
+  "text": "Reparado por <<1>> créditos"
+ },
+ {
+  "tag": "You lost your <<1>> wheel!",
+  "text": "¡Perdiste la rueda <<1>>!"
+ },
+ {
+  "tag": "<<1>> lost its <<2>> wheel!",
+  "text": "¡<<1>> perdió la rueda <<2>>!"
+ },
+ {
+  "tag": "<<1>> wrecked you! Left and Right: watch another truck.",
+  "text": "¡<<1>> te destrozó! Izquierda y Derecha: mira otro camión."
+ },
+ {
+  "tag": "You're wrecked! Left and Right: watch another truck.",
+  "text": "¡Estás destrozado! Izquierda y Derecha: mira otro camión."
+ },
+ {
+  "tag": "<<1>> wrecked <<2>>!",
+  "text": "¡<<1>> destrozó a <<2>>!"
+ },
+ {
+  "tag": "<<1>> is wrecked!",
+  "text": "¡<<1>> está destrozado!"
+ },
+ {
+  "tag": "You left the fight. Left and Right: watch another truck.",
+  "text": "Dejaste el combate. Izquierda y Derecha: mira otro camión."
+ },
+ {
+  "tag": "Last truck standing: you win!",
+  "text": "Último camión en pie: ¡ganas tú!"
+ },
+ {
+  "tag": "<<1>> is the last truck standing!",
+  "text": "¡<<1>> es el último camión en pie!"
+ },
+ {
+  "tag": "Truck:",
+  "text": "Camión:"
+ },
+ {
+  "tag": "Engine:",
+  "text": "Motor:"
+ },
+ {
+  "tag": "Gearbox:",
+  "text": "Caja:"
+ },
+ {
+  "tag": "Wheels:",
+  "text": "Ruedas:"
+ },
+ {
+  "tag": "Credits:",
+  "text": "Créditos:"
+ },
+ {
+  "tag": "Repair (X):",
+  "text": "Reparar (X):"
+ },
+ {
+  "tag": "Leave the fight and watch",
+  "text": "Dejar el combate y mirar"
+ },
+ {
+  "tag": "No wheels left: X puts one back on",
+  "text": "No te quedan ruedas: X vuelve a poner una"
+ },
+ {
+  "tag": "Your truck is crawling: reach the checkpoints for credits and repair it",
+  "text": "Tu camión apenas avanza: llega a los puntos de control para ganar créditos y repararlo"
  }
 ]

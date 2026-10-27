@@ -210,7 +210,9 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
           ctx.fillStyle = t.color ?? `rgb(${pulse},${pulse},${pulse})`;
           for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) ctx.fillRect(x + (dx - 0.5) * unitPx, y + (dy - 0.5) * unitPx, unitPx, unitPx);
         }
-        const label = t.label ? `${t.label} (${t.place})` : String(t.place);
+        // A truck with no place (a Race & Rumble blocker) shows its name alone, or nothing.
+        const placed = t.place !== null && t.place !== undefined;
+        const label = t.label ? (placed ? `${t.label} (${t.place})` : t.label) : placed ? String(t.place) : "";
         const colour = i === focus ? "#ffffff" : "#b5b5b5";
         if (font) {
           const s = unitPx * 0.6, width = textWidth(font, label, s), left = x - width / 2, top = y + 3 * unitPx;

@@ -9,7 +9,7 @@
 import * as THREE from "three";
 import { el } from "../ui/dom.js";
 import { drawText, textWidth } from "./bitmap-text.js";
-import { nameTagLineColour, nameTagPaintKey, nameTagScale } from "./name-tag-style.js";
+import { linePieces, nameTagLineColour, nameTagPaintKey, nameTagScale } from "./name-tag-style.js";
 
 export { NAME_COLOURS, nameTagScale } from "./name-tag-style.js";
 
@@ -29,24 +29,31 @@ export function createNameTags(count, font = null) {
   let drawnFor = "";
   /** Write a label's lines on its tag: the font's glyphs with a one-pixel black edge, or plain text without the font. */
   const write = (tag, lines, extensionColour) => {
+    const colourOf = (piece, k) => piece.color || nameTagLineColour(k, extensionColour);
     if (!font) {
-      tag.replaceChildren(...lines.map((line, k) => el("span", { class: "name-tag-line", style: `color: ${nameTagLineColour(k, extensionColour)}` }, line)));
+      tag.replaceChildren(...lines.map((pieces, k) => el("span", { class: "name-tag-line", style: `color: ${nameTagLineColour(k, extensionColour)}` },
+        ...pieces.map((piece) => el("span", { style: `color: ${colourOf(piece, k)}` }, piece.text)))));
       return;
     }
     const ratio = window.devicePixelRatio || 1;
     const scale = nameTagScale(Math.round(window.innerHeight * ratio));
     const lineH = (font.lineHeight + 2) * scale, edge = scale;
-    tag.width = Math.ceil(Math.max(1, ...lines.map((line) => textWidth(font, line, scale)))) + 2 * edge;
+    const widthOf = (pieces) => pieces.reduce((w, piece) => w + textWidth(font, piece.text, scale), 0);
+    tag.width = Math.ceil(Math.max(1, ...lines.map(widthOf))) + 2 * edge;
     tag.height = lines.length * lineH + 2 * edge;
     // One canvas pixel a device pixel.
     tag.style.width = `${tag.width / ratio}px`;
     tag.style.height = `${tag.height / ratio}px`;
     const ctx = tag.getContext("2d");
     ctx.clearRect(0, 0, tag.width, tag.height);
-    lines.forEach((line, k) => {
-      const x = Math.round((tag.width - textWidth(font, line, scale)) / 2), y = edge + k * lineH;
-      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) drawText(ctx, font, line, x + dx * edge, y + dy * edge, { color: "#000", scale });
-      drawText(ctx, font, line, x, y, { color: nameTagLineColour(k, extensionColour), scale });
+    lines.forEach((pieces, k) => {
+      let x = Math.round((tag.width - widthOf(pieces)) / 2);
+      const y = edge + k * lineH;
+      for (const piece of pieces) {
+        for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) drawText(ctx, font, piece.text, x + dx * edge, y + dy * edge, { color: "#000", scale });
+        drawText(ctx, font, piece.text, x, y, { color: colourOf(piece, k), scale });
+        x += textWidth(font, piece.text, scale);
+      }
     });
   };
   const v = new THREE.Vector3();
@@ -74,7 +81,7 @@ export function createNameTags(count, font = null) {
         if (Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) { tag.hidden = true; return; }
         tag.hidden = false;
         const color = mark?.color ?? "";
-        const lines = (Array.isArray(label) ? label : [label]).filter(Boolean).map(String), key = nameTagPaintKey(lines, color);
+        const lines = (Array.isArray(label) ? label : [label]).filter(Boolean).map(linePieces), key = nameTagPaintKey(lines, color);
         if (shown[i] !== key) { shown[i] = key; write(tag, lines, color); }
         if (tag.dataset.color !== color) { tag.dataset.color = color; tag.style.color = color; }
         tag.classList.toggle("name-tag-mark", !!mark);

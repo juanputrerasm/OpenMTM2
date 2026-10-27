@@ -1,4 +1,4 @@
-// Generated from openmtm2-server 0.1.0 protocol/mtm2-packets.js. Do not edit; run its tools/vendor.mjs.
+// Generated from openmtm2-server 0.1.1 protocol/mtm2-packets.js. Do not edit; run its tools/vendor.mjs.
 /*
   Monster Truck Madness 2's own network packets, as retail 2.00.42 sends them inside DirectPlay
   player messages (OpenMTM2 docs/MONSTER_EXE_ANALYSIS.md 14.2).

@@ -18,6 +18,8 @@ import { WEATHER_LOOK, isUnderwater, waterOffsetFt } from "../../game/weather.js
 import { beamAir, lampsAtStart } from "../../game/truck-lights.js";
 import { loadFont } from "../../render/bitmap-text.js";
 import { createCaption } from "../../render/caption.js";
+import { createNameTags } from "../../render/name-tags.js";
+import { nameLabel, nextNamesMode } from "../../game/names.js";
 import { createWaterEffects, createWaterSurface } from "../../render/water-effects.js";
 import { createTireEffects } from "../../render/tire-effects.js";
 import { surfaceFamily } from "../../game/sound-model.js";
@@ -54,7 +56,7 @@ import { msg } from "../../game/strings.js";
 /** A terrain cell's side: the draw distance is set in cells. */
 const TERRAIN_CELL_FT = 32;
 
-export default async function mount(container, context, { replay }) {
+export default async function mount(container, context, { replay, namesMode: startNames = 0 }) {
   const t = context.t;
   const back = () => context.router.back();
   const view = el("section", { class: "race-view replay-view" });
@@ -92,7 +94,7 @@ export default async function mount(container, context, { replay }) {
   if (disposed || !build) return { unmount };
   loading.hidden = true;
 
-  const [messageFont, effectsArt] = await Promise.all([loadFont(context.assets, "FNT2_480"), context.assets.call("effectsArt").catch(() => null)]);
+  const [messageFont, hudFont, effectsArt] = await Promise.all([loadFont(context.assets, "FNT2_480"), loadFont(context.assets, "FNT1_480"), context.assets.call("effectsArt").catch(() => null)]);
   const look = context.settings.look === "enhanced" ? "enhanced" : "classic";
   const canvas = el("canvas", { class: "race-canvas" });
   view.prepend(canvas);
@@ -241,6 +243,11 @@ export default async function mount(container, context, { replay }) {
   const names = replay.vehicles.map((x) => x.driver);
   // The list names each driver with its truck ("Mark, Bigfoot").
   const truckTitle = (file) => catalog.trucks.find((item) => item.file.toUpperCase() === String(file ?? "").toUpperCase())?.name ?? String(file ?? "").replace(/\.TRK$/i, "");
+  // The Names key (N, game/names.js) writes the trucks' and drivers' names over the trucks, as in the race.
+  const nameTags = createNameTags(replay.vehicles.length, hudFont);
+  view.append(nameTags.element);
+  const replayEntrants = replay.vehicles.map((x) => ({ file: x.truck, name: x.driver }));
+  let namesMode = startNames;
   let focus = Math.max(0, Math.min(drawn.length - 1, 0));
   let viewMode = CAMERA_MODES[context.settings.view]?.id ?? 2;
   if (viewMode === 0) viewMode = 1;
@@ -347,6 +354,7 @@ export default async function mount(container, context, { replay }) {
     else if (e.code === "End") clock = playback.duration;
     else if (e.code === "Tab") { e.preventDefault(); focus = (focus + (e.shiftKey ? drawn.length - 1 : 1)) % drawn.length; truckSelect.value = String(focus); chase.reset(); announceView(); }
     else if ((keyMap.camera.includes(e.code) || modeForShortcut(e) !== null) && !e.repeat) { if (modeForShortcut(e) !== null) e.preventDefault(); viewMode = modeForShortcut(e) ?? nextMode(viewMode, e.shiftKey); viewSelect.value = String(viewMode); announceView(); }
+    else if (keyMap.names?.includes(e.code) && !e.repeat) namesMode = nextNamesMode(namesMode);
     else if (keyMap.fps?.includes(e.code) && !e.repeat) {
       context.settings.fpsCounter = fpsCounter.toggle();
       saveSettings(context.settings);
@@ -382,7 +390,8 @@ export default async function mount(container, context, { replay }) {
     }
   };
   const onWheel = (e) => { if (!flyer.enabled && viewMode !== 0) { e.preventDefault(); mouseLook.wheel(viewMode, e.deltaY); } };
-  const onLookMove = (e) => { if (!flyer.enabled && viewMode !== 0) mouseLook.move(e.movementX ?? 0, e.movementY ?? 0); };
+  // The RaceCam (4) frames the truck itself: the mouse does not turn it.
+  const onLookMove = (e) => { if (!flyer.enabled && viewMode !== 0 && viewMode !== 4) mouseLook.move(e.movementX ?? 0, e.movementY ?? 0); };
   canvas.addEventListener("wheel", onWheel, { passive: false });
   canvas.addEventListener("pointermove", onLookMove);
   cleanups.push(() => { canvas.removeEventListener("wheel", onWheel); canvas.removeEventListener("pointermove", onLookMove); });
@@ -527,6 +536,9 @@ export default async function mount(container, context, { replay }) {
       placeCamera(target, dt);
       drawn.forEach((d, i) => { if (d) d.setBodyHidden(viewMode === 0 && i === focus); });
     }
+    camera.updateMatrixWorld();
+    nameTags.update(camera, canvas.clientWidth, canvas.clientHeight, replayEntrants.map((e) => nameLabel(namesMode, e, truckTitle)),
+      state.trucks.map((p) => p?.pos ?? null), replayEntrants.map((_, i) => i === focus && viewMode === 0 && !flyer.enabled));
     time.textContent = formatRaceTime(clock);
     if (document.activeElement !== scrub) scrub.value = String(Math.round((clock / Math.max(playback.duration, 1e-6)) * 1000));
     waterClock += playing ? dt * Math.abs(rate) : 0;

@@ -15,7 +15,10 @@
   toward those higher in the standings, going around a
   solid object and up a slope, and taking a ramp that faces its quarry. The others shadow It, keeping
   inside the zone where its points are best (`tagShadowBand`), and break away (a run, or the far side of an object)
-  when It comes within 45 ft. Pure, so it runs under Node.
+  when It comes within 45 ft.
+
+  Options can switch to Monster Truck Madness 64's rules instead (`tag64Step`): no touches, It passes to the nearest
+  truck within 25 ft for a 50 point bonus, free trucks score more the closer they stay. Pure, so it runs under Node.
 */
 import { byVehicle, fromVehicles, localIndex, vehicleIndex } from "./net-wire.js";
 import { WORLD_FT } from "../../shared/scene-frame.js";
@@ -30,7 +33,14 @@ export const TAG_EXTENSION = Object.freeze({
   description: msg("One truck is It and passes that role by touching another truck."),
   length: Object.freeze({ key: "minutes", label: msg("Minutes"), default: DEFAULT_TAG_MINUTES, min: 1, max: 99 }),
   settings: Object.freeze([
-    Object.freeze({ key: "minutes", legacyKey: "tagMinutes", label: msg("Round length"), type: "number", min: 1, max: 99, default: DEFAULT_TAG_MINUTES, suffix: msg("minutes") }),
+    Object.freeze({
+      key: "rules", label: msg("Rules"), type: "select", default: "openmtm2",
+      options: Object.freeze([
+        Object.freeze({ value: "openmtm2", label: msg("OpenMTM2: touch to tag, points for keeping a distance") }),
+        Object.freeze({ value: "mtm64", label: msg("Monster Truck Madness 64: pass It within 25 ft, points for staying close") }),
+      ]),
+    }),
+    Object.freeze({ key: "minutes", legacyKey: "tagMinutes", label: msg("Round length (OpenMTM2 rules)"), type: "number", min: 1, max: 99, default: DEFAULT_TAG_MINUTES, suffix: msg("minutes") }),
     Object.freeze({ key: "proximity", label: msg("Proximity points"), type: "boolean", default: true }),
     Object.freeze({ key: "zoneFt", label: msg("Proximity zone"), type: "number", min: 50, max: 2000, default: 400, suffix: msg("feet") }),
     Object.freeze({ key: "nearPoints", label: msg("Points a second beside It"), type: "number", min: 0, max: 20, default: 1 }),
@@ -79,7 +89,21 @@ export const TAG_IT_DRAIN_PS = 1;
 export const TAG_ZONE_FT = 400;
 export const TAG_NEAR_PS = 1, TAG_FAR_PS = 5;
 /** The scoring Options gives Tag (`tagScoring`): the zone on or off, its size, its points and It's drain. */
-export const TAG_SCORING = Object.freeze({ proximity: true, zoneFt: TAG_ZONE_FT, nearPoints: TAG_NEAR_PS, farPoints: TAG_FAR_PS, itDrain: TAG_IT_DRAIN_PS });
+export const TAG_SCORING = Object.freeze({ rules: "openmtm2", proximity: true, zoneFt: TAG_ZONE_FT, nearPoints: TAG_NEAR_PS, farPoints: TAG_FAR_PS, itDrain: TAG_IT_DRAIN_PS });
+/** The two rule sets Options offers: OpenMTM2's own and Monster Truck Madness 64's. */
+export const TAG_OPENMTM2 = "openmtm2", TAG_MTM64 = "mtm64";
+/**
+ * Monster Truck Madness 64's Tag (docs/EXTENSIONS.md, from mtm64conversion/docs/MINIGAME_RULES.md): the nearest truck
+ * within `TAG64_CATCH_FT` of It becomes It and the old It gains `TAG64_BONUS`; no pass for `TAG64_COOLDOWN_S` after one;
+ * a free truck gains `TAG64_FAR_PS` a second at `TAG64_NEAR_FT` or more, `TAG64_NEAR_MAX_PS x (1 - d^2 / TAG64_NEAR_FT^2)`
+ * closer; a free truck within `TAG64_EDGE_FT` of the level's edge becomes It. The round is `TAG64_ROUND_S`.
+ */
+export const TAG64_CATCH_FT = 25, TAG64_BONUS = 50, TAG64_COOLDOWN_S = 3;
+export const TAG64_NEAR_FT = 100, TAG64_NEAR_MAX_PS = 10, TAG64_FAR_PS = 1;
+export const TAG64_EDGE_FT = 32, TAG64_ROUND_S = 300;
+/** A computer shadow keeps this band from It under MTM64's rules, and breaks away nearer than `TAG64_BREAK_FT`. */
+export const TAG64_SHADOW_FT = Object.freeze([35, 70]);
+export const TAG64_BREAK_FT = 32;
 /** A shadowing computer truck keeps this far from It with the default zone, and breaks away when It comes nearer than `BREAK_FT`. */
 export const SHADOW_MIN_FT = 240, SHADOW_MAX_FT = 368, BREAK_FT = 45;
 /** With the proximity points off, the shadow keeps clear of It in this band, feet. */
@@ -107,6 +131,13 @@ export const COVER_REACH_FT = 8, COVER_TALL_FT = 8;
 export const HIDE_STANDOFF_FT = 36, FLANK_FT = 40;
 /** A ramp is worth taking when it is at least this big and the quarry is still this far off. */
 export const RAMP_MIN_HEIGHT = 6, RAMP_MIN_LENGTH = 16, RAMP_CHASE_FT = 140, RAMP_REACH_FT = 300;
+/** Half a truck's width, the room kept round a movable object, feet. */
+export const TRUCK_HALF_WIDTH_FT = 5;
+/** The steepest rise a truck is sent up, feet per foot (about 31 degrees), judged every `PROBE_STEP_FT` along the way. */
+export const CLIMB_GRADE = 0.6, PROBE_STEP_FT = 14;
+/** How far ahead the way is looked over, and the turns either side tried when it is too steep or wet, radians. */
+export const PROBE_FT = 140;
+export const DETOUR_TURNS = Object.freeze([0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.4, -1.4]);
 const MAP_MARGIN = 96;
 
 /**
@@ -118,6 +149,7 @@ export function tagScoring(settings = {}) {
     return Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : TAG_SCORING[key];
   };
   return {
+    rules: settings?.rules === TAG_MTM64 ? TAG_MTM64 : TAG_OPENMTM2,
     proximity: settings?.proximity === undefined ? TAG_SCORING.proximity : !!settings.proximity,
     zoneFt: num("zoneFt", 50, 2000), nearPoints: num("nearPoints", 0, 20), farPoints: num("farPoints", 0, 20), itDrain: num("itDrain", 0, 20),
   };
@@ -128,6 +160,7 @@ export function tagScoring(settings = {}) {
  * 60 to 92 percent of the way out; paid more close in, 40 to 87 percent (the old 60 to 130 ft of a 150 ft zone).
  */
 export function tagShadowBand(scoring = TAG_SCORING) {
+  if (scoring.rules === TAG_MTM64) return [...TAG64_SHADOW_FT];
   if (!scoring.proximity) return [...SHADOW_OFF_FT];
   const z = scoring.zoneFt;
   return scoring.farPoints >= scoring.nearPoints ? [Math.round(z * 0.6), Math.round(z * 0.92)] : [Math.round(z * 0.4), Math.round(z * 0.87)];
@@ -135,17 +168,20 @@ export function tagShadowBand(scoring = TAG_SCORING) {
 
 /** A game of Tag among `count` trucks, It picked by `random`, scored by `scoring` (`tagScoring`). */
 export function createTag(count, random = Math.random, scoring = TAG_SCORING) {
+  const mtm64 = scoring?.rules === TAG_MTM64;
   return {
     scoring: { ...TAG_SCORING, ...scoring },
     it: Math.min(count - 1, Math.floor(random() * count)),
     itTime: new Array(count).fill(0),
-    points: new Array(count).fill(TAG_START_POINTS),
+    points: new Array(count).fill(mtm64 ? 0 : TAG_START_POINTS),
     /** Whole-second accumulator for per-second scoring once the opening hold has ended. */
     second: 0,
-    /** It is held until this time (seconds since the countdown ended). */
-    holdUntil: IT_START_HOLD_S,
+    /** It is held until this time (seconds since the countdown ended); MTM64's rules hold nobody. */
+    holdUntil: mtm64 ? 0 : IT_START_HOLD_S,
     /** The truck It may not tag back, and until when. */
     safe: -1, safeUntil: 0,
+    /** MTM64's rules: It cannot be passed on until this time. */
+    passUntil: 0,
     /** The last tag (`{ kind: "tag", from, to, points }`) and how many there have been. */
     event: null, events: 0,
   };
@@ -178,7 +214,8 @@ export function itDistance(tag, positions, i) {
  * opening hold is over, each whole second a free truck near It gains `tagZoneRate` points and It loses
  * points, and a touch with It moves points from the other truck and makes it It. Returns the tag, or null.
  */
-export function tagStep(tag, clock, dt, touches = [], positions = null) {
+export function tagStep(tag, clock, dt, touches = [], positions = null, edgeFt = DEFAULT_LEVEL_EDGE_FT) {
+  if (tag.scoring?.rules === TAG_MTM64) return tag64Step(tag, clock, dt, positions, edgeFt);
   tag.itTime[tag.it] += dt;
   if (clock < tag.holdUntil) return null;
   tag.second += dt;
@@ -207,6 +244,55 @@ export function tagStep(tag, clock, dt, touches = [], positions = null) {
     return tag.event;
   }
   return null;
+}
+
+/** An MTM2 level's size, feet: 256 terrain cells of 32 ft. */
+export const DEFAULT_LEVEL_EDGE_FT = 256 * 32;
+
+/**
+ * MTM64's points a second for a free truck `distance` feet from It: `TAG64_FAR_PS` at `TAG64_NEAR_FT` or more, else
+ * `TAG64_NEAR_MAX_PS x (1 - d^2 / TAG64_NEAR_FT^2)` (the game's formula, under 1 between about 95 and 100 ft).
+ */
+export function tag64Rate(distance) {
+  if (!(distance < TAG64_NEAR_FT)) return TAG64_FAR_PS;
+  const d = Math.max(0, distance);
+  return TAG64_NEAR_MAX_PS * (1 - (d * d) / (TAG64_NEAR_FT * TAG64_NEAR_FT));
+}
+
+/** Whether a point is out of an MTM64 Tag arena: within `TAG64_EDGE_FT` of the level's edge (`edgeFt` its size). */
+export const tag64Outside = (pos, edgeFt = DEFAULT_LEVEL_EDGE_FT) => !!pos
+  && (pos[0] < TAG64_EDGE_FT || pos[2] < TAG64_EDGE_FT || pos[0] > edgeFt - TAG64_EDGE_FT || pos[2] > edgeFt - TAG64_EDGE_FT);
+
+/**
+ * One step of MTM64's Tag: free trucks gain `tag64Rate` points continuously; once the pass cooldown is over, the nearest
+ * truck within `TAG64_CATCH_FT` of It becomes It and the old It gains `TAG64_BONUS` (`{ kind: "tag", from, to, points }`),
+ * else a free truck out of the arena becomes It (`{ kind: "out", from, to, points: 0 }`). Hull touches play no part.
+ */
+export function tag64Step(tag, clock, dt, positions, edgeFt = DEFAULT_LEVEL_EDGE_FT) {
+  tag.itTime[tag.it] += dt;
+  const n = tag.points.length;
+  for (let i = 0; i < n; i++) if (i !== tag.it) tag.points[i] += tag64Rate(itDistance(tag, positions, i)) * dt;
+  if (clock < (tag.passUntil ?? 0) || !positions) return null;
+  let to = -1, best = Infinity;
+  for (let i = 0; i < n; i++) {
+    if (i === tag.it) continue;
+    const d = itDistance(tag, positions, i);
+    if (d < TAG64_CATCH_FT && d < best) { best = d; to = i; }
+  }
+  let event = null;
+  if (to >= 0) {
+    tag.points[tag.it] += TAG64_BONUS;
+    event = { kind: "tag", from: tag.it, to, points: TAG64_BONUS };
+  } else {
+    to = positions.findIndex((p, i) => i !== tag.it && tag64Outside(p, edgeFt));
+    if (to < 0) return null;
+    event = { kind: "out", from: tag.it, to, points: 0 };
+  }
+  tag.event = event;
+  tag.events++;
+  tag.it = to;
+  tag.passUntil = clock + TAG64_COOLDOWN_S;
+  return event;
 }
 
 /** Whether truck `i` is held at `clock`: It, while its hold lasts. */
@@ -295,6 +381,18 @@ export function coverOf(box) {
   const tall = box.tall ?? (box.half ? box.half[1] * 2 : 0);
   if (reach < COVER_REACH_FT || tall < COVER_TALL_FT) return null;
   return { pos: box.pos, reach, tall };
+}
+
+/**
+ * A movable object (a box with mass: a barrel, a car) as something to drive round: `{ pos, reach, tall }`, its reach
+ * grown by half a truck's width. Null for a fixed box or a kind no truck meets (checkpoint, goal, billboard).
+ */
+export function movableOf(box) {
+  if (!box?.pos || !box.half || !(box.mass > 0)) return null;
+  if (box.type === 6 || box.type === 7 || box.type === 8) return null;
+  const reach = Math.hypot(box.half[0], box.half[2]);
+  if (reach < 1) return null;
+  return { pos: box.pos, reach: reach + TRUCK_HALF_WIDTH_FT, tall: box.half[1] * 2 };
 }
 
 /**
@@ -431,13 +529,51 @@ export function hideScore(point, itPos, heightAt, covers, { from = null, water =
   return score;
 }
 
-/** The immediate point to steer at: around a cover on the line, or a step up a slope, else `point` itself. */
-export function routePoint(pos, point, covers, heightAt) {
+/**
+ * The ground from `from` along `heading` for `length` feet: "steep" when it rises faster than `CLIMB_GRADE` anywhere,
+ * else "wet" when any of it lies under `water` (null for none), else "clear".
+ */
+export function probeLine(from, heading, length, heightAt, water = null) {
+  const sx = Math.sin(heading), sz = Math.cos(heading);
+  let last = heightAt(from[0], from[2]);
+  let wet = false;
+  for (let d = PROBE_STEP_FT; d <= length + 1e-6; d += PROBE_STEP_FT) {
+    const h = heightAt(from[0] + sx * d, from[2] + sz * d);
+    if ((h - last) / PROBE_STEP_FT > CLIMB_GRADE) return "steep";
+    if (water !== null && water !== undefined && h < water + 1.5) wet = true;
+    last = h;
+  }
+  return wet ? "wet" : "clear";
+}
+
+/**
+ * The immediate point to steer at: around a cover or a movable object on the line, round a slope too steep to climb
+ * or water (the nearest turn either side whose way is clear, `DETOUR_TURNS`), a step up a long slope, else `point`
+ * itself. Water is crossed when there is no dry way, or when `point` is in it; a slope too steep everywhere is driven
+ * at all the same.
+ */
+export function routePoint(pos, point, covers, heightAt, { water = null } = {}) {
   if (!point) return null;
   const blocked = coverBetween(covers ?? [], pos, point);
   if (blocked) return flankPoint(pos, point, blocked);
   if (!heightAt) return point;
   const dist = Math.hypot(point[0] - pos[0], point[2] - pos[2]);
+  if (dist < 40) return point;
+  const heading = Math.atan2(point[0] - pos[0], point[2] - pos[2]);
+  const straight = probeLine(pos, heading, Math.min(PROBE_FT, dist), heightAt, water);
+  const intoWater = water !== null && water !== undefined && heightAt(point[0], point[2]) < water + 1.5;
+  if (straight === "steep" || (straight === "wet" && !intoWater)) {
+    let wet = null;
+    for (const turn of DETOUR_TURNS) {
+      const h = heading + turn;
+      const probe = probeLine(pos, h, PROBE_FT * 0.8, heightAt, water);
+      if (probe === "clear") return ahead(pos, h, PROBE_FT * 0.8, point[1]);
+      if (probe === "wet" && wet === null) wet = h;
+    }
+    // No dry way round: the water rather than a wall.
+    if (straight === "steep" && wet !== null) return ahead(pos, wet, PROBE_FT * 0.8, point[1]);
+    return point;
+  }
   if (dist < 80) return point;
   const fromH = heightAt(pos[0], pos[2]);
   const toH = heightAt(point[0], point[2]);
@@ -447,6 +583,8 @@ export function routePoint(pos, point, covers, heightAt) {
   if (stepH > fromH + 3 && stepH < toH + 8) return step;
   return point;
 }
+
+const ahead = (pos, heading, d, y = 0) => [pos[0] + Math.sin(heading) * d, y, pos[2] + Math.cos(heading) * d];
 
 /** The ramp's nose (the high end, body +z) and tail. */
 function rampEnds(r) {
@@ -558,8 +696,9 @@ export function tagSpeed(driver, pos, point) {
 
 /**
  * The point this computer truck steers toward, and the kind of aim on `driver` (`createTagDriver`).
- * `role` is `"it"` or `"free"`. `ctx` is `{ clock, pos, itPos, quarry, rect, covers, ramps, heightAt, water, random, shy?, shadow? }`;
- * a `shy` free truck runs and hides from It instead of shadowing it; `shadow` is the band a shadow keeps from It
+ * `role` is `"it"` or `"free"`. `ctx` is `{ clock, pos, itPos, quarry, rect, covers, ramps, heightAt, water, random, shy?, shadow?, breakFt? }`;
+ * a `shy` free truck runs and hides from It instead of shadowing it; `breakFt` is how near It may come before a shadow
+ * breaks away (`BREAK_FT` without it); `shadow` is the band a shadow keeps from It
  * (`tagShadowBand`, the default zone's without it).
  * `quarry` is the list `chasePoint` takes. The point it returns may be a step around a cover or up a slope;
  * `driver.point` stays the place it means to reach.
@@ -575,11 +714,11 @@ export function tagDrivePoint(driver, role, ctx) {
       driver.point = aim;
       driver.kind = launch ? "ramp" : "chase";
       driver.until = ctx.clock + AIM_MAX_S;
-      return routePoint(ctx.pos, aim, covers, heightAt);
+      return routePoint(ctx.pos, aim, ctx.avoid ?? covers, heightAt, { water: ctx.water });
     }
   }
   const itNear = Math.hypot(ctx.pos[0] - ctx.itPos[0], ctx.pos[2] - ctx.itPos[2]);
-  const pressed = itNear < (ctx.shy ? SHY_PRESS_FT : BREAK_FT);
+  const pressed = itNear < (ctx.shy ? SHY_PRESS_FT : ctx.breakFt ?? BREAK_FT);
   const arrived = driver.point && Math.hypot(driver.point[0] - ctx.pos[0], driver.point[2] - ctx.pos[2]) < ARRIVE_FT;
   const pressEdge = pressed && !driver.wasPressed;
   const stale = driver.kind === "chase" || driver.kind === "ramp";
@@ -593,7 +732,7 @@ export function tagDrivePoint(driver, role, ctx) {
   }
   // A shadow follows It as it moves.
   if (driver.kind === "shadow") driver.point = clampToRect(shadowPoint(ctx.pos, ctx.itPos, driver.angle, driver.shadow), ctx.rect);
-  return routePoint(ctx.pos, driver.point, covers, heightAt);
+  return routePoint(ctx.pos, driver.point, ctx.avoid ?? covers, heightAt, { water: ctx.water });
 }
 
 // ---- Over the network (docs/EXTENSIONS.md) ----
@@ -603,7 +742,7 @@ export function tagToWire(s, vehicleOf) {
   const v = (i) => vehicleIndex(i, vehicleOf);
   return {
     it: v(s.it), itTime: byVehicle(s.itTime, vehicleOf), points: byVehicle(s.points, vehicleOf), holdUntil: s.holdUntil,
-    safe: v(s.safe), safeUntil: s.safeUntil, events: s.events, over: !!s.over,
+    safe: v(s.safe), safeUntil: s.safeUntil, passUntil: s.passUntil ?? 0, events: s.events, over: !!s.over,
     event: s.event ? { ...s.event, from: v(s.event.from), to: v(s.event.to) } : null,
     ...(s.scoring ? { scoring: s.scoring } : {}),
   };
@@ -614,7 +753,8 @@ export function tagFromWire(d, localOf, count) {
   const i = (vehicle) => localIndex(vehicle, localOf);
   return {
     it: Math.max(0, i(d.it)), itTime: fromVehicles(d.itTime, localOf, count, 0), points: fromVehicles(d.points, localOf, count, TAG_START_POINTS),
-    holdUntil: Number(d.holdUntil) || 0, safe: i(d.safe), safeUntil: Number(d.safeUntil) || 0, events: d.events | 0, over: !!d.over,
+    holdUntil: Number(d.holdUntil) || 0, safe: i(d.safe), safeUntil: Number(d.safeUntil) || 0, passUntil: Number(d.passUntil) || 0,
+    events: d.events | 0, over: !!d.over,
     event: d.event ? { ...d.event, from: i(d.event.from), to: i(d.event.to) } : null,
     ...(d.scoring ? { scoring: tagScoring(d.scoring) } : {}),
   };
@@ -622,6 +762,6 @@ export function tagFromWire(d, localOf, count) {
 
 /** Take the owner's state into a game of this machine (its `second` accumulator stays its own; the owner's scoring rules). */
 export function tagAdopt(tag, state) {
-  Object.assign(tag, { it: state.it, itTime: state.itTime, points: state.points, holdUntil: state.holdUntil, safe: state.safe, safeUntil: state.safeUntil, event: state.event, events: state.events });
+  Object.assign(tag, { it: state.it, itTime: state.itTime, points: state.points, holdUntil: state.holdUntil, safe: state.safe, safeUntil: state.safeUntil, passUntil: state.passUntil ?? 0, event: state.event, events: state.events });
   if (state.scoring) tag.scoring = state.scoring;
 }

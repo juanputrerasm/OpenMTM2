@@ -96,7 +96,8 @@ import { createRaceVr } from "../../render/xr/race-vr.js";
 import { vrButton } from "../vr-button.js";
 import {
   extensionFinderTarget, extensionHud, extensionKeepsRace, extensionMapMarks, extensionMapPoints, extensionMarkerTarget, extensionNetFromWire,
-  extensionNetToWire, extensionResultTime, extensionTruckLabels, extensionTruckMarks, prepareExtensionRace, resolveRaceExtension,
+  extensionNetOwnFromWire, extensionNetOwnToWire, extensionNetToWire, extensionResultTime, extensionTruckLabels, extensionTruckMarks, prepareExtensionRace, resolveRaceExtension,
+  extensionKeyAction, extensionTruckOut,
 } from "../../game/extensions/race-loader.js";
 import { entrantTeamPicks, settingsForExtension } from "../../game/extensions/loader.js";
 import { createExtensionScene } from "../../render/extensions/loader.js";
@@ -214,6 +215,13 @@ async function mountRace(container, context, params, owned = []) {
   const demo = !!params.demo;
   // Spectator mode (the port's): the computer's trucks race and nobody drives. Not free roam, which has no race.
   const spectator = !!params.spectator && !freeRoam && !demo;
+  /**
+   * Whether the race is watched: in spectator mode from the start, and in a mode whose players watch on when they are
+   * out (Combat's, `watchWhenOut`) from when the player is (`startWatching`).
+   */
+  let watching = spectator;
+  /** A mode's own action for the simulation (Combat's repair, leaving the fight), sent with the next input. */
+  let modeAction = null;
   /**
    * A pass run for a drag weekend (ui/screens/drag-event.js): `entrants` says who is in which lane (`slot`), a player or not,
    * each with its `driver` in the event. The pass's results go back to the weekend's screen, not to the Winner's Circle.
@@ -529,7 +537,8 @@ async function mountRace(container, context, params, owned = []) {
   // "auto" picks the model of the player's vehicle's game, "track" the track's (app/settings.js `resolvePhysics`).
   const physicsSetting = physicsModel(params.physics ?? context.settings.physics).id;
   const physics = resolvePhysics(physicsSetting, entrants.find((e) => e.player)?.file ?? playerTruck, build.game ?? track.game ?? null);
-  const crash = createCrashDamage(entrants.length, { enabled: context.settings.crashDamage !== false && physics !== "mtm1" });
+  // A mode that owns the Crash Damage key (Combat's repairs) always has damage on.
+  const crash = createCrashDamage(entrants.length, { enabled: (extension?.damageKey ? true : context.settings.crashDamage !== false) && physics !== "mtm1" });
   // Instant replay (game/replay.js): a frame every quarter second, kept for the results screen.
   const recorder = createReplayRecorder({
     level: track.path.split(/[\\/]/).pop().toLowerCase(), weather: weatherId, detailLevel: extension?.detailLevel ?? context.settings.detailLevel ?? 2,
@@ -598,7 +607,7 @@ async function mountRace(container, context, params, owned = []) {
     }),
     race: freeRoam ? null : gameMode && !keepsRace ? { checkpoints: [], laps: 1, mode: "circuit" }
       : {
-        checkpoints: build.sim.checkpoints, laps: dragRace ? 1 : laps, mode: summit ? "summit" : dragRace ? "drag" : "circuit",
+        checkpoints: build.sim.checkpoints, laps: dragRace || track.raceType === "rally" ? 1 : laps, mode: summit ? "summit" : dragRace ? "drag" : "circuit",
         // A drag pass: lane 1's course (the SIT's course 2), and whether the player's truck stages itself.
         laneCourse: dragRace ? build.sim.proCourse : null, autoStage: context.settings.autoStage !== false,
       },
@@ -625,6 +634,8 @@ async function mountRace(container, context, params, owned = []) {
     const modeWire = extensionRace && net.policy !== "legacy" ? {
       toWire: (state, vehicleOf) => extensionNetToWire(gameMode, state, vehicleOf),
       fromWire: (data, localOf, count) => extensionNetFromWire(gameMode, data, localOf, count),
+      ownToWire: (state, vehicleOf) => extensionNetOwnToWire(gameMode, state, vehicleOf),
+      ownFromWire: (data, localOf, count) => extensionNetOwnFromWire(gameMode, data, localOf, count),
     } : null;
     netRace = createNetRace({ entrants: entrants.map((e) => ({ vehicle: e.vehicle, owned: !e.remote })), rateHz: net.rateHz, mode: modeWire });
     netDecides = !!modeWire && net.host;
@@ -687,7 +698,9 @@ async function mountRace(container, context, params, owned = []) {
     const joystick = stickBusy || !hands ? stick : { ...hands, shiftUp: handPresses.shiftUp, shiftDown: handPresses.shiftDown };
     const helicopter = held.helicopter || handPresses.helicopter;
     handPresses.shiftUp = handPresses.shiftDown = handPresses.helicopter = false;
-    return { ...held, helicopter, joystick: driving ? null : joystick, slew: gold?.slewing ? gold.slewInput() : null };
+    const action = modeAction;
+    modeAction = null;
+    return { ...held, helicopter, modeAction: action, joystick: driving ? null : joystick, slew: gold?.slewing ? gold.slewInput() : null };
   };
 
   // The Inertia view (the Z-mode cameras option) comes after the game's ten.
@@ -716,6 +729,10 @@ async function mountRace(container, context, params, owned = []) {
   };
   // Spectator mode: once the race is over, the way on to its results (`watchedOver`).
   const resultsButton = el("button", { class: "primary", hidden: true, "data-menu-sound": "STARTOFF", onclick: async () => { if (finishing) return; await setPaused(false); finish(); } }, t("Results"));
+  const leaveFightButton = el("button", {
+    hidden: !extension?.watchWhenOut || spectator || demo,
+    onclick: async () => { modeAction = "quit"; leaveFightButton.hidden = true; await setPaused(false); },
+  }, t("Leave the fight and watch"));
   let overShown = false;
   const watchedOver = () => {
     if (overShown) return;
@@ -738,6 +755,8 @@ async function mountRace(container, context, params, owned = []) {
       context.optionsDialog?.addEventListener("close", () => audio.setVolumes(context.settings.sound), { once: true });
     } }, t("Options")),
     resultsButton,
+    // A mode whose players watch on when out (Combat): leave the fight and watch the race to its end.
+    leaveFightButton,
     el("button", {
       "data-menu-sound": "STARTOFF",
       onclick: leave,
@@ -767,7 +786,7 @@ async function mountRace(container, context, params, owned = []) {
     inner.router = { back: close, go: (...args) => { close(); return context.router.go(...args); }, stack: context.router.stack };
     // The replay's sound knows the race's music plays on and its mixer is paused under it (ui/screens/replay.js).
     inner.replayInRace = true;
-    const screen = await mountReplay(overlay, inner, { replay });
+    const screen = await mountReplay(overlay, inner, { replay, namesMode });
     if (replaying) replaying.screen = screen; else screen?.unmount?.();
   }
   cleanups.push(() => replaying?.screen?.unmount?.());
@@ -847,16 +866,16 @@ async function mountRace(container, context, params, owned = []) {
       context.settings.view = viewMode;
       saveSettings(context.settings);
       // "Chase Far of Bear Foot": the view's name and the truck being watched (0x52d180).
-      flash(t("<<1>> of <<2>>", t(cameraMode(viewMode).name), truckName(spectator ? entrants[cameraTarget].file : playerTruck)), performance.now(), 2);
+      flash(t("<<1>> of <<2>>", t(cameraMode(viewMode).name), truckName(watching ? entrants[cameraTarget].file : playerTruck)), performance.now(), 2);
     }
   };
   const onKey = (e) => {
     // The Options dialog and the instant replay take the keys while they are up.
     if (replaying || context.optionsDialog?.isConnected) return;
     if (demo) { leaveDemo(); return; }
-    if (spectator && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && !paused) {
+    if (watching && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && !paused) {
       // B: the free camera. Left and Right: the truck watched (the free camera has those keys while it flies).
-      if (e.code === SPECTATOR_FLY_KEY) { setFlying(!flyer.enabled); return; }
+      if (e.code === SPECTATOR_FLY_KEY && flyer) { setFlying(!flyer.enabled); return; }
       if (e.code === "ArrowRight" || e.code === "ArrowLeft") { watch(cameraTarget + (e.code === "ArrowRight" ? 1 : -1)); return; }
     }
     if (netChat?.typing) return;
@@ -891,7 +910,12 @@ async function mountRace(container, context, params, owned = []) {
     }
     // The Headlights key (L) switches the player's lamps; every other truck keeps what the weather gave it.
     if (keyMap.headlights.includes(e.code) && !e.repeat) { lamps[0] = toggleLamps(lamps[0]); netSend("lights", { lamps: lamps[0] }); }
-    if (keyMap.crashDamage.includes(e.code) && !e.repeat && physics === "mtm1") flash(t("No crash damage in Monster Truck Madness 1 physics"), performance.now(), 3);
+    if (keyMap.crashDamage.includes(e.code) && !e.repeat && extension?.damageKey) {
+      // The mode's own use of the key (Combat: repair with the credits).
+      const { action, message } = extensionKeyAction(latest?.race?.extension, 0);
+      if (message) flash(t(message), performance.now(), 2);
+      if (action) modeAction = action;
+    } else if (keyMap.crashDamage.includes(e.code) && !e.repeat && physics === "mtm1") flash(t("No crash damage in Monster Truck Madness 1 physics"), performance.now(), 3);
     else if (keyMap.crashDamage.includes(e.code) && !e.repeat) {
       const on = crash.toggle((i) => drawn[i].repair());
       context.settings.crashDamage = on;
@@ -1027,6 +1051,9 @@ async function mountRace(container, context, params, owned = []) {
   cleanups.push(() => waterFx.dispose());
   // Dust, tire tracks and sparks (render/tire-effects.js), each switched in Options.
   // In the dark a shower of sparks lights what is about it.
+  /** The ground under a point, as the effects find it (a deck, a rock, else the terrain), world feet. */
+  const plainGround = groundHeightFn(terrain);
+  const tireFloor = (x, z, y) => (scenery.floorAt ? scenery.floorAt(x, z, y) : plainGround(x, z));
   const tireFx = createTireEffects({ scene, art: effectsArt, ground, floor: scenery.floorAt, count: entrants.length, rich: scenery.particles, greyDust: !!context.settings.greyDust, dark: !!WEATHER_LOOK[weatherId]?.headlights });
   cleanups.push(() => tireFx.dispose());
   // MTM1 particles (Options, Advanced; render/mtm1-particles.js) take the place of the dust, the spray and the tracks.
@@ -1121,17 +1148,26 @@ async function mountRace(container, context, params, owned = []) {
   /** A drawn position (which may be worlds from the simulation's) as the simulation has it, for what is placed in the world. */
   const inWorld = (pos) => [wrapFt(pos[0]), pos[1], wrapFt(pos[2])];
   // An extension race ends as a Rumble does, all at once; one played on the track's race ends as that race does.
-  const raceEnd = createRaceEnd({ summit: summit || (!!gameMode && !keepsRace), spectator });
+  let raceEnd = createRaceEnd({ summit: summit || (!!gameMode && !keepsRace), spectator });
   let cameraTarget = 0;
   // A watched race: the truck the camera is on is the spectator's to choose, and the camera can be flown free
   // (ui/fly-controller.js, the fly-by's own).
-  const flyer = spectator ? createFlyController({
+  const flyer = spectator || extension?.watchWhenOut ? createFlyController({
     canvas, settings: context.settings, save: () => saveSettings(context.settings), course: build.sim.course, courseOpen: !!build.sim.courseOpen,
     groundAt: groundHeightFn(terrain), say: (text, seconds) => caption.show(text, seconds ?? 4), baseFov: fovFor(1), font: hudFont, t,
     blocked: () => paused || finishing || !!gameConsole?.open || !!replaying || !!context.optionsDialog?.isConnected,
   }) : null;
   if (flyer) { view.append(flyer.element); cleanups.push(() => flyer.dispose()); }
   const flyTarget = new THREE.Vector3();
+  /** The player is out of the race (Combat's wrecked or left): the race is watched to its end, on a truck still running. */
+  const startWatching = () => {
+    watching = true;
+    raceEnd = createRaceEnd({ spectator: true });
+    leaveFightButton.hidden = true;
+    viewMode = 4;
+    const running = latest?.race?.trucks?.map((rt, i) => ({ rt, i })).filter(({ i }) => i !== 0 && !extensionTruckOut(latest.race.extension, i)).sort((a, b) => a.rt.place - b.rt.place) ?? [];
+    if (running.length) watch(running[0].i);
+  };
   const watch = (index) => {
     cameraTarget = ((index % entrants.length) + entrants.length) % entrants.length;
     caption.show(t("Watching <<1>> (<<2>>)", truckName(entrants[cameraTarget].file), entrants[cameraTarget].name), 2);
@@ -1181,7 +1217,8 @@ async function mountRace(container, context, params, owned = []) {
   });
   cleanups.push(() => { if (zoomSave !== null) { clearTimeout(zoomSave); saveSettings(context.settings); } });
   const lookFree = () => !flyer?.enabled && !host.presenting && !paused && !context.optionsDialog?.isConnected;
-  const onLookMove = (e) => { if (lookFree() && viewMode !== 0) mouseLook.move(e.movementX ?? 0, e.movementY ?? 0); };
+  // The RaceCam (4) frames the truck itself: the mouse does not turn it.
+  const onLookMove = (e) => { if (lookFree() && viewMode !== 0 && viewMode !== 4) mouseLook.move(e.movementX ?? 0, e.movementY ?? 0); };
   const onLookWheel = (e) => { if (lookFree() && viewMode !== 0) { e.preventDefault(); mouseLook.wheel(viewMode, e.deltaY); } };
   canvas.addEventListener("pointermove", onLookMove);
   canvas.addEventListener("wheel", onLookWheel, { passive: false });
@@ -1254,18 +1291,29 @@ async function mountRace(container, context, params, owned = []) {
     cleanups.push(() => window.removeEventListener("pointerdown", leaveDemo));
   }
   let lastLaps = 0, lastCheckpoint = 0;
-  let wasMissed = false, finalLapShown = false, lightsOn = null, dragNoted = false, extensionEvents = 0, extensionPhase = null;
+  let wasMissed = false, finalLapShown = false, lightsOn = null, dragNoted = false, extensionEvents = 0, extensionPhase = null, extensionMemory = {};
   /** What the player is told when a drag pass puts them out (game/drag-race.js `DQ_CODE`). */
   const DRAG_OUT = {
     "red light": msg("Red light! Disqualified."), "out of lane": msg("Out of your lane! Disqualified."), "reversing": msg("Backing up! Disqualified."),
     "not staged": msg("Not staged in time! Disqualified."), "timeout": msg("Out of time! Disqualified."),
   };
   const showExtension = (race, state, now) => {
-    const view = extensionHud(state, race, entrants, { t, formatRaceTime, summitBoard }, { events: extensionEvents, phase: extensionPhase });
+    const watched = watching ? cameraTarget : 0;
+    const view = extensionHud(state, race, entrants, { t, formatRaceTime, summitBoard, watched }, { ...extensionMemory, events: extensionEvents, phase: extensionPhase });
     if (!view) return false;
     for (const message of view.flashes) flash(message, now);
+    // A mode's cheers (a Race & Rumble blocker's horn or YeeHaw), from that truck.
+    for (const sound of view.sounds ?? []) {
+      const pos = latest?.poses?.[sound.truck]?.current?.pos;
+      if (sound.kind === "horn") truckAudio.horn(sound.truck, pos);
+      else if (sound.kind === "yeehaw") truckAudio.yeehaw(sound.truck, pos);
+    }
+    // A mode's repairs (Combat's) take that truck's dents out.
+    for (const i of view.repaired ?? []) crash.repairOne(i, () => drawn[i]?.repair());
     extensionEvents = view.events;
     extensionPhase = view.phase;
+    // Whatever else the mode's HUD keeps from frame to frame.
+    extensionMemory = view.memory ?? {};
     if (!view.rows) return false;
     setHud(view.rows);
     return true;
@@ -1289,10 +1337,11 @@ async function mountRace(container, context, params, owned = []) {
         ? [[t("Time Remaining:"), formatRaceTime(race.summit?.left ?? 0)]]
         : [[t("[lap count]Lap:"), `${Math.min(leader.lap, race.laps)}/${race.laps}`], [t("Clock:"), formatRaceTime(race.clock)]]);
     }
-    // An extension shows its own HUD; one that keeps the race's (Race & Rumble) only adds its messages.
-    if (race.extension && showExtension(race, race.extension, now)) return;
+    // An extension shows its own HUD; one that keeps the race (Race & Rumble) keeps its checkpoint and lap cues too.
+    const extensionRows = !!race.extension && showExtension(race, race.extension, now);
+    if (extensionRows && !keepsRace) return;
     // A watched race shows the watched truck's times.
-    const me = race.trucks[spectator ? cameraTarget : 0] ?? race.trucks[0];
+    const me = race.trucks[watching ? cameraTarget : 0] ?? race.trucks[0];
     // The level's own sounds for passing a checkpoint and closing a lap (SOUNDnnn.TXT).
     if (me.laps > lastLaps) worldAudio.lapDone();
     else if (me.checkpoint !== lastCheckpoint && !summit && race.started) worldAudio.checkpoint();
@@ -1330,14 +1379,14 @@ async function mountRace(container, context, params, owned = []) {
       ]);
       return;
     }
-    setHud([
+    if (!extensionRows) setHud([
       [t("Lap:"), formatRaceTime(me.lapTime)], [t("Best:"), formatRaceTime(me.best)], [t("Clock:"), formatRaceTime(race.clock)],
       ["", ""], [race.gap?.kind === "lead" ? t("Lead:") : t("Back:"), formatRaceTime(race.gap?.seconds ?? 0)],
       [t("Place:"), `${t("[lap count]Lap:")} ${me.lap}/${race.laps}`, `${me.place}/${race.trucks.length}`],
     ]);
     if (me.missed && !wasMissed) flash(t("Missed checkpoint! Turn around."), now);
     wasMissed = me.missed;
-    if (!finalLapShown && race.laps > 1 && me.lap === race.laps && race.started && !me.finished) {
+    if (!finalLapShown && race.laps > 1 && me.lap === race.laps && race.started && !me.finished && !me.outOfRace) {
       finalLapShown = true;
       flash(t("Final lap!"), now);
     }
@@ -1518,17 +1567,19 @@ async function mountRace(container, context, params, owned = []) {
           }
           // The race goes on after the player finishes: the RaceCam follows, and the results wait for the others (game/race-end.js).
           if (r.race) {
+            // Out of the race in a mode whose players watch on (Combat): the race is watched from here on.
+            if (!watching && !demo && extension?.watchWhenOut && extensionTruckOut(r.race.extension, 0)) startWatching();
             const end = raceEnd.update(r.race);
             if (demo) {
               // The RaceCam moves on to the next truck every few seconds; when the race is over the demo starts again.
               cameraTarget = Math.floor(r.time / DEMO_CAMERA_S) % r.race.trucks.length;
               if (end.done && !leaveDemo.done) { leaveDemo.done = true; context.router.go("race", params, { replace: true }); }
             } else {
-              if (!spectator) cameraTarget = end.target;
+              if (!watching) cameraTarget = end.target;
               if (end.justFinished) viewMode = 4;
               // A watched race stays on screen when it is over, to be looked round as long as the spectator likes: the
               // pause menu's Results goes on to them.
-              if (end.done && !finishing && spectator) watchedOver();
+              if (end.done && !finishing && watching) watchedOver();
               else if (end.done && !finishing) finish();
             }
           }
@@ -1658,10 +1709,10 @@ async function mountRace(container, context, params, owned = []) {
         });
       }
       if (minimap.visible) {
-        const focus = spectator ? cameraTarget : 0;
+        const focus = watching ? cameraTarget : 0;
         const modeState = latest.race?.extension ?? null;
         const mapMarks = extensionMapMarks(modeState, entrants.length);
-        minimap.set(shown.map((p, i) => ({ pos: inWorld(p.pos), heading: p.euler[2], place: latest.race?.trucks[i]?.place ?? i + 1, label: nameLine(nameLabel(namesMode, entrants[i], truckName)), ...(mapMarks[i] ?? {}) })), dt,
+        minimap.set(shown.map((p, i) => ({ pos: inWorld(p.pos), heading: p.euler[2], place: latest.race?.trucks[i] ? latest.race.trucks[i].place : i + 1, label: nameLine(nameLabel(namesMode, entrants[i], truckName)), ...(mapMarks[i] ?? {}) })), dt,
           { focus, state: latest.race?.summit?.states?.[focus] ?? 0, points: extensionMapPoints(modeState) });
       }
       if (latest.race && !finishing) showRace(latest.race, now);
@@ -1677,6 +1728,11 @@ async function mountRace(container, context, params, owned = []) {
       const inCab = host.presenting ? vr.view?.id === "cab" : viewMode === 0;
       const insideIt = inCab && itIndex === (host.presenting ? 0 : cameraTarget);
       extensionScene.updateMarker(itPose && !insideIt ? itPose.pos : null, camera, now / 1000);
+      // What the mode draws as the race runs (Combat's loose wheels, debris, smoke and the sparks of a bare axle).
+      extensionScene.update?.({
+        state: extensionNow ?? null, poses: shownPoses, drawn, dt: paused ? 0 : dt, camera, effects: tireFx, flags: effectFlags(),
+        near: (pos) => nearestCopy(pos, shownPoses?.[cameraTarget]?.pos ?? pos), floorAt: (x, z, y) => tireFloor(x, z, y),
+      });
     }
     vr.update({ state: latest?.poses[0].current ?? startPose, timing: !!latest?.race, message: caption.active, light: weatherScene.lightLevel() });
     host.menu.update(now);
@@ -1856,7 +1912,7 @@ async function mountRace(container, context, params, owned = []) {
             WATERMARK, summary(),
             t("Game: <<1>>, Type: <<2>>, Skill: <<3>>, Look: <<4>>", build.game ?? track.game ?? "MTM2", track.typeLabel ?? track.raceType, `${SKILLS[Math.min(2, Number(difficulty))]}${Number(difficulty) === 2 && context.settings.sonicTrucks ? " (sonic)" : ""}`, look),
             t("Speed: <<1>> mph, Gear: <<2>>, RPM: <<3>>, Heading: <<4>> deg", Math.round((now?.speed ?? 0) * 0.6818), now?.gear ? gearLabel(now.gear) || "-" : "-", Math.round(now?.rpm ?? 0), Math.round((((shownPoses?.[0]?.euler[2] ?? 0) * 180) / Math.PI + 360) % 360)),
-            t("Clock: <<1>>, Place: <<2>>, Checkpoint: <<3>>", formatRaceTime(latest?.race?.clock ?? latest?.time ?? 0), me ? `${me.place}/${latest.race.trucks.length}` : "-", me ? `${me.checkpoint + 1}/${build.sim.checkpoints.length}` : "-"),
+            t("Clock: <<1>>, Place: <<2>>, Checkpoint: <<3>>", formatRaceTime(latest?.race?.clock ?? latest?.time ?? 0), me && me.place !== null ? `${me.place}/${latest.race.trucks.length}` : "-", me ? `${me.checkpoint + 1}/${build.sim.checkpoints.length}` : "-"),
             t("Overlap: <<1>>, Music: <<2>>, Sound: <<3>>, Trucks: <<4>>, Objects: <<5>>", said(build.tileOverlap !== false), said((sound.music ?? 0.8) > 0), said(!sound.muted), entrants.length, build.objects?.length ?? 0),
           ].join("\n");
         },

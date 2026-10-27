@@ -5,10 +5,12 @@
   in browsers, Web Workers and Node.js. Reading files is the caller's job.
 */
 export { parsePod, podDirectoryEnd } from "./pod/parse.js";
+export { encodeWindows1252 } from "./text.js";
 export { findPodEntry, findPodEntryByTitle, findPodEntriesByExtension, readPodEntry } from "./pod/lookup.js";
 export { normalizePodPath, podPathTitle } from "./pod/paths.js";
 export { buildPod1Directory, writePod1, pod1DirectoryEntries, PodWriteError } from "./pod/write.js";
-export { crc32Mpeg2, verifyPodChecksums, readPod2AuditTrail } from "./pod/pod2.js";
+export { crc32Mpeg2, crc32Mpeg2Update, CRC32_MPEG2_INIT, verifyPodChecksums, readPod2AuditTrail, readPod2AuditRecords } from "./pod/pod2.js";
+export { buildPod2Directory, writePod2, pod2DirectoryEntries, encodePod2AuditRecord, setPod2Checksum, POD2_AUDIT_RECORD_SIZE, POD2_CHECKSUM_OFFSET, POD2_CHECKSUM_START, } from "./pod/write-pod2.js";
 export { ACT_PALETTE_SIZE, decodeActPalette, actPaletteDepth } from "./texture/act.js";
 export { rawTextureSide, decodeRawTexture, decodeIndexedImage, applyOpacityPlane } from "./texture/raw.js";
 export { isTiff, decodeTiff } from "./texture/tiff.js";
@@ -35,14 +37,14 @@ export { NAV_TARGET_LIST, NAV_TUNNEL_ENTRANCE, NAV_CHECKPOINT, NAV_JUMP_ZONE, NA
 export { HBNAV_TARGET_LIST, HBNAV_TUNNEL_ENTRANCE, HBNAV_CHECKPOINT, HBNAV_JUMP_ZONE, HBNAV_TUNNEL_EXIT, HBNAV_BOSS, HBNAV_START_POINT, HBNAV_SYNC_POINT, HBNAV_RESCUE_BEACON, HBNAV_END_OF_NAVS, HBNAV_ESCORT, HBNAV_RETRIEVE, HBNAV_PURSUE, HBNAV_TYPE_NAMES, parseHbNavPoints, } from "./tv/hb-nav.js";
 export { parsePowerups } from "./tv/pup.js";
 export { TUNNEL_LOGIC_NAMES, parseTunnelDefs } from "./tv/tdf.js";
-export { ANIMATION_BASE_FPS, parseAnimations } from "./tv/ani.js";
+export { ANIMATION_BASE_FPS, parseAnimations, writeAnimations } from "./tv/ani.js";
 export { parseHbBriefing } from "./tv/hb-briefing.js";
 export { CPR_HEIGHT_DIVISOR, CPR_ALTITUDE_DIVISOR, CPR_HEIGHT_UNIT_SCALE, LEGACY_ALTITUDE_DIVISOR, decodeHeightSample, legacyWholeHeight16, heightAtCell, } from "./terrain/height.js";
 export { parseMtmSit, parseMtmLvl, parseTexList, parseTty, detectSitOrigin, sitTrackTypeName, sitWorldTriplet, sitFeetTriplet, BOX_LIGHT, BOX_MOVING, parseSitLight, } from "./mtm/sit.js";
 export { parseTvLvl, detectTvLvlOrigin, isNullAssetName, tvLvlFallbackName } from "./tv/lvl.js";
 export { parseDef, defPlacementToEditor, TR_ANGLE_TO_RAD } from "./tv/def.js";
 export { SKY_PALETTE_FIRST_SLOT, SKY_ACT_FIRST_COLOUR, SKY_GRADIENT_COLOURS, skyGradient, skyHorizon } from "./texture/sky.js";
-export { decodeClrWord, decodeGroundBoxes } from "./terrain/ground-boxes.js";
+export { decodeClrWord, encodeClrWord, decodeClrGrid, encodeClrGrid, decodeGroundBoxes, encodeGroundBoxes } from "./terrain/ground-boxes.js";
 export { HB_UNDERGROUND_BIAS, decodeHbUnderground } from "./terrain/hb-underground.js";
 export { CPR_POINT_NAMES, CPR_SLOT_OFF_TRACK, CPR_SLOT_CURB, CPR_SLOT_ROAD, CPR_SLOT_NAMES, CPR_CROSS_SECTION_MIDPOINT, CPR_SURFACE_TYPES, CPR_WALL_TYPE_NAMES, CPR_TEXTURE_INDEX_MASK, CPR_TEXTURE_SLICE_COUNT, cprTextureIndex, cprTextureSlice, cprTextureU, CPR_TREE_WALL, CPR_WALL_LAYERS, CPR_CATCH_FENCE_NAMES, parseCprTrk, parseCprTtx, isDegenerateSlot, cprTrackIsClosed, cprSegmentPairs, cprVisibleSlots, CPR_COURSE_PURPOSES, CPR_CHECKPOINT_ROLES, cprCheckpointRole, isCprPitCheckpoint, } from "./cpr/track.js";
 export { CPR_WALL_PART_HEIGHT_FT, buildCprRoad, cprCentreline } from "./cpr/road.js";
@@ -50,9 +52,10 @@ export { BUNDLED_PALETTE_IDS, bundledPalette } from "./texture/bundled-palettes.
 export { BUNDLED_PALETTE_BY_ORIGIN, TEXTURE_SIBLING_DIRS, findTextureSibling, paletteCandidates, textureStem, } from "./texture/palette-rank.js";
 export { EVO_CELL_SIZE, EVO_HEIGHT_DIVISOR, EVO_WATER_HEIGHT_DIVISOR, EVO_GRID_SIZE, EVO_WORLD_SIZE, evoHeightAtCell, evoHeightAt, } from "./evo/coords.js";
 export { parseEvoAiLine, matchEvoAiLineName, lapRuns } from "./evo/ai-line.js";
-export { sampleForPalette, medianCutPalette, colourCube, encodeRawTexture } from "./texture/encode.js";
+export { sampleForPalette, medianCutPalette, colourCube, encodeRawTexture, quantizeToPalette } from "./texture/encode.js";
 export { MTM2_PALETTE_WHITE_INDEX, MTM2_PALETTE_FIRST_AUTHORED, MTM2_PALETTE_AUTHORED_COUNT, mtm2LevelPalette, buildFogMap, } from "./mtm/level-palette.js";
-export { writeMtm2Sit, writeMtm2Lvl, writeTexList, writeEmptyList, emptyGroundBoxGrids, buildMtm2Lte, writeMtm2Trk, } from "./mtm/write.js";
+export { writeMtm2Sit, writeMtm2Lvl, writeTexList, writeTty, writeEmptyList, emptyGroundBoxGrids, buildMtm2Lte, writeMtm2Trk, } from "./mtm/write.js";
+export { parseTxv, txvValue, writeTxv } from "./mtm/txv.js";
 export { parseFlyTagged, flyTag, flyTags, parseFlyAngle } from "./fly/tagged.js";
 export { FLY_TILE_DEGREES, FLY_TILE_COLUMNS, FLY_EQUATOR_ROW, FLY_TILE_CELLS, FLY_QUADRANT_CELLS, flyRowLatitude, flyColumnLongitude, flyTileBounds, flyTileAt, parseFlyFolderName, flyFolderName, parseFlyTextureName, } from "./fly/globe.js";
 export { FLY_OBJECT_SNAP_TO_GROUND, parseFlyScf, parseFlySceneryObjects } from "./fly/scenery.js";
@@ -67,7 +70,7 @@ export { parseNocturneFog, NOCTURNE_FOG_GRID_SIDE, NOCTURNE_FOG_GRID_BYTES } fro
 export { parseNocturneSet } from "./nocturne/set.js";
 export { parseNocturneThm, NOCTURNE_THM_WIDTH, NOCTURNE_THM_HEIGHT, NOCTURNE_THM_SLOTS } from "./nocturne/thm.js";
 export { parseNocturneZth, NOCTURNE_ZTH_WIDTH, NOCTURNE_ZTH_HEIGHT, NOCTURNE_ZTH_MAP_BYTES } from "./nocturne/zth.js";
-export { parseKlp, parseMtmAmbientSounds, weatherMaskIncludes } from "./mtm/sound.js";
+export { parseKlp, writeKlp, parseMtmAmbientSounds, weatherMaskIncludes } from "./mtm/sound.js";
 export { parseMtmSun } from "./mtm/sun.js";
 export { parseLoc } from "./mtm/loc.js";
 export { parseTrn, writeTrn, TRN_MAX_EVENTS, TRN_MAX_LAPS } from "./mtm/trn.js";
@@ -80,4 +83,4 @@ export * as cprSim from "./sim/cpr/index.js";
 export { CPR_DEFAULT_SETUP, cloneCprSetup, parseCprGarage, writeCprGarage } from "./cpr/garage.js";
 export { PodFormatError } from "./errors.js";
 /** The library version, as published in package.json. */
-export const VERSION = "1.3.1";
+export const VERSION = "1.4.0";
