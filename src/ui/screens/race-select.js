@@ -12,7 +12,7 @@ import { setRaceConfig } from "../../app/flow.js";
 import { GAME_MODES, raceTypeName, trackInfoRows, trackPreviewBmp } from "../../game/menu-data.js";
 import { WEATHER_NAMES, allowedWeathers, resolveWeather } from "../../game/weather.js";
 import {
-  PLAYER_PICK, availableExtensions, entrantsShortfall, extensionById, extensionLength, lengthLabel as extensionLengthLabel, setExtensionSetting,
+  PLAYER_PICK, availableExtensions, entrantsShortfall, opponentsFor, soloExtension, extensionById, extensionLength, lengthLabel as extensionLengthLabel, setExtensionSetting,
   storedTeamPicks, teamPickerFor, trackForExtension,
 } from "../../game/extensions/loader.js";
 import { playMenuSound } from "../../audio/menu-sounds.js";
@@ -76,6 +76,8 @@ export default async function mount(container, context) {
   let dragOpponents = null;
   const onDragStrip = () => track.raceType === "drag";
   const opponentsNow = () => {
+    // A mode driven alone (Freestyle) takes none of them; the list is kept for the other modes.
+    if (soloExtension(extensionById(gameMode))) return opponentsFor(extensionById(gameMode), selectedOpponents);
     if (!onDragStrip()) return selectedOpponents;
     if (!dragOpponents) {
       const files = [...validOpponentFiles];
@@ -100,7 +102,7 @@ export default async function mount(container, context) {
   // Fly-by (ui/screens/fly-by.js): the track with no truck on it and a camera to fly through it.
   const isFreeRoam = () => gameMode === "freeroam" || (gameMode === "default" && !!track.freeRoamOnly);
   const updateDrivingUI = () => {
-    opponentsButton.disabled = isFreeRoam() || isFlyBy();
+    opponentsButton.disabled = isFreeRoam() || isFlyBy() || soloExtension(extensionById(gameMode));
     laps.disabled = isFreeRoam() || isFlyBy() || (gameMode === "default" && onDragStrip());
     // A disabled number box looks the same on the menu art: grey it and its label.
     laps.classList.toggle("race-off", laps.disabled);
@@ -190,12 +192,21 @@ export default async function mount(container, context) {
   /** Whether the chosen track can be played in the chosen mode: everything but a race runs anywhere; else the race types the port runs. */
   const playable = (item) => extensionById(gameMode)?.acceptsTrack(item) ?? (gameMode !== "default" || SUPPORTED.has(item.raceType));
   /** The Race button reads Fly-by in the Fly-by mode, where it starts a visit and not a race. */
+  /** The frame's own GO buttons (the bottom bar's), set once the frame is up: they follow the screen's Race button. */
+  let frameGoButtons = [];
   const updateGoButton = () => {
     goButton.textContent = isFlyBy() ? t("Fly-by") : t("Race");
     // A mode that needs more trucks (Tag, Hockey: two at least) waits for the opponents.
     const short = entrantsShortfall(extensionById(gameMode), opponentsNow(), spectator);
-    goButton.disabled = !playable(track) || short !== null;
-    goButton.title = short !== null ? t("<<1>> needs <<2>> trucks at least: pick computer opponents.", t(extensionById(gameMode).name), short) : "";
+    const fits = playable(track);
+    goButton.disabled = !fits || short !== null;
+    goButton.title = short !== null ? t("<<1>> needs <<2>> trucks at least: pick computer opponents.", t(extensionById(gameMode).name), short)
+      : !fits ? t("<<1>> cannot be played on this track.", t(extensionById(gameMode)?.name ?? "Race")) : "";
+    // The bar's GO looks and is disabled too: a mode the track does not take must not start as some other race.
+    for (const button of frameGoButtons) {
+      button.disabled = !fits;
+      button.title = !fits ? goButton.title : t("GO");
+    }
   };
   const remember = () => {
     const value = Math.max(1, Math.min(99, Math.trunc(Number(laps.value)) || lengthFor(gameMode, track)));
@@ -204,7 +215,9 @@ export default async function mount(container, context) {
       mode: track.raceType, track: track.file, laps: value, difficulty: settings.difficulty, gameMode,
       opponents: [...opponentsNow()], weather: weather.value === "random" ? "random" : Number(weather.value),
       freeRoam: isFreeRoam(),
-      spectator: spectator && !isFreeRoam() && !isFlyBy(),
+      spectator: spectator && !isFreeRoam() && !isFlyBy() && !soloExtension(extensionById(gameMode)),
+      // The bar's GO (app/flow.js goRace) refuses a race the chosen mode cannot run on the chosen track.
+      playable: playable(track),
     };
     Object.assign(settings, {
       gameMode, spectator, opponentTrucks: [...selectedOpponents], opponents: selectedOpponents.length,
@@ -256,8 +269,11 @@ export default async function mount(container, context) {
   const typeLabel = (item) => item.typeLabel ?? `${context.t(raceTypeName(item.raceType))}${item.game === "MTM1" ? " (MTM1)" : ""}`;
   const listed = () => {
     const words = filter.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (!words.length) return tracks;
-    return tracks.filter((item) => { const text = `${item.name} ${typeLabel(item)} ${item.file}`.toLowerCase(); return words.every((w) => text.includes(w)); });
+    // A party mode is a filter too: only the tracks it can be played on are listed.
+    const extension = extensionById(gameMode);
+    const offered = extension ? tracks.filter((item) => extension.acceptsTrack(item)) : tracks;
+    if (!words.length) return offered;
+    return offered.filter((item) => { const text = `${item.name} ${typeLabel(item)} ${item.file}`.toLowerCase(); return words.every((w) => text.includes(w)); });
   };
   // Above the filter: the track that is picked, which the filter or the scrolling may have taken out of sight.
   const selectedLabel = el("div", { class: "race-length-label race-track-selected", "aria-live": "polite" });
@@ -309,6 +325,12 @@ export default async function mount(container, context) {
       track = trackBeforeExtension ?? track;
       trackBeforeExtension = null;
     }
+    // Any other mode keeps the track when it can be played there, else takes the first one it lists.
+    if (nextExtension && !nextExtension.acceptsTrack(track)) {
+      const fitting = trackForExtension(nextExtension, tracks, track);
+      if (!fitting) return;
+      track = fitting;
+    }
     // A track with no race on it has no Race mode: the list falls back to Free Roam.
     if (track.freeRoamOnly && next === "default") next = "freeroam";
     gameMode = next;
@@ -318,8 +340,11 @@ export default async function mount(container, context) {
     lengthLabel.textContent = lengthLabelFor(track.raceType, gameMode);
     fillWeather();
     updateDrivingUI();
+    showWeekend();
     show();
     showSelected();
+    showZoom();
+    showLocale();
     showPreview();
     remember();
   });
@@ -355,6 +380,8 @@ export default async function mount(container, context) {
     modernRegions: { opponents: [343, 84, 200, 32], list: [42, 122, 274, 208], modeLabel: [150, 350, 70, 24], mode: [222, 350, 94, 24], weatherLabel: [427, 350, 58, 24], weather: [489, 350, 109, 24] },
   });
   ui.regions.list.parentElement.append(weekendButton, tourneyButton);
+  frameGoButtons = ui.goButtons ?? [];
+  updateGoButton();
   if (ui.classic) {
     if (ui.art) { opponentsButton.textContent = ""; opponentsButton.title = t("Computer Opponents"); }
     ui.regions.list.append(listHead, table);

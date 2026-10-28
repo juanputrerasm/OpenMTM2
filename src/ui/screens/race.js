@@ -50,8 +50,9 @@ import { createHelicopters } from "../../render/heli-object.js";
 import { createNameTags } from "../../render/name-tags.js";
 import { NAMES_DRIVERS, nameLabel, nameLine, nextNamesMode } from "../../game/names.js";
 import { createAudio } from "../../audio/audio-engine.js";
-import { VOICE_COMMENTARY_ENABLED, createCommentaryAudio } from "../../audio/commentary-audio.js";
-import { createAnnouncer } from "../../game/commentary.js";
+import { createCommentaryAudio } from "../../audio/commentary-audio.js";
+import { pickVideo, raceVideoKey } from "../../game/videos.js";
+import { GROUPS as COMMENTARY_GROUPS, createCommentaryQueue, createPhrasePicker, phraseText, textSeconds } from "../../game/commentary.js";
 import { createCommentaryWatcher } from "../../game/commentary-events.js";
 import { createTruckAudio } from "../../audio/truck-audio.js";
 import { createWorldAudio } from "../../audio/world-audio.js";
@@ -95,7 +96,7 @@ import { CAB_STYLES, VIEW_DISTANCES, VR_VIEWS } from "../../game/vr/settings.js"
 import { createRaceVr } from "../../render/xr/race-vr.js";
 import { vrButton } from "../vr-button.js";
 import {
-  extensionFinderTarget, extensionHud, extensionKeepsRace, extensionMapMarks, extensionMapPoints, extensionMarkerTarget, extensionNetFromWire,
+  extensionFinderTarget, extensionHud, extensionResult, extensionKeepsRace, extensionMapMarks, extensionMapPoints, extensionMarkerTarget, extensionNetFromWire,
   extensionNetOwnFromWire, extensionNetOwnToWire, extensionNetToWire, extensionResultTime, extensionTruckLabels, extensionTruckMarks, prepareExtensionRace, resolveRaceExtension,
   extensionKeyAction, extensionTruckOut,
 } from "../../game/extensions/race-loader.js";
@@ -239,8 +240,9 @@ async function mountRace(container, context, params, owned = []) {
   const dragTree = createDragTree();
   // The toggleable FPS counter, in the top right (below the drag tree on a drag strip).
   const fpsCounter = createFpsCounter({ visible: !!context.settings.fpsCounter });
-  // Options, Keys, Rumble readout: whether the pad rumbles, and how hard (ui/rumble-readout.js).
-  const rumbleReadout = createRumbleReadout({ visible: !!context.settings.padRumbleReadout });
+  // The rumble readout (ui/rumble-readout.js): whether the pad rumbles, and how hard. A testing aid, no longer offered
+  // in Options, so it stays hidden.
+  const rumbleReadout = createRumbleReadout({ visible: false });
   // The app's one renderer and its canvas (render/xr/xr-host.js); a headset shows this note meanwhile.
   context.xr.setBoard(createMenu({ title: t("Loading"), lines: [track.name] }));
   const host = await context.xr.host();
@@ -363,9 +365,11 @@ async function mountRace(container, context, params, owned = []) {
     if (!go || disposed) return { unmount };
   }
   // The course map (Map key), from the SIT's primary course.
-  // Professional puts every truck on course 2 when the SIT has one (MONSTER_EXE_ANALYSIS.md 9); the map still draws course 1.
-  // A drag strip's courses are its lanes instead (6.4): course 1 is lane 0's, whatever the difficulty.
-  const raceCourse = Number(difficulty) === 2 && build.sim.proCourse && track.raceType !== "drag" ? build.sim.proCourse : build.sim.course;
+  // The trucks race the game's course 1, or course 2 on Professional when the SIT has one (MONSTER_EXE_ANALYSIS.md 9;
+  // worker/track-build.js `raceCourse`, `proRaceCourse`); the map draws the primary course. A drag strip's courses are
+  // its lanes instead (6.4), whatever the difficulty.
+  const raceCourse = track.raceType === "drag" ? build.sim.course
+    : (Number(difficulty) === 2 && build.sim.proRaceCourse) || build.sim.raceCourse || build.sim.course;
   // A Summit Rumble's map shows the summit and the scoring zone (checkpoints 0 and 1, 6.3), not a course.
   const minimap = createCourseMap(build.sim.course, {
     font: hudFont, open: !!build.sim.courseOpen,
@@ -446,21 +450,33 @@ async function mountRace(container, context, params, owned = []) {
     count: entrants.length, player: 0, kookyHorn: !!context.settings.kookyHorn, mtm1Sounds: !!context.settings.mtm1Sounds,
     onHit: (sitIndex, force, pos) => worldAudio.hit(sitIndex, force, pos),
   });
-  // The announcer: phrases from events in the race, spoken in the drivers' own name clips.
-  // Voice commentary is deliberately disabled until its clip sequencing is corrected.
-  const commentaryOn = VOICE_COMMENTARY_ENABLED && !!context.settings.commentary;
-  const announcer = createAnnouncer({ gap: 8 });
-  const watcher = createCommentaryWatcher({ drivers: entrants.length, summit });
+  // The announcer (game/commentary.js, MONSTER_EXE_ANALYSIS.md 12): the game's triggers about the player's truck and
+  // the one the camera follows, its queue, and each phrase as one sound and, when asked for, a line of text.
+  const voiceOn = !!context.settings.commentary, textOn = !!context.settings.textCommentary;
+  const commentaryOn = voiceOn || textOn;
+  const boxModels = new Map(build.sim.boxes.map((b) => [b.sitIndex, b.modelName ?? null]));
+  const watcher = createCommentaryWatcher({ drivers: entrants.length, summit, drag: dragRace, hitModel: (i) => boxModels.get(i) });
+  const commentaryQueue = createCommentaryQueue({ summit });
+  const phrasePicker = createPhrasePicker();
   const commentary = createCommentaryAudio(audio, {
     drivers: entrants.map((e) => ({ name: e.name, waves: catalogTrucks.find((c) => c.file === e.file)?.waves ?? [] })),
   });
-  const speakEvents = (events, now) => {
-    for (const event of events.sort((a, b) => b.priority - a.priority)) {
-      const said = announcer.say(event.group, event.args, now, { priority: event.priority });
-      if (!said) continue;
-      commentary.speak(said).done.then(() => announcer.finished(performance.now() / 1000));
-      break;
+  /** Say a trigger's phrase now: its voice and its line, each when switched on. */
+  const sayPhrase = (trigger) => {
+    const phrase = phrasePicker.pick(trigger.group, { ...trigger.ctx, args: trigger.args });
+    if (!phrase) return;
+    if (voiceOn) commentary.speak(phrase);
+    const line = phrase.text ? phraseText(t(phrase.text), phrase.args.map((n) => entrants[n - 1]?.name ?? "")) : "";
+    if (textOn && line && !caption.active) caption.show(line, textSeconds(line));
+  };
+  /** This frame's triggers into the queue (the start and GO at once), and the queue's phrase, if any, said. */
+  const commentaryFrame = (triggers, dt) => {
+    for (const trigger of triggers) {
+      if (COMMENTARY_GROUPS[trigger.group]?.now) { if (!commentary.speaking) sayPhrase(trigger); }
+      else commentaryQueue.add(trigger.group, trigger.args, trigger.ctx);
     }
+    const next = commentaryQueue.tick(dt, commentary.speaking);
+    if (next) sayPhrase({ group: next.group, args: next.args, ctx: next.extra });
   };
   audio.resume();
   const resumeAudio = () => audio.resume();
@@ -576,6 +592,8 @@ async function mountRace(container, context, params, owned = []) {
     ramps: build.sim.ramps,
     topCrush: build.sim.topCrush ?? [],
     course: extensionRace?.course ?? raceCourse,
+    // The SIT's other courses, for a computer truck cut off from the one it races (game/course-route.js).
+    routeCourses: extensionRace?.course || track.raceType === "drag" ? [] : (build.sim.routeCourses ?? []).filter((c) => c && c !== raceCourse),
     ...(extensionRace?.walls ? { walls: extensionRace.walls } : {}),
     // The SIT's fly-by flag makes a track Sonic; on Professional the player can also ask for Sonic computer trucks anywhere.
     sonicTrack: build.sim.sonicTrack || (Number(difficulty) === 2 && !!context.settings.sonicTrucks),
@@ -1428,6 +1446,8 @@ async function mountRace(container, context, params, owned = []) {
       ...t, name: entrants[i].name, file: entrants[i].file, truckName: truckName(entrants[i].file), player: entrants[i].player,
       // An extension supplies the result time shown in the Winner's Circle.
       ...(gameMode && extensionResultTime(gameMode, laps, race) !== undefined ? { raceTime: extensionResultTime(gameMode, laps, race) } : {}),
+      // And its score as shown, and the lines under the table (Freestyle's score out of 10 and its categories).
+      ...(gameMode ? extensionResult(race.extension, i, context.t) ?? {} : {}),
     }));
     if (eventPass) {
       // What each truck made of the pass, by its driver in the event (game/drag-race.js `DQ_CODE`; not finished is the timeout).
@@ -1438,6 +1458,16 @@ async function mountRace(container, context, params, owned = []) {
       }));
       context.router.go("drag-event", { pass: { kind: eventPass.kind, results } }, { replace: true });
       return;
+    }
+    // The game's video for the player's place (game/videos.js): Win, Lose or Other, the WCW ones after a Summit Rumble.
+    // Not in a network race, a demo, spectator mode or free roam.
+    const me = rows.find((row) => row.player);
+    if (me && Number.isInteger(me.place) && !net && !demo && !spectator && !freeRoam && context.settings.resultVideos !== false && !host.presenting) {
+      const { lists, files } = await context.assets.call("videoLists").catch(() => ({ lists: {}, files: [] }));
+      const have = new Set(files);
+      const video = pickVideo(lists, raceVideoKey(me.place, rows.length, summit), (path) => have.has(path));
+      if (video && !disposed) await (await import("../video-player.js")).playVideo(context, video);
+      if (disposed) return;
     }
     context.router.go("results", { track, laps: gameMode ? laps : race.laps ?? laps, difficulty, rows, mode: gameMode ?? track.raceType, truck: playerTruck, tournament: !!params.tournament }, { replace: true });
   };
@@ -1657,11 +1687,12 @@ async function mountRace(container, context, params, owned = []) {
       {
         const now = performance.now() / 1000;
         if (raceNow && !paused && !finishing) {
-          const events = watcher.update({
-            now, race: raceNow,
-            trucks: latest.poses.map((p, i) => ({ pos: shown[i].pos, up: p.current.matrix[4], sound: p.sound })),
+          const triggers = watcher.update({
+            now, race: raceNow, watched: cameraTarget, blimp: viewMode === 3, weather: weatherId, lamps,
+            checkpoints: build.sim.checkpoints?.length ?? 0,
+            trucks: latest.poses.map((p, i) => ({ pos: shown[i].pos, up: p.current.matrix[4], forwardY: p.current.matrix[5], sound: p.sound })),
           });
-          if (commentaryOn && events.length) speakEvents(events, now);
+          if (commentaryOn) commentaryFrame(triggers, dt);
         }
       }
       camera.getWorldDirection(forwardVector);

@@ -279,3 +279,14 @@ export function lenientKlp(bytes) {
   const end = tokens[2], start = tokens[3];
   return start >= 0 ? { loops: [{ start, end: end <= 0 ? null : end }] } : null;
 }
+
+/**
+ * A `.KLP` loop in seconds, `{ start, end }`, or null for the whole sample. The points count the file's own samples,
+ * made at `sourceRate`; a browser decodes at its own rate, so the decoded length is turned back into source samples
+ * first. Without a known source rate the decoded one stands in (a WAV the browser kept at its rate).
+ */
+export function loopSeconds(klp, duration, sourceRate, decodedRate) {
+  const rate = Number.isFinite(sourceRate) && sourceRate > 0 ? sourceRate : decodedRate;
+  const region = loopRegion(klp, Math.ceil(duration * rate));
+  return region ? { start: region.start / rate, end: region.end / rate } : null;
+}

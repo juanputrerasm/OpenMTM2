@@ -1464,10 +1464,6 @@
   "text": "Música de los menús"
  },
  {
-  "tag": "Announcer voice",
-  "text": "Voz del comentarista"
- },
- {
   "tag": "Keys",
   "text": "Teclas"
  },
@@ -1518,14 +1514,6 @@
  {
   "tag": "Rumble effects",
   "text": "Efectos de vibración"
- },
- {
-  "tag": "A race shows whether the gamepad rumbles, why not when it does not, how hard each motor runs and what set it. For testing. From the next race",
-  "text": "En carrera se muestra si el mando vibra, por qué no cuando no lo hace, con qué fuerza va cada motor y qué lo provocó. Para pruebas. Desde la próxima carrera"
- },
- {
-  "tag": "Rumble readout",
-  "text": "Indicador de vibración"
  },
  {
   "tag": "For fullscreen, install OpenMTM2 as an app, or tap Fullscreen in the menus.",
@@ -4742,5 +4730,573 @@
  {
   "tag": "Your truck is crawling: reach the checkpoints for credits and repair it",
   "text": "Tu camión apenas avanza: llega a los puntos de control para ganar créditos y repararlo"
+ },
+ {
+  "tag": "Get Ready!",
+  "text": "¡Prepárense!"
+ },
+ {
+  "tag": "Please fasten your seatbelts and return 'em to the upright position; this is gonna be a little bit bumpy.",
+  "text": "Abróchense los cinturones y pongan los asientos en posición vertical; esto se va a poner un poco movido."
+ },
+ {
+  "tag": "Ready or not, here we go!",
+  "text": "¡Listos o no, allá vamos!"
+ },
+ {
+  "tag": "Are you ready for some down and dirty racing?",
+  "text": "¿Están listos para una carrera bien sucia?"
+ },
+ {
+  "tag": "Everybody ready to rassle?",
+  "text": "¿Todos listos para la lucha?"
+ },
+ {
+  "tag": "Let's get ready to rassle.",
+  "text": "Prepárense para la lucha."
+ },
+ {
+  "tag": "This is where we separate the men from the boys.",
+  "text": "Aquí es donde se separan los hombres de los niños."
+ },
+ {
+  "tag": "Now don't go biting anyone's ear off out there.",
+  "text": "Y no le arranquen la oreja a nadie de un mordisco allá afuera."
+ },
+ {
+  "tag": "Who wants it more?",
+  "text": "¿Quién lo quiere más?"
+ },
+ {
+  "tag": "Do all roads lead to the top? We'll soon find out.",
+  "text": "¿Todos los caminos llevan a la cima? Pronto lo sabremos."
+ },
+ {
+  "tag": "What a finish! What a race!",
+  "text": "¡Qué final! ¡Qué carrera!"
+ },
+ {
+  "tag": "<<1>> takes the monster crown.",
+  "text": "<<1>> se lleva la corona monstruo."
+ },
+ {
+  "tag": "<<1>> is in the winner's circle this time.",
+  "text": "Esta vez <<1>> está en el círculo de los ganadores."
+ },
+ {
+  "tag": "<<1>> pulls it out! It's <<2>> all the way.",
+  "text": "¡<<1>> lo consigue! Es <<2>> de punta a punta."
+ },
+ {
+  "tag": "<<1>> takes one home.",
+  "text": "<<1>> se lleva una a casa."
+ },
+ {
+  "tag": "<<1>> can take a cruise down victory lane.",
+  "text": "<<1>> puede pasearse por el carril de la victoria."
+ },
+ {
+  "tag": "Looks like today is payday for <<1>>.",
+  "text": "Parece que hoy es día de paga para <<1>>."
+ },
+ {
+  "tag": "<<1>> has finished the race.",
+  "text": "<<1>> ha terminado la carrera."
+ },
+ {
+  "tag": "<<1>> has won the race.",
+  "text": "<<1>> ha ganado la carrera."
+ },
+ {
+  "tag": "<<1>> is making its move.",
+  "text": "<<1>> hace su jugada."
+ },
+ {
+  "tag": "This is where the fear starts for <<1>>.",
+  "text": "Aquí empieza el miedo para <<1>>."
+ },
+ {
+  "tag": "Who's it gonna be?",
+  "text": "¿Quién será?"
+ },
+ {
+  "tag": "This road ain't big enough for the both of ya.",
+  "text": "Este camino no es lo bastante grande para los dos."
+ },
+ {
+  "tag": "It's <<1>> all the way.",
+  "text": "Es <<1>> de punta a punta."
+ },
+ {
+  "tag": "<<1>> can kiss that lead goodbye.",
+  "text": "<<1>> puede despedirse de esa ventaja."
+ },
+ {
+  "tag": "Like taking candy from a baby.",
+  "text": "Como quitarle un caramelo a un niño."
+ },
+ {
+  "tag": "<<1>> shows no mercy.",
+  "text": "<<1>> no tiene piedad."
+ },
+ {
+  "tag": "<<1>> turns the tables.",
+  "text": "<<1>> da vuelta la tortilla."
+ },
+ {
+  "tag": "<<1>> inches past <<2>>.",
+  "text": "<<1>> pasa a <<2>> por un pelo."
+ },
+ {
+  "tag": "<<1>> wants to be the leader of the pack.",
+  "text": "<<1>> quiere ser el líder de la manada."
+ },
+ {
+  "tag": "<<1>> is making its move and going for that lead position.",
+  "text": "<<1>> hace su jugada y va por el primer puesto."
+ },
+ {
+  "tag": "You can bet the pack is going to try and hold <<1>> back.",
+  "text": "Pueden apostar a que el pelotón tratará de frenar a <<1>>."
+ },
+ {
+  "tag": "<<1>> is taking the outside edge.",
+  "text": "<<1>> se va por el borde exterior."
+ },
+ {
+  "tag": "<<1>> is taking the long way home.",
+  "text": "<<1>> toma el camino largo a casa."
+ },
+ {
+  "tag": "When it's going your way, its going your way.",
+  "text": "Cuando las cosas salen bien, salen bien."
+ },
+ {
+  "tag": "Hard work pays off for <<1>>.",
+  "text": "El trabajo duro le rinde a <<1>>."
+ },
+ {
+  "tag": "Clash of the titans!",
+  "text": "¡Choque de titanes!"
+ },
+ {
+  "tag": "<<1>> and <<2>> are getting up close and personal.",
+  "text": "<<1>> y <<2>> se están acercando demasiado."
+ },
+ {
+  "tag": "<<1>> and <<2>> are going head to head and somebody's going to end up with a headache.",
+  "text": "<<1>> y <<2>> van cabeza a cabeza y alguien va a terminar con dolor de cabeza."
+ },
+ {
+  "tag": "That's how pistonheads say hello.",
+  "text": "Así se saludan los fierreros."
+ },
+ {
+  "tag": "That should get the attention of <<1>>.",
+  "text": "Eso debería llamar la atención de <<1>>."
+ },
+ {
+  "tag": "How'd you like to see that in your rear view mirror?",
+  "text": "¿Qué tal ver eso en tu espejo retrovisor?"
+ },
+ {
+  "tag": "Another one bites the dust.",
+  "text": "Otro que muerde el polvo."
+ },
+ {
+  "tag": "That's gotta break the heart of any competitor.",
+  "text": "Eso le rompe el corazón a cualquier competidor."
+ },
+ {
+  "tag": "Nothing a little plastic surgery can't fix.",
+  "text": "Nada que una cirugía plástica no arregle."
+ },
+ {
+  "tag": "Bam! Who's passing out the harps and the halos?",
+  "text": "¡Bam! ¿Quién reparte las arpas y las aureolas?"
+ },
+ {
+  "tag": "Hey, that's coming out of somebody's paycheck.",
+  "text": "Oye, eso lo va a pagar alguien de su sueldo."
+ },
+ {
+  "tag": "Oh, the humanity.",
+  "text": "Oh, la humanidad."
+ },
+ {
+  "tag": "That's gonna leave a mark!",
+  "text": "¡Eso va a dejar marca!"
+ },
+ {
+  "tag": "Cowabunga!",
+  "text": "¡Cowabunga!"
+ },
+ {
+  "tag": "<<1>> is walking on water.",
+  "text": "<<1>> camina sobre el agua."
+ },
+ {
+  "tag": "<<1>> may be in over its head.",
+  "text": "<<1>> puede que esté con el agua al cuello."
+ },
+ {
+  "tag": "<<1>> has gone fishing.",
+  "text": "<<1>> se fue de pesca."
+ },
+ {
+  "tag": "I've heard of amphibious cars, but this is ridiculous.",
+  "text": "He oído de autos anfibios, pero esto es ridículo."
+ },
+ {
+  "tag": "<<1>> has gone in the drink.",
+  "text": "<<1>> se fue al agua."
+ },
+ {
+  "tag": "<<1>> is doing it in the drink.",
+  "text": "<<1>> lo está haciendo en el agua."
+ },
+ {
+  "tag": "<<1>> wants to sail the seven seas.",
+  "text": "<<1>> quiere navegar los siete mares."
+ },
+ {
+  "tag": "This could be an Olympic event in the year 2000.",
+  "text": "Esto podría ser un deporte olímpico en el año 2000."
+ },
+ {
+  "tag": "What's next, a triple axel from the double axle?",
+  "text": "¿Y ahora qué, un triple axel del doble eje?"
+ },
+ {
+  "tag": "Chains will not, I repeat, will not be required for this event.",
+  "text": "No se necesitarán cadenas, repito, no se necesitarán cadenas para este evento."
+ },
+ {
+  "tag": "I don't think <<1>> will need chains for this event.",
+  "text": "No creo que <<1>> necesite cadenas para este evento."
+ },
+ {
+  "tag": "<<1>> is doing it in the air.",
+  "text": "<<1>> lo está haciendo en el aire."
+ },
+ {
+  "tag": "<<1>> is flying to the finish line.",
+  "text": "<<1>> vuela hacia la meta."
+ },
+ {
+  "tag": "<<1>>'s got four big wheels but ain't using any of 'em!",
+  "text": "¡<<1>> tiene cuatro ruedas enormes y no usa ninguna!"
+ },
+ {
+  "tag": "Here comes <<1>>, duck and cover!",
+  "text": "¡Ahí viene <<1>>, a cubrirse!"
+ },
+ {
+  "tag": "<<1>> is reaching for the stars.",
+  "text": "<<1>> se estira hacia las estrellas."
+ },
+ {
+  "tag": "Roll baby roll.",
+  "text": "Rueda, nena, rueda."
+ },
+ {
+  "tag": "Roll over Beethoven.",
+  "text": "Date la vuelta, Beethoven."
+ },
+ {
+  "tag": "<<1>> has crashed, leaving an incredible path of destruction behind it.",
+  "text": "<<1>> se estrelló, dejando un increíble rastro de destrucción."
+ },
+ {
+  "tag": "<<1>> is hanging ten.",
+  "text": "<<1>> va en una rueda... o casi."
+ },
+ {
+  "tag": "<<1>> is on its tippy toes.",
+  "text": "<<1>> va de puntillas."
+ },
+ {
+  "tag": "Lean into it.",
+  "text": "Inclínate."
+ },
+ {
+  "tag": "<<1>> has gone belly side up, so the whirly bird's gonna fix 'em up.",
+  "text": "<<1>> quedó panza arriba, así que el helicóptero lo va a arreglar."
+ },
+ {
+  "tag": "Now for a ride of a different sort.",
+  "text": "Y ahora, un paseo de otra clase."
+ },
+ {
+  "tag": "Our old buddy <<1>> needs a helping hand.",
+  "text": "Nuestro viejo amigo <<1>> necesita una mano."
+ },
+ {
+  "tag": "The whirly bird's comin' in.",
+  "text": "Ahí viene el helicóptero."
+ },
+ {
+  "tag": "They're calling in the whirly bird for the big flip.",
+  "text": "Llaman al helicóptero para la gran vuelta."
+ },
+ {
+  "tag": "<<1>> is on the hook.",
+  "text": "<<1>> está en el gancho."
+ },
+ {
+  "tag": "Now listen.  What part of the word \"checkpoint\" do you not understand?",
+  "text": "A ver.  ¿Qué parte de la palabra \"control\" no entiendes?"
+ },
+ {
+  "tag": "<<1>> has just missed a checkpoint. Turn around buddy.",
+  "text": "<<1>> se saltó un control. Date la vuelta, amigo."
+ },
+ {
+  "tag": "<<1>> is driving in the stealth mode.",
+  "text": "<<1>> maneja en modo sigiloso."
+ },
+ {
+  "tag": "Watch those tail lights.",
+  "text": "Mira esas luces traseras."
+ },
+ {
+  "tag": "Voice commentary",
+  "text": "Comentarios hablados"
+ },
+ {
+  "tag": "The announcer talks about your truck and the one the camera follows. From the next race",
+  "text": "El comentarista habla de tu camión y del que sigue la cámara. Desde la próxima carrera"
+ },
+ {
+  "tag": "Text commentary",
+  "text": "Comentarios en texto"
+ },
+ {
+  "tag": "The announcer's lines are shown on screen. From the next race",
+  "text": "Las frases del comentarista se muestran en pantalla. Desde la próxima carrera"
+ },
+ {
+  "tag": "<<1>> cannot be played on this track.",
+  "text": "<<1>> no se puede jugar en esta pista."
+ },
+ {
+  "tag": "Play intro videos",
+  "text": "Ver los videos de inicio"
+ },
+ {
+  "tag": "The game's start videos at launch. Needs the videos copied (below)",
+  "text": "Los videos de inicio del juego al abrirlo. Hace falta copiar los videos (abajo)"
+ },
+ {
+  "tag": "Play win / lose videos",
+  "text": "Ver los videos de victoria / derrota"
+ },
+ {
+  "tag": "A video after each race for your place: first, last or between. Needs the videos copied (below)",
+  "text": "Un video después de cada carrera según tu puesto: primero, último o entre medio. Hace falta copiar los videos (abajo)"
+ },
+ {
+  "tag": "Copy the game's videos",
+  "text": "Copiar los videos del juego"
+ },
+ {
+  "tag": "Copy the VIDEOS folder too (about 155 MB) the next time the game folder is picked (Reload POD.INI)",
+  "text": "Copiar también la carpeta VIDEOS (unos 155 MB) la próxima vez que se elija la carpeta del juego (Volver a cargar POD.INI)"
+ },
+ {
+  "tag": "<<1>> & collaborators",
+  "text": "<<1>> y colaboradores"
+ },
+ {
+  "tag": "Monster Truck Madness 2, version unknown",
+  "text": "Monster Truck Madness 2, versión desconocida"
+ },
+ {
+  "tag": "Monster Truck Madness 2, Version <<1>> (community patch)",
+  "text": "Monster Truck Madness 2, versión <<1>> (parche de la comunidad)"
+ },
+ {
+  "tag": "Monster Truck Madness 2, Version <<1>> (beta)",
+  "text": "Monster Truck Madness 2, versión <<1>> (beta)"
+ },
+ {
+  "tag": "Monster Truck Madness 2, Version <<1>>",
+  "text": "Monster Truck Madness 2, versión <<1>>"
+ },
+ {
+  "tag": "Version <<1>>",
+  "text": "Versión <<1>>"
+ },
+ {
+  "tag": "Installed version:",
+  "text": "Versión instalada:"
+ },
+ {
+  "tag": "OpenMTM2 <<1>>",
+  "text": "OpenMTM2 <<1>>"
+ },
+ {
+  "tag": "Installed version: <<1>>",
+  "text": "Versión instalada: <<1>>"
+ },
+ {
+  "tag": "OpenMTM2 is an open-source reimplementation of Monster Truck Madness 2 that runs in your browser and plays from your own copy of the game. Apache License 2.0.",
+  "text": "OpenMTM2 es una reimplementación de código abierto de Monster Truck Madness 2 que funciona en tu navegador y se juega con tu propia copia del juego. Licencia Apache 2.0."
+ },
+ {
+  "tag": "Original game",
+  "text": "Juego original"
+ },
+ {
+  "tag": "Monster Truck Madness 2 credits",
+  "text": "Créditos de Monster Truck Madness 2"
+ },
+ {
+  "tag": "Freestyle",
+  "text": "Estilo libre"
+ },
+ {
+  "tag": "One truck, any track, against the clock: big air, wheelies, donuts, flips, hits and saves are judged out of 10. Use all the time and keep moving; reversing without a reason costs points.",
+  "text": "Un camión, cualquier pista, contra el reloj: los saltos, caballitos, donas, volteretas, golpes y salvadas se califican sobre 10. Usa todo el tiempo y no te detengas; ir en reversa sin motivo resta puntos."
+ },
+ {
+  "tag": "Run length",
+  "text": "Duración de la exhibición"
+ },
+ {
+  "tag": "Time used",
+  "text": "Tiempo usado"
+ },
+ {
+  "tag": "Speed and momentum",
+  "text": "Velocidad e impulso"
+ },
+ {
+  "tag": "Aggression",
+  "text": "Agresividad"
+ },
+ {
+  "tag": "Air",
+  "text": "Saltos"
+ },
+ {
+  "tag": "Tricks",
+  "text": "Trucos"
+ },
+ {
+  "tag": "Saves",
+  "text": "Salvadas"
+ },
+ {
+  "tag": "Spectacular moments",
+  "text": "Momentos espectaculares"
+ },
+ {
+  "tag": "Big air!",
+  "text": "¡Gran salto!"
+ },
+ {
+  "tag": "Huge air!",
+  "text": "¡Salto enorme!"
+ },
+ {
+  "tag": "Wheelie!",
+  "text": "¡Caballito!"
+ },
+ {
+  "tag": "Sky wheelie!",
+  "text": "¡Caballito vertical!"
+ },
+ {
+  "tag": "Slap wheelie!",
+  "text": "¡Caballito al caer!"
+ },
+ {
+  "tag": "Nose wheelie!",
+  "text": "¡Caballito de nariz!"
+ },
+ {
+  "tag": "Moonwalk!",
+  "text": "¡Moonwalk!"
+ },
+ {
+  "tag": "Donut!",
+  "text": "¡Dona!"
+ },
+ {
+  "tag": "Donuts x<<1>>!",
+  "text": "¡Donas x<<1>>!"
+ },
+ {
+  "tag": "Back flip!",
+  "text": "¡Voltereta hacia atrás!"
+ },
+ {
+  "tag": "Front flip!",
+  "text": "¡Voltereta hacia adelante!"
+ },
+ {
+  "tag": "Barrel roll!",
+  "text": "¡Tonel!"
+ },
+ {
+  "tag": "Flip attempt",
+  "text": "Intento de voltereta"
+ },
+ {
+  "tag": "Save!",
+  "text": "¡Salvada!"
+ },
+ {
+  "tag": "What a save!",
+  "text": "¡Qué salvada!"
+ },
+ {
+  "tag": "Hit!",
+  "text": "¡Golpe!"
+ },
+ {
+  "tag": "Combo x<<1>>!",
+  "text": "¡Combo x<<1>>!"
+ },
+ {
+  "tag": "Crash!",
+  "text": "¡Choque!"
+ },
+ {
+  "tag": "Reversing",
+  "text": "Reversa"
+ },
+ {
+  "tag": "Crashes",
+  "text": "Choques"
+ },
+ {
+  "tag": "Freestyle! Use all your time: big air, wheelies, donuts and saves.",
+  "text": "¡Estilo libre! Usa todo tu tiempo: saltos, caballitos, donas y salvadas."
+ },
+ {
+  "tag": "10 seconds left!",
+  "text": "¡Quedan 10 segundos!"
+ },
+ {
+  "tag": "About",
+  "text": "Acerca de"
+ },
+ {
+  "tag": "Open source web implementation of MTM2",
+  "text": "Implementación web de código abierto de MTM2"
+ },
+ {
+  "tag": "Developed by",
+  "text": "Desarrollado por"
+ },
+ {
+  "tag": "Special thanks to <<1>> for enhanced graphics.",
+  "text": "Agradecimiento especial a <<1>> por los gráficos mejorados."
+ },
+ {
+  "tag": "Built on OpenPhotex technology.",
+  "text": "Construido con la tecnología OpenPhotex."
  }
 ]

@@ -80,17 +80,20 @@ export const DEFAULT_SETTINGS = Object.freeze({
   skin: "auto",               // "auto" (classic on retail and beta builds, modern on a community patch), "classic" or "modern"
   developer: false,           // list tracks and trucks with the developer views on the Start screen
   sound: Object.freeze({ master: 1, effects: 1, music: 0.8, muted: false }),
-  commentary: false,          // reserved for commentaryFlag; voice playback is temporarily disabled
+  commentary: true,           // MONSTER.INI commentaryFlag: the announcer's voice (game/commentary.js)
+  textCommentary: false,      // MONSTER.INI textCommentaryFlag: the announcer's lines shown as text
   menuMusic: true,            // the menus play SOUND\\SPLASH.WAV from MUSIC.POD
+  copyVideos: false,          // the setup copies the game's videos (VIDEOS) too; off by default
+  introVideos: true,          // the game's start videos at launch (game/videos.js), when the install has them
+  resultVideos: true,         // a win, lose or other video after a race (game/videos.js), when the install has them
   kookyHorn: false,           // MONSTER.INI kookyHorn: three horns instead of one
   crashDamage: true,          // MONSTER.INI allowCrashDamage (the game's own default is off): collisions dent the bodies
   autoShift: true,            // automatic gears (the game's default)
   steeringResponse: 10,       // MONSTER.INI [Control] steeringResponse, 0 to 10 (the game's default 10): lower makes a stick's steering less steep
   installTipSeen: false,      // the phone tip on fullscreen (Add to Home Screen, Install) was closed (ui/display-mode.js)
   padRumble: true,            // the gamepad rumbles with the game's force feedback (MONSTER.INI useForceFeedback; game/input/rumble.js)
-  padRumbleStrength: 70,
+  padRumbleStrength: 70,      // MONSTER.INI forceFeedbackStrength, 0 to 100 (the game's default 70)
   padRumbleLevel: 3,          // the Rumble effects: 1 hits only, 2 hits and ground, 3 hits, ground and engine (game/input/rumble.js)
-  padRumbleReadout: false,    // a race shows whether the pad rumbles and how hard (ui/rumble-readout.js), for testing      // MONSTER.INI forceFeedbackStrength, 0 to 100 (the game's default 70)
   padPedals: "triggers",      // a gamepad's throttle and brake: "triggers", "stick" (the left stick's y) or "both" (game/input/gamepad.js)
   bindings: Object.freeze({}), // key code overrides by action, see game/input/bindings.js
   hdWeather: true,            // Community Patch 3's HD skies: the install's WeatherArt folder, else the port's copy (worker/weather-art.js)
@@ -232,6 +235,13 @@ export function migrateSettings(stored) {
   delete stored.showHiddenTrucks;
   // "MTM1 no terrain overlap" became "Terrain overlap", for every track.
   delete stored.mtm1TerrainOverlap;
+  // The rumble readout is no longer offered (Options, Keys): a race never shows it.
+  delete stored.padRumbleReadout;
+  // The films became videos, with a switch for the start ones and one for the race's.
+  if (stored.films === false) stored.introVideos = stored.resultVideos = false;
+  if (stored.copyFilms !== undefined) stored.copyVideos = !!stored.copyFilms;
+  delete stored.films;
+  delete stored.copyFilms;
   // A value that is not one of the choices draws the default.
   if (!AA_MODES.some((mode) => mode.id === stored.aa)) delete stored.aa;
   if (!GRAPHICS_PRESETS.some((preset) => preset.id === stored.graphics)) delete stored.graphics;

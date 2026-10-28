@@ -73,9 +73,11 @@ export { parseNocturneZth, NOCTURNE_ZTH_WIDTH, NOCTURNE_ZTH_HEIGHT, NOCTURNE_ZTH
 export { parseKlp, writeKlp, parseMtmAmbientSounds, weatherMaskIncludes } from "./mtm/sound.js";
 export { parseMtmSun } from "./mtm/sun.js";
 export { parseLoc } from "./mtm/loc.js";
+export { SmkError, openSmk, smkInfo } from "./video/smk.js";
 export { parseTrn, writeTrn, TRN_MAX_EVENTS, TRN_MAX_LAPS } from "./mtm/trn.js";
 export { parseMtmReplay, writeMtmReplay, REPLAY_RING_RECORDS, REPLAY_FRAME_TICKS, REPLAY_TICKS_PER_SECOND, REPLAY_SAMPLES_HEADING, REPLAY_SAMPLES_VERSION } from "./mtm/replay.js";
 export { MOD_MIX_GAIN, modChannels, parseMod, renderMod } from "./audio/mod.js";
+export { audioSampleRate, detectAudioFormat } from "./audio/probe.js";
 export { parseCockpitLayout, parseCockpitSections } from "./mtm/cockpit.js";
 export * as mtm2Sim from "./sim/mtm2/index.js";
 export * as evoSim from "./sim/evo/index.js";

@@ -6,11 +6,14 @@
   `{ id, ok, payload | error }`, unsolicited events `{ event, payload }`, and `{ ready: true }`
   once this module graph has loaded.
 */
-import { copyInstall, readManifest, removeInstall, syncInstall } from "./install-store.js";
+import { VIDEOS_DIR, copyInstall, readManifest, removeInstall, syncInstall } from "./install-store.js";
+import { readFile } from "../shared/opfs.js";
+import { parseVideoLists } from "../game/videos.js";
 import { addGameFolder, addPods, describeMounts, mountAll, reloadPodIni, removeAddons, removePod, setMountOrder } from "./addon-store.js";
 import { buildCatalog } from "./catalog.js";
 import { buildSky, buildTrackRender, transferablesOf } from "./track-build.js";
 import { lenientKlp } from "../game/sound-model.js";
+import { SOUND_EXTENSIONS, findSound, soundStem } from "./sound-file.js";
 import { buildTruckPreview } from "./preview-build.js";
 import { loadingScreen } from "./screen-art.js";
 import { truckEnvMap } from "./env-map.js";
@@ -94,6 +97,25 @@ const handlers = {
     // The new POD.INI's order for the install's archives, ahead of the added ones.
     await reloadPodIni();
     return done;
+  },
+
+  /**
+   * The game's videos (game/videos.js): `{ lists, files }`, the `[Video]` lists of the install's EXTRAS.INI and the video
+   * paths the install has. Empty when the folder had none.
+   */
+  async videoLists() {
+    const manifest = await readManifest();
+    const files = (manifest?.videos ?? []).filter((name) => name !== "EXTRAS.INI");
+    const ini = await readFile(`${VIDEOS_DIR}/EXTRAS.INI`).then((f) => f.text()).catch(() => "");
+    return { lists: parseVideoLists(ini), files };
+  },
+
+  /** A video's bytes (`path` as `videoLists` gives it), or null. */
+  async video({ path }) {
+    const file = await readFile(`${VIDEOS_DIR}/${String(path).toUpperCase()}`).catch(() => null);
+    if (!file) return null;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return withTransfer(bytes, [bytes.buffer]);
   },
 
   async uninstall() {
@@ -186,6 +208,13 @@ const handlers = {
     if (!bytes) return null;
     const own = ownBytes(bytes);
     return withTransfer(own, [own.buffer]);
+  },
+
+  /** A `UI\\*.TXT` (the About screen's LEGAL.TXT) as text with CRLF kept, or null. */
+  async uiText({ name }) {
+    if (!/^[A-Za-z0-9_-]+$/.test(String(name))) throw new Error(`Bad text name "${name}"`);
+    const bytes = await (await mounted()).read(`UI\\${name.toUpperCase()}.TXT`);
+    return bytes ? new TextDecoder("latin1").decode(bytes) : null;
   },
 
   /**
@@ -304,20 +333,24 @@ const handlers = {
     const bytes = (await vfs.read(`MUSIC\\${stem}.MOD`)) ?? (await vfs.read(`SOUND\\${stem}.MOD`));
     const song = bytes && parseMod(bytes);
     if (!song) return null;
-    const out = renderMod(song, { sampleRate: 22050 });
+    const out = renderMod(song, { sampleRate: 44100 });
     return withTransfer(out, [out.left.buffer, out.right.buffer]);
   },
 
-  /** A sound by name, `SOUND\\<name>.WAV` with its `.KLP` loop points: `{ name, wav, klp }`, or null. */
-  async sound({ name }) {
+  /**
+   * A sound by name (sound-file.js): `SOUND\\<name>.OGG`, `.MP3` or `.WAV`, with its `.KLP` loop points:
+   * `{ name, bytes, format, sourceRate, klp }`, or null. `only: "WAV"` skips the replacements.
+   */
+  async sound({ name, only = null }) {
     if (!/^[A-Za-z0-9_.-]+$/.test(String(name))) throw new Error(`Bad sound name "${name}"`);
-    const stem = name.replace(/\.wav$/i, "").toUpperCase();
+    if (only !== null && !SOUND_EXTENSIONS.includes(only)) throw new Error(`Bad sound format "${only}"`);
+    const stem = soundStem(name);
     const vfs = await mounted();
-    const wav = await vfs.read(`SOUND\\${stem}.WAV`);
-    if (!wav) return null;
+    const found = await findSound(vfs, stem, { only });
+    if (!found) return null;
     const klp = await vfs.read(`SOUND\\${stem}.KLP`);
-    const copy = ownBytes(wav).buffer;
-    return withTransfer({ name: stem, wav: copy, klp: klp ? parseKlp(klp) ?? lenientKlp(klp) : null }, [copy]);
+    const copy = ownBytes(found.bytes).buffer;
+    return withTransfer({ name: stem, bytes: copy, format: found.format, sourceRate: found.sourceRate, klp: klp ? parseKlp(klp) ?? lenientKlp(klp) : null }, [copy]);
   },
 
   /** A level's ambient sounds (`DATA\\SOUNDnnn.TXT`), or null. */

@@ -2,7 +2,9 @@
   The recovery helicopter, as this port runs it for the player (the original only lifted a truck
   that lay stuck on its hull; here the Helicopter key works at any time and is immediate). The truck
   is frozen; the helicopter spirals in, hooks it, carries it in the air to the nearest point of the
-  course, turning it to face along the course and levelling it, and sets it down.
+  course, turning it to face along the course and levelling it, and sets it down. In a race only the part of the
+  course round the truck's own segment is searched (`courseWindow`), so at a crossroads it is not set down on
+  another part of the lap.
 
   The CPU trucks keep the game's own flight (MONSTER_EXE_ANALYSIS.md 8.2, 0x46ed90): `timerVisual`
   places the helicopter for that flight from the truck's `heliTimer`.
@@ -27,33 +29,58 @@ export const DROP_FT = 6;
 /** The helicopter never takes the truck lower than this over the ground. */
 export const CLEARANCE_FT = 8;
 const DEPART_RATE_FT = 40;
+/**
+ * The part of the course the helicopter may set a truck down on (an addition): from this many segments before the
+ * one it is on to this many after (straights and arcs alternate, so 2 is one straight back and 6 three ahead).
+ */
+export const WINDOW_BACK = 2, WINDOW_AHEAD = 6;
+
+/**
+ * The point of course segment `seg` nearest (in x and z) to `pos`: `{ x, z, heading, distance }`, the heading the
+ * course runs there; null for a segment of no size.
+ */
+export function spotOnSegment(seg, pos) {
+  if (seg.ctype === 2) {
+    const span = wrapPi(seg.exitAngle - seg.entryAngle);
+    if (!(Math.abs(span) >= 1e-6)) return null;
+    const rel = wrapPi(Math.atan2(pos[0] - seg.centre[0], pos[2] - seg.centre[2]) - seg.entryAngle);
+    const u = Math.min(1, Math.max(0, rel / span));
+    const angle = seg.entryAngle + span * u;
+    const x = seg.centre[0] + Math.sin(angle) * seg.radius, z = seg.centre[2] + Math.cos(angle) * seg.radius;
+    return { x, z, heading: angle + (span >= 0 ? Math.PI / 2 : -Math.PI / 2), distance: Math.hypot(x - pos[0], z - pos[2]) };
+  }
+  const dx = seg.end[0] - seg.start[0], dz = seg.end[2] - seg.start[2];
+  const length2 = dx * dx + dz * dz;
+  if (!(length2 >= 1e-9)) return null;
+  const u = Math.min(1, Math.max(0, ((pos[0] - seg.start[0]) * dx + (pos[2] - seg.start[2]) * dz) / length2));
+  const x = seg.start[0] + dx * u, z = seg.start[2] + dz * u;
+  return { x, z, heading: Math.atan2(dx, dz), distance: Math.hypot(x - pos[0], z - pos[2]) };
+}
+
+/**
+ * The course segment indexes of a window round segment `around`: `back` before it and `ahead` after it, in the
+ * order they are driven (the course wraps). All of them when `around` is not a segment of the course.
+ */
+export function courseWindow(count, around, back = WINDOW_BACK, ahead = WINDOW_AHEAD) {
+  if (!Number.isInteger(around) || around < 0 || around >= count || back + ahead + 1 >= count) return [...Array(count).keys()];
+  const out = [];
+  for (let k = -back; k <= ahead; k++) out.push((around + k + count) % count);
+  return out;
+}
 
 /**
  * The nearest point of the course (in x and z) to `pos`, with the heading the course runs there:
- * `{ pos: [x, y, z], heading, distance }`, or null for no course. `course` is the oriented course
- * (alternating straights and arcs), `height(x, z)` the ground.
+ * `{ pos: [x, y, z], heading, distance, segment }`, or null for no course. `course` is the oriented course
+ * (alternating straights and arcs), `height(x, z)` the ground. `around`, the segment the truck is on in the race,
+ * keeps the search to the part of the course it has reached (`courseWindow`): at a crossroads the nearest point
+ * may be on a part of the lap still to come or long past.
  */
-export function nearestCourseSpot(course, pos, height) {
+export function nearestCourseSpot(course, pos, height, { around = null, back = WINDOW_BACK, ahead = WINDOW_AHEAD } = {}) {
+  if (!course?.length) return null;
   let best = null;
-  const offer = (x, z, heading) => {
-    const distance = Math.hypot(x - pos[0], z - pos[2]);
-    if (!best || distance < best.distance) best = { pos: [x, height(x, z), z], heading, distance };
-  };
-  for (const seg of course ?? []) {
-    if (seg.ctype === 2) {
-      const span = wrapPi(seg.exitAngle - seg.entryAngle);
-      if (Math.abs(span) < 1e-6) continue;
-      const rel = wrapPi(Math.atan2(pos[0] - seg.centre[0], pos[2] - seg.centre[2]) - seg.entryAngle);
-      const u = Math.min(1, Math.max(0, rel / span));
-      const angle = seg.entryAngle + span * u;
-      offer(seg.centre[0] + Math.sin(angle) * seg.radius, seg.centre[2] + Math.cos(angle) * seg.radius, angle + (span >= 0 ? Math.PI / 2 : -Math.PI / 2));
-    } else {
-      const dx = seg.end[0] - seg.start[0], dz = seg.end[2] - seg.start[2];
-      const length2 = dx * dx + dz * dz;
-      if (length2 < 1e-9) continue;
-      const u = Math.min(1, Math.max(0, ((pos[0] - seg.start[0]) * dx + (pos[2] - seg.start[2]) * dz) / length2));
-      offer(seg.start[0] + dx * u, seg.start[2] + dz * u, Math.atan2(dx, dz));
-    }
+  for (const i of courseWindow(course.length, around, back, ahead)) {
+    const spot = spotOnSegment(course[i], pos);
+    if (spot && (!best || spot.distance < best.distance)) best = { pos: [spot.x, height(spot.x, spot.z), spot.z], heading: spot.heading, distance: spot.distance, segment: i };
   }
   return best;
 }

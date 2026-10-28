@@ -125,10 +125,22 @@ table.results tr.player td { color: var(--accent); font-weight: 600; }
 .stage-panel table.results { margin: 0; font-size: 12px; }
 .stage-panel table.results th, .stage-panel table.results td { padding: 2px 5px; }
 .stage-panel select, .stage-panel input { font-size: 13px; }
+/* A mode's score breakdown under the Winner's Circle table (Freestyle). */
+.result-detail { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 0 10px; margin-top: 4px; font-size: 11px; color: #f2c14e; }
+/* The About screen (src/ui/screens/about.js): the credits roll fills the art's black box exactly; the text keeps the box's look. */
+.stage-panel-aboutCredits.about-credits { padding: 0; overflow: hidden; background: #000; border: 0; border-radius: 0; }
+.about-roll { display: block; }
+.stage-panel-aboutInfo { overflow: hidden; font-size: 12px; }
+.about-pair + .about-pair { margin-top: 6px; }
+.about-caption { color: #f2c14e; }
+.about-value { padding-left: 16px; }
+.stage-panel-aboutText { font-size: 11px; }
+.stage-panel-aboutText .about-line { margin: 0; line-height: 1.35; }
+.stage-panel-aboutText .about-gap { height: 0.7em; }
 .stage-hotspot { position: absolute; padding: 0; border: 0; border-radius: 16px; background: transparent; cursor: pointer; }
 .stage-hotspot:hover:not(:disabled) { background: rgba(255, 255, 255, 0.18); }
 .stage-hotspot:focus-visible { outline: 2px solid #f2c14e; }
-.stage-hotspot:disabled { cursor: default; }
+.stage-hotspot:disabled { cursor: default; background: rgba(0, 0, 0, 0.6); box-shadow: inset 0 0 0 2px rgba(120, 120, 120, 0.7); }
 .garage-dot { position: absolute; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
 .garage-dot:hover { background: rgba(255, 255, 255, 0.15); }
 .garage-dot.on { box-shadow: 0 0 0 2px #f2c14e, 0 0 8px 2px rgba(242, 193, 78, 0.8); }
@@ -372,6 +384,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 .opt-page { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 6px 18px; align-content: start; }
 /* The label takes the room it needs (translations run longer than English), the control what is left. */
 .opt-row { display: grid; grid-template-columns: minmax(150px, max-content) minmax(96px, 1fr); align-items: center; gap: 10px; height: 36px; padding: 0 10px; border: 1px solid var(--panel-edge); border-radius: 6px; background: rgba(255, 255, 255, 0.03); }
+/* A switch the install cannot use yet (the videos while none are copied). */
+.opt-row.opt-disabled { opacity: 0.45; cursor: not-allowed; }
 .opt-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .opt-control { display: flex; justify-content: flex-end; align-items: center; min-width: 0; }
 .opt-control select { width: 100%; height: 26px; }

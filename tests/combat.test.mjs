@@ -12,7 +12,7 @@ import {
 import { STUB_RADIUS_FT, lostWheelGround } from "../src/game/extensions/combat-ground.js";
 import { debrisCount, debrisShards, stepShard } from "../src/game/extensions/combat-debris.js";
 import { COMBAT_AI, createCombatDriver, pickTarget, ramPoint, ramStep, wantsRepair } from "../src/game/extensions/combat-ai.js";
-import { courseSegmentOf, pastCheckpoint } from "../src/game/extensions/combat-session.js";
+import { courseSegmentOf, droveThrough, pastCheckpoint } from "../src/game/extensions/combat-session.js";
 import { extensionKeyAction, extensionHud, extensionTruckLabels, extensionTruckOut } from "../src/game/extensions/race-loader.js";
 import { EXTENSIONS } from "../src/game/extensions/loader.js";
 import { createSession } from "../src/worker/sim-worker.js";
@@ -103,7 +103,7 @@ test("a truck is out with no hit points left, or with no wheel left and no credi
   const c = createCombat(2, { startCredits: 0 });
   c.trucks[0].global = 10;
   assert.equal(applyHit(c, 0, hit("front", 50)).wrecked, true);
-  assert.equal(c.trucks[0].lost.filter(Boolean).length, 0, "all its wheels on");
+  assert.deepEqual(c.trucks[0].lost, [true, true, false, false], "the wreck tore off the front axle and its wheels");
   const t = c.trucks[1];
   t.lost = [true, true, true, false];
   t.wheels[3] = 0;
@@ -442,4 +442,32 @@ test("the repair key in the worker: the player's credits buy its repair", { skip
   assert.equal(c.trucks[0].quit, true);
   session.step({});
   assert.equal(session.raceView().extension.winner, 1);
+});
+
+test("a wreck tears off the struck end's axle: its wheels still on fly, one or two, and the axle counts as lost", async () => {
+  const { applyHit, axlesLost, combatTruckView, createCombat, wreckShed } = await import("../src/game/extensions/combat.js");
+  const c = createCombat(1);
+  const t = c.trucks[0];
+  t.global = 1;
+  const out = applyHit(c, 0, { kind: "front", amount: 50, side: 1, end: 1 });
+  assert.ok(out.wrecked);
+  assert.deepEqual(out.wheelsOff.sort(), [0, 1], "both front wheels");
+  assert.deepEqual(axlesLost(combatTruckView(c, 0)), [true, false]);
+  // The struck axle already bare: the other one goes, with the one wheel it has left.
+  const bare = { lost: [true, true, false, true] };
+  assert.deepEqual(wreckShed(bare, 1), [2]);
+  assert.deepEqual(bare.lost, [true, true, true, true]);
+  assert.deepEqual(wreckShed(bare, 1), [], "nothing left to tear off");
+  assert.deepEqual(axlesLost({ wrecked: false, wheels: [-1, -1, 1, 1] }), [false, false], "only a wreck loses an axle");
+});
+
+test("Combat's lift back to a checkpoint: only for a truck that drove through its stretch, never one at the start", () => {
+  // Castle Nugget: 90 stretches, the first checkpoint on stretch 88, the grid on stretch 0.
+  assert.equal(pastCheckpoint(0, 88, 90), true, "by the numbers alone, stretch 0 is past 88");
+  assert.equal(droveThrough(0, 0, 88, 90), false, "at the start it has driven nowhere");
+  assert.equal(droveThrough(0, 81, 88, 90), false, "the off-course re-pick to stretch 81 is still short of it");
+  assert.equal(droveThrough(0, 89, 88, 90), true, "on past stretch 88 without the gate");
+  // From a checkpoint on stretch 10 to the next on 14.
+  assert.equal(droveThrough(10, 4, 14, 90), false);
+  assert.equal(droveThrough(10, 5, 14, 90), true);
 });

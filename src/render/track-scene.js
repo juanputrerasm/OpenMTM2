@@ -836,6 +836,8 @@ export function placeAnimatedObjects(library, objects) {
         mesh.userData.frameCount = part.frameCount;
         // A 4x4 Evolution placement's own time a frame (worker/evo-track-build.js).
         if (object.frameSeconds) mesh.userData.frameSeconds = object.frameSeconds;
+        // A top-crush car's cab stands at its crush, not played in time (`crushFrame`).
+        if (object.crushCar !== undefined) mesh.userData.crushCar = object.crushCar;
       }
       placed.add(mesh);
     }
@@ -1398,6 +1400,12 @@ export function updateTrackWorld(world, camera, dt, { viewRange = Infinity, fine
     }
     for (const mesh of parts.morphing) {
       const n = mesh.userData.frameCount;
+      // A top-crush car's cab: its frames run from intact to flat, and it stands where its crush is.
+      if (mesh.userData.crushCar !== undefined) {
+        const at = crushFrame(world.userData.crush?.[mesh.userData.crushCar] ?? 0, n);
+        for (let k = 1; k < n; k++) mesh.morphTargetInfluences[k - 1] = Math.max(0, 1 - Math.abs(at - k));
+        continue;
+      }
       const p = (world.userData.animationTime / (mesh.userData.frameSeconds || 0.5)) % n, from = Math.floor(p), to = (from + 1) % n, t = p - from;
       mesh.morphTargetInfluences.fill(0);
       if (from > 0) mesh.morphTargetInfluences[from - 1] += 1 - t;

@@ -1,13 +1,13 @@
 /*
   Sound in the browser: one Web Audio graph for the game, with master, effects and music
-  volumes on separate channels, a sample cache fed by the asset worker (`SOUND\*.WAV` with their `.KLP` loop
-  points), looping and one-shot voices, and positioned voices for the other trucks and the world.
+  volumes on separate channels, a sample cache fed by the asset worker (`SOUND\*.WAV`, or an `.OGG` or `.MP3` that replaces one
+  (worker/sound-file.js), with their `.KLP` loop points), looping and one-shot voices, and positioned voices for the other trucks and the world.
 
   Positions are game feet; the scene mirrors z, so a position's z is negated for the listener.
   The audio context starts suspended until the page has had a click or key, and `resume` is
   safe to call as often as wanted.
 */
-import { attenuation, cullVoices, loopRegion } from "../game/sound-model.js";
+import { attenuation, cullVoices, loopSeconds } from "../game/sound-model.js";
 
 /** The effects sit under the music by this much, so the many voices of a race do not bury it. */
 const EFFECTS_TRIM = 0.5;
@@ -72,15 +72,26 @@ export function createAudio(assets, volumes = {}) {
     });
   }
 
-  /** The decoded sample (and its loop region in seconds, or null) for a name; null when the install lacks it. */
+  /**
+   * The decoded sample (and its loop region in seconds, or null) for a name; null when the install lacks it. An OGG or
+   * MP3 that replaces the WAV (worker/sound-file.js) and that this browser cannot decode gives way to the game's WAV.
+   */
   function sample(name) {
-    const key = String(name).toUpperCase().replace(/\.WAV$/, "");
+    const key = String(name).toUpperCase().replace(/^.*[\\/]/, "").replace(/\.(WAV|MP3|OGG)$/, "");
     if (!buffers.has(key)) {
+      const decode = async (data) => {
+        const buffer = await ctx.decodeAudioData(data.bytes);
+        return { buffer, loop: loopSeconds(data.klp, buffer.duration, data.sourceRate, buffer.sampleRate) };
+      };
       buffers.set(key, assets.call("sound", { name: key }).then(async (data) => {
         if (!data) return null;
-        const buffer = await ctx.decodeAudioData(data.wav);
-        const region = loopRegion(data.klp, buffer.length);
-        return { buffer, loop: region ? { start: region.start / buffer.sampleRate, end: region.end / buffer.sampleRate } : null };
+        try {
+          return await decode(data);
+        } catch (error) {
+          if (data.format === "wav") throw error;
+          const wav = await assets.call("sound", { name: key, only: "WAV" });
+          return wav ? decode(wav) : null;
+        }
       }).catch(() => null));
     }
     return buffers.get(key);
@@ -187,6 +198,28 @@ export function createAudio(assets, volumes = {}) {
     };
   }
 
+  /**
+   * Play a buffer made here (the announcer's phrase, its clips joined end to end, as the game assembles them) once on
+   * a bus, unpositioned. Returns a voice `{ done, stopped, stop }`.
+   */
+  function playBuffer(buffer, { gain = 1, bus = "commentary" } = {}) {
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const volume = ctx.createGain();
+    volume.gain.value = gain;
+    source.connect(volume);
+    volume.connect(bus === "music" ? music : bus === "commentary" ? commentary : effects);
+    let stopped = false;
+    active++;
+    const done = new Promise((resolve) => { source.onended = () => { if (!stopped) active--; stopped = true; resolve(); }; });
+    source.start();
+    return {
+      done,
+      get stopped() { return stopped; },
+      stop: () => { if (!stopped) { try { source.stop(); } catch { /* done */ } active--; } stopped = true; },
+    };
+  }
+
   /** A tracker module's rendered PCM looped as music (or as the bus given); resolves like `play`. */
   async function playMod(name, { gain = 1, bus = "music" } = {}) {
     const data = await assets.call("mod", { name }).catch(() => null);
@@ -227,7 +260,7 @@ export function createAudio(assets, volumes = {}) {
     preload(names) { for (const name of names) if (name) sample(name); },
     /** Forget every decoded sample, so the next play reads it from the worker again (the POD manager). */
     clearSamples() { buffers.clear(); },
-    context: ctx, sample, play, playMod, setVolumes, setDucking, setListener,
+    context: ctx, sample, play, playBuffer, playMod, setVolumes, setDucking, setListener,
     /** The mix as it sounds now: `out` (a Uint8Array of up to 1024) filled with samples, 128 the silence. */
     waveform,
     /** The audible range in feet, which the weather sets (`soundRange`). */
@@ -280,7 +313,7 @@ export function createAudio(assets, volumes = {}) {
 export function createSilentAudio() {
   const voice = { done: Promise.resolve(), stopped: true, setGain() {}, setRate() {}, setPosition() {}, stop() {} };
   return {
-    context: null, stats: () => ({ state: "none", samples: 0, sampleNames: [], voices: 0 }), sample: async () => null, preload() {}, clearSamples() {}, play: async () => voice, playMod: async () => voice, setVolumes() {}, setListener() {}, setRange() {},
+    context: null, stats: () => ({ state: "none", samples: 0, sampleNames: [], voices: 0 }), sample: async () => null, preload() {}, clearSamples() {}, play: async () => voice, playBuffer: () => voice, playMod: async () => voice, setVolumes() {}, setListener() {}, setRange() {},
     setDucking() {}, setEffectsPaused() {}, waveform: (out) => out.fill(128), resume: async () => {}, suspend: async () => {}, dispose: async () => {},
     scoped() { return { ...this, stopAll() {} }; },
   };

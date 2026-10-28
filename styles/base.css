@@ -73,3 +73,7 @@ button.danger:hover:not(:disabled) { background: #3a1713; border-color: #ff735e;
 
 .watermark { position: fixed; right: 8px; bottom: calc(6px + var(--watermark-lift, 0px)); z-index: 9999; opacity: 0.7; pointer-events: none; font: 18px Arial, sans-serif; color: #fff; text-shadow: 1px 1px 0 #000; }
 .watermark canvas { display: block; image-rendering: pixelated; }
+
+/* The game's videos (ui/video-player.js): over everything, the picture's shape kept. */
+.video-overlay { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; background: #000; cursor: pointer; }
+.video-canvas { width: 100vw; height: 100vh; object-fit: contain; }

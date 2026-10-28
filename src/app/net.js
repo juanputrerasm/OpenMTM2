@@ -14,6 +14,7 @@ import { connectRooms } from "../net/room-transport.js";
 import { createRoomSession } from "../net/room-session.js";
 import { cpuNames } from "../game/race-setup.js";
 import { resolveGameMode } from "./flow.js";
+import { extensionById, soloExtension } from "../game/extensions/loader.js";
 import { getProfiles } from "./profile-store.js";
 import { currentDriver } from "../game/profile.js";
 import { resolveWeather } from "../game/weather.js";
@@ -232,9 +233,15 @@ export async function applyRaceConfig(context) {
   if (weather !== game.weather) net.session.setWeather(weather);
   // An extension mode (Hockey, Tag) in an online room; classic games and classic rooms have none.
   if (net.kind === "rooms" && !net.session.state().room?.classic) {
-    const mode = track ? resolveGameMode(config.gameMode, track) ?? "" : "";
+    const mode = track ? roomMode(config.gameMode, track) ?? "" : "";
     if (mode !== (game.mode ?? "")) net.session.setMode(mode);
   }
+}
+
+/** The mode a room plays: an extension the track takes, never one driven alone (Freestyle), which has no room. */
+function roomMode(gameMode, track) {
+  const mode = resolveGameMode(gameMode, track);
+  return mode && !soloExtension(extensionById(mode)) ? mode : null;
 }
 
 /** Tell the others where this player is (the Status column), when in a network game. */
@@ -282,7 +289,7 @@ async function startNetRace(context, net, e) {
   }));
   context.router.go("race", {
     track, mode: track.raceType, laps: e.laps, difficulty: Number(context.settings.difficulty ?? 1), weather: e.weather,
-    gameMode: net.kind === "rooms" ? resolveGameMode(e.mode, track) : null,
+    gameMode: net.kind === "rooms" ? roomMode(e.mode, track) : null,
     truck: mine, trucks, setup: { ...driver.garage }, opponents: [],
     net: { link: net.session.raceLink(), entrants, host: e.host, policy: net.kind === "rooms" ? "smooth" : "legacy", rateHz: net.kind === "rooms" ? 20 : 4 },
   }, { replace: true });

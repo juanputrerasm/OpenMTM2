@@ -1,5 +1,5 @@
 /*
-  Race & Rumble (docs/EXTENSIONS.md), an addition, not in the game. Circuit tracks only; the race is the track's
+  Race & Rumble (docs/EXTENSIONS.md), an addition, not in the game. Tracks with checkpoints only (circuits and rallies); the race is the track's
   own circuit race (its checkpoints, laps, countdown and ending, game/race-end.js). Two ways to play it, chosen in
   Options (`variant`):
 
@@ -19,6 +19,7 @@ import { byVehicle, fromVehicles, localIndex, vehicleIndex } from "./net-wire.js
 import { TEAM_COLOURS, TEAM_NAMES } from "./teams.js";
 import { COP_COLOUR, COP_NAME, ROBBER_COLOUR } from "./cops-robbers.js";
 import { msg } from "../strings.js";
+import { hasCheckpoints } from "./track-kinds.js";
 
 export const DEFAULT_RNR_LAPS = 3;
 export const DEFAULT_RNR_MINUTES = 5;
@@ -64,8 +65,8 @@ export const RNR_EXTENSION = Object.freeze({
     Object.freeze({ key: "minutes", label: msg("Time limit (timed block and chase)"), type: "number", min: 1, max: 99, default: DEFAULT_RNR_MINUTES, suffix: msg("minutes") }),
     Object.freeze({ key: "blocker", label: msg("Play as blocker or cop"), type: "boolean", default: false }),
   ]),
-  /** A circuit with checkpoints to race round. */
-  acceptsTrack: (track) => !!track && (track.raceType ?? "circuit") === "circuit",
+  /** A track raced through checkpoints: a circuit or a rally (not free roam, a Summit Rumble or a drag strip's lanes). */
+  acceptsTrack: hasCheckpoints,
   trackLocked: false,
   keepsRace: true,
   minEntrants: 2,

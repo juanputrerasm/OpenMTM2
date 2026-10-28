@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createMenuMusic } from "../src/audio/menu-music.js";
 import { playMenuSound } from "../src/audio/menu-sounds.js";
-import { VOICE_COMMENTARY_ENABLED, createCommentaryAudio } from "../src/audio/commentary-audio.js";
+import { createCommentaryAudio } from "../src/audio/commentary-audio.js";
 import { createWorldAudio } from "../src/audio/world-audio.js";
 
 test("menu music loops SPLASH.WAV on the music bus", async () => {
@@ -59,42 +59,21 @@ test("ordinary and special menu sounds honor mute", () => {
   ]);
 });
 
-test("announcer clips use their own bus and duck the race", async () => {
+test("a phrase plays as one sound: its clips joined, on the commentary bus at 0.7, the race ducked", async () => {
   const calls = [];
+  const clip = (n) => ({ numberOfChannels: 1, length: n, sampleRate: 22050, getChannelData: () => new Float32Array(n) });
   const audio = {
+    context: { createBuffer: (channels, length, rate) => ({ numberOfChannels: channels, length, sampleRate: rate, getChannelData: () => new Float32Array(length) }) },
     setDucking(on) { calls.push(["duck", on]); },
-    async play(name, options) {
-      calls.push(["play", name, options]);
-      return { done: Promise.resolve(), stop() {} };
-    },
+    sample: async (name) => (name === "missing.wav" ? null : { buffer: clip(name === "ready.wav" ? 100 : 50) }),
+    playBuffer(buffer, options) { calls.push(["play", buffer.length, options]); return { done: Promise.resolve(), stop() {} }; },
   };
-  const commentary = createCommentaryAudio(audio, {
-    drivers: [],
-    texts: { "ready.wav go.wav": "Ready, go!" },
-  });
-  const spoken = commentary.speak({ spec: "ready.wav go.wav", args: [] });
-  assert.equal(spoken.line, "Ready, go!");
-  await spoken.done;
-  assert.deepEqual(calls, [
-    ["duck", true],
-    ["play", "ready.wav", { gain: 0.7, bus: "commentary" }],
-    ["play", "go.wav", { gain: 0.7, bus: "commentary" }],
-    ["duck", false],
-  ]);
-});
-
-test("announcer text can be prepared without starting voice or ducking music", () => {
-  const calls = [];
-  const commentary = createCommentaryAudio({
-    play() { calls.push("play"); },
-    setDucking(on) { calls.push(["duck", on]); },
-  }, { drivers: [{ name: "Player", waves: [] }], texts: { "(<<1>> hasfin.wav": "<<1>> has finished" } });
-  assert.equal(commentary.line({ spec: "(<<1>> hasfin.wav", args: [1] }), "Player has finished");
-  assert.deepEqual(calls, []);
-});
-
-test("voice commentary is disabled while text commentary remains available", () => {
-  assert.equal(VOICE_COMMENTARY_ENABLED, false);
+  const commentary = createCommentaryAudio(audio, { drivers: [] });
+  const said = commentary.speak({ script: "ready.wav missing.wav go.wav", args: [] });
+  assert.equal(commentary.speaking, true);
+  await said;
+  assert.equal(commentary.speaking, false);
+  assert.deepEqual(calls, [["duck", true], ["play", 150, { gain: 0.7, bus: "commentary" }], ["duck", false]]);
 });
 
 test("a track WAV loops on the music bus", () => {

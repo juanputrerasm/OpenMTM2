@@ -1,7 +1,7 @@
 # OpenMTM2 extensions
 
 Extensions add optional game modes without making them part of the original game simulation. OpenMTM2
-currently ships with Hockey, Soccer, Tag, Cops & Robbers, Race & Rumble and Combat. They appear in the Races screen and in Options, but their rules,
+currently ships with Hockey, Soccer, Tag, Cops & Robbers, Race & Rumble, Combat and Freestyle. They appear in the Races screen and in Options, but their rules,
 settings, rendering and worker state stay behind extension loader contracts.
 
 ## Ownership boundary
@@ -33,7 +33,8 @@ settings. The length, weather and mode selectors share one row, with Mode at the
 Options has an Extensions tab. Each registered extension gets its own panel, built from that extension's
 settings schema. Values are stored below `settings.extensions.<id>`. Extension races use the normal
 countdown, selected computer opponents, Garage setup and difficulty. Their results use place, score in
-the Points column and the extension's result time. They do not enter the Hall of Fame.
+the Points column (or the adapter's `result` score text, with lines of its own under the table) and the extension's
+result time. They do not enter the Hall of Fame.
 
 ## Extension pseudo-format
 
@@ -54,10 +55,11 @@ export const MY_EXTENSION = Object.freeze({
   settings: [
     { key: "rounds", label: "Rounds", type: "number", min: 1, max: 99, default: 3 },
   ],
-  acceptsTrack(track) { return true; },
+  acceptsTrack(track) { return true; },  // also the Races screen's filter: only these tracks are listed in the mode
   trackLocked: false,             // true when the mode owns the track choice
   keepsRace: false,               // true to play on the track's own race: checkpoints, laps and its ending
   minEntrants: 2,                 // trucks the mode needs (the player counts unless spectating); omit for none
+  maxEntrants: null,              // 1: driven alone (no opponents, no spectator mode, no online rooms); omit for any
   teamPicker: null,               // a team mode: (settings) => { teams, teamNames, teamColours, roles, roleColours }
   weather: null,                  // null uses the player's weather; a number locks it
   detailLevel: null,              // null uses the normal setting
@@ -379,7 +381,7 @@ weather, 1 to 99 minutes with 20 as the default, at least two trucks.
 
 ## Shipped extension: Race & Rumble
 
-Circuit tracks only, the laps as the length (3 by default), at least two trucks. The race is the track's own
+Tracks with checkpoints only (circuits and rallies, CART Precision Racing and 4x4 Evolution tracks among them; `track-kinds.js`), the laps as the length (3 by default), at least two trucks. The race is the track's own
 (`keepsRace`): checkpoints, laps, the countdown, the final lap and the ending. Options picks one of three modes:
 
 - **Classic**, after the community's rules (mtm2.com/~mtmg/rnr.php): teams of two, a Racer and a Blocker in each,
@@ -419,7 +421,7 @@ Computer racers drive the course's autopilot and get out of trouble themselves (
 (wanting to go, under 4 ft/s for 1.2 s, or within 12 ft for 4 s) a racer first shoves a truck within 28 ft in front
 of it for 1.2 s, at its side toward the course, then backs out for 1.5 s turning, then drives round for 2.6 s for a
 point 55 ft off, 0.9 radians to one side, and back to the course; the next try takes the other side. 70 ft from
-where it stuck it is free. The helicopter comes only after six tries or 30 s stuck, or once it has lain over for
+where it stuck it is free. The helicopter comes only after four tries or 15 s stuck, or once it has lain over for
 3 s; the course's own stuck timer is off for them. A racer minds the blockers against it: one within 150 ft,
 closing at over 10 ft/s, that would pass within 24 ft in the next 2.2 s makes it steer up to 0.22 off the
 autopilot's line, away from the side it comes from, at 0.9 throttle or more and no brake. Timed racers never
@@ -506,7 +508,10 @@ a wheel under 40 percent wobbles.
 **Wrecked.** A truck is wrecked when its hit points run out, or when its last wheel comes off and it has not the
 credits to put one back (200, or credits off). With them, it sits on its stubs until it repairs: the player is told
 that X puts a wheel back, a computer truck does it at once. A lost engine, gearbox or any wheel short of the last
-never wrecks a truck. A wreck stops where it lies (no
+never wrecks a truck. The wreck tears off the struck end's axle (`wreckShed`): whichever of its wheels are still on
+fly off as loose wheels, one or two, or the other axle's when that one is already bare; the axle, its bars, shocks
+and driveshaft go from the truck and are thrown with a flash (`axlesLost`, `render/extensions/combat-scene.js`). The
+wheels lost travel over the network as any lost wheel, so every machine shows the same. A wreck stops where it lies (no
 helicopter, no turning it back over), smokes, and leaves the race. The player may also leave the fight from the pause
 menu ("Leave the fight and watch"). A player who is out watches the race on as in spectator mode (Left and Right: the
 truck watched, B: the free camera), to the results.
@@ -530,7 +535,9 @@ wheels, fewest hit points), then the leader. A ram aims where the target will be
 110 ft/s, for at most 4 s, broken off when the target falls behind or leaves their line, then 10 s before the next.
 They get themselves out of a jam (`selfRecovery`). They repair with a wheel gone (with 200 credits), or under 35
 percent of their hit points or 30 of their engine, unless the setting "Computer trucks repair themselves" is off. A truck shoved past its next checkpoint without going through it
-(two stretches past, or one and 250 ft from the gate) is lifted back to that checkpoint's stretch (`liftTo`).
+(two stretches past, or one and 250 ft from the gate) is lifted back to that checkpoint's stretch (`liftTo`); only a
+truck that has driven through that stretch since its last checkpoint or the start, so a grid behind the first
+checkpoint's stretch (Castle Nugget's, on its castle) is never lifted at the start.
 
 Measured on the 12 stock circuits, 8 computer trucks for 400 s on Intermediate, Normal aggression (docs/PLAN.md): the
 field covers 85 to 100 percent of a plain race's checkpoints; 12 wheels off and 12 wrecks over the 12 races, 0 to 3
@@ -544,3 +551,33 @@ Out under a truck that is out.
 
 Not in replays: a replay shows the trucks without the loose wheels, the debris and the smoke. Online rooms: see "Over the
 network" (each machine judges the trucks it drives; the owner decides the end).
+
+## Shipped extension: Freestyle
+
+After the freestyle runs of monster truck shows such as Monster Jam: one truck alone on any track, any weather,
+1 to 10 minutes with 2 as the default (`maxEntrants: 1`: no computer opponents, no spectator mode, not offered in
+online rooms). The clock starts at the end of the countdown; the run is over when it runs out, or when the player
+leaves it from the pause menu. Every threshold below is OpenMTM2's own; the game has no stunt scoring.
+
+The judge (`game/extensions/freestyle.js`) watches the truck every step in the worker (`freestyle-session.js`):
+wheels down, the world y of its right, up and forward axes, its turn rates, speed, gear, the objects it meets and
+the helicopter. Seven categories share the 10 points; each fills up to a ceiling that grows with the run's length,
+so a longer run must show more. The score is the sum less the deductions, 0.0 to 10.0 to one decimal.
+
+| Category | Points | Measured |
+|---|---|---|
+| Time used | 1 | The share of the run's time used (leaving early costs). |
+| Speed and momentum | 1.5 | The share of the time at 25 ft/s or more, or in the air; each stall (under 5 ft/s for 3 s) takes 0.1 of the share. |
+| Aggression | 1.5 | Each object met at 10 ft/s or more scores its closing speed (to 60 ft/s) over 10; the same object again only after 1.5 s. Full at 12 a minute. |
+| Air | 2 | Each jump (all four wheels off for 0.5 s or more): 4 a second aloft, 0.15 a foot of height over the take-off, 0.05 a foot of length, and 12 times how far past 0.5 the nose's steepest pointed up or down (its forward axis' world y). Full at 40 a minute. |
+| Tricks | 2 | Wheelie (front wheels up, a rear one down, the nose 0.35 up, held 1 s): 3 and 3 a second, at most 15; slap wheelie (begun within 0.6 s of a landing) 3 more; sky wheelie (nose 0.85 up for 0.5 s) 6 more; moonwalk (a wheelie backwards at 5 ft/s) half again. Nose wheelie (the other way, 0.75 s): 4 and 4 a second. Donut: 4 for each whole turn at 1.8 rad/s or more, two wheels down, 8 ft/s. Back or front flip (0.85 of a turn about the pitch axis, named by which way the nose went first) 25, barrel roll 20, landed on three wheels upright within 1.5 s; else an attempt, 5. Full at 40 a minute. |
+| Saves | 1 | Past 0.35 up on two wheels or fewer and back on four upright within 4 s without going over: 1, or 1.5 from under 0.15 ("What a save!"). Full at 1.5 a minute. |
+| Spectacular moments | 1 | Huge air (40 ft high, 150 ft long or 3 s aloft), a landed flip or roll, a big save, a combo of three tricks each within 2 s of the last. Full at 1 a minute. |
+| Reversing | minus | Backwards at 4 ft/s or more in reverse gear: 0.05 a second, at most 1, forgiven when a jump or a hit comes within 3 s (backing up for a run at a jump, or over an obstacle backwards) and in a moonwalk. |
+| Crashes | minus | Upside down (up under -0.2) for 1 s, or the helicopter called: 0.4 each, at most 1.6; the combo breaks. |
+
+The HUD shows the time left, the score, each category's points and the deductions, and announces each move as it is
+judged ("Back flip!", "Donuts x2!", "What a save!"), the crowd's YeeHaw for a spectacular one. The checkpoint finder
+is hidden. The Winner's Circle shows the score with its decimal, the time the run used, and the categories under the
+table (the adapter's `result`).
+

@@ -9,12 +9,15 @@
     wheels (a wheel turned on landing trips the truck), and never by braking (a truck braked sideways rolls).
   - **Facing the wrong way**: a slow truck whose way down the course lies more than `wrongWay` off its nose backs
     round (a three-point turn) instead of driving a wide circle.
+  - **Steering clear** (`cpuAvoidStep`): the solid objects and ground-box walls in its way (game/obstacle-avoid.js).
 
   The figures were tuned on the stock circuits, eight computer trucks for 4 minutes (docs/PLAN.md): on
   Professional the field covers about 13 percent more laps with half the spins, on Intermediate about 4 percent.
   The steering added is taken back before the next autopilot step (the autopilot's steering is smoothed from its
   last value). Pure, so it runs under Node.
 */
+
+import { avoidObstacles } from "./obstacle-avoid.js";
 
 /** Steering lock, radians. */
 const LOCK = 0.45;
@@ -101,4 +104,21 @@ export function cpuControlStep(m, state, dt, aim, gears, T = CPU_CONTROL) {
   c.rearSteer = -c.steer * 0.33;
   m.bias = c.steer - before;
   return null;
+}
+
+/**
+ * Steer clear of what lies ahead (game/obstacle-avoid.js), after `cpuControlStep`: the wheel turned away from the
+ * nearest thing in the truck's way, the throttle eased when it is close and square in it. The steering added joins
+ * what `cpuControlBefore` takes back. Not while backing round.
+ */
+export function cpuAvoidStep(m, state, obstacles, aim = null) {
+  if (m.turn || !obstacles?.length) return;
+  const c = state.controls;
+  const { steer, ease } = avoidObstacles(state, obstacles, aim);
+  if (!steer) return;
+  const before = c.steer;
+  c.steer = clamp(c.steer + steer, -LOCK, LOCK);
+  c.rearSteer = -c.steer * 0.33;
+  m.bias += c.steer - before;
+  c.throttle *= ease;
 }

@@ -1,56 +1,69 @@
 /*
-  Speaking a phrase: its clips one after another (the game assembles them into one buffer and
-  plays that), driver names from each truck's own name clips. Missing clips are skipped, so a
-  phrase still comes out when an install lacks one.
+  Speaking a phrase (MONSTER_EXE_ANALYSIS.md 12, "Commentary (Trucksfx.c)", 0x421600): its clips are read and joined
+  end to end into one sound, as the game builds one buffer, and played once on the commentary bus at 0.7, the rest of
+  the mix ducked under it. Driver names come from each truck's own name clips. A clip the install lacks is left out,
+  so a phrase still comes out; a phrase whose clips are all missing is not said.
 */
-import { nameClip, parseSpec, phraseText } from "../game/commentary.js";
+import { COMMENTARY_GAIN, nameClip, parseSpec } from "../game/commentary.js";
 
-/** FUN_00421600 is called with 0.7 for the start phrases; the others share it. */
-export const COMMENTARY_GAIN = 0.7;
-/** Voice clips remain available for later repair, but races do not play them for now. */
-export const VOICE_COMMENTARY_ENABLED = false;
+/** The clip names of a phrase `{ script, args }` for `drivers` (`{ waves }` each, in entrant order). */
+export function phraseClips({ script, args }, drivers) {
+  return parseSpec(script).map((token) => (token.kind === "wav" ? token.name : nameClip(drivers[args[token.arg - 1] - 1]?.waves, token.variant)));
+}
+
+/**
+ * Join decoded clips into one buffer: `buffers` are AudioBuffer-like (`numberOfChannels`, `length`, `sampleRate`,
+ * `getChannelData`), all at the context's rate; mono clips feed every channel. `make(channels, length, rate)` makes
+ * the buffer (the context's `createBuffer`).
+ */
+export function joinClips(buffers, make) {
+  const list = buffers.filter(Boolean);
+  if (!list.length) return null;
+  const channels = Math.max(...list.map((b) => b.numberOfChannels));
+  const length = list.reduce((sum, b) => sum + b.length, 0);
+  const out = make(channels, length, list[0].sampleRate);
+  for (let c = 0; c < channels; c++) {
+    const into = out.getChannelData(c);
+    let at = 0;
+    for (const b of list) {
+      into.set(b.getChannelData(Math.min(c, b.numberOfChannels - 1)), at);
+      at += b.length;
+    }
+  }
+  return out;
+}
 
 /**
  * @param {ReturnType<import("./audio-engine.js").createAudio>} audio
- * @param {{ drivers: { name: string, waves: string[] }[], texts?: Record<string, string>, gain?: number }} options
+ * @param {{ drivers: { name: string, waves: string[] }[], gain?: number }} options
  */
-export function createCommentaryAudio(audio, { drivers, texts = {}, gain = COMMENTARY_GAIN }) {
-  let disposed = false, currentVoice = null;
-  const lineFor = ({ spec, args }) => {
-    const names = args.map((n) => drivers[n - 1]?.name ?? "");
-    return texts[spec] ? phraseText(texts[spec], names) : null;
-  };
+export function createCommentaryAudio(audio, { drivers, gain = COMMENTARY_GAIN }) {
+  let disposed = false, current = null, speaking = false;
   return {
-    line: lineFor,
-    /**
-     * Say a phrase `{ spec, args }`; `args` are driver numbers (1-based). Returns the line of
-     * text (or null) at once and `done`, which resolves when the last clip has played.
-     */
-    speak({ spec, args }) {
-      const clips = parseSpec(spec).map((token) => (token.kind === "wav" ? token.name : nameClip(drivers[args[token.arg - 1] - 1]?.waves, token.variant)));
-      const line = lineFor({ spec, args });
-      const done = (async () => {
+    /** Whether a phrase is being said (the game's 0x464450): the queue keeps quiet meanwhile. */
+    get speaking() { return speaking; },
+    /** Say a phrase `{ script, args }`; resolves when it has been said (or could not be). */
+    async speak(phrase) {
+      if (disposed || speaking || !audio.context) return;
+      speaking = true;
+      try {
+        const names = phraseClips(phrase, drivers).filter(Boolean);
+        const decoded = await Promise.all(names.map((name) => audio.sample(name).then((d) => d?.buffer ?? null).catch(() => null)));
+        if (disposed) return;
+        const joined = joinClips(decoded, (channels, length, rate) => audio.context.createBuffer(channels, length, rate));
+        if (!joined) return;
         audio.setDucking?.(true);
-        try {
-          for (const clip of clips) {
-            if (disposed || !clip) continue;
-            currentVoice = await audio.play(clip, { gain, bus: "commentary" });
-            if (disposed) {
-              currentVoice?.stop();
-              break;
-            }
-            if (currentVoice) await currentVoice.done;
-          }
-        } finally {
-          currentVoice = null;
-          audio.setDucking?.(false);
-        }
-      })();
-      return { line, done };
+        current = audio.playBuffer(joined, { gain, bus: "commentary" });
+        await current.done;
+      } finally {
+        current = null;
+        speaking = false;
+        if (!disposed) audio.setDucking?.(false);
+      }
     },
     dispose() {
       disposed = true;
-      currentVoice?.stop();
+      current?.stop();
       audio.setDucking?.(false);
     },
   };

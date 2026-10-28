@@ -33,7 +33,7 @@ free of charge.
 - **Multiplayer:** online rooms through a server browser, up to 16 players, and classic TCP/IP play
   with the original game (retail and Community Patch 3).
 - **Party modes:** Hockey, Soccer, Tag, Cops & Robbers, Race & Rumble and Combat, with teams, roles
-  and rules set in Options.
+  and rules set in Options, and Freestyle, a solo show run judged out of 10.
 - **Faithful simulation:** clean-room truck physics, collisions and CPU drivers running in a Web Worker.
 - **Four Terminal Reality games in one:** MTM2 Beta 10 through Community Patch 3, plus the tracks and
   vehicles of CART Precision Racing, 4x4 Evolution 1 and 2, and MTM1, each vehicle on its own game's
@@ -69,6 +69,14 @@ the version; the executable is never run. At minimum the installation must provi
 
 Community Patch 3 content includes `.SI2` tracks, HD PNG and TGA art,
 normal and occlusion maps, enhanced materials and glass, track lights and moving objects.
+
+Sounds and music can be replaced the same way the HD art replaces textures: a POD holding
+`SOUND\<name>.OGG` or `SOUND\<name>.MP3` is played in place of the game's `SOUND\<name>.WAV`
+(OGG first, then MP3, then the WAV), for a truck's horn as for a track's music (`SOUND\FARM.OGG`
+for the farm tracks' `farm.wav`). The WAV's `.KLP` loop points still apply, counted at the
+replacement's own sample rate. MP3 encoders add a little silence at the start, which shifts loop
+points, so OGG is the better choice for anything that loops. A browser that cannot decode the
+replacement plays the WAV.
 
 ## CART Precision Racing and 4x4 Evolution
 
@@ -201,6 +209,10 @@ its own storage, so the game files are installed once more inside it. A phone sh
   gearbox and each wheel until wheels come off. Earn credits at checkpoints and for damage dealt,
   and press X to repair. The first truck home, or the last one running, wins. A wrecked player
   watches the rest of the race.
+- Drive a Freestyle run on any track, alone against the clock, as at a Monster Jam show: big air,
+  wheelies, donuts, flips, hits and saves are judged out of 10, with the score building live on the
+  HUD and its breakdown in the Winner's Circle. Use all the time and keep moving; reversing without a
+  reason and crashes cost points.
 - CPU trucks keep control better, get themselves unstuck, and on Professional drive back through a
   missed checkpoint instead of calling the helicopter.
 - CPU trucks contest the zone in Rumble events, while tire tracks, dust, sparks, splashes and moving

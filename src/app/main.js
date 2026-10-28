@@ -27,6 +27,7 @@ const screens = {
   race: () => import("../ui/screens/race.js"),
   drivers: () => import("../ui/screens/drivers.js"),
   hall: () => import("../ui/screens/hall.js"),
+  about: () => import("../ui/screens/about.js"),
   options: () => import("../ui/screens/options.js"),
   results: () => import("../ui/screens/results.js"),
   "drag-event": () => import("../ui/screens/drag-event.js"),
@@ -92,6 +93,14 @@ async function boot() {
   mountWatermark(context.assets ?? null, router);
   if (installed) {
     await loadStrings(context);
+    // The game's start videos (MSLogo, TRI, Open: EXTRAS.INI [Video] StartScene), when the install has them and Options
+    // keeps them on; a key or a click skips one, Escape the rest (game/videos.js, ui/video-player.js).
+    if (context.settings.introVideos !== false && !missingRequiredPods(manifest.archives.map((a) => a.name)).length) {
+      const { lists, files } = await context.assets.call("videoLists").catch(() => ({ lists: {}, files: [] }));
+      const have = new Set(files);
+      const intro = (lists.StartScene ?? []).filter((path) => have.has(path));
+      if (intro.length) await (await import("../ui/video-player.js")).playVideos(context, intro);
+    }
     // Menu and race sounds share one unlocked audio context; the menu music stops during a race.
     startMenuAudio(context);
   }

@@ -4,7 +4,7 @@
   button runs this from any screen, as in the game.
 */
 import { currentDriver, getProfiles } from "./profile-store.js";
-import { entrantsShortfall, extensionById } from "../game/extensions/loader.js";
+import { entrantsShortfall, extensionById, opponentsFor, soloExtension } from "../game/extensions/loader.js";
 import { createStrings, msg } from "../game/strings.js";
 import { showAlert, showConfirm } from "../ui/dialogs.js";
 
@@ -70,9 +70,15 @@ export async function goRace(context) {
   const truck = trucks.find((t) => t.file === driver.lastTruck) ?? trucks[0];
   if (!track || !truck) return context.router.go("race-select", { mode: config.mode }, { replace: true });
   const gameMode = resolveGameMode(config.gameMode, track);
+  // A party mode the track cannot take (Combat on a drag strip) is not started as some other race: back to the choice.
+  if (config.playable === false || (extensionById(config.gameMode) && !gameMode)) {
+    return context.router.go("race-select", { mode: config.mode }, { replace: true });
+  }
   // A mode that needs more trucks than were picked (Tag, Hockey: two at least) is not started.
   const extension = extensionById(gameMode);
-  const watching = spectatorField(config, track, trucks);
+  // A mode driven alone (Freestyle): no opponents and nothing to watch, whatever an older choice kept.
+  const solo = soloExtension(extension);
+  const watching = solo ? null : spectatorField(config, track, trucks);
   const short = entrantsShortfall(extension, watching ?? (Array.isArray(config.opponents) ? config.opponents : []), !!watching);
   if (short !== null) {
     const t = context.t ?? createStrings();
@@ -80,7 +86,7 @@ export async function goRace(context) {
     return context.router.go("race-select", { mode: config.mode }, { replace: true });
   }
   // Spectator mode: the computer's trucks alone, watched. Not in free roam, which has no race to watch.
-  const watched = spectatorField(config, track, trucks);
+  const watched = watching;
   if (watched) {
     const ct = context.t ?? createStrings();
     if (!await showConfirm(ct, ct(SPECTATOR_WARNING))) return undefined;
@@ -91,7 +97,8 @@ export async function goRace(context) {
   }
   // An extension uses `laps` as its declared length and never runs as free roam.
   return context.router.go("race", {
-    track, mode: config.mode, laps: config.laps, difficulty: config.difficulty, opponents: config.opponents, weather: config.weather, gameMode,
+    track, mode: config.mode, laps: config.laps, difficulty: config.difficulty, opponents: solo ? opponentsFor(extension, config.opponents) : config.opponents,
+    weather: config.weather, gameMode,
     // Free Roam (the Races screen's mode, or a track that has no checkpoints): the player alone, no race.
     freeRoam: !gameMode && (!!config.freeRoam || !!track.freeRoamOnly),
     truck: truck.file, trucks, setup: { ...driver.garage },

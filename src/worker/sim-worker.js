@@ -19,9 +19,11 @@ import { createExtensionSession, extensionSessionGround } from "../game/extensio
 import { createEvoPathRunner } from "../game/evo-paths.js";
 import { applyCprAids, cprAids, cprCarFigures, cprCourse, createCprDriver, createWidthLookup, spinCorrection } from "../game/cpr-driver.js";
 import { cprAnchorsForSag } from "../shared/cpr-anchors.js";
-import { createFlight, departVisual, flightVisual, nearestCourseSpot, stepFlight, timerVisual } from "../game/heli-flight.js";
+import { courseWindow, createFlight, departVisual, flightVisual, nearestCourseSpot, spotOnSegment, stepFlight, timerVisual } from "../game/heli-flight.js";
+import { CLOSE_FT, STOPPED_FT_S, joinedSegment, obstacleAhead, offCourse, pickRoute } from "../game/course-route.js";
 import { createRacerRecovery, racerRecovering, racerRecoveryBefore, racerRecoveryStep } from "../game/racer-recovery.js";
-import { cpuControlBefore, cpuControlStep, createCpuControl } from "../game/cpu-control.js";
+import { cpuAvoidStep, cpuControlBefore, cpuControlStep, createCpuControl } from "../game/cpu-control.js";
+import { AVOID, boxObstacles, groundBoxWalls } from "../game/obstacle-avoid.js";
 
 export const STEP = 1 / 60;
 
@@ -147,6 +149,35 @@ export function stateIsSane(s) {
   return Math.hypot(s.bvel[0], s.bvel[1], s.bvel[2]) < SANE_SPEED_FT_S && Math.abs(s.pos[1]) < SANE_HEIGHT_FT && Math.hypot(s.rates[0], s.rates[1], s.rates[2]) < SANE_RATE;
 }
 
+/** Whether a level box's pose and motion are all finite numbers. */
+export function boxIsSane(box) {
+  for (const list of [box.pos, box.vel, box.bvel, box.rates, box.matrix, box.euler]) for (let i = 0; i < list.length; i++) if (!Number.isFinite(list[i])) return false;
+  return true;
+}
+
+/**
+ * A level box whose numbers have broken (an addition, as for the trucks below): put back where it last stood, at rest.
+ * Keeps a sane box's pose as the one to go back to. Returns whether it was put back.
+ */
+export function keepBoxSane(box) {
+  if (boxIsSane(box)) {
+    const safe = box.safe ?? (box.safe = { pos: [0, 0, 0], matrix: new Float64Array(9), euler: new Float64Array(3) });
+    for (let k = 0; k < 3; k++) safe.pos[k] = box.pos[k];
+    safe.matrix.set(box.matrix);
+    safe.euler.set(box.euler);
+    return false;
+  }
+  const safe = box.safe;
+  if (safe) {
+    for (let k = 0; k < 3; k++) box.pos[k] = safe.pos[k];
+    box.matrix.set(safe.matrix);
+    box.euler.set(safe.euler);
+  }
+  for (const list of [box.vel, box.bvel, box.rates, box.force, box.moment]) list.fill(0);
+  box.depths.fill(-9999);
+  return true;
+}
+
 /** A deep copy of a state's numbers, and the same numbers put back into the live state (its objects are kept). */
 export function copyState(value) {
   if (ArrayBuffer.isView(value)) return value.slice();
@@ -221,6 +252,43 @@ function soundOf(t, ground) {
  * `ra0` / `ra1` are the level's ground-box layers and `boxes` its collision boxes (track-build.js);
  * `race`, when given, is `{ checkpoints, laps }` and runs the race rules (MTM2_PHYSICS.md 14.24).
  */
+/** Whether every number in a built course segment is finite. */
+function finiteSegment(seg) {
+  for (const value of Object.values(seg)) {
+    if (typeof value === "number" && !Number.isFinite(value)) return false;
+    if (Array.isArray(value) && value.some((v) => typeof v === "number" && !Number.isFinite(v))) return false;
+  }
+  return true;
+}
+
+/** The least thickness, feet, a level box is given on each axis (see `solidBounds`). */
+export const MIN_BOX_FT = 0.5;
+
+/**
+ * A model's bounds made solid (an addition): a flat model (a sign, a decal, F.S.R.'s camper sides) has no extent on one
+ * axis, and two such boxes that overlap give the box pair test a contact of no direction, whose NaNs then spread to
+ * every truck and object that meets them. Each axis gets at least `MIN_BOX_FT`, about the model's middle.
+ */
+export function solidBounds(bounds) {
+  if (!bounds?.min || !bounds?.max) return bounds ?? null;
+  const min = [...bounds.min], max = [...bounds.max];
+  for (let k = 0; k < 3; k++) {
+    if (max[k] - min[k] >= MIN_BOX_FT) continue;
+    const mid = (min[k] + max[k]) / 2;
+    min[k] = mid - MIN_BOX_FT / 2;
+    max[k] = mid + MIN_BOX_FT / 2;
+  }
+  return { ...bounds, min, max };
+}
+
+/** The built course, or no course (`[]`) when any segment of it is not finite. */
+export function usableCourse(course) {
+  return course.every(finiteSegment) ? course : [];
+}
+
+/** A ground box this near a course segment's edge is on the course's way (a deck, a ramp's top): never avoided, feet. */
+const COURSE_ROOM_FT = 24;
+
 /** A computer truck that stays within this many feet for this long is stuck. */
 const NO_HEADWAY_FT = 12, NO_HEADWAY_S = 6;
 
@@ -360,8 +428,9 @@ export function createSession(init) {
   const levelBoxes = [];
   /** Moving objects: type 10 boxes and their SIT bvel (MTM2_PHYSICS.md 14.18). */
   const movingObjects = [];
+  const movingBoxes = new Set();
   for (const b of init.boxes ?? []) {
-    const box = S.createLevelBox(b, b.bounds);
+    const box = S.createLevelBox(b, solidBounds(b.bounds));
     if (box) {
       box.sitIndex = b.sitIndex;
       // A 4x4 Evolution object's model stands off its box's centre: its origin, in the box's frame (worker/evo-track-build.js).
@@ -371,14 +440,22 @@ export function createSession(init) {
       if (b.pathRoot !== undefined) { box.pathRoot = b.pathRoot; box.attach = b.attach ?? null; box.ghost = !!b.ghost; }
       levelBoxes.push(box);
     }
-    if (box && b.bvel) movingObjects.push({ box, bvel: b.bvel });
+    if (box && b.bvel) { movingObjects.push({ box, bvel: b.bvel }); movingBoxes.add(box); }
   }
   const allRamps = (init.ramps ?? []).map((r) => S.createRamp(r, r.bounds)).filter(Boolean);
   // The course's straights with the arcs built between them, over the ground the probes see
   // (MTM2_PHYSICS.md 12, 14.22).
-  const course = S.buildCourse(init.course ?? [], (x, z) => ground.height(x, z), {
+  // A course the game cannot build (two straights in line give an arc of no finite size, as on F.S.R., a Summit
+  // Rumble track) is no course: a mode that drives there without the Summit's rules (Tag) must not aim the autopilot or
+  // the helicopter at it, which spreads the arc's NaNs into the truck's controls and wheels.
+  const course = usableCourse(S.buildCourse(init.course ?? [], (x, z) => ground.height(x, z), {
     sonicTrack, gripK: sonicTrack && difficulty === S.DIFFICULTY.PROFESSIONAL ? 2 : 1.75,
-  });
+  }));
+  // The SIT's other courses (game/course-route.js): a computer racer cut off from its own by an unmovable obstacle
+  // takes one that passes within reach, to where it meets the one it races.
+  const routes = (init.routeCourses ?? []).map((c) => usableCourse(S.buildCourse(c, (x, z) => ground.height(x, z), {
+    sonicTrack, gripK: sonicTrack && difficulty === S.DIFFICULTY.PROFESSIONAL ? 2 : 1.75,
+  }))).filter((c) => c.length);
   // The computer trucks steer by the game's frame time, not the simulation's step (OpenPhotex AUTOPILOT_FRAME_DT, 1/30 s):
   // `opponentFps` (Options, Advanced) is the frame rate they drive as if the game ran at.
   const opponentFps = Number(init.opponentFps);
@@ -658,14 +735,14 @@ export function createSession(init) {
       rt.checkpoint = race.checkpoints.length;
     });
   }
-  // Computer racers' own recovery (game/racer-recovery.js): on Professional they drive back through a missed
-  // checkpoint; an extension may have its racers get themselves out when stuck (Race & Rumble).
+  // Computer racers' own recovery (game/racer-recovery.js), an addition: every one drives back through a missed
+  // checkpoint (or calls the helicopter when that is quicker) and gets itself out of a jam; the helicopter is its last
+  // resort, when it makes no headway, never a fixed count-down. A truck that starts off the course (Castle Nugget's
+  // grid stands on the castle) finds its way to it the same way.
   if (race && !race.summit && !drag && course.length) {
     trucks.forEach((t, i) => {
       if (!t.autopilot || t.remote || t.cprDriver || race.trucks[i].outOfRace) return;
-      const returns = difficulty === S.DIFFICULTY.PROFESSIONAL;
-      const unsticks = !!extensionSession?.selfRecovery?.(i);
-      if (returns || unsticks) t.racerRecovery = createRacerRecovery({ returns, unsticks });
+      t.racerRecovery = createRacerRecovery({ returns: true, unsticks: true });
       // Every computer truck on the course keeps control of itself (game/cpu-control.js).
       t.cpuControl = createCpuControl();
     });
@@ -1077,6 +1154,7 @@ export function createSession(init) {
   /** The helicopter for a stuck computer truck, at once. */
   function liftStuck(t) {
     const s = t.state;
+    t.route = null;
     s.heliTimer = S.STUCK_LIMIT_S - 1;
     S.liftOff(s, t.params, ground, recoveryOf(t), s.contactCount ?? 0);
   }
@@ -1087,6 +1165,8 @@ export function createSession(init) {
    * it missed. (The port never sets it on the gate as the game does on Professional.)
    */
   function missedCheckpoint(t, segment) {
+    // Kept for the helicopter, should the way back come to that.
+    t.missedSegment = segment;
     if (t.racerRecovery?.returns) return;
     const s = t.state;
     s.heliTimer = -6;
@@ -1097,6 +1177,7 @@ export function createSession(init) {
   function liftToSegment(t, segment) {
     const s = t.state;
     if (s.heliTimer > 0 || t.flight) return false;
+    t.route = null;
     s.heliTimer = -6;
     S.liftOff(s, t.params, ground, recoveryOf(t, segment), s.contactCount ?? 0);
     s.ap.segment = segment;
@@ -1110,6 +1191,59 @@ export function createSession(init) {
     return [seg.centre[0] + Math.sin(seg.exitAngle) * seg.radius, seg.centre[1], seg.centre[2] + Math.cos(seg.exitAngle) * seg.radius];
   }
 
+  /** Where a computer truck is going: its segment's end, on the course it is taking to its own (`route`) or its own. */
+  const aimOf = (t) => (t.route ? segmentAim(t.route.ctx.course[t.route.segment]) : segmentAim(recoveryOf(t).segment));
+
+  /**
+   * The autopilot on the course a truck is taking to its own (game/course-route.js): the game's, on that course's
+   * segment; the truck's own segment, which the race rules keep, is left as it was.
+   */
+  function driveRoute(t) {
+    const s = t.state, r = t.route, keep = s.ap.segment, passed = s.ap.segmentsPassed;
+    s.ap.segment = r.segment;
+    S.advanceAutopilotSegment(s, r.ctx);
+    S.applyAutopilot(s, t.params, r.ctx);
+    r.segment = s.ap.segment;
+    s.ap.segment = keep;
+    s.ap.segmentsPassed = passed;
+  }
+
+  /**
+   * A computer racer cut off from its course (game/course-route.js): on another course, until it is on its own; off its
+   * own with an unmovable obstacle in its way, another course in reach, or the helicopter once it is at the obstacle
+   * and stopped. Returns whether it is on another course.
+   */
+  function routeStep(t) {
+    const s = t.state;
+    if (t.route) {
+      const at = joinedSegment(course, s.pos);
+      if (at < 0) return true;
+      t.route = null;
+      s.ap.segment = at;
+      recoveryOf(t);
+      return false;
+    }
+    if (!offCourse(course[s.ap.segment], s.pos)) return false;
+    // A look four times a second.
+    t.probeIn = (t.probeIn ?? 0) - STEP;
+    if (t.probeIn > 0) return false;
+    t.probeIn = 0.25;
+    const m = s.matrix, b = s.bvel;
+    const vx = m[0] * b[0] + m[1] * b[1] + m[2] * b[2], vz = m[6] * b[0] + m[7] * b[1] + m[8] * b[2];
+    const speed = Math.hypot(vx, vz);
+    const heading = speed > 5 ? Math.atan2(vx, vz) : s.euler[2];
+    const at = obstacleAhead(s.pos, heading, { height: (x, z) => ground.height(x, z), circles: obstaclesFor(t, { still: true }) });
+    if (at === null) return false;
+    const pick = pickRoute(routes, s.pos);
+    if (pick) {
+      t.route = { ctx: { ...apCtx, course: routes[pick.route], traffic: undefined }, segment: pick.segment };
+      t.headway = null;
+      return true;
+    }
+    if (at <= CLOSE_FT && speed < STOPPED_FT_S) liftStuck(t);
+    return false;
+  }
+
   /**
    * A computer racer's own recovery after the course autopilot (game/racer-recovery.js). While it handles the truck
    * the course's stuck timer is off and it alone calls the helicopter, as its last resort.
@@ -1118,10 +1252,12 @@ export function createSession(init) {
     const r = t.racerRecovery, s = t.state, rt = race.trucks[i];
     if (s.heliTimer > 0) return;
     const cp = rt.state === 3 && !rt.finished ? race.checkpoints[rt.checkpoint] : null;
+    if (!cp) routeStep(t);
+    if (s.heliTimer > 0) return;
     const verdict = racerRecoveryStep(r, {
       state: s, dt: STEP, gears: S.GEAR,
       missed: cp ? { pos: cp.gate.pos, psi: cp.psi, half: cp.gate.half } : null,
-      aim: segmentAim(recoveryOf(t).segment),
+      aim: aimOf(t),
       trucks: r.unsticks ? trucks.filter((o) => o !== t && o.state.heliTimer <= 0).map((o) => o.state.pos) : null,
       threats: extensionSession?.threats?.(i) ?? null,
     });
@@ -1129,15 +1265,58 @@ export function createSession(init) {
     t.recovery.autopilot = !own;
     if (own && s.heliTimer < 0) s.heliTimer = 0;
     if (verdict === "course") keepControl(t);
-    if (verdict === "heli") { t.headway = null; liftStuck(t); }
+    // The helicopter on the way back to a missed gate sets the truck down on the segment it missed it from.
+    if (verdict === "heli") { t.headway = null; if (cp && Number.isInteger(t.missedSegment)) liftToSegment(t, t.missedSegment); else liftStuck(t); }
     else if (own) t.headway = null;
     else watchHeadway(t);
   }
 
-  /** A computer truck keeping control after the autopilot (game/cpu-control.js). */
+  /** A computer truck keeping control after the autopilot (game/cpu-control.js), and steering clear of what is ahead. */
   function keepControl(t) {
     if (!t.cpuControl || t.state.heliTimer > 0) return;
-    cpuControlStep(t.cpuControl, t.state, STEP, segmentAim(recoveryOf(t).segment), S.GEAR);
+    const aim = aimOf(t);
+    cpuControlStep(t.cpuControl, t.state, STEP, aim, S.GEAR);
+    cpuAvoidStep(t.cpuControl, t.state, obstaclesFor(t), aim);
+  }
+
+  /**
+   * What a computer racer could drive into ahead (game/obstacle-avoid.js): the level's objects it cannot shove, the
+   * static walls, and the ground boxes that stand up as walls where the course does not run over them.
+   */
+  function obstaclesFor(t, { still = false } = {}) {
+    const s = t.state, out = still ? [] : t.obstacles ?? (t.obstacles = []);
+    out.length = 0;
+    const reach = AVOID.maxLookFt + 40;
+    for (const box of levelBoxes) {
+      if (box.ghost || !S.boxIsImmovableFor(box, t.params.massSlug)) continue;
+      // `still`: only what never moves (a moving object, as Castle Nugget's sliding gate, passes).
+      if (still && movingBoxes.has(box)) continue;
+      const dx = S.wrapDelta(box.pos[0] - s.pos[0]), dz = S.wrapDelta(box.pos[2] - s.pos[2]);
+      if (Math.abs(dx) > reach + box.radius || Math.abs(dz) > reach + box.radius) continue;
+      boxObstacles(box, out, [s.pos[0] + dx - box.pos[0], s.pos[2] + dz - box.pos[2]]);
+    }
+    const walls = [];
+    wallsAround(s.pos[0], s.pos[2], reach, walls);
+    for (const w of walls) {
+      if (w.tree) continue;
+      boxObstacles(w, out, [s.pos[0] + S.wrapDelta(w.pos[0] - s.pos[0]) - w.pos[0], s.pos[2] + S.wrapDelta(w.pos[2] - s.pos[2]) - w.pos[2]]);
+    }
+    if (ra0 && ra1 && course.length) {
+      const m = s.matrix, b = s.bvel;
+      const vx = m[0] * b[0] + m[1] * b[1] + m[2] * b[2], vz = m[6] * b[0] + m[7] * b[1] + m[8] * b[2];
+      const speed = Math.hypot(vx, vz);
+      const heading = speed > 5 ? Math.atan2(vx, vz) : s.euler[2];
+      const look = Math.max(AVOID.minLookFt, Math.min(AVOID.maxLookFt, speed * AVOID.lookS));
+      const driven = S.orientedCourse(apOf(t).course, apCtx.reversed);
+      const segments = courseWindow(driven.length, s.ap.segment, 2, 6).map((i) => driven[i]);
+      // On the course's own way: within its width (an arc's as the straights') and some room of a segment's line.
+      const onCourse = (x, z) => segments.some((seg) => {
+        const spot = spotOnSegment(seg, [x, 0, z]);
+        return spot && spot.distance < (seg.trackWidth ?? 16) / 2 + COURSE_ROOM_FT;
+      });
+      out.push(...groundBoxWalls(s.pos, heading, look, { ra0, ra1, stepFt: groundBoxStepFt, onCourse }));
+    }
+    return out;
   }
 
   /**
@@ -1219,7 +1398,8 @@ export function createSession(init) {
         } else if (go && t.racerRecovery) {
           racerRecoveryBefore(t.racerRecovery, t.state.controls);
           if (t.cpuControl) cpuControlBefore(t.cpuControl, t.state.controls);
-          S.applyAutopilot(t.state, t.params, apOf(t));
+          if (t.route) driveRoute(t);
+          else S.applyAutopilot(t.state, t.params, apOf(t));
           recoverRacer(t, i);
         } else if (go) {
           if (t.cpuControl) cpuControlBefore(t.cpuControl, t.state.controls);
@@ -1359,6 +1539,8 @@ export function createSession(init) {
     if (rules.crashDamage) for (const t of trucks) noteHull(t);
     listed.forEach((box, i) => {
       S.postStepBox(box, ground);
+      // A box whose numbers broke is put back, before a truck or a mode's driver meets them.
+      keepBoxSane(box);
       if (!posedAs(box, before, i * 6)) dirty.add(box);
     });
     updateHeliVisuals();
@@ -1380,7 +1562,8 @@ export function createSession(init) {
 
   /**
    * The player's Helicopter key: at any time once the race runs, the helicopter takes the truck (frozen in the
-   * air) to the nearest point of the course and sets it down facing along it; pressed again, it lets go where it is.
+   * air) to the nearest point of the part of the course it has reached and sets it down facing along it; pressed
+   * again, it lets go where it is.
    * Every third call brings the pterodactyl instead (the game's counter at `0x651798`).
    */
   let heliCalls = 0;
@@ -1395,8 +1578,11 @@ export function createSession(init) {
     const driven = course.length ? S.orientedCourse(course, apCtx.reversed) : [];
     const here = t.state.pos;
     // An extension may name its own spot (Hockey: the rink's centre).
+    // In a race the truck's own segment (the race tick follows it lap by lap) keeps the drop to the part of the course it
+    // has reached: at a crossroads the nearest point may be on another part of the lap (game/heli-flight.js).
+    const racing = !!race && !race.summit && S.raceStarted(race);
     const spot = extensionSession?.heliSpot?.(trucks.indexOf(t))
-      ?? nearestCourseSpot(driven, here, (x, z) => ground.height(x, z))
+      ?? nearestCourseSpot(driven, here, (x, z) => ground.height(x, z), { around: racing ? t.state.ap.segment : null })
       ?? { pos: [here[0], ground.height(here[0], here[2]), here[2]], heading: t.state.euler[2] };
     t.flight = createFlight(t.state, spot, { teryl: heliCalls === 2, height: (x, z) => ground.height(x, z) });
     t.state.heliTimer = 1;

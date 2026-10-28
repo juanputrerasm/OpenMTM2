@@ -3,6 +3,7 @@
 
     install/POD.INI            the player's POD.INI, as found
     install/<NAME>             each archive it lists, under its upper-cased relative path
+    install/VIDEOS/<PATH>       the game's videos (VIDEOS/...SMK) and the EXTRAS.INI that lists them, when the folder has them
     install/manifest.json      written last: its presence means the copy completed; `unmounted` lists the archives
                                the POD manager took out, which stay copied until Reload POD.INI mounts them again
 
@@ -73,13 +74,20 @@ export async function removeInstall() {
  * @param {{ files: { name: string, file: Blob | { url: string, size: number } }[], podIni: string, edition?: "full" | "trial" }} request
  * @param {(progress: { copied: number, total: number, name: string }) => void} onProgress
  */
+/** The videos and EXTRAS.INI (install/inspect-source.js `findVideos`), copied afresh to `install/VIDEOS/<path>`. */
+export const VIDEOS_DIR = `${INSTALL_DIR}/VIDEOS`;
+async function copyVideos(videos = []) {
+  await removePath(VIDEOS_DIR);
+  for (const { name, file } of videos) await copyFile(file, `${VIDEOS_DIR}/${name.toUpperCase()}`, () => {});
+}
+
 /** The WeatherArt folder's pictures (install/inspect-source.js `findWeatherArt`), copied afresh to `install/WEATHERART`. */
 async function copyWeatherArt(weatherArt = []) {
   await removePath(`${INSTALL_DIR}/WEATHERART`);
   for (const { name, file } of weatherArt) await copyFile(file, `${INSTALL_DIR}/WEATHERART/${name.toUpperCase()}`, () => {});
 }
 
-export async function copyInstall({ files, podIni, exeVersion = null, weatherArt = [], edition = "full" }, onProgress) {
+export async function copyInstall({ files, podIni, exeVersion = null, weatherArt = [], videos = [], edition = "full" }, onProgress) {
   await removeInstall();
   const total = files.reduce((sum, f) => sum + f.file.size, 0);
   let copied = 0;
@@ -91,10 +99,12 @@ export async function copyInstall({ files, podIni, exeVersion = null, weatherArt
   }
   await writeBytesToFile(`${INSTALL_DIR}/POD.INI`, new TextEncoder().encode(podIni));
   await copyWeatherArt(weatherArt);
+  await copyVideos(videos);
   const manifest = {
     format: MANIFEST_FORMAT,
     archives: files.map(({ name, file }) => ({ name, size: file.size, modified: file.lastModified ?? null })),
     weatherArt: weatherArt.map(({ name }) => name.toUpperCase()),
+    videos: videos.map(({ name }) => name.toUpperCase()),
     exeVersion,
     // "trial" for the MTM2 trial (install/required-pods.js `isTrialPodSet`), else "full".
     edition,
@@ -111,7 +121,7 @@ export async function copyInstall({ files, podIni, exeVersion = null, weatherArt
  * date (Reload POD.INI: a POD rebuilt with the same name, size and date is still read afresh).
  * Returns the manifest with `added`, `removed` and `kept` archive names.
  */
-export async function syncInstall({ files, podIni, exeVersion = null, weatherArt = [], force = false, edition = "full" }, onProgress) {
+export async function syncInstall({ files, podIni, exeVersion = null, weatherArt = [], videos = [], force = false, edition = "full" }, onProgress) {
   const old = await readManifest();
   const before = new Map((old?.archives ?? []).map((a) => [a.name, a]));
   const wanted = new Set(files.map((f) => f.name));
@@ -134,10 +144,12 @@ export async function syncInstall({ files, podIni, exeVersion = null, weatherArt
   }
   await writeBytesToFile(`${INSTALL_DIR}/POD.INI`, new TextEncoder().encode(podIni));
   await copyWeatherArt(weatherArt);
+  await copyVideos(videos);
   const manifest = {
     format: MANIFEST_FORMAT,
     archives: files.map(({ name, file }) => ({ name, size: file.size, modified: file.lastModified ?? null })),
     weatherArt: weatherArt.map(({ name }) => name.toUpperCase()),
+    videos: videos.map(({ name }) => name.toUpperCase()),
     exeVersion,
     // "trial" for the MTM2 trial (install/required-pods.js `isTrialPodSet`), else "full".
     edition,

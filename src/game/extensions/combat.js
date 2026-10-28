@@ -12,7 +12,8 @@
   - **Wheels come off last.** A wheel takes at most `WHEEL_CAP` of its pool in one hit, and comes off only once its pool
     is empty, the truck has lost half its hit points or more, and that corner is hit again.
   - **Out.** A truck is wrecked when its hit points run out, or when its last wheel comes off and it has not the
-    credits to put one back (it waits for a repair otherwise). A wrecked player watches on.
+    credits to put one back (it waits for a repair otherwise). A wreck tears off the struck end's axle, its wheels
+    flying (`wreckShed`). A wrecked player watches on.
   - **Credits** for each checkpoint and lap, for each hit point taken off another truck and for each wreck; the Crash
     Damage key (X) spends them on repairs.
   - **The winner** is the first truck home, or the last truck still running.
@@ -24,6 +25,7 @@
   Pure, so it runs under Node.
 */
 import { msg } from "../strings.js";
+import { hasCheckpoints } from "./track-kinds.js";
 import { fromVehicles, localIndex, vehicleIndex } from "./net-wire.js";
 
 export const DEFAULT_COMBAT_LAPS = 3;
@@ -138,7 +140,7 @@ export const COMBAT_EXTENSION = Object.freeze({
     }),
   ]),
   /** A track raced through checkpoints: a circuit or a rally (not free roam, a Summit Rumble or a drag strip's lanes). */
-  acceptsTrack: (track) => !!track && !track.freeRoamOnly && ["circuit", "rally"].includes(track.raceType ?? "circuit"),
+  acceptsTrack: hasCheckpoints,
   trackLocked: false,
   keepsRace: true,
   minEntrants: 2,
@@ -293,8 +295,34 @@ export function applyHit(c, i, impact) {
     t.global = Math.max(0, t.global);
     t.wrecked = true;
     out.wrecked = true;
+    // A wreck tears off the struck end's axle: its wheels still on fly off with it (`wreckShed`).
+    for (const w of wreckShed(t, impact.end)) out.wheelsOff.push(w);
   }
   return out;
+}
+
+/**
+ * The wheels a wreck tears off (an addition): the struck end's axle comes away, with whichever of its two wheels are
+ * still on, so one or two fly; when that axle has none left, the other one goes. They are marked lost. `end` is the
+ * impact's end (+1 the front, -1 the rear).
+ */
+export function wreckShed(t, end = 1) {
+  const first = end > 0 ? 0 : 1;
+  for (const axle of [first, 1 - first]) {
+    const on = [axle * 2, axle * 2 + 1].filter((w) => !t.lost[w]);
+    if (!on.length) continue;
+    for (const w of on) t.lost[w] = true;
+    return on;
+  }
+  return [];
+}
+
+/**
+ * Which axles a truck has lost, front then rear: a wrecked truck's axle with both wheels gone (`wreckShed` takes the
+ * axle with them). `view` is the truck's `combatTruckView` (a lost wheel's share is -1).
+ */
+export function axlesLost(view) {
+  return [0, 1].map((k) => !!view?.wrecked && view.wheels?.[k * 2] < 0 && view.wheels?.[k * 2 + 1] < 0);
 }
 
 /**

@@ -8,10 +8,11 @@ import { TAG_EXTENSION } from "./tag.js";
 import { CNR_EXTENSION } from "./cops-robbers.js";
 import { RNR_EXTENSION } from "./race-rumble.js";
 import { COMBAT_EXTENSION } from "./combat.js";
+import { FREESTYLE_EXTENSION } from "./freestyle.js";
 import { msg } from "../strings.js";
 
 /** Shipped extensions. A new extension is registered in this one place. */
-export const EXTENSIONS = Object.freeze([HOCKEY_EXTENSION, SOCCER_EXTENSION, TAG_EXTENSION, CNR_EXTENSION, RNR_EXTENSION, COMBAT_EXTENSION]);
+export const EXTENSIONS = Object.freeze([HOCKEY_EXTENSION, SOCCER_EXTENSION, TAG_EXTENSION, CNR_EXTENSION, RNR_EXTENSION, COMBAT_EXTENSION, FREESTYLE_EXTENSION]);
 
 /** An extension descriptor by id, or null for a core mode or an unknown id. */
 export function extensionById(id) {
@@ -41,6 +42,16 @@ export function entrantsShortfall(extension, opponents, spectator) {
   const min = extension?.minEntrants ?? 0;
   const count = (opponents?.length ?? 0) + (spectator ? 0 : 1);
   return count >= min ? null : min;
+}
+
+/** Whether an extension is driven alone (`maxEntrants: 1`, Freestyle): no opponents, no spectator mode, no online rooms. */
+export const soloExtension = (extension) => extension?.maxEntrants === 1;
+
+/** The computer opponents an extension takes from the picked ones: all of them, or as many as its `maxEntrants` leaves room for. */
+export function opponentsFor(extension, opponents) {
+  const most = extension?.maxEntrants;
+  if (!Number.isInteger(most) || most < 1) return opponents ?? [];
+  return Array.isArray(opponents) ? opponents.slice(0, most - 1) : [];
 }
 
 /** Defaults stored below `settings.extensions`, keyed by extension id. */

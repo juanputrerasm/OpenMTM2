@@ -75,6 +75,12 @@ export default async function mount(container, context, { requiredMissing = [] }
       saveSettings(settings);
     } }, SETUP_GRAPHICS.map((id) => el("option", { value: id, selected: id === graphicsNow }, id === "enhanced" ? t("Enhanced") : t("Standard"))));
 
+    // The game's videos (VIDEOS, about 155 MB) are copied only when asked for (game/videos.js).
+    const videos = el("input", { type: "checkbox", id: "setup-videos", checked: !!settings.copyVideos, onchange: (event) => {
+      settings.copyVideos = event.target.checked;
+      saveSettings(settings);
+    } });
+
     const fileInput = el("input", { type: "file", accept: FILE_TYPES, hidden: true, onchange: () => {
       const file = fileInput.files?.[0];
       fileInput.value = "";
@@ -88,6 +94,7 @@ export default async function mount(container, context, { requiredMissing = [] }
         el("div", { class: "setup-choices" },
           el("label", { class: "setup-choice" }, el("span", {}, t("Language")), language),
           el("label", { class: "setup-choice" }, el("span", {}, t("Graphics")), graphics),
+          el("label", { class: "setup-choice" }, el("span", {}, t("Copy the game's videos")), videos),
         ),
         el("p", { class: "muted setup-hint" }, t("Enhanced uses every visual improvement. Standard keeps the game's own look and runs on any computer. Both can be fine-tuned later in Options.")),
 
@@ -216,7 +223,7 @@ export default async function mount(container, context, { requiredMissing = [] }
   }
 
   async function confirmAndCopy(result) {
-    const needed = result.totalBytes;
+    const needed = result.totalBytes + (settings.copyVideos ? (result.videos ?? []).reduce((sum, f) => sum + (f.file.size ?? 0), 0) : 0);
     const estimate = await navigator.storage.estimate?.().catch(() => null);
     const free = estimate ? estimate.quota - estimate.usage : Infinity;
     show(t(result.message, ...(result.messageArgs ?? [])), result.ok ? "muted" : "error");
@@ -238,6 +245,9 @@ export default async function mount(container, context, { requiredMissing = [] }
         edition: result.edition ?? "full",
         // Community Patch 3's loose WeatherArt folder (worker/weather-art.js).
         weatherArt: (result.weatherArt ?? []).map(({ name, file }) => ({ name, file: installEntry(file) })),
+        // The game's videos and the EXTRAS.INI that lists them (game/videos.js).
+        // Only when the setup's "Copy the game's videos" is ticked (off by default).
+        videos: settings.copyVideos ? (result.videos ?? []).map(({ name, file }) => ({ name, file: installEntry(file) })) : [],
       });
       context.exeVersion = result.exeVersion ?? null;
     } finally {

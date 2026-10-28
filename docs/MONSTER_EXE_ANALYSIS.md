@@ -148,6 +148,27 @@ height (`0x644654`: 200, 400 or 480) and both files are opened from `art` (`STAR
 palette indices, row by row, the `.ACT` 768 bytes of RGB (0x4d5bd0; a missing `.ACT` keeps the
 current palette, a missing `.RAW` is the error "Cannot find data raw").
 
+**About screen** (view class `CAboutScreen`, dialog 7009, set up at 0x51d392, scrolled at
+0x51dca0). A full 640 x 480 screen like the Hall Of Fame: the backdrop `UI\ABOUT.BMP` (a
+Community Patch 3 `UI.POD` has `ABOUT480.BMP` and a large `NMABOUT.BMP` instead) with a
+Continue button (`CONTBTN.BMP`) at (449, 404). The layout, in the 640 x 480 rectangles the
+dialog's captions carry:
+
+| Part | Rectangle (left, top, right, bottom) |
+|---|---|
+| Two caption and value pairs at the top right | (400, 10, 600, 24) and (435, 25, 600, 59); (400, 50, 600, 64) and (435, 65, 600, 79) |
+| Text box | (10, 205, 365, 465) |
+| Credits box | x 384, y 127, 254 px tall, as wide as the strip (constants at 0x51cf02) |
+
+- The text box shows `UI\LEGAL.TXT` (a CRLF text file in `UI.POD`) with `<<1>>` filled with
+  the program's version, major then two-digit minor and build: `2.00.42`. Its first two lines
+  are the product name and `Version <<1>> MMX`.
+- The credits are one tall bitmap, `UI\CREDLIST.BMP` (237 x 7604 in the retail `UI.POD`).
+  500 ms after the screen opens it scrolls up through the credits box at **24 pixels per
+  second** (a 50 ms timer; the row shown at the top is `elapsed ms x 24 / 1000`). It starts with
+  the strip's top at the box's top, and when the strip's last 254 rows are in the box the screen
+  leaves by itself, as Continue does.
+
 ### Resolution sets
 
 The game renders at `gamePIXX` x `gamePIXY` from the INI and keeps three sets of 2D art keyed on
@@ -736,8 +757,14 @@ more (each truck's share is 100 / laps times its flag `+0x900`, which only the w
 The Winner's Circle artwork labels a seven-column table: Place, Player Name, Truck, Skill Level,
 Points, Time and Fast Lap. Its two black panels are 3D views of the first- and second-place trucks,
 not text panels. Results show per-truck place, time, laps and the winner model (`winner.bin`, `WINNASS*.RAW`),
-then win, lose or "other" videos chosen at random from `[Video] Win*`, `Lose*`, `Other*`,
-`WinWCW*`, `LoseWCW*`. The Hall of Fame persists in `highscor.mtr`, one line per entry written as
+then a video (0x4c64c7 to 0x4c68bb): `Win` when the player placed first, `Lose` when last (its place equals the
+number of trucks, `CRace + 0xa0f8`), `Other` for any place between; after a Summit Rumble (the track's race type,
+`+0x2d58` of its catalogue entry, is 4) the same with `WCW` appended (`WinWCW`, `LoseWCW`, `OtherWCW`: the
+wrestling-themed videos). The list's length is its `[Video]` count key (`Win=11`), or, without one, the keys `Win0`,
+`Win1`, ... found in turn (0x4c51d0); one is picked at random and played by its `[Video]` key (0x4c4f50), the INI being
+`system\extras.ini` (string 135). The retail `EXTRAS.INI` lists 11, 12 and 12 videos for Win, Lose and Other, 4, 6 and 6
+for the WCW sets (`OtherWCW` repeats `LoseWCW`'s first three), under `VIDEOS\`; the files are Smacker (OpenPhotex
+`docs/SMK.md`). The Hall of Fame persists in `highscor.mtr`, one line per entry written as
 `%d,%s,%d,%s,%d,%f,%f` (0x4c7540): **hypothesis** rank, player name, skill level, truck name,
 points, time, fastest lap.
 
@@ -1155,11 +1182,17 @@ CPU trucks and the player's autopilot use the same code.
   (0x4198a0) makes the player driver 0 with the chosen truck and adds a CPU driver for each
   flagged truck other than the player's, in catalogue order (so drawing the player's truck
   leaves one opponent fewer), at most 8 drivers.
-- **Professional takes course 2.** At the race start (outside a drag race) every truck is put on
-  course 2 when the difficulty is Professional (`0x6407bc` = 2) and the SIT has a second course
-  with segments (`0x71a6f4`), otherwise on course 1. Each course is `0x6d68` bytes from
-  `0x70cc28` (1-based), the truck's course index is `+0xfb4`, and `0x486630` re-picks a segment
-  on the truck's own course when it strays from its segment (MTM2_PHYSICS.md 14.24).
+- **Professional takes course 2.** The loader (`0x4e0970`) builds the SIT's primary course as
+  course **0** (`0x4e13b0(0)`) and its extended courses as courses 1, 2, ... (`0x4e13b0(k)`); course
+  `n` is at `0x70cc28 + n * 0x6d68` (`0x4e1ad0`), its segment count at `-4`, its direction at `-8`.
+  At the race start (`0x551f90`, outside a drag race) every truck's course (`+0xfb4`) is set to
+  **course 2** when the difficulty is Professional (`0x6407bc` = 2) and course 2 has segments
+  (`0x71a6f4`), otherwise to **course 1**: the trucks race the SIT's first extended course, or its
+  second on Professional, never the primary one. The primary course is the map's outline
+  (`0x4e1e90` reads course 0 into the map's points). The off-course re-pick (`0x486630`) searches
+  course 1, or 2 on Professional, the same way (MTM2_PHYSICS.md 14.24). The stock SITs agree: each
+  one's first extended course is a near copy of its primary one, the second a different line.
+  A SIT with no extended course leaves course 1 empty; the port races its primary course then.
 - **The grid** (0x4195d0): the drivers take the SIT's start slots in order, then the positions
   and headings are shuffled among them by a random permutation, so the player starts in a
   random one of the first `drivers` slots.
@@ -1647,17 +1680,63 @@ stereo separation, `UseRedBook` and `UseModMusic`.
   `*<<n>>`, `)<<n>>` for driver n's name clip in one of three voices: the three names under a
   truck's "Wave File" in its `.TRK` (for Bigfoot `bfootf`, `bfootu`, `bfootd`): `*` the first,
   `(` the second, `)` the third. The script string is followed in the EXE by the English line
-  (`<<n>>` for the name), which goes through the message table (`.LOC`) like every string and is
-  shown for one second plus a thirty-second per character (`0x414660`); the clips play at 0.7
-  (`0x421600`). The EXE lists about 120 of them, in groups by code address: the start (`0x4277ff`:
-  four for races, six for Rumbles), the finish (`0x42214f`), passes, leads, crashes, water, air,
-  rolls, the helicopter, trains, a cow, missed checkpoints, `hasfin`, `haswon` and stealth.
-  Shuffle bags (RANDGEN, `0x421ef0`) keep a phrase from repeating until the rest have played.
-  What fires each group is not traced; the port decides (src/game/commentary-events.js).
-  The port has a dedicated commentary bus, but voice playback is temporarily disabled while its
-  sequencing is corrected; only the text switch is currently available. The port prioritises events involving the player's truck and does not
-  announce unrelated trains, cows or another truck's finish. Its text uses the message bitmap
-  font in front of the race view.
+  (`<<n>>` for the name), which goes through the message table (`.LOC`) like every string. These
+  lines are the commentary's part of the "MTM2.loc" the game loads (`UI\MTM2.loc`, which no POD
+  ships, so the English keys stand): the port keeps them as message tags (`game/commentary.js`).
+  See **Commentary (Trucksfx.c)** below for when each group is said.
+- **Commentary (Trucksfx.c)**, traced from 0x4213a0 (the queue), 0x421600 (the announcer), 0x421ef0 (the
+  shuffle bags) and each group's trigger and speaker:
+  - **The queue** (0x4213a0, run each frame in 0x41fd20): up to 32 waiting phrases, each a speaker routine with
+    two truck arguments and four figures: a **priority** (lower first), a **silence** the announcer must have kept
+    before it, a **delay** before it may be said, and a **life** after which it is dropped (times kept as 16.16
+    seconds, counting down by the frame time). Each frame the waiting phrases are ordered: those ready (alive, past
+    their delay, the silence kept) first; among them the lower priority, then the one longer past its delay, then
+    the one with less life left; the first is said (its speaker is called) and removed. One phrase a frame. The
+    silence counts up only while no phrase is playing (0x464450) and restarts at 0 while one is.
+  - **Who is talked about**: every trigger gives each truck in it a weight, 1 for the player's truck, 1 for the
+    truck the camera follows (`+0x10` of the camera record at 0x6504bc), 0 for any other; a two-truck event takes
+    the larger. A weight of 0 schedules nothing, so the announcer only ever talks about the player's truck and the
+    one being watched. With weight 1 every trigger asks for no delay; its other figures:
+
+    | Group | Trigger (caller) | Priority | Silence s | Life s |
+    |---|---|---|---|---|
+    | move (0x4225b0) | the truck ahead of the player changes, past its third segment (race order, 0x483600) | 10 | 6 | 3 |
+    | pass (0x422b80) | the player passes the truck it was following (0x483600) | 8 | 6 | 2.5 |
+    | lead (0x4232f0) | the player closes on two or more trucks ahead at once (**hypothesis**, 0x483600) | 6 | 6 | 2.5 |
+    | edge (0x423730) | the player passes farther from the course's line than the truck passed (**hypothesis**) | 15 | 8 | 3 |
+    | going your way (0x423b40) | a truck gains a place (places, 0x487300) | 8 | 6 | 2.5 |
+    | clash (0x424060) | two trucks collide (the truck pair test, 0x4894a0) | 4 | 3 (8 in a Summit Rumble) | 2 |
+    | cow (0x424890) | a truck hits `cow.bin` moving | 10 | 8 | 3 |
+    | water (0x4255d0) | a wheel's ground turns to water or deep water (types 3, 13; tire step 0x46a2c0) | 15 | 8 | 3 |
+    | spin (0x425b00) | a wheel's ground turns to frozen water (type 8, Snow's lakes) | 15 | 8 | 3 |
+    | ice (0x425ec0) | a wheel's ground turns to snow (type 9) | 15 | 8 | 3 |
+    | air (0x4262e0) | all four wheels more than 30 ft over the ground, the truck turning slower than 1 rad/s | 13 | 8 | 3 |
+    | roll (0x4267d0) | a hard hull contact on a roof point (hull points 5 to 8) | 13 | 8 | 3 |
+    | wheelie (0x426c40) | a hard hull contact on exactly the two tail points (13 and 15, or 14 and 16) | 20 | 8 | 3 |
+    | flipped (0x4270e0) | the helicopter's flight starts (`heliTimer` 15, 0x46ed90) | 2 | 8 | 3 |
+    | missed checkpoint (0x427d20) | the player's missed-checkpoint count-down runs out | 2 | 8 | 3 |
+    | has finished (0x428050) | a truck finishes, not first | 5 | 2 | 3 |
+    | has won (0x428300) | the race's winner is decided (network) | 0 | 0 | 1 |
+    | winner (0x4220f0) | the leader finishes | 0 | 0 | 1 |
+    | stealth (0x41c740, in 0x41bbd0) | a truck with its lamps off in weathers 7 and 8 (the dark ones) | 10 | 8 | 3 |
+    | blimp (0x428500) | the camera turns to the blimp | 100 | 5 | 0.1 |
+
+    No group is said in a drag race (race type 1); move, pass, lead and winner wait for the truck's third
+    segment. The start (0x4277ff: four lines for a race, six for a Summit Rumble), GO (0x427640), the road signs
+    (0x424e6f) and the trains (0x425125) are said at once, not queued.
+  - **The speakers** each draw from their own shuffle bag (0x421ef0, RANDGEN: an item taken at random and moved to
+    the back, so none repeats before the rest). Some lines are said only when the truck the camera follows is in
+    the event (and, for move and pass, within about 60 ft of the other): `whobe`, `pass_01`; `its/allway2`,
+    `pass_03b`, `pass_05`, `pass_06`; `clash`, `pisthead`, `getatten`, `seerear`, `bitedust`, `gotbreak`, the four
+    `crash_` and `add_01`; `amphib`; `ridediff`, `whirly`, `whirly2`; `add_17`. A line drawn when it may not be said
+    is used up and nothing is said. `kisslead` only when the truck passed was leading (now second); `flyfin` only
+    past three quarters of the lap and not in a Summit Rumble. `<<1>>` is the first truck of the event (the player
+    for move, pass and lead; the one ahead for `fear`), `<<2>>` the second.
+  - **Saying it** (each speaker, then 0x421600): the voice when `commentaryFlag` is set (bit 2 of 0x657398) and no
+    phrase is playing: the clips are read and joined into one buffer (they must share a format) and played at 0.7.
+    The line when `textCommentaryFlag` (0x67199c) is set and no other message is up (0x414250): one second plus a
+    thirty-second per character (0x414660).
+  - Lines in the table that nothing says in 2.00.42: `remodel`, `wrekball`, `detour2`.
 - **Track ambience** `DATA\SOUNDnnn.TXT` (`SOUND.POD`), chosen by the SIT's ambient number:
 
       checkpoint wav file            e.g. airhorn.wav

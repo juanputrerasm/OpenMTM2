@@ -26,6 +26,7 @@ import {
   racerPlaces, rnrPlaces, rnrSided, rnrVariant, rnrWinner, timingTruck,
 } from "./race-rumble.js";
 import { createCombatRuntime } from "./combat-session.js";
+import { createFreestyleRuntime } from "./freestyle-session.js";
 
 const worldVelocity = (state) => {
   const matrix = state.matrix, [x, y, z] = state.bvel;
@@ -235,11 +236,13 @@ function createTagRuntime(payload, env) {
       const quarry = role === "it"
         ? trucks.map((other, otherIndex) => (other === truck || other.state.heliTimer > 0 || tagSafe(game, otherIndex, since) ? null : { pos: other.state.pos, vel: worldVelocity(other.state), place: standings[otherIndex] }))
         : null;
-      const point = tagDrivePoint(truck.tagDriver, role, {
+      const aimed = tagDrivePoint(truck.tagDriver, role, {
         clock: since, pos: truck.state.pos, itPos: trucks[game.it].state.pos, quarry, rect,
         covers, avoid, ramps, heightAt: (x, z) => ground.height(x, z), shadow, breakFt: mtm64 ? TAG64_BREAK_FT : undefined,
         water: weather() === S.WEATHER.SNOW ? null : ground.waterLevelFt, random: Math.random,
       });
+      // A point that is not a place (a broken object's) is no aim: the truck waits a step rather than steer by NaN.
+      const point = aimed && aimed.every(Number.isFinite) ? aimed : null;
       base.driveByPoint(truck);
       driveToPoint(truck.state, truck.extensionDriver, point ?? truck.state.pos, point ? tagSpeed(truck.tagDriver, truck.state.pos, truck.tagDriver.point) : 0, 0, S.GEAR, step, { detour: true });
       if (role === "it" && tagHeld(game, index, since)) truck.headway = null;
@@ -337,11 +340,13 @@ function createCnrRuntime(payload, env) {
         }
       }
       const quarry = role === "it" ? [robber.state.heliTimer > 0 ? null : { pos: robber.state.pos, vel: worldVelocity(robber.state), place: 0 }] : null;
-      const point = tagDrivePoint(truck.tagDriver, role, {
+      const aimed = tagDrivePoint(truck.tagDriver, role, {
         clock: since, pos: truck.state.pos, itPos: role === "free" ? (chaser ?? truck).state.pos : robber.state.pos, quarry, rect, covers, avoid, ramps,
         shy: role === "free",
         heightAt: (x, z) => ground.height(x, z), water: weather() === S.WEATHER.SNOW ? null : ground.waterLevelFt, random: Math.random,
       });
+      // A point that is not a place (a broken object's) is no aim: the truck waits a step rather than steer by NaN.
+      const point = aimed && aimed.every(Number.isFinite) ? aimed : null;
       base.driveByPoint(truck);
       driveToPoint(truck.state, truck.extensionDriver, point ?? truck.state.pos, point ? tagSpeed(truck.tagDriver, truck.state.pos, truck.tagDriver.point) : 0, 0, S.GEAR, step, { detour: true });
       if (cnrHeld(game, index, since)) truck.headway = null;
@@ -507,6 +512,7 @@ const FACTORIES = new Map([
   ["cops-robbers", { ground: (ground) => ground, create: createCnrRuntime }],
   ["race-rumble", { ground: (ground) => ground, create: createRnrRuntime }],
   ["combat", { ground: (ground) => ground, create: createCombatRuntime }],
+  ["freestyle", { ground: (ground) => ground, create: createFreestyleRuntime }],
 ]);
 
 /** Extension-specific driving ground selected before trucks are constructed. */

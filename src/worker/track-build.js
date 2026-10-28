@@ -300,6 +300,10 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   // A CART Precision Racing track (docs/PLAN.md F3): its own art and palettes, a finer heightfield and a road layer.
   // The trucks, the blimp and the helicopter are MTM2's whatever the track, looked up as an MTM2 track would.
   const cpr = sit.origin === "CPR";
+  // An MTM2 SIT's courses as the game numbers them: 0 the primary one, then its extended ones (MONSTER_EXE_ANALYSIS.md 9).
+  const mtm2Courses = sit.origin === "MTM2"
+    ? [sit.primaryCourse, ...(sit.extendedCourses ?? [])].map((c) => (c?.segments?.length ? courseOf(c) : null))
+    : [];
   const palettes = createPaletteResolver(vfs, cpr ? "CPR" : "MTM2", level.palette);
   const mtm = cpr ? vfs.scoped?.("MTM") ?? vfs : vfs;
   const truckPalettes = cpr ? createPaletteResolver(mtm, "MTM2", level.palette) : palettes;
@@ -720,6 +724,17 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
        * segments (0x552c.., and again when a truck strays, 0x486630), else on course 1 (MONSTER_EXE_ANALYSIS.md 9).
        */
       proCourse: sit.extendedCourses?.[0]?.segments?.length ? courseOf(sit.extendedCourses[0]) : null,
+      /**
+       * The courses MTM2's trucks race (MONSTER_EXE_ANALYSIS.md 9): the game keeps the SIT's courses as course 0 (the
+       * primary one, the map's outline), 1 and 2 (its first two extended courses), and puts every truck on course 1, or
+       * on course 2 on Professional when it has segments. Null where the SIT has no such course: a level without
+       * extended courses races its primary one (the port's; the game's course 1 would be empty). Drag strips keep their
+       * lanes (`course`, `proCourse`), CPR its own courses.
+       */
+      raceCourse: mtm2Courses[1] ?? null,
+      proRaceCourse: mtm2Courses[2] ?? null,
+      /** Every course of an MTM2 SIT (null where one is empty), for a truck cut off from its own (game/course-route.js). */
+      routeCourses: mtm2Courses,
       sonicTrack: !!sit.sonicTrack,
       /** CPR's grid stands part way round the course, not at its first straight: each truck starts on the straight it is on. */
       startOnNearestSegment: cpr,

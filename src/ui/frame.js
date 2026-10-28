@@ -20,7 +20,7 @@ import { fullscreenButton } from "./display-mode.js";
 const BUTTONS = {
   driver: [16, 410, 116, 40], races: [136, 410, 116, 40], garage: [256, 410, 114, 40], multi: [374, 410, 116, 40],
   go: [508, 408, 118, 44], continue: [508, 408, 118, 44], hall: [16, 408, 116, 44], replay: [136, 408, 116, 44],
-  again: [256, 408, 116, 44],
+  again: [256, 408, 116, 44], aboutContinue: [447, 402, 118, 42],
   startDriver: [506, 408, 122, 44],
   startWeb: [54, 406, 70, 50], startDemo: [208, 406, 64, 50], startManual: [376, 406, 64, 50],
 };
@@ -34,6 +34,7 @@ const BARS = {
   // The Multiplayer Screen: its GO (or Ready) is the screen's own button.
   net: [["driver", msg("Driver Check-in"), "drivers"], ["races", msg("Races"), "races"], ["garage", msg("Garage"), "garage"], ["multi", msg("Multiplayer"), "multi"]],
   hall: [["continue", msg("Continue"), "back"]],
+  about: [["aboutContinue", msg("Continue"), "back"]],
   // The Winner's Circle after a tournament's race: Continue goes back to the tournament.
   tournament: [["hall", msg("Hall of Fame"), "hall"], ["replay", msg("Instant Replay"), "replay"], ["continue", msg("Continue"), "tournament"]],
   results: [["hall", msg("Hall of Fame"), "hall"], ["replay", msg("Instant Replay"), "replay"], ["again", msg("Race Again"), "again", true], ["continue", msg("Continue"), "continue"]],
@@ -75,7 +76,8 @@ export function clearUiImageCache() {
  *   art, the modern one on a plain stage that draws what the art would (the title, `labels` such as "Player Name" baked into the
  *   art, and the bottom bar's buttons with their names) and may move panels with `modernRegions`. `current` is the bar button of
  *   this screen, shown pressed in the modern skin. `scene` names the modern stage (`stage-scene-<scene>`) so a screen can dress it.
- * @returns {Promise<{ classic: true, art: boolean, regions: Record<string, HTMLElement>, unmount?: () => void }>}
+ * @returns {Promise<{ classic: true, art: boolean, regions: Record<string, HTMLElement>, goButtons: HTMLButtonElement[], unmount?: () => void }>}
+ *   `goButtons`: the bottom bar's GO, for a screen that greys it (the Races screen, when the mode cannot run on the track).
  */
 export async function frame(container, context, { title, backdrop, bar = "main", regions = { main: [24, 120, 592, 280] }, options = true, labels = [], modernRegions = {}, current = null, plainTitle = false, scene = null }) {
   // In a network game the others see where this player is (the Status column, MONSTER_EXE_ANALYSIS.md 14.3).
@@ -102,6 +104,7 @@ export async function frame(container, context, { title, backdrop, bar = "main",
     stage.append(panel);
     return [name, panel];
   }));
+  const goButtons = [];
   for (const [button, label, action, modernOnly] of BARS[bar] ?? []) {
     if (art && modernOnly) continue;
     const hotspot = el("button", {
@@ -112,6 +115,7 @@ export async function frame(container, context, { title, backdrop, bar = "main",
     }, art ? "" : t(label));
     place(hotspot, BUTTONS[button]);
     stage.append(hotspot);
+    if (action === "go") goButtons.push(hotspot);
   }
   // Options, and on the Start screen Fullscreen where the browser can do it (ui/display-mode.js), in the top corner.
   const fullscreen = bar === "start" ? fullscreenButton(t, "stage-utility") : null;
@@ -127,7 +131,7 @@ export async function frame(container, context, { title, backdrop, bar = "main",
   const observer = new ResizeObserver(fit);
   observer.observe(view);
   fit();
-  return { classic: true, art, regions: panels, unmount: () => { observer.disconnect(); enterVr?.dispose(); } };
+  return { classic: true, art, regions: panels, goButtons, unmount: () => { observer.disconnect(); enterVr?.dispose(); } };
 }
 
 function optionsButton(context, className) {

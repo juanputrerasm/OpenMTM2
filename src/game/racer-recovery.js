@@ -1,14 +1,17 @@
 /*
   A computer racer's own way out of trouble on a circuit (an addition, not the game's): the helicopter only as a
-  last resort.
+  last resort, and never on a clock that runs while the truck is getting somewhere.
 
-  - **A missed checkpoint** (`returns`, Professional, Sonic trucks too): instead of the helicopter the truck drives
-    back round to the gate's approach side, then through it. Only after `RETURN_LIMIT_S` without getting through
-    does it call the helicopter.
-  - **Stuck** (`unsticks`, Race & Rumble's racers): a truck that wants to go and cannot (another truck in its way,
-    a tree, a wall) first shoves a truck in front of it, then backs out turning, then drives round to one side and
-    back onto the course, the other side on the next try. Only after `ESCAPE_TRIES` tries, or `ESCAPE_LIMIT_S`
-    without getting clear, or once it has lain over for `OVER_S`, does it call the helicopter.
+  - **A missed checkpoint** (`returns`): the truck weighs, at once and again every `REPLAN_S`, the quickest way back
+    through the gate: **reversing** to the gate's approach side (the gate close behind and the truck still facing the
+    course's way), **turning round** and driving back round to the approach side, or the **helicopter** when either
+    would take longer than its flight (the gate far behind). It drives back at racing speed.
+  - **Stuck** (`unsticks`): a truck that wants to go and cannot (another truck in its way, a tree, a wall) first
+    shoves a truck in front of it, then backs out turning, then drives round to one side and back onto the course,
+    the other side on the next try.
+  - **No way through**: the helicopter is called only when the truck makes no headway: after `ESCAPE_TRIES`
+    manoeuvres, or `ESCAPE_LIMIT_S` seconds without getting clear, or once it has lain over for `OVER_S`. A truck
+    driving back to a gate that stops closing on it for `RETURN_STALL_S` counts as stuck there and manoeuvres too.
   - **Seeing a threat coming** (`threats`, Race & Rumble's enemy blockers): the racer steers off the line a blocker
     is closing on and keeps its foot down.
 
@@ -17,10 +20,18 @@
 */
 import { createRumbleDriver, driveToPoint } from "./rumble-ai.js";
 
-/** A missed checkpoint: the approach point this far before the gate, the exit this far past it, and the time allowed. */
-export const RETURN_BACK_FT = 70, RETURN_PAST_FT = 60, RETURN_LIMIT_S = 45;
-/** Driving back: the speed to the approach point and through the gate, ft/s. */
-export const RETURN_SPEED = 45, THROUGH_SPEED = 35;
+/** A missed checkpoint: the approach point this far before the gate, the exit this far past it. */
+export const RETURN_BACK_FT = 70, RETURN_PAST_FT = 60;
+/** Driving back: the speed to the approach point and through the gate, and backing up, ft/s. */
+export const RETURN_SPEED = 75, THROUGH_SPEED = 60, REVERSE_SPEED = 28;
+/**
+ * The choice of way back: reverse when the gate is within `REVERSE_FT` behind, within `REVERSE_ACROSS_FT` of the
+ * truck's line and the truck still faces within `REVERSE_TURN` radians of the course's way; turning round costs
+ * `TURN_COST_S` a half turn more than driving the distance; the helicopter takes `HELI_COST_S`. Weighed again every `REPLAN_S`.
+ */
+export const REVERSE_FT = 110, REVERSE_ACROSS_FT = 30, REVERSE_TURN = 0.9, TURN_COST_S = 3, HELI_COST_S = 15, REPLAN_S = 2;
+/** Driving back without closing on the target by `RETURN_PROGRESS_FT` for this long is being stuck. */
+export const RETURN_STALL_S = 4, RETURN_PROGRESS_FT = 8;
 /** Stuck: wanting to go (throttle over 0.3 in a forward gear) under this speed for this long. */
 export const STUCK_FT_S = 4, STUCK_S = 1.2;
 /** No headway: never leaving a circle this wide for this long counts as stuck too. */
@@ -28,7 +39,7 @@ export const STALL_FT = 12, STALL_S = 4;
 /** The way out: shove a truck within this distance ahead, back out, go round; how long each lasts, seconds. */
 export const PUSH_FT = 28, PUSH_S = 1.2, BACK_S = 1.5, ROUND_S = 2.6, ROUND_FT = 55, ROUND_TURN = 0.9;
 /** Free again once this far from where it got stuck; the helicopter after this many tries or this long stuck. */
-export const CLEAR_FT = 70, ESCAPE_TRIES = 6, ESCAPE_LIMIT_S = 30;
+export const CLEAR_FT = 70, ESCAPE_TRIES = 4, ESCAPE_LIMIT_S = 15;
 /** A threat: within this distance, closing at over this speed, passing within this miss distance in this time. */
 export const EVADE_FT = 150, EVADE_CLOSING = 10, EVADE_MISS_FT = 24, EVADE_LOOK_S = 2.2;
 /** The most the steering is turned off the autopilot's to dodge, of its ±0.45 lock. */
@@ -50,10 +61,40 @@ const flat = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
  */
 export function createRacerRecovery({ returns = false, unsticks = false } = {}) {
   return {
-    returns, unsticks, mode: "course", timer: 0, phase: null, returnTime: 0, slow: 0, stall: null,
-    tries: 0, stuckTime: 0, anchor: null, side: 1, bias: 0, over: 0, driver: createRumbleDriver(0.5),
+    returns, unsticks, mode: "course", timer: 0, phase: null, plan: null, replan: 0, returnTime: 0, slow: 0, stall: null,
+    tries: 0, stuckTime: 0, anchor: null, side: 1, bias: 0, over: 0, closest: Infinity, since: 0, driver: createRumbleDriver(0.5),
   };
 }
+
+/**
+ * The quickest way back through a missed gate (`gate`: `{ pos, psi }`, `psi` the way it is driven through) for a
+ * truck `state`: `"reverse"`, `"turn"` or `"heli"`, with each one's cost in seconds.
+ */
+export function returnPlan(state, gate) {
+  const dir = [Math.sin(gate.psi), Math.cos(gate.psi)];
+  const approach = [gate.pos[0] - dir[0] * RETURN_BACK_FT, gate.pos[2] - dir[1] * RETURN_BACK_FT];
+  const toApproach = Math.hypot(approach[0] - state.pos[0], approach[1] - state.pos[2]);
+  const toward = Math.atan2(approach[0] - state.pos[0], approach[1] - state.pos[2]);
+  // The gate in the truck's frame: ahead (+) or behind (-), and to the side.
+  const heading = state.euler[2];
+  const sin = Math.sin(heading), cos = Math.cos(heading);
+  const rx = gate.pos[0] - state.pos[0], rz = gate.pos[2] - state.pos[2];
+  const ahead = rx * sin + rz * cos, across = rx * cos - rz * sin;
+  const facing = Math.abs(wrapPi(heading - gate.psi));
+  const cost = {
+    reverse: ahead < 0 && -ahead < REVERSE_FT && Math.abs(across) < REVERSE_ACROSS_FT && facing < REVERSE_TURN
+      ? toApproach / REVERSE_SPEED : Infinity,
+    // Driving round costs the distance and both turns: from the truck's heading to the approach side, and there back
+    // to the gate's way (a truck facing the course's way past the gate makes two U-turns).
+    turn: toApproach / RETURN_SPEED + TURN_COST_S * (Math.abs(wrapPi(toward - heading)) + Math.abs(wrapPi(gate.psi - toward))) / Math.PI,
+    heli: HELI_COST_S,
+  };
+  const kind = cost.reverse <= cost.turn && cost.reverse <= cost.heli ? "reverse" : cost.turn <= cost.heli ? "turn" : "heli";
+  return { kind, cost };
+}
+
+/** Whether a manoeuvre out of a jam (shove, back out, go round) is under way. */
+const escaping = (r) => r.mode === "push" || r.mode === "back" || r.mode === "round";
 
 /** Whether the truck is in its own hands now (the course autopilot's stuck timer must not run). */
 export const racerRecovering = (r) => r.mode !== "course";
@@ -76,13 +117,14 @@ export function racerRecoveryStep(r, ctx) {
   // Lying over: nothing to drive with.
   r.over = s.matrix && s.matrix[4] < OVER_UP ? r.over + dt : 0;
   if (r.over > OVER_S && (r.unsticks || (r.returns && ctx.missed))) { r.over = 0; return giveUp(r, c, ctx.gears); }
-  if (r.returns && ctx.missed) return returnStep(r, ctx);
+  // Stuck on the way back to a gate: the manoeuvres below, then back to the gate.
+  if (r.returns && ctx.missed && !escaping(r)) return returnStep(r, ctx);
   if (r.mode === "return") leave(r, c, ctx.gears);
-  if (!r.unsticks) return "course";
+  if (!r.unsticks && !escaping(r)) return "course";
 
   if (r.mode !== "course") {
     r.stuckTime += dt;
-    if (r.anchor && flat(s.pos, r.anchor) > CLEAR_FT) { leave(r, c, ctx.gears); r.tries = 0; return "course"; }
+    if (r.anchor && flat(s.pos, r.anchor) > CLEAR_FT) { leave(r, c, ctx.gears); r.tries = 0; r.stuckTime = 0; r.anchor = null; return "course"; }
     if (r.stuckTime > ESCAPE_LIMIT_S) return giveUp(r, c, ctx.gears);
     r.timer -= dt;
     if (r.timer <= 0) {
@@ -219,7 +261,10 @@ function worldVel(s) {
   return [m[0] * x + m[1] * y + m[2] * z, m[3] * x + m[4] * y + m[5] * z, m[6] * x + m[7] * y + m[8] * z];
 }
 
-/** Driving back through a missed gate: round to its approach side, then through it. */
+/**
+ * Driving back through a missed gate (`returnPlan`): backing up to its approach side, or round to it; then through
+ * it. The helicopter when that is quicker, or when the truck stops closing on where it is going after its manoeuvres.
+ */
 function returnStep(r, ctx) {
   const s = ctx.state, c = s.controls, dt = ctx.dt, gate = ctx.missed;
   if (r.mode !== "return") {
@@ -227,19 +272,63 @@ function returnStep(r, ctx) {
     r.mode = "return";
     r.phase = "approach";
     r.returnTime = 0;
+    r.replan = 0;
+    r.plan = null;
+    r.closest = Infinity;
+    r.since = 0;
   }
   r.returnTime += dt;
-  if (r.returnTime > RETURN_LIMIT_S) return giveUp(r, c, ctx.gears);
+  r.replan -= dt;
+  // Since the first jam on the way back: clear of it, or the helicopter after `ESCAPE_LIMIT_S` in all.
+  if (r.anchor) {
+    r.stuckTime += dt;
+    if (flat(s.pos, r.anchor) > CLEAR_FT) { r.anchor = null; r.tries = 0; r.stuckTime = 0; }
+    else if (r.stuckTime > ESCAPE_LIMIT_S) return giveUp(r, c, ctx.gears);
+  }
+  if (r.phase === "approach" && (!r.plan || r.replan <= 0)) {
+    const plan = returnPlan(s, gate).kind;
+    if (plan === "heli") return giveUp(r, c, ctx.gears);
+    // A new way: its own progress to watch.
+    if (plan !== r.plan) { r.closest = Infinity; r.since = 0; }
+    r.plan = plan;
+    r.replan = REPLAN_S;
+  }
   const dir = [Math.sin(gate.psi), Math.cos(gate.psi)];
   const rel = [s.pos[0] - gate.pos[0], s.pos[2] - gate.pos[2]];
   const along = rel[0] * dir[0] + rel[1] * dir[1];
   const across = Math.abs(rel[0] * dir[1] - rel[1] * dir[0]);
   const approach = [gate.pos[0] - dir[0] * RETURN_BACK_FT, gate.pos[1], gate.pos[2] - dir[1] * RETURN_BACK_FT];
   const width = Math.max(15, gate.half?.[0] ?? 15);
-  if (r.phase === "approach" && (flat(s.pos, approach) < 25 || (along < -30 && across < width))) r.phase = "through";
-  // Past the gate and still not through it: round again.
-  else if (r.phase === "through" && along > 30) r.phase = "approach";
+  if (r.phase === "approach" && (flat(s.pos, approach) < 25 || (along < -30 && across < width))) {
+    r.phase = "through";
+    r.closest = Infinity;
+    r.since = 0;
+    if (c.gear === ctx.gears.REVERSE) c.gear = ctx.gears.FIRST;
+  } else if (r.phase === "through" && along > 30) {
+    // Past the gate and still not through it: round again.
+    r.phase = "approach";
+    r.plan = null;
+  }
   const point = r.phase === "approach" ? approach : [gate.pos[0] + dir[0] * RETURN_PAST_FT, gate.pos[1], gate.pos[2] + dir[1] * RETURN_PAST_FT];
+  // Headway toward where it is going; none for a while is a jam, got out of as any other.
+  const left = flat(s.pos, point);
+  if (left < r.closest - RETURN_PROGRESS_FT) { r.closest = left; r.since = 0; }
+  else r.since += dt;
+  if (r.since > RETURN_STALL_S) {
+    r.since = 0;
+    r.closest = Infinity;
+    r.plan = null;
+    return startEscape(r, ctx);
+  }
+  if (r.phase === "approach" && r.plan === "reverse") {
+    // Backing straight to the approach point, the nose still the course's way.
+    const back = wrapPi(Math.atan2(s.pos[0] - point[0], s.pos[2] - point[2]) - s.euler[2]);
+    c.gear = ctx.gears.REVERSE;
+    c.throttle = clamp((REVERSE_SPEED + s.bvel[2]) * 0.05, 0.2, 1);
+    c.brakeFront = c.brakeRear = 0;
+    steer(c, clamp(-back * 1.6, -STEER_LOCK, STEER_LOCK), dt);
+    return "own";
+  }
   driveToPoint(s, r.driver, point, r.phase === "approach" ? RETURN_SPEED : THROUGH_SPEED, 0, ctx.gears, dt, { detour: true });
   return "own";
 }

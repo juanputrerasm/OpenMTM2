@@ -4,6 +4,8 @@
   - each truck's lost wheels hidden, and a hurt wheel wobbling on its hub;
   - the loose wheels where the simulation has them (they are objects the trucks hit);
   - a shock and a piece of axle bar flying off when a wheel comes off, with a flash at the hub;
+  - a wreck's torn-off axle (game/extensions/combat.js `wreckShed`, `axlesLost`): gone from the truck with its bars,
+    shocks and shaft, and thrown with them;
   - debris torn off by every hit, more and bigger the harder it was (game/extensions/combat-debris.js);
   - sparks, plenty of them, with every hit and from a bare axle end dragging on the ground (the race's own sparks,
     render/tire-effects.js);
@@ -14,6 +16,7 @@
 import * as THREE from "three";
 import { toSceneMatrix } from "../../shared/scene-frame.js";
 import { debrisShards, seeded, stepShard } from "../../game/extensions/combat-debris.js";
+import { axlesLost } from "../../game/extensions/combat.js";
 
 /** Most debris shards, smoke puffs and flying parts drawn at once. */
 const MOST_SHARDS = 700, MOST_PUFFS = 160, MOST_PARTS = 24;
@@ -81,6 +84,10 @@ export function createCombatScene(scene) {
   const shockGeometry = new THREE.CylinderGeometry(0.22, 0.22, 3.2, 8);
   shockGeometry.rotateZ(Math.PI / 2);
   const barGeometry = new THREE.BoxGeometry(4.5, 0.4, 0.4);
+  // A whole axle beam, as wide as a truck's track, and its differential.
+  const axleGeometry = new THREE.CylinderGeometry(0.35, 0.35, 8.5, 10);
+  axleGeometry.rotateZ(Math.PI / 2);
+  const diffGeometry = new THREE.SphereGeometry(0.9, 10, 8);
   const parts = [];
   const flashes = [];
   const flashMaterial = () => new THREE.SpriteMaterial({ map: texture, color: 0xfff1c0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
@@ -124,6 +131,31 @@ export function createCombatScene(scene) {
     effectsNow?.touch?.(truck, pos, 40, 6000, 60, flagsNow, true);
   };
 
+  /** A part thrown from `pos` (drawn space), tumbling. */
+  const throwPart = (geometry, pos, rand, up = 14) => {
+    if (parts.length >= MOST_PARTS) { const old = parts.shift(); root.remove(old.mesh); }
+    const mesh = new THREE.Mesh(geometry, partMaterial);
+    mesh.castShadow = true;
+    root.add(mesh);
+    parts.push({
+      mesh, pos: [pos[0], pos[1] + 0.5, pos[2]], vel: [(rand() - 0.5) * 30, up + rand() * 14, (rand() - 0.5) * 30],
+      spin: [(rand() - 0.5) * 14, (rand() - 0.5) * 14, (rand() - 0.5) * 14], angle: [0, 0, 0], life: PART_LIFE_S,
+    });
+  };
+  /** Each truck's axles as last drawn: lost or not. */
+  const axlesShown = new Map();
+  /** A wreck tore an axle off: the beam, its differential, its bars and shocks thrown, a flash and debris. */
+  const axleOff = (pos, seed, truck) => {
+    const rand = seeded(seed);
+    const sprite = new THREE.Sprite(flashMaterial());
+    sprite.position.set(pos[0], pos[1], -pos[2]);
+    root.add(sprite);
+    flashes.push({ sprite, age: 0, big: true });
+    for (const geometry of [axleGeometry, diffGeometry, barGeometry, barGeometry, shockGeometry, shockGeometry]) throwPart(geometry, pos, rand, 18);
+    throwDebris({ id: seed, truck, force: 220, vel: [0, 0, 0] }, pos, [0, 1, 0]);
+    effectsNow?.touch?.(truck, pos, 60, 8000, 70, flagsNow, true);
+  };
+
   return {
     /**
      * One frame. `state` is the runtime's view; `poses` the trucks as drawn (`pos`, `matrix`); `drawn` their objects
@@ -135,12 +167,23 @@ export function createCombatScene(scene) {
       clock += dt;
       effectsNow = effects;
       flagsNow = flags;
-      // Lost wheels hidden, hurt ones wobbling.
+      // Lost wheels hidden, hurt ones wobbling; a wreck's torn-off axle gone, and thrown the moment it goes.
       state.trucks.forEach((truck, i) => {
         for (let w = 0; w < 4; w++) {
           const share = truck.wheels[w];
           drawn[i]?.setTire?.(w, { hidden: share < 0, wobble: share >= 0 && share < WOBBLE_UNDER ? 1 - share / WOBBLE_UNDER : 0 });
         }
+        const lost = axlesLost(truck), shown = axlesShown.get(i) ?? [false, false];
+        lost.forEach((gone, k) => {
+          drawn[i]?.setAxle?.(k, { hidden: gone });
+          const pose = poses[i];
+          if (gone && !shown[k] && pose) {
+            // The axle's middle: along the body's z to its hubs (about 6 ft each way), a little under the origin.
+            const m = pose.matrix, z = k === 0 ? 6 : -6;
+            axleOff(near([pose.pos[0] + m[1] * -2 + m[2] * z, pose.pos[1] + m[4] * -2 + m[5] * z, pose.pos[2] + m[7] * -2 + m[8] * z]), i * 977 + k * 31 + 5, i);
+          }
+        });
+        axlesShown.set(i, lost);
       });
       // New hits: their debris.
       for (const hit of state.hits ?? []) {
@@ -243,7 +286,7 @@ export function createCombatScene(scene) {
       for (let k = flashes.length - 1; k >= 0; k--) {
         const f = flashes[k];
         f.age += dt;
-        const s = 3 + f.age * 40;
+        const s = (3 + f.age * 40) * (f.big ? 2 : 1);
         f.sprite.scale.set(s, s, 1);
         f.sprite.material.opacity = Math.max(0, 1 - f.age / 0.3);
         if (f.age > 0.3) { root.remove(f.sprite); f.sprite.material.dispose(); flashes.splice(k, 1); }
@@ -263,7 +306,7 @@ export function createCombatScene(scene) {
     dispose() {
       scene.remove(root);
       shardGeometry.dispose(); shardMaterial.dispose(); shardMesh.dispose();
-      shockGeometry.dispose(); barGeometry.dispose(); partMaterial.dispose();
+      shockGeometry.dispose(); barGeometry.dispose(); axleGeometry.dispose(); diffGeometry.dispose(); partMaterial.dispose();
       for (const p of puffs) p.sprite.material.dispose();
       for (const s of freeSprites) s.material.dispose();
       for (const f of flashes) f.sprite.material.dispose();

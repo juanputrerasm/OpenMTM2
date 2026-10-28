@@ -16,7 +16,6 @@ import { PAD_PEDALS, testRumble } from "../game/input/gamepad.js";
 /** The Rumble effects slider's steps (game/input/rumble.js RUMBLE_LEVELS). */
 const RUMBLE_LEVEL_NAMES = [msg("Hits"), msg("Hits + ground"), msg("All")];
 import { CAB_STYLES, VIEW_DISTANCES, VR_VIEWS, vrSettings } from "../game/vr/settings.js";
-import { VOICE_COMMENTARY_ENABLED } from "../audio/commentary-audio.js";
 import { AA_HINT, AA_MODES, aaChoice } from "../game/aa.js";
 import { GRAPHICS_HINT, GRAPHICS_NOTES, GRAPHICS_PRESETS, applyGraphics, detectGraphics, graphicsChoice, graphicsLabel } from "../game/graphics.js";
 import { graphicsHardware } from "../app/graphics-hardware.js";
@@ -300,7 +299,8 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       if (!replay) { await showAlert(t, t("That file is not a Monster Truck Madness 2 replay.")); return; }
       await leaveFor(() => context.router.go("replay", { replay }))();
     }),
-    nav(msg("Start screen"), leaveFor(() => context.router.go("start", {}, { replace: true }))));
+    nav(msg("Start screen"), leaveFor(() => context.router.go("start", {}, { replace: true }))),
+    nav(msg("About"), leaveFor(() => context.router.go("about"))));
 
   /** Settings declared by each extension: a heading, its description and its rows, as the Display page's sections are. */
   const extensionPanels = EXTENSIONS.flatMap((extension) => [
@@ -356,7 +356,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       target.textContent = t("Copying <<1>> <<2>>%", name, total ? Math.round((copied / total) * 100) : 100);
     });
     try {
-      const done = await context.assets.call("reloadInstall", { files: found.files, podIni: found.podIni, exeVersion: found.exeVersion ?? null, weatherArt: found.weatherArt ?? [], force: true });
+      const done = await context.assets.call("reloadInstall", { files: found.files, podIni: found.podIni, exeVersion: found.exeVersion ?? null, weatherArt: found.weatherArt ?? [], videos: context.settings.copyVideos ? found.videos ?? [] : [], force: true });
       const lines = [t("<<1>> archives mounted, in POD.INI order.", done.archives.length)];
       if (done.added.length) lines.push(t("Read again: <<1>>.", done.added.join(", ")));
       if (done.removed.length) lines.push(t("Removed: <<1>>.", done.removed.join(", ")));
@@ -371,6 +371,18 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       off();
     }
   };
+
+  const introVideosSwitch = toggle(msg("Play intro videos"), "introVideos", msg("The game's start videos at launch. Needs the videos copied (below)"));
+  const resultVideosSwitch = toggle(msg("Play win / lose videos"), "resultVideos", msg("A video after each race for your place: first, last or between. Needs the videos copied (below)"));
+  context.assets.call("videoLists").then(({ files }) => {
+    if (files?.length) return;
+    for (const r of [introVideosSwitch, resultVideosSwitch]) {
+      const input = r.querySelector("input");
+      input.disabled = true;
+      input.checked = false;
+      r.classList.add("opt-disabled");
+    }
+  }).catch(() => {});
 
   const sections = [
     [msg("Game"), [
@@ -389,6 +401,9 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         save();
       } }, ...[0, 1, 2, 3, 4, 5, 6, 7].map((n) => el("option", { value: n, selected: n === (settings.defaultOpponents ?? 3) }, String(n)))),
       msg("How many computer trucks race by default; the Races screen picks which")),
+      // The game's videos (game/videos.js): off and greyed while the install has none.
+      introVideosSwitch, resultVideosSwitch,
+      toggle(msg("Copy the game's videos"), "copyVideos", msg("Copy the VIDEOS folder too (about 155 MB) the next time the game folder is picked (Reload POD.INI)")),
       menus,
       // Fullscreen, where the browser can do it and the game is not installed (ui/display-mode.js), at the page's foot.
       ...(() => { const button = fullscreenButton(t, "opt-fullscreen-button"); return button ? [el("div", { class: "opt-actions opt-fullscreen" }, button)] : []; })(),
@@ -448,7 +463,9 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         save();
       } })),
       toggle(msg("Menu music"), "menuMusic"),
-      row(msg("Announcer voice"), el("input", { type: "checkbox", class: "opt-switch", checked: false, disabled: !VOICE_COMMENTARY_ENABLED }), "Voice commentary is temporarily disabled."),
+      // The game's two commentary switches (MONSTER.INI commentaryFlag and textCommentaryFlag).
+      toggle(msg("Voice commentary"), "commentary", msg("The announcer talks about your truck and the one the camera follows. From the next race")),
+      toggle(msg("Text commentary"), "textCommentary", msg("The announcer's lines are shown on screen. From the next race")),
     ]],
     [msg("Keys"), [note, keyRows, el("div", { class: "opt-actions" }, button(msg("Reset keys"), () => {
       Object.assign(bindings, mergeBindings({})); settings.bindings = {}; save(); note.textContent = t("Keys reset."); showKeys();
@@ -479,8 +496,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         const target = event.currentTarget;
         const said = await testRumble();
         target.textContent = said === "ok" ? t("Rumble: strong motor, then weak motor") : said === "no gamepad" ? t("No gamepad connected") : t("This browser or pad has no rumble");
-      })),
-      toggle(msg("Rumble readout"), "padRumbleReadout", msg("A race shows whether the gamepad rumbles, why not when it does not, how hard each motor runs and what set it. For testing. From the next race"))]],
+      }))]],
     [msg("Extensions"), [
       el("p", { class: "muted" }, t("Optional game modes shipped with OpenMTM2. Each extension owns its settings and runtime rules.")),
       ...extensionPanels,

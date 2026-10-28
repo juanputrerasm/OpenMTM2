@@ -25,7 +25,7 @@ const DIFFICULTIES = [msg("Rookie"), msg("Intermediate"), msg("Professional")];
 export function winnerCells(row, { summit = false, extension = false, laps = 1, difficulty = 1, points = null } = {}) {
   return [
     ordinal(row.place), row.name, row.truckName, DIFFICULTIES[difficulty] ?? DIFFICULTIES[1],
-    summit || extension ? String(Math.round(row.score)) : points === null ? "" : String(points),
+    row.scoreText ?? (summit || extension ? String(Math.round(row.score)) : points === null ? "" : String(points)),
     extension ? formatRaceTime(row.raceTime) : summit ? formatRaceTime(laps * 60) : row.rerun ? msg("Rerun") : row.dq ? msg("DQ") : (row.finished ? formatRaceTime(row.raceTime) : `${row.laps}/${laps}`),
     row.best && !extension ? formatRaceTime(row.best) : "",
   ];
@@ -161,7 +161,9 @@ export default async function mount(container, context, { track, laps, difficult
           if (url) placeCell.replaceChildren(el("img", { class: "place-icon", src: url, alt: cells[0] }));
         });
         return el("tr", { class: r.player ? "player" : null }, placeCell, ...cells.slice(1).map((cell) => el("td", {}, cell)));
-      }))));
+      }))),
+    // A mode's breakdown of the player's score (Freestyle's categories), under the table.
+    ...(me?.detail?.length ? [el("div", { class: "result-detail" }, ...me.detail.map((line) => el("span", {}, line)))] : []));
   return {
     unmount() {
       crowd?.then((voice) => voice?.stop());

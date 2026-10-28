@@ -61,6 +61,14 @@ export const pastCheckpoint = (segment, next, count) => {
   return ahead > 0 && ahead <= count / 2;
 };
 
+/**
+ * Whether a truck has driven through checkpoint stretch `next` (of `count`) since it took its last checkpoint or
+ * started: it was on segment `from` then and has passed `passed` segments since. A truck that starts behind the
+ * stretch (the grid on segment 0, the first checkpoint on the course's last stretch, as on Castle Nugget) is short of
+ * it, not past it.
+ */
+export const droveThrough = (from, passed, next, count) => passed > ((((next - from) % count) + count) % count);
+
 export function createCombatRuntime(payload, env) {
   const { trucks, race, step, watchHeadway } = env;
   const c = createCombat(trucks.length, { toughness: payload.toughness, credits: payload.credits !== false, startCredits: payload.startCredits });
@@ -191,6 +199,10 @@ export function createCombatRuntime(payload, env) {
       const amount = rollCost(p.fast);
       if (amount > 0) {
         const result = applyHit(c, i, { kind: "roll", amount, side: 1, end: 1 });
+        for (const wheel of result.wheelsOff) {
+          throwWheel(i, wheel);
+          say(c, { kind: "wheel", truck: i, wheel, by: -1 });
+        }
         if (result.wrecked) { wreck(c, i, -1); takeOut(i); }
       }
     }
@@ -279,15 +291,21 @@ export function createCombatRuntime(payload, env) {
   /**
    * A truck shoved off its line, or one that drove by its next checkpoint's gate without going through, can be on a
    * stretch past that checkpoint, where it never passes it (the race rules see a miss only at the gate). Two stretches
-   * past it, or one and far from the gate, the helicopter sets it down back on the checkpoint's stretch.
+   * past it, or one and far from the gate, the helicopter sets it down back on the checkpoint's stretch. Only a truck
+   * that has driven through that stretch since its last checkpoint (`droveThrough`): never one at the start.
    */
+  // Where each truck was when it took its last checkpoint (or when the race started), and its segment count then.
+  const marks = trucks.map(() => null);
   const backToCheckpoint = () => {
     if (course.length < 2 || !env.liftTo) return;
     race.trucks.forEach((rt, i) => {
       const t = trucks[i], s = t.state;
-      if (rt.finished || !s.ap || !t.autopilot || t.remote || s.heliTimer > 0 || !running(c.trucks[i])) return;
+      if (!s.ap) return;
+      if (!marks[i] || marks[i].checkpoint !== rt.checkpoint) marks[i] = { checkpoint: rt.checkpoint, segment: s.ap.segment, passed: s.ap.segmentsPassed ?? 0 };
+      if (rt.finished || !t.autopilot || t.remote || s.heliTimer > 0 || !running(c.trucks[i])) return;
       const next = checkpointSegments[rt.checkpoint], gate = race.checkpoints[rt.checkpoint]?.gate?.pos;
       if (next === undefined || !pastCheckpoint(s.ap.segment, next, segments)) return;
+      if (!droveThrough(marks[i].segment, (s.ap.segmentsPassed ?? 0) - marks[i].passed, next, segments)) return;
       const ahead = (((s.ap.segment - next) % segments) + segments) % segments;
       if (ahead >= 2 || (gate && Math.hypot(s.pos[0] - gate[0], s.pos[2] - gate[2]) > FAR_FROM_GATE_FT)) env.liftTo(t, next);
     });

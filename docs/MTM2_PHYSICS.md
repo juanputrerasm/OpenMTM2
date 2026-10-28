@@ -626,8 +626,9 @@ Negative `x` or `z` are wrapped by +8192 ft. Up to four extended courses follow 
 (their count, then the same block each). The loader also averages the straights' midpoints into
 a course centre.
 
-**In memory** each segment is 14 dwords (0x38 bytes), course `n` at `0x70cc28 + n * 0x6d68`,
-**numbered from 1**: straights at the odd slots 1, 3, 5... (copied from the file, `lastentry`
+**In memory** each segment is 14 dwords (0x38 bytes), course `n` at `0x70cc28 + n * 0x6d68` (the
+primary course is course 0, the extended ones 1, 2, ...; the trucks race course 1, or 2 on
+Professional: MONSTER_EXE_ANALYSIS.md 9), its segments **numbered from 1**: straights at the odd slots 1, 3, 5... (copied from the file, `lastentry`
 cleared), arcs at the even slots. The last segment gets `lastentry = 1`. This is why the SIT
 writer saves only the odd segments.
 

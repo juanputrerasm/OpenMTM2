@@ -99,6 +99,8 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
   const bars = suspension ? ribbons(suspension.barTexture, 4, BAR_HALF_WIDTH_FT) : evoSuspension ? ribbons(evoSuspension.barTexture, 4, EVO_BAR_HALF_FT) : null;
   const shocks = suspension ? ribbons(suspension.shockTexture, 8, SHOCK_HALF_WIDTH_FT) : evoSuspension ? ribbons(evoSuspension.shockTexture, 8, EVO_SHOCK_HALF_FT) : null;
   const shafts = suspension && truck.parts.driveshaft ? [0, 1].map(() => { const g = meshesOf(library, truck.parts.driveshaft); root.add(g); return g; }) : [];
+  /** Axles a mode has taken off (Combat's wrecks, `setAxle`): front, rear. Their model, bars, shocks and shaft are gone. */
+  const axleGone = [false, false];
   const eye = new THREE.Vector3(), up = new THREE.Vector3(), forward = new THREE.Vector3(0, 0, 1);
   // `update` moves the root once a frame, and sparks then ask where a dozen hull points are. Each ask used to
   // walk the whole truck. The walk is skipped while this frame's pose is the one already in the world matrices.
@@ -191,6 +193,13 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
       if (!t) return;
       t.pivot.visible = !hidden;
       t.wobble = Math.max(0, Math.min(1, wobble));
+    },
+    /** A mode's say over axle `k` (0 front, 1 rear; Combat's wrecks): `hidden` takes it off, its bars, shocks and shaft too. */
+    setAxle(k, { hidden = false } = {}) {
+      if (k !== 0 && k !== 1) return;
+      axleGone[k] = !!hidden;
+      axles[k].visible = !hidden;
+      if (shafts[k]) shafts[k].visible = !hidden;
     },
     /** A copy of tire `i`'s wheel to draw on its own (it shares the truck's geometry and materials), or null. */
     tireModel(i) {
@@ -297,6 +306,8 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
       for (const { mesh, half, list, plane } of [{ ...bars, list: parts.bars, plane: "xy" }, { ...shocks, list: parts.shocks, plane: "xz" }]) {
         const array = mesh.geometry.getAttribute("position").array, normals = mesh.geometry.getAttribute("normal").array;
         list.forEach(([a, b], q) => {
+          // The parts come axle by axle, front first: a lost axle's are folded to nothing.
+          if (axleGone[q < list.length / 2 ? 0 : 1]) { array.fill(0, q * 12, q * 12 + 12); return; }
           (suspension ? ribbonCorners(a, b, half, viewer) : stripCorners(a, b, half, plane)).forEach((c, k) => array.set([c[0], c[1], -c[2]], (q * 4 + k) * 3));
           const n = ribbonNormal(a, b, viewer);
           for (let k = 0; k < 4; k++) normals.set([n[0], n[1], -n[2]], (q * 4 + k) * 3);

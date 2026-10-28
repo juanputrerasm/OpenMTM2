@@ -17,6 +17,8 @@
   - `toWire` and `fromWire`: the mode's state over the network (the owner's); `ownToWire` and `ownFromWire`, for a
     mode that judges each truck on the machine that drives it (Combat), the state each machine sends of its trucks;
   - `out(state, index)`: whether truck `index` is out of the race (wrecked, or left it): a player who is out watches on;
+  - `result(state, index, t)`: the Winner's Circle's extras for truck `index` from the mode's last state:
+    `{ scoreText?, detail? }`, the score as shown (one decimal, Freestyle's) and lines to show under the table;
   - `keyAction(state, index)`: what the Crash Damage key does in a mode that owns it (the manifest's `damageKey`):
     `{ action, message }`, the action sent to the simulation (`modeAction`) and a line to show, either one optional.
 */
@@ -31,6 +33,7 @@ import {
 } from "./race-rumble.js";
 import { TEAM_COLOURS, TEAM_NAMES, pickedTeams } from "./teams.js";
 import { OUT_LABEL, WHEEL_NAMES, WRECKED_LABEL, combatFromWire, combatOwnFromWire, combatOwnToWire, combatToWire } from "./combat.js";
+import { momentText } from "./freestyle.js";
 
 const none = (count) => Array.from({ length: count }, () => null);
 const nearest = (positions, from, pick) => {
@@ -531,7 +534,62 @@ const COMBAT = {
   },
 };
 
-const ADAPTERS = new Map([["hockey", HOCKEY], ["soccer", SOCCER], ["tag", TAG], ["cops-robbers", CNR], ["race-rumble", RNR], ["combat", COMBAT]]);
+// ---- Freestyle ----
+
+const scoreOf = (x) => (Number(x) || 0).toFixed(1);
+const FREESTYLE = {
+  prepare: (extension, { length }) => ({
+    id: extension.id,
+    dress: { mode: extension.id },
+    start: (_index, fallback) => fallback,
+    simulation: { mode: extension.id, minutes: length },
+  }),
+  // No checkpoints to find: the whole track is the arena.
+  finderTarget: () => null,
+  // The time the run used: all of it, or less when it was left early.
+  resultTime: (length, race) => {
+    const left = race?.extension?.left;
+    return Number.isFinite(left) ? Math.max(0, length * 60 - left) : length * 60;
+  },
+  hud(state, race, entrants, { t, formatRaceTime }, previous) {
+    const flashes = [], sounds = [];
+    let phase = previous.phase ?? null;
+    const rows = [
+      [t("Time Remaining:"), formatRaceTime(state.left)],
+      [t("Score:"), scoreOf(state.score)],
+      ["", ""],
+      ...state.categories.map((c) => [t(c.label), `${scoreOf(c.score)} / ${scoreOf(c.weight)}`]),
+    ];
+    if (state.deductions.reverse > 0) rows.push([t("Reversing"), `-${scoreOf(state.deductions.reverse)}`]);
+    if (state.deductions.crashes > 0) rows.push([t("Crashes"), `-${scoreOf(state.deductions.crashes)}`]);
+    // Each moment judged since the last frame, announced; a spectacular one gets the crowd's YeeHaw.
+    const fresh = Math.max(0, Math.min(state.moments.length, state.events - (previous.events ?? state.events)));
+    for (const m of state.moments.slice(state.moments.length - fresh)) {
+      const text = momentText(t, m);
+      if (text) flashes.push(text);
+      if (["hugeAir", "backFlip", "frontFlip", "roll", "bigSave", "combo"].includes(m.kind)) sounds.push({ kind: "yeehaw", truck: 0 });
+    }
+    if (phase === null && race.started) {
+      flashes.push(t("Freestyle! Use all your time: big air, wheelies, donuts and saves."));
+      phase = "started";
+    }
+    if (state.left <= 10 && state.left > 0 && phase === "started") {
+      flashes.push(t("10 seconds left!"));
+      phase = "ending";
+    }
+    return { rows, flashes, sounds, events: state.events, phase };
+  },
+  result: (state, index, t) => (index !== 0 || !state ? null : {
+    scoreText: scoreOf(state.score),
+    detail: [
+      ...state.categories.map((c) => `${t(c.label)}: ${scoreOf(c.score)} / ${scoreOf(c.weight)}`),
+      ...(state.deductions.reverse > 0 ? [`${t("Reversing")}: -${scoreOf(state.deductions.reverse)}`] : []),
+      ...(state.deductions.crashes > 0 ? [`${t("Crashes")}: -${scoreOf(state.deductions.crashes)}`] : []),
+    ],
+  }),
+};
+
+const ADAPTERS = new Map([["hockey", HOCKEY], ["soccer", SOCCER], ["tag", TAG], ["cops-robbers", CNR], ["race-rumble", RNR], ["combat", COMBAT], ["freestyle", FREESTYLE]]);
 const adapterOf = (stateOrId) => ADAPTERS.get(typeof stateOrId === "string" ? stateOrId : stateOrId?.mode) ?? null;
 
 export function resolveRaceExtension(id, track) {
@@ -584,6 +642,11 @@ export function extensionMarkerTarget(state) {
 export function extensionFinderTarget(state, index, positions) {
   const finder = adapterOf(state)?.finderTarget;
   return finder ? finder(state, index, positions) : undefined;
+}
+
+/** The Winner's Circle's extras for truck `index` (`{ scoreText?, detail? }`), from the mode's last state; null for none. */
+export function extensionResult(state, index, t) {
+  return adapterOf(state)?.result?.(state, index, t) ?? null;
 }
 
 /** The Winner's Circle time value supplied by an extension, or undefined for each truck's own. */
