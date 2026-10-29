@@ -76,9 +76,29 @@ export async function removeInstall() {
  */
 /** The videos and EXTRAS.INI (install/inspect-source.js `findVideos`), copied afresh to `install/VIDEOS/<path>`. */
 export const VIDEOS_DIR = `${INSTALL_DIR}/VIDEOS`;
-async function copyVideos(videos = []) {
+async function copyVideos(videos = [], onProgress = () => {}) {
   await removePath(VIDEOS_DIR);
-  for (const { name, file } of videos) await copyFile(file, `${VIDEOS_DIR}/${name.toUpperCase()}`, () => {});
+  const total = videos.reduce((sum, v) => sum + (v.file.size ?? 0), 0);
+  let copied = 0;
+  for (const { name, file } of videos) {
+    await copyFile(file, `${VIDEOS_DIR}/${name.toUpperCase()}`, (bytes) => {
+      copied += bytes;
+      onProgress({ copied, total, name });
+    });
+  }
+}
+
+/**
+ * The videos alone, into an install that is there (Options' "Copy the game's videos"): copied afresh, or removed with
+ * none given, and the manifest's list set to them. Returns that list.
+ */
+export async function replaceVideos(videos = [], onProgress) {
+  const manifest = await readManifest();
+  if (!manifest) throw new Error("The game is not installed.");
+  await copyVideos(videos, onProgress);
+  manifest.videos = videos.map(({ name }) => name.toUpperCase());
+  await writeBytesToFile(MANIFEST, new TextEncoder().encode(JSON.stringify(manifest, null, 2)));
+  return manifest.videos;
 }
 
 /** The WeatherArt folder's pictures (install/inspect-source.js `findWeatherArt`), copied afresh to `install/WEATHERART`. */

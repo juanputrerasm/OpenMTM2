@@ -27,15 +27,25 @@ export function encodeClrWord(texture, mirror = 0, rotation = 0) {
 /**
  * A .CLR texture grid: one little-endian word per cell, row by row. Returns null when the file
  * is shorter than the grid.
+ *
+ * A file of exactly one byte per cell is the narrow form Hellbender's loader (HELLBEND.EXE
+ * 0x412c3e) accepts by size: each byte is a texture index with no mirror or rotation. No shipped
+ * level uses it.
  */
 export function decodeClrGrid(bytes, gridSize = 256) {
     const cells = gridSize * gridSize;
-    if (bytes.length < cells * 2)
-        return null;
     const words = new Uint16Array(cells);
-    for (let i = 0; i < cells; i++)
-        words[i] = bytes[2 * i] | (bytes[2 * i + 1] << 8);
-    return words;
+    if (bytes.length >= cells * 2) {
+        for (let i = 0; i < cells; i++)
+            words[i] = bytes[2 * i] | (bytes[2 * i + 1] << 8);
+        return words;
+    }
+    if (bytes.length === cells) {
+        for (let i = 0; i < cells; i++)
+            words[i] = bytes[i];
+        return words;
+    }
+    return null;
 }
 /** The bytes of a .CLR texture grid. */
 export function encodeClrGrid(words) {
@@ -49,12 +59,16 @@ export function encodeClrGrid(words) {
 /**
  * Decode a ground-box layer. Returns [] when a grid is shorter than the level's cell count;
  * `faces` may be null, leaving every face at texture -1.
+ *
+ * A face grid of exactly six bytes per cell is the narrow form Hellbender's loader accepts by
+ * size (HELLBEND.EXE 0x412c3e): each byte is a texture index with no mirror or rotation.
  */
 export function decodeGroundBoxes(ra0, ra1, cl0, gridSize, heightOffset = 0) {
     const cells = gridSize * gridSize;
     if (ra0.length < cells || ra1.length < cells)
         return [];
-    if (cl0 && cl0.length < cells * 12)
+    const faceWidth = !cl0 ? 0 : cl0.length >= cells * 12 ? 2 : cl0.length === cells * 6 ? 1 : -1;
+    if (faceWidth < 0)
         return [];
     const boxes = [];
     for (let y = 0; y < gridSize; y++) {
@@ -68,10 +82,10 @@ export function decodeGroundBoxes(ra0, ra1, cl0, gridSize, heightOffset = 0) {
             const faceRotation = new Array(6).fill(0);
             const faceMirror = new Array(6).fill(0);
             if (cl0) {
-                const cl0Base = idx * 12;
+                const cl0Base = idx * 6 * faceWidth;
                 for (let face = 0; face < 6; face++) {
-                    const off = cl0Base + face * 2;
-                    const word = decodeClrWord(cl0[off] | (cl0[off + 1] << 8));
+                    const off = cl0Base + face * faceWidth;
+                    const word = decodeClrWord(faceWidth === 2 ? cl0[off] | (cl0[off + 1] << 8) : cl0[off]);
                     faceTexture[face] = word.texture;
                     faceMirror[face] = word.mirror;
                     faceRotation[face] = word.rotation;

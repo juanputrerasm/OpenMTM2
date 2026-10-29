@@ -50,6 +50,39 @@ export function blinkOn(light, ms) {
 /** A lamp's heading at `seconds`: a beacon turns by its spin speed. */
 export const lampHeading = (light, seconds) => light.heading + light.spin * seconds;
 
+/*
+  Damage knocks a lamp askew (MONSTER_EXE_ANALYSIS.md 11b, `0x5323e0`). A lamp's knock is `{ pos, heading, pitch }`:
+  how far its current position (body axes, feet) and its heading and pitch (radians) have moved from the TRK's.
+*/
+/** A lamp within this of the dented zone's point (feet, the current position) is knocked. */
+export const LAMP_KNOCK_REACH_FT = 2;
+/** The most a knock turns a lamp's heading or pitch away from its own, and the most one knock turns it, radians (20 degrees). */
+export const LAMP_KNOCK_RAD = 0.349066;
+
+/** A lamp not knocked yet. */
+export const freshKnock = () => ({ pos: [0, 0, 0], heading: 0, pitch: 0 });
+
+/**
+ * One damage call on zone point `point` with the zone's direction `direction` (body axes): a lamp near it turns by a
+ * random step either way, held within LAMP_KNOCK_RAD of its own aim (only a lamp with a cone), and moves along the
+ * direction by up to half a foot on x and y and a fifth of that on z. `random()` is in [0, 1). Whether it was near.
+ */
+export function knockLamp(knock, light, point, direction, random = Math.random) {
+  const at = [light.pos[0] + knock.pos[0], light.pos[1] + knock.pos[1], light.pos[2] + knock.pos[2]];
+  const d2 = (at[0] - point[0]) ** 2 + (at[1] - point[1]) ** 2 + (at[2] - point[2]) ** 2;
+  if (!(d2 < LAMP_KNOCK_REACH_FT ** 2)) return false;
+  if (light.coneLength > 0) {
+    const turn = (now) => Math.max(-LAMP_KNOCK_RAD, Math.min(LAMP_KNOCK_RAD, now + random() * 2 * LAMP_KNOCK_RAD - LAMP_KNOCK_RAD));
+    knock.heading = turn(knock.heading);
+    knock.pitch = turn(knock.pitch);
+  }
+  const u = random() * 0.5;
+  knock.pos[0] += direction[0] * u;
+  knock.pos[1] += direction[1] * u;
+  knock.pos[2] += direction[2] * u * 0.2;
+  return true;
+}
+
 /** The cone shows at night for a lit lamp that has a length; a lens bitmap needs the viewer in front of it. */
 export function beamShows(light, intensity, night) {
   return night && intensity > 0 && light.coneLength > 0;

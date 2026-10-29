@@ -1,10 +1,11 @@
 /*
   The start and menu music: SOUND\SPLASH.WAV from MUSIC.POD, with the loop points in its KLP.
-  It plays under the menus and stops for a race.
+  It plays under the menus and stops for a race. While the jukebox plays in its place (`yieldTo`, audio/jukebox.js) it is
+  silent.
 */
-export function createMenuMusic(audio, settings, sample = "SPLASH") {
+export function createMenuMusic(audio, settings, sample = "SPLASH", { yieldTo = () => false } = {}) {
   let voice = null, wanted = false;
-  const allowed = () => settings.menuMusic !== false && !settings.sound?.muted && (settings.sound?.music ?? 0.6) > 0;
+  const allowed = () => settings.menuMusic !== false && !settings.sound?.muted && (settings.sound?.music ?? 0.6) > 0 && !yieldTo();
   const stopVoice = () => {
     voice?.then((v) => v?.stop());
     voice = null;

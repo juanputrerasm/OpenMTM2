@@ -28,6 +28,7 @@ const screens = {
   drivers: () => import("../ui/screens/drivers.js"),
   hall: () => import("../ui/screens/hall.js"),
   about: () => import("../ui/screens/about.js"),
+  manual: () => import("../ui/screens/manual.js"),
   options: () => import("../ui/screens/options.js"),
   results: () => import("../ui/screens/results.js"),
   "drag-event": () => import("../ui/screens/drag-event.js"),

@@ -7,7 +7,7 @@
 */
 import {
   BRIDGE_SURFACES, YEEHAW_GAIN, bridgeVoice, cornerSample, engineVoices, gearSound, hornSample, impactSound, skidRate, skidSurface,
-  spinAction, spinSample, splashGain, tireSliding, variantPicker, wadeGain,
+  spinAction, spinSample, splashGain, tireSliding, variantPicker, wadeGain, UNDERWATER_PITCH,
   MTM1_SKID_SPEED, mtm1CornerSample, mtm1SkidSample, mtm1SpinSample, mtm1Variant,
 } from "../game/sound-model.js";
 
@@ -59,7 +59,9 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
     const sample = mtm1Sounds
       ? kind === "corner" ? mtm1CornerSample(r.code) : mtm1SpinSample(r.code, mtm1Variant(random))
       : kind === "corner" ? cornerSample(r.code, cornerPick) : spinSample(r.code, spinPick);
-    r[kind] = sample ? loopVoice(sample.name, sample.gain * (i === player ? 1 : 0.9), skidRate(random), i === player ? null : pos) : null;
+    const rate = skidRate(random);
+    r[kind] = sample ? loopVoice(sample.name, sample.gain * (i === player ? 1 : 0.9), rate * (trucks[i].pitch ?? 1), i === player ? null : pos) : null;
+    if (r[kind]) r[kind].rate = rate;
   }
 
   function startEngine(t, i, pose) {
@@ -105,11 +107,18 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
     }
   }
 
-  function update(dt, poses, listener, clock, damaged = []) {
+  /** `listenerUnder`: the camera is under the water level (game/sound-model.js, "Sound under water"). */
+  function update(dt, poses, listener, clock, damaged = [], { listenerUnder = false } = {}) {
     if (muted) return;
     poses.forEach((pose, i) => {
       const t = trucks[i], s = pose.sound;
       if (!s) return;
+      // A truck in water heard from under water: its loops and gear sounds lower (0x41bbd0).
+      const pitch = listenerUnder && s.inWater ? UNDERWATER_PITCH : 1;
+      if (pitch !== (t.pitch ?? 1)) {
+        t.pitch = pitch;
+        for (const r of t.rear) for (const kind of ["corner", "spin"]) r[kind]?.voice?.setRate((r[kind].rate ?? 1) * pitch);
+      }
       const pos = pose.current.pos;
       const near = i === player || Math.hypot(pos[0] - listener[0], pos[2] - listener[2]) < AUDIBLE_FT;
       t.cooldown = Math.max(0, t.cooldown - dt);
@@ -124,7 +133,7 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
           const voice = t.engine[key];
           if (!voice) continue;
           voice.setGain(near ? v[key].gain : 0);
-          voice.setRate(v[key].rate);
+          voice.setRate(v[key].rate * pitch);
           if (i !== player) voice.setPosition(pos);
         }
       }
@@ -169,7 +178,8 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
       t.dryFor = s.inWater ? 0 : (t.dryFor ?? Infinity) + dt;
       t.inWater = !!s.inWater;
       if (near && s.inWater) {
-        if (!playing(t.wade)) t.wade = loopVoice("WTR-ABV1", wadeGain(s.speed), 1, i === player ? null : pos);
+        // Heard from under water the wading loop is not started (0x41bbd0).
+        if (!playing(t.wade) && !listenerUnder) t.wade = loopVoice("WTR-ABV1", wadeGain(s.speed), 1, i === player ? null : pos);
         t.wade.voice?.setGain(wadeGain(s.speed));
         if (i !== player) t.wade.voice?.setPosition(pos);
       } else t.wade = stopLoop(t.wade);
@@ -215,7 +225,7 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
         t.gearCooldown = Math.max(0, (t.gearCooldown ?? 0) - dt);
         if (gear && t.gear !== null && t.gearCooldown === 0) {
           t.gearVoice?.then((voice) => voice?.stop());
-          t.gearVoice = audio.play(gear, { gain: 0.8, position: i === player ? null : pose.current.pos });
+          t.gearVoice = audio.play(gear, { gain: 0.8, rate: pitch, position: i === player ? null : pose.current.pos });
           t.gearCooldown = 1;
         }
         // The object's sound comes from the object, `offset` feet from the truck.

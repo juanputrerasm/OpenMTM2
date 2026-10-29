@@ -136,3 +136,31 @@ test("kicked or disconnected: the session ends with the reason", () => {
   server.emit("closed", {});
   assert.deepEqual(reasons, ["removed"], "once");
 });
+
+test("team lines: sent to the teammates in the room where the server routes them, and marked when heard", () => {
+  const server = fakeServer(1);
+  const members = [room().members[0], { id: 2, name: "Ben" }, { id: 3, name: "Cal" }];
+  const s = createRoomSession({ server, room: room({ members }), me: { name: "Ann" } });
+  const heard = [];
+  s.on("chat", (c) => heard.push(c));
+  assert.equal(s.canTeamChat(), false, "an older server: no team channel");
+  server.info.features = ["teamChat"];
+  assert.equal(s.canTeamChat(), true);
+  // Self, a stranger and a repeat are left out.
+  s.teamChat("cover the goal", [2, 1, 9, 2]);
+  assert.deepEqual(server.requests.at(-1), { type: "chat", text: "cover the goal", team: [2] });
+  assert.deepEqual([heard.at(-1).team, heard.at(-1).own], [true, true]);
+  server.emit("chat", { from: 2, name: "Ben", text: "on it", private: false, team: true });
+  assert.deepEqual([heard.at(-1).name, heard.at(-1).team, heard.at(-1).private], ["Ben", true, false]);
+});
+
+test("the owner cannot start while a member reported not having the track", () => {
+  const server = fakeServer(1);
+  const track = { sit: "TPARK.SIT", name: "Farm Road 29", crc: 5 };
+  const members = [room().members[0], { id: 2, name: "Ben", ready: true, content: { sit: "TPARK.SIT", crc: -1 } }];
+  const s = createRoomSession({ server, room: room({ members, settings: { ...room().settings, track } }), me: { name: "Ann" }, hasTrack: () => true, trackCrc: async () => 5 });
+  assert.equal(s.canStart(), false);
+  assert.equal(s.state().players.find((p) => p.dpid === 2).missingTrack, true);
+  server.emit("member", { member: { id: 2, name: "Ben", ready: true, content: { sit: "TPARK.SIT", crc: 5 } } });
+  assert.equal(s.canStart(), true);
+});

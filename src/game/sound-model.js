@@ -290,3 +290,36 @@ export function loopSeconds(klp, duration, sourceRate, decodedRate) {
   const region = loopRegion(klp, Math.ceil(duration * rate));
   return region ? { start: region.start / rate, end: region.end / rate } : null;
 }
+
+/*
+  Sound under water (MONSTER_EXE_ANALYSIS.md 12, "Under water"): the camera below the water level (never in Snow) is the
+  listener under water.
+*/
+/** A truck in water heard from under water: its loops and gear sounds at this share of their pitch (`0x6078dc`). */
+export const UNDERWATER_PITCH = 0.65;
+/** The mixer's master level while the listener is under water (`0x6078e0`). */
+export const UNDERWATER_MASTER = 0.75;
+/** A one-shot whose source is under water, heard from above: this share of its pitch. */
+export const SUNK_SOURCE_PITCH = 0.9;
+
+/**
+ * A world one-shot's gain and pitch factors by where it starts and where it is heard (`0x429cb0`, `0x428bc0`): both in
+ * the air 1; the source under water 1 at 0.9 of its pitch; the listener under water only 0.2; both under water 1.2. Heard
+ * from under water it plays at 0.65 of its pitch.
+ */
+export function underwaterMix(sourceUnder, listenerUnder) {
+  const gain = listenerUnder ? (sourceUnder ? 1.2 : 0.2) : 1;
+  const rate = listenerUnder ? UNDERWATER_PITCH : sourceUnder ? SUNK_SOURCE_PITCH : 1;
+  return { gain, rate };
+}
+
+/** Rain's pitch jitter each frame (`0x57581b`): up to 1.5% either way, `random()` in [0, 1). */
+export const rainJitter = (random = Math.random) => 1 + (random() * 2 - 1) * 0.015;
+/** Rain heard from under water: 0.6 of its pitch. */
+export const RAIN_UNDERWATER_PITCH = 0.6;
+/** The game's two rain loop volumes: the rain itself (`rain4.wav`) and the rain on the roof in the cockpit (`rainrf8.wav`). */
+export const RAIN_GAIN = 0.25, RAIN_ROOF_GAIN = 0.7;
+/** The roof's loop beside the port's rain loop at `rainGain`, in the game's proportion. */
+export const roofGain = (rainGain) => rainGain * (RAIN_ROOF_GAIN / RAIN_GAIN);
+/** Whether the rain drums on the roof: Rain (weather 4), the cockpit view, the camera not under water and open sky over it. */
+export const rainOnRoof = ({ weather, cockpit, underwater, covered }) => weather === 4 && !!cockpit && !underwater && !covered;

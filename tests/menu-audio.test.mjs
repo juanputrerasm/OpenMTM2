@@ -86,3 +86,31 @@ test("a track WAV loops on the music bus", () => {
   assert.deepEqual(calls, [["FARM.WAV", { loop: true, gain: 1, bus: "music" }]]);
   world.dispose();
 });
+
+test("while the jukebox plays, the menu music and the track's music are silent, and come back when it stops", async () => {
+  const calls = [];
+  const voice = { stop() { calls.push(["stop"]); } };
+  const audio = { play(name) { calls.push(["play", name]); return Promise.resolve(voice); }, playMod: async () => voice };
+  let jukeboxOn = true;
+  const menu = createMenuMusic(audio, { menuMusic: true, sound: { music: 0.6, muted: false } }, "SPLASH", { yieldTo: () => jukeboxOn });
+  menu.start();
+  assert.deepEqual(calls, []);
+  jukeboxOn = false;
+  menu.refresh();
+  assert.deepEqual(calls, [["play", "SPLASH"]]);
+  menu.stop();
+  await Promise.resolve();
+  calls.length = 0;
+
+  jukeboxOn = true;
+  const world = createWorldAudio(audio, { ambient: null, weather: 0, music: "FARM.WAV", musicOff: () => jukeboxOn });
+  assert.ok(!calls.some(([, name]) => name === "FARM.WAV"), "no track music while the jukebox plays");
+  jukeboxOn = false;
+  world.refreshMusic();
+  assert.ok(calls.some(([, name]) => name === "FARM.WAV"), "the track's music comes back");
+  jukeboxOn = true;
+  world.refreshMusic();
+  await Promise.resolve();
+  assert.deepEqual(calls.at(-1), ["stop"]);
+  world.dispose();
+});

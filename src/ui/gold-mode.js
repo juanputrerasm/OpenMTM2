@@ -8,17 +8,17 @@
     Ctrl+Y   slew mode: the race stands still and the truck is moved by hand
              (arrows move, Q and A up and down, End and Page Down yaw, Home and Page Up roll,
              F5 and F8 pitch, Shift faster)
-    Z        in slew mode, Z mode: the technical overlay (zoom, level, polygons), - and + zoom the view
-             (0.5x to 16x), Insert and Delete swing the camera round the truck, Ctrl+L loads a SIT by
-             name. Z mode stays on when slew mode is left (Ctrl+Y again), so the race is driven with
-             its zoom and its camera; Z in slew mode turns it off.
+    Z        Z mode, on and off at any time (slew mode or not): the technical overlay (zoom, level,
+             polygons), - and + zoom the view (0.5x to 16x), Ctrl+L loads a SIT by name, and X stops
+             the computer trucks' autopilot and starts it again (a single-player race). The View keys
+             (Insert and Delete) swing the chase camera round the truck in Z mode as in any race.
     0        a screenshot (4 in slew mode), saved as a PNG download
     Ctrl+W   the weather cycle, through the weathers the track allows
 
   Browsers keep Ctrl+T, Ctrl+W and Ctrl+L, so Alt works in place of Ctrl for every key.
 
-  The Z-mode cameras option (Options, Advanced; not the game's) gives the zoom, the orbit and Ctrl+L in
-  any race, with no GOLD and no slew mode, without the overlay.
+  The Z-mode cameras option (Options, Advanced; not the game's) gives the zoom and Ctrl+L in any race, with no GOLD
+  and no slew mode, without the overlay.
 */
 import * as THREE from "three";
 import { createCollisionOverlay } from "../render/collision-overlay.js";
@@ -28,9 +28,11 @@ import { nextWeather, weatherName } from "../game/weather.js";
 import { createStrings, msg } from "../game/strings.js";
 
 const AUTOPILOT_NAMES = [msg("off"), msg("auto throttle"), msg("full autopilot")];
+/** Z mode's zoom (MONSTER_EXE_ANALYSIS.md 11): the camera's 16.16 zoom value moves by 0x1000 within 0x1000..0x20000. */
+export const ZOOM_ONE = 0x10000, ZOOM_STEP = 0x1000, ZOOM_MIN = 0x1000, ZOOM_MAX = 0x20000;
+/** How much nearer a zoom value brings the view: 16 at 0x1000, a half at 0x20000. */
+export const zoomFactor = (value) => ZOOM_ONE / value;
 const OVERLAY_NAMES = { off: msg("off"), wireframe: msg("wireframe"), solid: msg("solid") };
-/** How fast Insert and Delete swing the camera. */
-const ORBIT_RAD_PER_S = 1.2;
 
 /**
  * @param {{ window: Window, sim: { call: Function }, scene: THREE.Scene, camera: THREE.PerspectiveCamera,
@@ -53,7 +55,8 @@ export function createGoldMode(env) {
     panel.element.hidden = true;
     view.append(panel.element);
   }
-  const state = { gold: false, fps: false, slew: false, zMode: false, zoom: 1, turn: 0, screenshot: false, dance: false };
+  // `zoomValue`: the camera's zoom as the game keeps it (16.16, 0x10000 the view's own; MONSTER_EXE_ANALYSIS.md 11), `zoom` the factor it gives.
+  const state = { gold: false, fps: false, slew: false, zMode: false, zoom: 1, zoomValue: ZOOM_ONE, screenshot: false, dance: false };
   // DANCE: the mixer's output as a line across the view, over three guide lines (the middle and 64 lines either side of 480).
   const scope = win.document.createElement("canvas");
   scope.className = "gold-scope";
@@ -85,8 +88,9 @@ export function createGoldMode(env) {
   const down = new Set();
 
   const command = async (name) => sim.call("command", { name });
-  const setZoom = (z) => {
-    state.zoom = Math.max(0.5, Math.min(16, z));
+  const setZoom = (value) => {
+    state.zoomValue = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, value));
+    state.zoom = zoomFactor(state.zoomValue);
     camera.zoom = state.zoom;
     camera.updateProjectionMatrix();
   };
@@ -108,9 +112,17 @@ export function createGoldMode(env) {
       // In Z mode - and + zoom, as in the game. With only the Z-mode cameras option they zoom with Shift: alone they
       // tilt the chase camera (the Camera up and down keys).
       const zoomKey = !chord && (state.zMode || e.shiftKey);
-      if (zoomKey && (e.code === "Minus" || e.code === "NumpadSubtract")) { setZoom(state.zoom / 2); flash(t("Zoom <<1>>x", state.zoom)); return true; }
-      if (zoomKey && (e.code === "Equal" || e.code === "NumpadAdd")) { setZoom(state.zoom * 2); flash(t("Zoom <<1>>x", state.zoom)); return true; }
+      // The game's steps: - widens by 0x1000, = narrows by 0x1000 (0x52cd90).
+      const shown = () => flash(t("Zoom <<1>>x", Math.round(state.zoom * 100) / 100));
+      if (zoomKey && (e.code === "Minus" || e.code === "NumpadSubtract")) { setZoom(state.zoomValue + ZOOM_STEP); shown(); return true; }
+      if (zoomKey && (e.code === "Equal" || e.code === "NumpadAdd")) { setZoom(state.zoomValue - ZOOM_STEP); shown(); return true; }
       if (chord && e.code === "KeyL" && env.loadSit) { e.preventDefault(); env.loadSit(); return true; }
+    }
+    // X in Z mode: every computer truck's autopilot off, or on again (0x585da0); X alone is Crash Damage.
+    if (state.zMode && !chord && e.code === "KeyX") {
+      e.preventDefault();
+      command("cpuStop").then((on) => { if (on !== null) flash(t("Computer trucks: <<1>>", on ? t("stopped") : t("driving"))); });
+      return true;
     }
     if (!state.gold) return false;
     const done = (promise) => { e.preventDefault(); return promise; };
@@ -134,11 +146,11 @@ export function createGoldMode(env) {
       return true;
     }
     if (e.code === "Digit0" || (state.slew && e.code === "Digit4")) { state.screenshot = true; return true; }
-    if (state.slew && e.code === "KeyZ") {
+    if (e.code === "KeyZ" && !chord) {
       state.zMode = !state.zMode;
       zPanel.element.hidden = !state.zMode;
-      // Leaving Z mode puts the view back, unless the option keeps its keys.
-      if (!state.zMode && !env.zCameras?.()) { setZoom(1); state.turn = 0; }
+      // Leaving Z mode puts the view's own zoom back, unless the option keeps its keys.
+      if (!state.zMode && !env.zCameras?.()) setZoom(ZOOM_ONE);
       flash(t("Z mode: <<1>>", onOff(state.zMode)));
       return true;
     }
@@ -161,14 +173,12 @@ export function createGoldMode(env) {
   /** Per frame, after the world is drawn. */
   function afterRender(dt, levelName) {
     if (dt > 0) fps += (1 / dt - fps) * 0.1;
-    // Insert and Delete swing the camera round the truck while held (the chase views).
-    if (zKeys() && dt > 0) state.turn += ((down.has("Insert") ? 1 : 0) - (down.has("Delete") ? 1 : 0)) * ORBIT_RAD_PER_S * Math.min(dt, 0.1);
     if (state.fps) fpsPanel.set([`fps : ${fps.toFixed(1)}`]);
     if (state.dance) drawScope();
     if (state.zMode) {
       // MTM1's Z mode adds a physics line under the overlay (0x44a1b0); `env.physicsLine` gives what the page knows of it.
       const physics = env.physicsLine?.();
-      zPanel.set([t("Zoom <<1>>x", state.zoom), t("Level <<1>>", levelName), t("Polygons <<1>>/<<2>>", renderer.info.render.triangles, totalTriangles), t("Models <<1>>", build.objects?.length ?? 0), ...(physics ? [physics] : [])]);
+      zPanel.set([t("Zoom <<1>>x", Math.round(state.zoom * 100) / 100), t("Level <<1>>", levelName), t("Polygons <<1>>/<<2>>", renderer.info.render.triangles, totalTriangles), t("Models <<1>>", build.objects?.length ?? 0), ...(physics ? [physics] : [])]);
     }
     if (state.screenshot) {
       state.screenshot = false;
@@ -188,8 +198,6 @@ export function createGoldMode(env) {
     state, slewInput, afterRender,
     /** Whether - and + are Z mode's zoom just now, and not the camera's tilt. */
     get zooming() { return state.zMode; },
-    /** How far Z mode has swung the chase camera round the truck, radians. */
-    get cameraTurn() { return zKeys() ? state.turn : 0; },
     /** The sim polling needs the slew keys only while slewing. */
     get slewing() { return state.slew; },
     /** Whether GOLD mode takes this key itself (0, and 4 in slew mode, are its screenshot), so a number key picks no view. */

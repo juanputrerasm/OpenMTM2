@@ -6,11 +6,12 @@
   `{ id, ok, payload | error }`, unsolicited events `{ event, payload }`, and `{ ready: true }`
   once this module graph has loaded.
 */
-import { VIDEOS_DIR, copyInstall, readManifest, removeInstall, syncInstall } from "./install-store.js";
+import { VIDEOS_DIR, copyInstall, readManifest, removeInstall, replaceVideos, syncInstall } from "./install-store.js";
 import { readFile } from "../shared/opfs.js";
 import { parseVideoLists } from "../game/videos.js";
 import { addGameFolder, addPods, describeMounts, mountAll, reloadPodIni, removeAddons, removePod, setMountOrder } from "./addon-store.js";
 import { buildCatalog } from "./catalog.js";
+import { buildJukeboxList } from "./jukebox-list.js";
 import { buildSky, buildTrackRender, transferablesOf } from "./track-build.js";
 import { lenientKlp } from "../game/sound-model.js";
 import { SOUND_EXTENSIONS, findSound, soundStem } from "./sound-file.js";
@@ -43,6 +44,8 @@ const ownBytes = (bytes) => (bytes.byteOffset === 0 && bytes.byteLength === byte
 // Promises, so requests that arrive together share one mount and one catalogue; a reset sets them to null.
 let vfs = null;
 let catalog = null;
+/** The jukebox's music, with the catalogue it was read from: read again once the catalogue is (the mounts changed). */
+let jukebox = { catalog: null, list: null };
 /** Track checksums by archive key (trackChecksum); forgotten when the mounts change. */
 const trackChecksums = new Map();
 
@@ -108,6 +111,11 @@ const handlers = {
     const files = (manifest?.videos ?? []).filter((name) => name !== "EXTRAS.INI");
     const ini = await readFile(`${VIDEOS_DIR}/EXTRAS.INI`).then((f) => f.text()).catch(() => "");
     return { lists: parseVideoLists(ini), files };
+  },
+
+  /** Copy the game's videos into the install, or remove them with none given (install-store.js `replaceVideos`). */
+  async installVideos({ videos = [] } = {}) {
+    return replaceVideos(videos, (progress) => self.postMessage({ event: "install-progress", payload: progress }));
   },
 
   /** A video's bytes (`path` as `videoLists` gives it), or null. */
@@ -176,6 +184,18 @@ const handlers = {
     catalog ??= mounted().then(buildCatalog);
     const all = await settle(catalog, (p) => { if (catalog === p) catalog = null; });
     return mtm1Apart ? all : { ...all, trucks: all.trucks.filter((truck) => !truck.apart) };
+  },
+
+  /**
+   * The jukebox's music (worker/jukebox-list.js): every piece of music in the mounted archives, each once:
+   * `[{ id, kind, stem, format, menu, tracks }]`.
+   */
+  async jukebox() {
+    const { tracks } = await handlers.catalog();
+    // Set at once, so requests that arrive together share one reading.
+    if (jukebox.catalog !== catalog || !jukebox.list) jukebox = { catalog, list: mounted().then((view) => buildJukeboxList(view, tracks)) };
+    const pending = jukebox.list;
+    return settle(pending, (p) => { if (jukebox.list === p) jukebox = { catalog: null, list: null }; });
   },
 
   /** Everything needed to draw a track; `{ path }` is its SIT, e.g. "WORLD\\TPARK.SIT". */
@@ -263,9 +283,9 @@ const handlers = {
     return (text.includes("\x1a") ? text.slice(0, text.indexOf("\x1a")) : text).replace(/\r\n?/g, "\n").trim();
   },
 
-  /** The cockpit art and the finder (worker/cockpit-art.js), or null. */
-  async cockpit() {
-    const art = await loadCockpit(await mounted());
+  /** The cockpit art and the finder (worker/cockpit-art.js), darkened for `weather`, or null. */
+  async cockpit({ weather = 0 } = {}) {
+    const art = await loadCockpit(await mounted(), { weather });
     if (!art) return null;
     const buffers = [];
     const collect = (value) => { if (value?.rgba) buffers.push(value.rgba.buffer); else if (value && typeof value === "object") Object.values(value).forEach(collect); };

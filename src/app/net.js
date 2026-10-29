@@ -20,6 +20,7 @@ import { currentDriver } from "../game/profile.js";
 import { resolveWeather } from "../game/weather.js";
 import { createStrings, msg } from "../game/strings.js";
 import { showAlert } from "../ui/dialogs.js";
+import { chatSettings, isMuted } from "../game/chat.js";
 
 /** The chat pane keeps this many lines (the game's in-race buffer holds 20). */
 export const LOG_LINES = 60;
@@ -185,14 +186,21 @@ function attachClassic(context, transport, me) {
 }
 
 function attach(context, kind, session, transport, me) {
-  const net = { kind, session, transport, log: [], name: transport.name, catalog: me.catalog };
+  // `lastPrivate`: who sent the last private line, for a reply (/r, the race chat's Reply channel).
+  const net = { kind, session, transport, log: [], name: transport.name, catalog: me.catalog, lastPrivate: null };
   const say = (line) => {
     net.log.push(line);
     if (net.log.length > LOG_LINES) net.log.splice(0, net.log.length - LOG_LINES);
     net.onLine?.(line);
   };
-  session.on("chat", (c) => say({ name: c.name, text: c.text, private: !!c.private, own: !!c.own }));
-  session.on("notice", (n) => say({ name: "", text: n.text, notice: true }));
+  session.on("chat", (c) => {
+    // A muted player's lines are left out, in the lobby and in the race (game/chat.js).
+    if (!c.own && isMuted(chatSettings(context.settings.net).muted, c.name)) return;
+    if (c.private && !c.own) net.lastPrivate = { from: c.from, name: c.name };
+    say({ from: c.from, name: c.name, text: c.text, private: !!c.private, team: !!c.team, quick: !!c.quick, own: !!c.own });
+  });
+  // `code` and `who` let the race announce a player leaving once (ui/race-chat.js).
+  session.on("notice", (n) => say({ name: "", text: n.text, notice: true, code: n.code ?? null, who: n.name ?? null }));
   session.on("start", (e) => startNetRace(context, net, e));
   session.on("left", async ({ reason }) => {
     if (context.net !== net) return;
@@ -254,14 +262,37 @@ export { LOCATION };
  * The host's GO: start when every player is ready. Random weather is drawn from what the track allows. Returns an error
  * message, or null.
  */
+/**
+ * Why the host cannot start yet, or null: `{ text, args }`, `text` a tag. In order: no track; a player without the
+ * track (they could not race on it); a player whose truck is not installed on the host's machine, unless Options,
+ * Multiplayer allows that (`allowMissingTrucks`: the truck is then drawn as another); a player not Ready.
+ * @param {ReturnType<ReturnType<typeof createRoomSession>["state"]>} st the session's state
+ * @param {{ hasTruck?: (file: string) => boolean, allowMissingTrucks?: boolean }} [options]
+ */
+export function startProblem(st, { hasTruck = () => true, allowMissingTrucks = false } = {}) {
+  if (!st.game.track) return { text: msg("Choose a track on the Races screen first."), args: [] };
+  const guests = st.players.filter((p) => !p.local && !p.computer);
+  const lacking = guests.filter((p) => p.missingTrack);
+  if (lacking.length) return { text: msg("Without the track: <<1>>. Choose a track everyone has."), args: [lacking.map((p) => p.name).join(", ")] };
+  if (!allowMissingTrucks) {
+    const odd = guests.filter((p) => p.truck && !hasTruck(p.truck));
+    if (odd.length) return { text: msg("Trucks not installed here: <<1>>. They must choose another, or Options, Multiplayer can allow it."), args: [odd.map((p) => `${p.name} (${p.truck})`).join(", ")] };
+  }
+  if (!st.canStart) return { text: msg("Every player must be Ready."), args: [] };
+  return null;
+}
+
+/** Whether `file` is one of this install's trucks (the catalogue's, hidden ones left out). */
+export const catalogHasTruck = (catalog, file) => (catalog?.trucks ?? []).some((t) => !t.hidden && t.file.toUpperCase() === String(file).toUpperCase());
+
 export function netGo(context) {
   const net = context.net;
   if (!net) return msg("Not in a network game.");
   const s = net.session;
   if (!s.isHost()) { s.setReady(!s.state().players.find((p) => p.local).ready); return null; }
   const st = s.state();
-  if (!st.game.track) return msg("Choose a track on the Races screen first.");
-  if (!s.canStart()) return msg("Every player must be Ready.");
+  const problem = startProblem(st, { hasTruck: (file) => catalogHasTruck(net.catalog, file), allowMissingTrucks: !!context.settings.net?.allowMissingTrucks });
+  if (problem) { const t = context.t ?? createStrings(); return t(problem.text, ...problem.args); }
   const track = net.catalog.tracks.find((t) => t.file.toUpperCase() === st.game.track.sit.toUpperCase());
   s.start({ resolveWeather: () => resolveWeather("random", track?.weatherMask), computers: net.kind === "rooms" ? pickComputers(context, st.game.computers ?? 0) : [] });
   return null;

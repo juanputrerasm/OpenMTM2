@@ -297,7 +297,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   if (sitBytes && isEvoSit(sitBytes)) return withMtm1Sky(vfs, await buildEvoTrackRender(vfs, sitPath, sitBytes, { detailLevel, raceType, truckFiles, weather, hdWeather, tileOverlap, forest: evoForest, sunShadows, smoothTerrain: !!visuals.smoothing, lite }), weather, mtm1);
   const level = await loadLevel(vfs, sitPath, sitBytes);
   const { sit } = level;
-  // A CART Precision Racing track (docs/PLAN.md F3): its own art and palettes, a finer heightfield and a road layer.
+  // A CART Precision Racing track (docs/CHANGELOG.md F3): its own art and palettes, a finer heightfield and a road layer.
   // The trucks, the blimp and the helicopter are MTM2's whatever the track, looked up as an MTM2 track would.
   const cpr = sit.origin === "CPR";
   // An MTM2 SIT's courses as the game numbers them: 0 the primary one, then its extended ones (MONSTER_EXE_ANALYSIS.md 9).

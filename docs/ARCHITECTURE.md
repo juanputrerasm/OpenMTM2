@@ -1,6 +1,6 @@
 # OpenMTM2 architecture
 
-How the code is organised and why. The milestones are in `PLAN.md`; the game itself is described
+How the code is organised and why. The open work is in `PLAN.md` and what was built in `CHANGELOG.md`; the game itself is described
 in `MONSTER_EXE_ANALYSIS.md` and its simulation in `MTM2_PHYSICS.md`. What the port draws that
 the game did not (smoothed ground, its own water and weather) is specified in `VISUALS.md`.
 
@@ -317,4 +317,4 @@ simulation worker take without knowing the game:
 The simulation's ground is an interface (OpenPhotex `Mtm2Ground`): terrain from heights in feet
 (`createTerrainFt`), with a road or mesh layer over it (`createRoadGround`). A mesh layer is
 asked per truck with its height (`below`), so what stands over a truck is not its ground. MTM2's
-own physics are unchanged. `docs/PLAN.md` (Next features) has what is decided and what is open.
+own physics are unchanged. `docs/CHANGELOG.md` (Next features) has what was decided, and `PLAN.md` what is open.

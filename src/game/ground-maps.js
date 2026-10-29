@@ -346,6 +346,18 @@ export function buildShelterMap(cover, heightAt, side = GROUND_MAP_SIDE) {
   return out;
 }
 
+/**
+ * Whether something stands over the point (x, y, z), game feet: the cover map's top at its sample is above `y`. Rain on
+ * the cab's roof asks it (MONSTER_EXE_ANALYSIS.md 12, "Rain"; the game asks a table of its own per terrain cell).
+ */
+export function coveredAt(cover, x, y, z) {
+  const top = cover?.top, side = cover?.side;
+  if (!top || !side) return false;
+  const step = WORLD_FT / side, wrap = (v) => ((v % side) + side) % side;
+  const at = top[wrap(Math.floor(z / step)) * side + wrap(Math.floor(x / step))];
+  return at > NO_COVER_FT && at > y;
+}
+
 /** How much of the sky a place is under cover from, 0 to 1, read between the shelter map's samples (which lie at the middle of their squares). */
 export function shelterAt(shelter, x, z, side = GROUND_MAP_SIDE) {
   if (!shelter) return 0;

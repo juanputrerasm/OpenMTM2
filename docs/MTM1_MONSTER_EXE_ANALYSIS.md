@@ -78,6 +78,16 @@ As in MTM2: an MFC application (`CMetalDoc`, `CMainFrame`, `CTRIView`, and one f
 screen) around the C engine. The application object has two layers: an engine layer shared with
 Terminal Reality's flight games (message map `0x523f30`) and the game layer (`0x5258e0`).
 
+**Where the engine layer comes from.** It is Hellbender's. Comparing normalised decompiled
+functions, MTM1 and `HELLBEND.EXE` share 603 identical game functions, 430 of 457 unique pairs
+in the same link order; MTM1 opens `Software\Microsoft\Hellbender\Services` for its DirectPlay
+service providers, sends through a routine named `WriteTVPacket`, plays `fury.avi`, draws over
+`vel2.raw` and keeps the flight keys (`leftKey` ... `rollRightKey`), while Hellbender has no truck,
+race or Monster string at all. So the chain is Terminal Velocity, Fury3 ("CyberUI"), the 1996
+engine written for Hellbender ("Fury6"), then MTM1, CPR ("Indy") and MTM2 ("Metal Crush 2"); each
+game keeps its own game layer. Details: JSTrackViewer's `docs/HELLBENDER_EXE_ANALYSIS.md`
+section 9.
+
 ### Screens: the application state
 
 `0x49c770` (the application's virtual method at `+0x120`) switches screen. The state numbers:
@@ -137,6 +147,9 @@ race, 3 otherwise) and the computer drives all of them.
     reserved.\n")` (`0x40d3d0`, called from `0x4907a5`). This runs on every retail exit; it is
     simply never seen, a GUI program having no console.
   - The base palette and light table are `metalcr2.act` and `metalcr2.lte` (`0x40d2e0`).
+  - The title screen `ART\TITLE.RAW` in `STARTUP.POD` reads "METAL CRUSH: The Game", and the
+    debug path left in the program is `D:\METAL\CRUSH\test\monster.pdb` (MTM2's source paths are
+    `D:\METAL\CRUSH2\...`).
   - A DOS-style scrolling credits screen titled **"Metal Crush 0.50"** (`0x426860`, lines at
     `0x544930`): "Conceived, Designed, and Programmed by Mark Randel, Greg Seeheusen", "Music and
     Sound Effects by Kyle Richards", "Original Artwork and Animations by Chuck, Karl Hagood, Drew

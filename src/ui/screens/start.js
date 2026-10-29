@@ -1,4 +1,4 @@
-/* The Start screen follows its four switches. Demo and Manual remain visible but deferred. */
+/* The Start screen follows its four switches: the web page, the demo, the Monster Manual (ui/screens/manual.js) and Driver Check-in. */
 import { el } from "../dom.js";
 import { frame } from "../frame.js";
 import { goDemo } from "../../app/flow.js";
@@ -16,7 +16,7 @@ export default async function mount(container, context) {
     ui.regions.main.append(el("div", { class: "screen-actions menu start-actions" },
       el("button", { onclick: () => window.open("https://mtm2.com/", "_blank", "noopener") }, t("Web Page")),
       el("button", { "data-menu-sound": "STARTOFF", onclick: () => goDemo(context) }, t("Monster Demo")),
-      el("button", { disabled: true, title: t("Not implemented yet") }, t("Monster Manual")),
+      el("button", { "data-menu-sound": "STARTOFF", onclick: () => context.router.go("manual") }, t("Monster Manual")),
       el("button", { class: "primary", "data-menu-sound": "STARTOFF", onclick: () => context.router.go("drivers") }, t("Driver Check-in"))));
     ui.regions.main.after(photoCredit(t));
   }

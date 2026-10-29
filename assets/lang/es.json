@@ -624,14 +624,6 @@
   "text": "Contador de FPS"
  },
  {
-  "tag": "Camera up",
-  "text": "Subir cámara"
- },
- {
-  "tag": "Camera down",
-  "text": "Bajar cámara"
- },
- {
   "tag": "Map",
   "text": "Mapa"
  },
@@ -3268,14 +3260,6 @@
   "text": "Desconectar"
  },
  {
-  "tag": "Voice chat is not available",
-  "text": "El chat de voz no está disponible"
- },
- {
-  "tag": "CB Radio",
-  "text": "Radio CB"
- },
- {
   "tag": "Connect",
   "text": "Conectar"
  },
@@ -3370,10 +3354,6 @@
  {
   "tag": "Start the race",
   "text": "Comenzar la carrera"
- },
- {
-  "tag": "Waiting for every player to be Ready",
-  "text": "Esperando que todos los jugadores estén Listos"
  },
  {
   "tag": "private",
@@ -5298,5 +5278,813 @@
  {
   "tag": "Built on OpenPhotex technology.",
   "text": "Construido con la tecnología OpenPhotex."
+ },
+ {
+  "tag": "Getting started",
+  "text": "Primeros pasos"
+ },
+ {
+  "tag": "Racing overview",
+  "text": "Las carreras"
+ },
+ {
+  "tag": "OpenMTM2 plays Monster Truck Madness 2 from your own copy of the game, in the browser. Pick the game's folder once; its archives are copied into the browser's storage and every race is read from there.",
+  "text": "OpenMTM2 juega Monster Truck Madness 2 desde tu propia copia del juego, en el navegador. Elige la carpeta del juego una vez; sus archivos se copian al almacenamiento del navegador y cada carrera se lee desde ahí."
+ },
+ {
+  "tag": "You can race the computer's trucks on any installed track, play with friends online, or try the modes OpenMTM2 adds to the game.",
+  "text": "Puedes correr contra los camiones de la computadora en cualquier pista instalada, jugar en línea con amigos o probar los modos que OpenMTM2 agrega al juego."
+ },
+ {
+  "tag": "Starting a race",
+  "text": "Empezar una carrera"
+ },
+ {
+  "tag": "On the Start screen, click Driver Check-in.",
+  "text": "En la pantalla de inicio, haz clic en Registro de conductor."
+ },
+ {
+  "tag": "Type a new name or pick yours, choose a skill level and a truck.",
+  "text": "Escribe un nombre nuevo o elige el tuyo, y escoge un nivel de habilidad y un camión."
+ },
+ {
+  "tag": "Click Races and pick a track. The number beside it is the laps, or the minutes of a Summit Rumble.",
+  "text": "Haz clic en Carreras y elige una pista. El número a su lado son las vueltas, o los minutos de un Summit Rumble."
+ },
+ {
+  "tag": "Choose the weather, and click Computer Opponents to choose the trucks you race against.",
+  "text": "Elige el clima y haz clic en Oponentes (Bots) para escoger los camiones contra los que corres."
+ },
+ {
+  "tag": "Click Go.",
+  "text": "Haz clic en ¡YA!"
+ },
+ {
+  "tag": "Pausing, restarting and leaving a race",
+  "text": "Pausar, reiniciar y abandonar una carrera"
+ },
+ {
+  "tag": "Press the Pause key to stop the race. The pause menu resumes it, restarts it, shows the instant replay, opens the options or ends the race.",
+  "text": "Pulsa la tecla de pausa para detener la carrera. El menú de pausa la reanuda, la reinicia, muestra la repetición instantánea, abre las opciones o termina la carrera."
+ },
+ {
+  "tag": "Ending a race takes you to the Winner's Circle with the results so far.",
+  "text": "Terminar una carrera te lleva al Círculo de ganadores con los resultados hasta ese momento."
+ },
+ {
+  "tag": "Controls",
+  "text": "Controles"
+ },
+ {
+  "tag": "Driving",
+  "text": "Conducir"
+ },
+ {
+  "tag": "With automatic shifting (Options, Game) the truck changes gear by itself: hold Brake to stop, and keep holding it to back up. Without it, shift up and down yourself, through reverse and neutral.",
+  "text": "Con el cambio automático (Opciones, Juego) el camión cambia de marcha solo: mantén Frenar para detenerte y sigue manteniéndolo para retroceder. Sin él, sube y baja de marcha tú mismo, pasando por reversa y neutro."
+ },
+ {
+  "tag": "A gamepad drives the same way: the stick or the triggers for the pedals, the stick for steering. Options, Controls changes any key.",
+  "text": "Un control se maneja igual: la palanca o los gatillos para los pedales, la palanca para girar. En Opciones, Controles se puede cambiar cualquier tecla."
+ },
+ {
+  "tag": "Keys in a race",
+  "text": "Teclas en carrera"
+ },
+ {
+  "tag": "Call the rescue helicopter",
+  "text": "Llamar al helicóptero de rescate"
+ },
+ {
+  "tag": "Next view (with Shift, the view before)",
+  "text": "Vista siguiente (con Mayús, la anterior)"
+ },
+ {
+  "tag": "Course map: on, with names, off",
+  "text": "Mapa del circuito: activado, con nombres, desactivado"
+ },
+ {
+  "tag": "Names over the trucks",
+  "text": "Nombres sobre los camiones"
+ },
+ {
+  "tag": "Checkpoint finder",
+  "text": "Buscador de puntos de control"
+ },
+ {
+  "tag": "Crash damage on and off (off repairs every truck)",
+  "text": "Daños por choque sí o no (al quitarlos se reparan todos los camiones)"
+ },
+ {
+  "tag": "Pick one of the ten views",
+  "text": "Elegir una de las diez vistas"
+ },
+ {
+  "tag": "Look back while held",
+  "text": "Mirar atrás mientras se mantiene"
+ },
+ {
+  "tag": "The rescue helicopter",
+  "text": "El helicóptero de rescate"
+ },
+ {
+  "tag": "Stuck on your roof, lost off the course or wedged against a wall? Call the helicopter. It lifts the truck, rights it and sets it down on the course near where you left it.",
+  "text": "¿Volcado, perdido fuera del circuito o atascado contra un muro? Llama al helicóptero. Levanta el camión, lo endereza y lo deja en el circuito cerca de donde lo dejaste."
+ },
+ {
+  "tag": "Views",
+  "text": "Vistas"
+ },
+ {
+  "tag": "Looking around from the cab",
+  "text": "Mirar alrededor desde la cabina"
+ },
+ {
+  "tag": "In the cockpit view, hold a View key to look out of the side windows or the back; let go to look ahead again. With the head turned you see only the cab, as the game drew it.",
+  "text": "En la vista de cabina, mantén una tecla de vista para mirar por las ventanas laterales o hacia atrás; suéltala para volver a mirar al frente. Con la cabeza girada solo ves la cabina, como la dibujaba el juego."
+ },
+ {
+  "tag": "Look left",
+  "text": "Mirar a la izquierda"
+ },
+ {
+  "tag": "Look right",
+  "text": "Mirar a la derecha"
+ },
+ {
+  "tag": "Look behind",
+  "text": "Mirar atrás"
+ },
+ {
+  "tag": "Rear-view mirror on and off",
+  "text": "Espejo retrovisor sí o no"
+ },
+ {
+  "tag": "The mirror starts off, as it did in the game. The Dashboard key goes round the full cockpit, the gauges alone, and no dashboard.",
+  "text": "El espejo empieza apagado, como en el juego. La tecla del tablero alterna entre la cabina completa, solo los indicadores y sin tablero."
+ },
+ {
+  "tag": "The external views",
+  "text": "Las vistas externas"
+ },
+ {
+  "tag": "Chase Near and Chase Far follow the truck from behind, nearer or farther. Chase Front, Left and Right look at it from those sides, and the two Big views fill the screen with it.",
+  "text": "Persecución cercana y lejana siguen al camión desde atrás, más cerca o más lejos. Persecución frontal, izquierda y derecha lo miran desde esos lados, y las dos vistas grandes lo hacen ocupar la pantalla."
+ },
+ {
+  "tag": "BlimpCam watches from the blimp over the course. RaceCam picks the trackside camera nearest the truck, as television does.",
+  "text": "BlimpCam mira desde el dirigible sobre el circuito. RaceCam elige la cámara de pista más cercana al camión, como en la televisión."
+ },
+ {
+  "tag": "The Camera key, or a digit, picks a view. In a chase view the View keys swing the camera round the truck and tilt it; choosing a view puts it back.",
+  "text": "La tecla de cámara, o un número, elige una vista. En una vista de persecución las teclas de vista giran la cámara alrededor del camión y la inclinan; elegir una vista la devuelve a su lugar."
+ },
+ {
+  "tag": "Camera to the left",
+  "text": "Cámara a la izquierda"
+ },
+ {
+  "tag": "Camera to the right",
+  "text": "Cámara a la derecha"
+ },
+ {
+  "tag": "Camera higher",
+  "text": "Cámara más alta"
+ },
+ {
+  "tag": "Camera lower",
+  "text": "Cámara más baja"
+ },
+ {
+  "tag": "The mouse looks round as well, and its wheel zooms; Options, Advanced has the switches.",
+  "text": "El ratón también mira alrededor y su rueda acerca o aleja; los interruptores están en Opciones, Avanzado."
+ },
+ {
+  "tag": "The course map and the names",
+  "text": "El mapa del circuito y los nombres"
+ },
+ {
+  "tag": "The Map key shows the course from above, turning with your truck, with every truck on it and its place; press it again for the drivers' names, and once more to hide it.",
+  "text": "La tecla del mapa muestra el circuito desde arriba, girando con tu camión, con todos los camiones y su posición; púlsala otra vez para ver los nombres de los pilotos y otra más para ocultarlo."
+ },
+ {
+  "tag": "The Names key labels the trucks themselves, with their names or their drivers'.",
+  "text": "La tecla de nombres rotula los propios camiones, con su nombre o el de su piloto."
+ },
+ {
+  "tag": "Before the race",
+  "text": "Antes de la carrera"
+ },
+ {
+  "tag": "Skill levels",
+  "text": "Niveles de habilidad"
+ },
+ {
+  "tag": "Rookie trucks forgive a lot and the computer's drivers make mistakes. Intermediate trucks are faster and handle like the real thing. Professional trucks are faster still, and the computer drives to win.",
+  "text": "Los camiones de Novato perdonan mucho y los pilotos de la computadora cometen errores. Los de Intermedio son más rápidos y se manejan como los de verdad. Los de Profesional son aún más rápidos, y la computadora corre para ganar."
+ },
+ {
+  "tag": "The Garage",
+  "text": "El garaje"
+ },
+ {
+  "tag": "Tune your truck before a race. A deeper tire cut grips soft ground better; a stiffer suspension holds the truck flatter in turns and on landings; the transfer gear trades acceleration for top speed.",
+  "text": "Ajusta tu camión antes de una carrera. Un dibujo de neumático más profundo se agarra mejor en terreno blando; una suspensión más dura mantiene el camión más plano en las curvas y al aterrizar; la caja de transferencia cambia aceleración por velocidad máxima."
+ },
+ {
+  "tag": "A track with big jumps wants a higher transfer setting, so the truck reaches the ramps fast enough.",
+  "text": "Una pista con grandes saltos pide una transferencia más alta, para que el camión llegue a las rampas con suficiente velocidad."
+ },
+ {
+  "tag": "Driving aids and opponents",
+  "text": "Ayudas de conducción y oponentes"
+ },
+ {
+  "tag": "Options, Game has automatic shifting and the autopilot, which can work the pedals or drive the whole way. It also sets how many computer opponents a new race starts with, up to seven.",
+  "text": "En Opciones, Juego están el cambio automático y el piloto automático, que puede manejar los pedales o conducir todo el recorrido. Ahí también se fija con cuántos oponentes de la computadora empieza una carrera nueva, hasta siete."
+ },
+ {
+  "tag": "Weather and time of day",
+  "text": "Clima y hora del día"
+ },
+ {
+  "tag": "Each track lists the weather it allows: clear, cloudy, fog, dense fog, rain, snow, dusk, night and pitch black, or Random. Rain and snow make the ground slippery; the others change only what you can see. In the dark, switch your headlights on.",
+  "text": "Cada pista indica el clima que permite: despejado, nublado, niebla, niebla densa, lluvia, nieve, atardecer, noche y oscuridad total, o Aleatorio. La lluvia y la nieve vuelven resbaladizo el suelo; los demás solo cambian lo que ves. En la oscuridad, enciende los faros."
+ },
+ {
+  "tag": "In the rain the cockpit has its own sound: the rain on the roof, out in the open.",
+  "text": "Con lluvia la cabina tiene su propio sonido: la lluvia sobre el techo, a cielo abierto."
+ },
+ {
+  "tag": "With crash damage on, trucks dent where they hit things, and a knock can turn a headlight askew. The Crash Damage key switches it off again, and that repairs every truck.",
+  "text": "Con los daños activados, los camiones se abollan donde chocan, y un golpe puede torcer un faro. La tecla de daños los desactiva otra vez, y eso repara todos los camiones."
+ },
+ {
+  "tag": "The races",
+  "text": "Las carreras"
+ },
+ {
+  "tag": "Circuits and rallies",
+  "text": "Circuitos y rallies"
+ },
+ {
+  "tag": "Pass through every checkpoint, in order, on every lap. Miss one and the lap does not count: the finder points you back to it.",
+  "text": "Pasa por todos los puntos de control, en orden, en cada vuelta. Si te saltas uno la vuelta no cuenta: el buscador te indica el camino de vuelta."
+ },
+ {
+  "tag": "The finder ring shows the next checkpoint's number, with a dot that circles to its direction; it turns green when you are headed straight for it.",
+  "text": "El anillo del buscador muestra el número del siguiente punto de control, con un punto que gira hacia su dirección; se pone verde cuando vas directo hacia él."
+ },
+ {
+  "tag": "The timing display shows the lap, the best lap, the race clock, the gap to the truck ahead (or the lead), your place and the lap count.",
+  "text": "La pantalla de tiempos muestra la vuelta, la mejor vuelta, el reloj de carrera, la distancia al camión de adelante (o la ventaja), tu posición y las vueltas."
+ },
+ {
+  "tag": "Summit Rumbles",
+  "text": "Summit Rumbles"
+ },
+ {
+  "tag": "King of the hill: hold the scoring zone on the summit for as long as you can, and knock the others off.",
+  "text": "El rey de la colina: mantente en la zona de puntos de la cima todo lo que puedas y echa a los demás."
+ },
+ {
+  "tag": "10 points for each second in the scoring zone.",
+  "text": "10 puntos por cada segundo en la zona de puntos."
+ },
+ {
+  "tag": "1 point lost for each second off the summit.",
+  "text": "1 punto menos por cada segundo fuera de la cima."
+ },
+ {
+  "tag": "50 points lost each time you fall or are pushed off it.",
+  "text": "50 puntos menos cada vez que caes o te empujan fuera de ella."
+ },
+ {
+  "tag": "The Timing display key shows the standings: every truck's score, the leader first.",
+  "text": "La tecla de la pantalla de tiempos muestra la clasificación: la puntuación de cada camión, el líder primero."
+ },
+ {
+  "tag": "Points and the Hall of Fame",
+  "text": "Puntos y el Salón de la Fama"
+ },
+ {
+  "tag": "A race pays 900, 700, 500, 400, 300, 200, 150 and 100 points for the places. In a race of more than one lap the fastest lap earns 100 more, and the winner 100 divided by the number of laps.",
+  "text": "Una carrera paga 900, 700, 500, 400, 300, 200, 150 y 100 puntos según la posición. En una carrera de más de una vuelta la vuelta más rápida gana 100 más, y el ganador 100 dividido por el número de vueltas."
+ },
+ {
+  "tag": "The Hall of Fame keeps the best results of every track. Options, Data imports the game's own drivers and Hall of Fame (player.pro and MTM2 High Scores from its folder) and saves OpenMTM2's in the same files.",
+  "text": "El Salón de la Fama guarda los mejores resultados de cada pista. En Opciones, Datos se importan los pilotos y el Salón de la Fama del propio juego (player.pro y MTM2 High Scores de su carpeta) y se guardan los de OpenMTM2 en esos mismos archivos."
+ },
+ {
+  "tag": "Watching and saving replays",
+  "text": "Ver y guardar repeticiones"
+ },
+ {
+  "tag": "Every race is recorded. Pause and choose Instant Replay, or click Instant Replay in the Winner's Circle, to play it with the VCR buttons from any truck and any view.",
+  "text": "Cada carrera se graba. Pausa y elige Repetición instantánea, o haz clic en Repetición instantánea en el Círculo de ganadores, para verla con los botones de video desde cualquier camión y cualquier vista."
+ },
+ {
+  "tag": "Save keeps the replay as a .rpl file that Monster Truck Madness 2 and Community Patch 3 can play as well. Options, Instant Replay opens a saved one, the game's included.",
+  "text": "Guardar conserva la repetición como un archivo .rpl que Monster Truck Madness 2 y Community Patch 3 también pueden reproducir. En Opciones, Repetición instantánea se abre una guardada, incluidas las del juego."
+ },
+ {
+  "tag": "Playing with others",
+  "text": "Jugar con otros"
+ },
+ {
+  "tag": "Multiplayer, Online rooms creates a room and gives you a code and a link to send. Everyone in the room races together; the room's owner picks the track and starts the race.",
+  "text": "En Multijugador, Salas en línea se crea una sala y se obtiene un código y un enlace para enviar. Todos en la sala corren juntos; el dueño de la sala elige la pista y empieza la carrera."
+ },
+ {
+  "tag": "Troubleshooting",
+  "text": "Solución de problemas"
+ },
+ {
+  "tag": "If something does not work",
+  "text": "Si algo no funciona"
+ },
+ {
+  "tag": "No sound: browsers start sound only after a click or a key. Check the volumes in Options, Sound.",
+  "text": "Sin sonido: los navegadores activan el sonido solo después de un clic o una tecla. Revisa los volúmenes en Opciones, Sonido."
+ },
+ {
+  "tag": "The race is slow: lower the draw distance in Options, or choose a lighter Scenery preset.",
+  "text": "La carrera va lenta: baja la distancia de dibujado en Opciones o elige un ajuste de escenario más ligero."
+ },
+ {
+  "tag": "A gamepad does nothing: press one of its buttons once the page is open, so the browser lets the game see it.",
+  "text": "Un control no hace nada: pulsa uno de sus botones con la página abierta, para que el navegador deje que el juego lo vea."
+ },
+ {
+  "tag": "A track will not load: OpenMTM2 lists what it could not find. Options, Data, Reload POD.INI copies the game's archives again.",
+  "text": "Una pista no carga: OpenMTM2 muestra lo que no encontró. En Opciones, Datos, Volver a cargar POD.INI se vuelven a copiar los archivos del juego."
+ },
+ {
+  "tag": "View Left",
+  "text": "Vista izquierda"
+ },
+ {
+  "tag": "View Right",
+  "text": "Vista derecha"
+ },
+ {
+  "tag": "View Forward",
+  "text": "Vista adelante"
+ },
+ {
+  "tag": "View Back",
+  "text": "Vista atrás"
+ },
+ {
+  "tag": "Computer trucks: <<1>>",
+  "text": "Camiones de la computadora: <<1>>"
+ },
+ {
+  "tag": "stopped",
+  "text": "detenidos"
+ },
+ {
+  "tag": "driving",
+  "text": "conduciendo"
+ },
+ {
+  "tag": "<<1>>: <<2>> drivers added.",
+  "text": "<<1>>: <<2>> pilotos añadidos."
+ },
+ {
+  "tag": "Already here, kept as they are: <<1>>.",
+  "text": "Ya estaban, se mantienen como están: <<1>>."
+ },
+ {
+  "tag": "<<1>>: <<2>> Hall of Fame entries added.",
+  "text": "<<1>>: <<2>> entradas del Salón de la Fama añadidas."
+ },
+ {
+  "tag": "Tracks not installed: <<1>>.",
+  "text": "Pistas no instaladas: <<1>>."
+ },
+ {
+  "tag": "<<1>> is not a Monster Truck Madness 2 player.pro or MTM2 High Scores file.",
+  "text": "<<1>> no es un archivo player.pro ni MTM2 High Scores de Monster Truck Madness 2."
+ },
+ {
+  "tag": "Monster Truck Madness 2 saves",
+  "text": "Partidas guardadas de Monster Truck Madness 2"
+ },
+ {
+  "tag": "Import drivers and Hall of Fame",
+  "text": "Importar pilotos y Salón de la Fama"
+ },
+ {
+  "tag": "Pick player.pro, MTM2 High Scores or both from the game's folder: their drivers and results are added to OpenMTM2's",
+  "text": "Elige player.pro, MTM2 High Scores o ambos de la carpeta del juego: sus pilotos y resultados se añaden a los de OpenMTM2"
+ },
+ {
+  "tag": "Export drivers and Hall of Fame",
+  "text": "Exportar pilotos y Salón de la Fama"
+ },
+ {
+  "tag": "Save OpenMTM2's drivers and Hall of Fame as player.pro and MTM2 High Scores, for the game's folder",
+  "text": "Guarda los pilotos y el Salón de la Fama de OpenMTM2 como player.pro y MTM2 High Scores, para la carpeta del juego"
+ },
+ {
+  "tag": "Contents",
+  "text": "Contenido"
+ },
+ {
+  "tag": "OpenMTM2's own modes",
+  "text": "Los modos propios de OpenMTM2"
+ },
+ {
+  "tag": "Extension modes",
+  "text": "Modos de extensión"
+ },
+ {
+  "tag": "Besides Circuit, Rally and Summit Rumble, OpenMTM2 has modes of its own, which the original game never had. Pick one in the Mode list on the Races screen; the tracks it can be played on are listed for it, and the number beside the track becomes its own length: minutes, laps or goals.",
+  "text": "Además de Circuito, Rally y Summit Rumble, OpenMTM2 tiene modos propios que el juego original nunca tuvo. Elige uno en la lista Modo de la pantalla Carreras; se muestran las pistas en las que se puede jugar, y el número junto a la pista pasa a ser su propia duración: minutos, vueltas o goles."
+ },
+ {
+  "tag": "Options, Extensions holds each mode's settings, such as its teams, time limits and rules. The modes for several trucks play in online rooms too, judged on the room owner's machine; Freestyle is driven alone.",
+  "text": "En Opciones, Extensiones están los ajustes de cada modo, como sus equipos, límites de tiempo y reglas. Los modos para varios camiones también se juegan en salas en línea, arbitrados en el equipo del dueño de la sala; Freestyle se conduce en solitario."
+ },
+ {
+  "tag": "In Hockey, Soccer, Combat and Race & Rumble the Computer Opponents dialog puts each truck, yours included, on a team or in a role, such as a racer or a blocker in Race & Rumble. A truck left unpicked is placed by the mode.",
+  "text": "En Hockey, Soccer, Combat y Race & Rumble, el diálogo de Oponentes (Bots) pone cada camión, el tuyo incluido, en un equipo o en un papel, como corredor o bloqueador en Race & Rumble. El modo coloca a los camiones que no se eligen."
+ },
+ {
+  "tag": "The names over the trucks show their team or role, and the mode's own score and calls are on the screen during the game and in the Winner's Circle after it.",
+  "text": "Los nombres sobre los camiones muestran su equipo o papel, y la puntuación y los avisos del modo aparecen en pantalla durante el juego y en el Círculo de ganadores al terminar."
+ },
+ {
+  "tag": "Remove the game's videos from this browser?",
+  "text": "¿Quitar los videos del juego de este navegador?"
+ },
+ {
+  "tag": "Pick the Monster Truck Madness 2 folder to copy its videos (about 155 MB).",
+  "text": "Elige la carpeta de Monster Truck Madness 2 para copiar sus videos (unos 155 MB)."
+ },
+ {
+  "tag": "That folder has no VIDEOS folder.",
+  "text": "Esa carpeta no tiene una carpeta VIDEOS."
+ },
+ {
+  "tag": "<<1>> videos copied.",
+  "text": "<<1>> videos copiados."
+ },
+ {
+  "tag": "Could not copy the videos: <<1>>",
+  "text": "No se pudieron copiar los videos: <<1>>"
+ },
+ {
+  "tag": "Copy the game's VIDEOS folder (about 155 MB) now, from its folder; untick to remove them",
+  "text": "Copia ahora la carpeta VIDEOS del juego (unos 155 MB) desde su carpeta; desmárcalo para quitarlos"
+ },
+ {
+  "tag": "The jukebox plays the installed game's music: install the game first.",
+  "text": "La rocola reproduce la música del juego instalado: instala el juego primero."
+ },
+ {
+  "tag": "Jukebox",
+  "text": "Rocola"
+ },
+ {
+  "tag": "Play",
+  "text": "Reproducir"
+ },
+ {
+  "tag": "Play the list, in place of the game's music",
+  "text": "Reproduce la lista en lugar de la música del juego"
+ },
+ {
+  "tag": "Stop",
+  "text": "Detener"
+ },
+ {
+  "tag": "Stop the jukebox: the menus and the tracks play their own music again",
+  "text": "Detiene la rocola: los menús y las pistas vuelven a su propia música"
+ },
+ {
+  "tag": "Previous",
+  "text": "Anterior"
+ },
+ {
+  "tag": "The piece before",
+  "text": "La pieza anterior"
+ },
+ {
+  "tag": "Next",
+  "text": "Siguiente"
+ },
+ {
+  "tag": "The next piece",
+  "text": "La pieza siguiente"
+ },
+ {
+  "tag": "The music of the mounted archives, each piece once. Play plays it piece after piece, in the menus and in races, in place of the game's music. Drag a piece or use Up and Down to set the order; untick one to leave it out.",
+  "text": "La música de los archivos montados, cada pieza una vez. Reproducir la toca pieza tras pieza, en los menús y en las carreras, en lugar de la música del juego. Arrastra una pieza o usa Subir y Bajar para ordenarla; desmarca una para dejarla fuera."
+ },
+ {
+  "tag": "Played on",
+  "text": "Suena en"
+ },
+ {
+  "tag": "Play <<1>>",
+  "text": "Reproducir <<1>>"
+ },
+ {
+  "tag": "Play this piece now",
+  "text": "Reproduce esta pieza ahora"
+ },
+ {
+  "tag": "Earlier in the list",
+  "text": "Antes en la lista"
+ },
+ {
+  "tag": "Later in the list",
+  "text": "Después en la lista"
+ },
+ {
+  "tag": "No music in the mounted archives.",
+  "text": "No hay música en los archivos montados."
+ },
+ {
+  "tag": "Off: the game plays its own music.",
+  "text": "Apagada: el juego toca su propia música."
+ },
+ {
+  "tag": "Loading <<1>>...",
+  "text": "Cargando <<1>>..."
+ },
+ {
+  "tag": "Paused: <<1>>",
+  "text": "En pausa: <<1>>"
+ },
+ {
+  "tag": "Playing: <<1>>",
+  "text": "Sonando: <<1>>"
+ },
+ {
+  "tag": "The music of the mounted tracks and menus as one playlist, in your own order, played in the menus and in races",
+  "text": "La música de las pistas montadas y de los menús como una sola lista, en tu propio orden, sonando en los menús y en las carreras"
+ },
+ {
+  "tag": "Press Enter in a race to chat, or K to chat to your team in a team mode. Tab changes who the line goes to, Page Up and Page Down scroll back through the last 20 lines, and /help lists the commands (/w to whisper, /r to reply, /mute). With a gamepad, hold View and point the right stick at a quick message. Options, Multiplayer sets how much chat shows over the race.",
+  "text": "Pulsa Intro en una carrera para chatear, o K para chatear con tu equipo en un modo por equipos. Tab cambia a quién va la línea, Re Pág y Av Pág recorren las últimas 20 líneas, y /help lista los comandos (/w para susurrar, /r para responder, /mute). Con un mando, mantén Vista y apunta el stick derecho a un mensaje rápido. Opciones, Multijugador ajusta cuánto chat se ve sobre la carrera."
+ },
+ {
+  "tag": "/w name text: a private line. /r text: reply to the last private line.",
+  "text": "/w nombre texto: una línea privada. /r texto: responde a la última línea privada."
+ },
+ {
+  "tag": "/t text: to your team. /a text: to everyone. Tab changes who the box sends to.",
+  "text": "/t texto: a tu equipo. /a texto: a todos. Tab cambia a quién envía el cuadro."
+ },
+ {
+  "tag": "/mute name and /unmute name: leave a player's lines out. Page Up and Page Down scroll back.",
+  "text": "/mute nombre y /unmute nombre: oculta las líneas de un jugador. Re Pág y Av Pág recorren el historial."
+ },
+ {
+  "tag": "Good race!",
+  "text": "¡Buena carrera!"
+ },
+ {
+  "tag": "Nice one!",
+  "text": "¡Muy bien!"
+ },
+ {
+  "tag": "Go go go!",
+  "text": "¡Vamos, vamos!"
+ },
+ {
+  "tag": "Wait for me!",
+  "text": "¡Espérame!"
+ },
+ {
+  "tag": "Sorry!",
+  "text": "¡Perdón!"
+ },
+ {
+  "tag": "Help!",
+  "text": "¡Ayuda!"
+ },
+ {
+  "tag": "Thanks!",
+  "text": "¡Gracias!"
+ },
+ {
+  "tag": "Rematch?",
+  "text": "¿Revancha?"
+ },
+ {
+  "tag": "Chat",
+  "text": "Chat"
+ },
+ {
+  "tag": "Team chat",
+  "text": "Chat de equipo"
+ },
+ {
+  "tag": "Unmute",
+  "text": "Activar"
+ },
+ {
+  "tag": "No one is muted. Mute a player from the lobby's player list, or type /mute and their name in a race.",
+  "text": "No hay nadie silenciado. Silencia a un jugador desde la lista de jugadores de la sala, o escribe /mute y su nombre en una carrera."
+ },
+ {
+  "tag": "Chat in races",
+  "text": "Chat en carreras"
+ },
+ {
+  "tag": "Team and private only",
+  "text": "Solo equipo y privados"
+ },
+ {
+  "tag": "Which lines show over a network race. The lobby always shows every line",
+  "text": "Qué líneas se ven sobre una carrera en red. La sala siempre muestra todas"
+ },
+ {
+  "tag": "Chat lines",
+  "text": "Líneas de chat"
+ },
+ {
+  "tag": "How many lines the chat shows over the race at once",
+  "text": "Cuántas líneas muestra el chat a la vez sobre la carrera"
+ },
+ {
+  "tag": "Chat fade",
+  "text": "Desvanecido del chat"
+ },
+ {
+  "tag": "How long a line stays over the race",
+  "text": "Cuánto tiempo queda una línea sobre la carrera"
+ },
+ {
+  "tag": "Latency display",
+  "text": "Mostrar latencia"
+ },
+ {
+  "tag": "The lobby's Latency column",
+  "text": "La columna Latencia de la sala"
+ },
+ {
+  "tag": "Muted players",
+  "text": "Jugadores silenciados"
+ },
+ {
+  "tag": "In a race: Enter (Chat) types a line, K (Team chat) types one to your team. Tab changes who it goes to, Page Up and Page Down scroll back, /help lists the commands. With a gamepad, hold View and point the right stick for a quick message.",
+  "text": "En una carrera: Intro (Chat) escribe una línea, K (Chat de equipo) escribe una para tu equipo. Tab cambia a quién va, Re Pág y Av Pág recorren el historial, /help lista los comandos. Con un mando, mantén Vista y apunta el stick derecho para un mensaje rápido."
+ },
+ {
+  "tag": "Team",
+  "text": "Equipo"
+ },
+ {
+  "tag": "Reply",
+  "text": "Responder"
+ },
+ {
+  "tag": "Tab: who the line goes to",
+  "text": "Tab: a quién va la línea"
+ },
+ {
+  "tag": "Quick message",
+  "text": "Mensaje rápido"
+ },
+ {
+  "tag": "[Team]",
+  "text": "[Equipo]"
+ },
+ {
+  "tag": "[Private]",
+  "text": "[Privado]"
+ },
+ {
+  "tag": "[From]",
+  "text": "[De]"
+ },
+ {
+  "tag": "[Quick]",
+  "text": "[Rápido]"
+ },
+ {
+  "tag": "This game has no team chat.",
+  "text": "Esta partida no tiene chat de equipo."
+ },
+ {
+  "tag": "You have no teammates in this race.",
+  "text": "No tienes compañeros de equipo en esta carrera."
+ },
+ {
+  "tag": "Nobody has sent you a private line yet.",
+  "text": "Nadie te ha enviado una línea privada todavía."
+ },
+ {
+  "tag": "No player is called <<1>>.",
+  "text": "Ningún jugador se llama <<1>>."
+ },
+ {
+  "tag": "<<1>> is muted.",
+  "text": "<<1>> está silenciado."
+ },
+ {
+  "tag": "<<1>> is no longer muted.",
+  "text": "<<1>> ya no está silenciado."
+ },
+ {
+  "tag": "/<<1>> needs more words. /help lists the commands.",
+  "text": "/<<1>> necesita más palabras. /help lista los comandos."
+ },
+ {
+  "tag": "No command /<<1>>. /help lists the commands.",
+  "text": "No existe el comando /<<1>>. /help lista los comandos."
+ },
+ {
+  "tag": "team",
+  "text": "equipo"
+ },
+ {
+  "tag": "Mute <<1>>",
+  "text": "Silenciar a <<1>>"
+ },
+ {
+  "tag": "Unmute <<1>>",
+  "text": "Dejar de silenciar a <<1>>"
+ },
+ {
+  "tag": "Without the track: <<1>>. Choose a track everyone has.",
+  "text": "Sin la pista: <<1>>. Elige una pista que todos tengan."
+ },
+ {
+  "tag": "Trucks not installed here: <<1>>. They must choose another, or Options, Multiplayer can allow it.",
+  "text": "Camiones no instalados aquí: <<1>>. Deben elegir otro, o puedes permitirlo en Opciones, Multijugador."
+ },
+ {
+  "tag": "Name a player, or give their number in players.",
+  "text": "Indica un jugador, o su número en players."
+ },
+ {
+  "tag": "No player number <<1>>.",
+  "text": "No hay jugador número <<1>>."
+ },
+ {
+  "tag": "More than one player's name starts with <<1>>.",
+  "text": "El nombre de más de un jugador empieza por <<1>>."
+ },
+ {
+  "tag": "lists the players: number (for mute and kick), name, truck and latency",
+  "text": "lista los jugadores: número (para mute y kick), nombre, camión y latencia"
+ },
+ {
+  "tag": "host",
+  "text": "anfitrión"
+ },
+ {
+  "tag": "you",
+  "text": "tú"
+ },
+ {
+  "tag": "computer",
+  "text": "computadora"
+ },
+ {
+  "tag": "muted",
+  "text": "silenciado"
+ },
+ {
+  "tag": "leaves a player's chat out, in the race and in the lobby",
+  "text": "oculta el chat de un jugador, en la carrera y en la sala"
+ },
+ {
+  "tag": "shows a muted player's chat again",
+  "text": "vuelve a mostrar el chat de un jugador silenciado"
+ },
+ {
+  "tag": "removes a player from the game (the host only)",
+  "text": "expulsa a un jugador de la partida (solo el anfitrión)"
+ },
+ {
+  "tag": "Only the host can remove players.",
+  "text": "Solo el anfitrión puede expulsar jugadores."
+ },
+ {
+  "tag": "says a line to everyone",
+  "text": "dice una línea a todos"
+ },
+ {
+  "tag": "Allow missing trucks",
+  "text": "Permitir camiones que faltan"
+ },
+ {
+  "tag": "When you host: start the race even if a player chose a truck you do not have installed; it is drawn as another truck. Off, every player must choose a truck you have",
+  "text": "Cuando eres anfitrión: inicia la carrera aunque un jugador haya elegido un camión que no tienes instalado; se dibuja como otro camión. Desactivado, cada jugador debe elegir un camión que tengas"
+ },
+ {
+  "tag": "The lobby's Latency column, with the round trip in milliseconds, and each player's latency in the corner of a network race",
+  "text": "La columna Latencia de la sala, con el tiempo de ida y vuelta en milisegundos, y la latencia de cada jugador en la esquina de una carrera en red"
+ },
+ {
+  "tag": "not installed",
+  "text": "no instalado"
  }
 ]

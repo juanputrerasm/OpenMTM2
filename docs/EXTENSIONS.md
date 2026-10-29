@@ -539,7 +539,7 @@ percent of their hit points or 30 of their engine, unless the setting "Computer 
 truck that has driven through that stretch since its last checkpoint or the start, so a grid behind the first
 checkpoint's stretch (Castle Nugget's, on its castle) is never lifted at the start.
 
-Measured on the 12 stock circuits, 8 computer trucks for 400 s on Intermediate, Normal aggression (docs/PLAN.md): the
+Measured on the 12 stock circuits, 8 computer trucks for 400 s on Intermediate, Normal aggression (docs/CHANGELOG.md): the
 field covers 85 to 100 percent of a plain race's checkpoints; 12 wheels off and 12 wrecks over the 12 races, 0 to 3
 of each a race.
 

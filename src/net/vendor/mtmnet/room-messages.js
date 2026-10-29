@@ -75,7 +75,8 @@ export const CLIENT_MESSAGES = Object.freeze({
     truck: str(0, LIMITS.truck, OPT), skill: int(0, 2, OPT), location: int(0, 99, OPT), ready: bool(OPT), team: int(0, 15, OPT),
     latency: int(0, 60000, OPT), content: obj({ sit: str(1, LIMITS.sit), crc: int(-1, 0xffffffff) }, OPT),
   },
-  chat: { text: str(1, LIMITS.chat), to: int(1, 0x7fffffff, OPT) },
+  // `to` one member (private); `team` the sender's teammates, as its race decides them (a team line; `to` wins over it).
+  chat: { text: str(1, LIMITS.chat), to: int(1, 0x7fffffff, OPT), team: list(int(1, 0x7fffffff), LIMITS.maxPlayers, OPT) },
   settings: {
     track: TRACK, laps: int(1, LIMITS.laps, OPT), weather: int(-1, 15, OPT), mode: str(0, LIMITS.mode, OPT),
     computers: int(0, LIMITS.computers, OPT), damage: bool(OPT), collisions: bool(OPT),

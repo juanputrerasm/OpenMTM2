@@ -94,7 +94,7 @@ export default async function mount(container, context, { requiredMissing = [] }
         el("div", { class: "setup-choices" },
           el("label", { class: "setup-choice" }, el("span", {}, t("Language")), language),
           el("label", { class: "setup-choice" }, el("span", {}, t("Graphics")), graphics),
-          el("label", { class: "setup-choice" }, el("span", {}, t("Copy the game's videos")), videos),
+          el("label", { class: "setup-choice setup-check" }, el("span", {}, t("Copy the game's videos")), videos),
         ),
         el("p", { class: "muted setup-hint" }, t("Enhanced uses every visual improvement. Standard keeps the game's own look and runs on any computer. Both can be fine-tuned later in Options.")),
 

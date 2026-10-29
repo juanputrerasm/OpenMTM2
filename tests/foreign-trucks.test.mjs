@@ -1,4 +1,4 @@
-// CART Precision Racing's cars and the 4x4 Evolution trucks as trucks (worker/foreign-truck-build.js, docs/PLAN.md
+// CART Precision Racing's cars and the 4x4 Evolution trucks as trucks (worker/foreign-truck-build.js, docs/CHANGELOG.md
 // Stage 3.1). The tests with real files skip without the games under ~/games.
 
 import test from "node:test";
@@ -10,7 +10,7 @@ import { parsePod, readPodEntry, mtm2Sim as S } from "../src/vendor/openphotex/i
 import { createVfs } from "../src/worker/vfs.js";
 import { buildCatalog } from "../src/worker/catalog.js";
 import { buildTruckRender } from "../src/worker/truck-build.js";
-import { foreignTruckId, parseForeignTruckId, tireSize } from "../src/worker/foreign-truck-build.js";
+import { foreignTruckId, parseForeignTruckId, tireSize, withHelmet } from "../src/worker/foreign-truck-build.js";
 import { raceEntrants } from "../src/game/race-setup.js";
 
 const GAMES = process.env.OPENMTM2_GAMES ?? join(process.env.HOME ?? "", "games");
@@ -33,6 +33,21 @@ test("a tire model's size: half its height, and its extent across", () => {
   assert.deepEqual(tireSize({ bounds: { min: [-0.5, -1.2, -1.2], max: [0.5, 1.2, 1.2] } }), { radiusFt: 1.2, widthFt: 1 });
   assert.equal(tireSize({ bounds: null }), null);
   assert.equal(tireSize(null), null);
+});
+
+test("a CPR driver's helmet joins the body at the .CAR's Helmet pos, z mirrored in the meshes and not in the bounds", () => {
+  const body = { name: "B", meshes: [{ groupName: "DRIVER", textureName: "B.RAW", positions: new Float32Array([0, 0, 0]) }], textureNames: ["B.RAW"],
+    bounds: { min: [-1, 0, -2], max: [1, 3, 2] } };
+  const helmet = { name: "H", meshes: [{ groupName: "", textureName: "H.RAW", positions: new Float32Array([0.5, 0.5, -0.5]) }], textureNames: ["H.RAW"],
+    bounds: { min: [-0.5, -0.5, -0.5], max: [0.5, 0.5, 0.5] } };
+  const merged = withHelmet(body, helmet, [0, 2, 1.25]);
+  assert.equal(merged.meshes.length, 2);
+  assert.equal(merged.meshes[1].groupName, "HELMET");
+  assert.deepEqual([...merged.meshes[1].positions], [0.5, 2.5, -1.75]);
+  assert.deepEqual(merged.textureNames, ["B.RAW", "H.RAW"]);
+  assert.deepEqual(merged.bounds, { min: [-1, 0, -2], max: [1, 3, 2] });
+  assert.equal(withHelmet(body, null, [0, 2, 1.25]), body);
+  assert.equal(withHelmet(body, helmet, null), body);
 });
 
 test("the computer's default trucks are MTM's own; another game's races when it is picked", () => {
@@ -80,6 +95,12 @@ test("a CPR car and an Evolution truck of each game build, with art, and the sim
     assert.ok(found.length > 0 && found.length >= named.size - 1, `${id}: ${found.length} of ${named.size} textures decoded`);
     assert.ok(truck.tire.radiusFt > 0.5 && truck.tire.radiusFt < 2.5, `${id}: tire radius ${truck.tire.radiusFt} ft`);
     assert.equal(truck.suspension, null);
+    // A CPR car's driver wears the helmet its .CAR names (DAVISH.BIN), in the cockpit.
+    if (id.startsWith("CPR:")) {
+      const helmet = truck.parts.body.meshes.filter((m) => m.groupName === "HELMET");
+      assert.ok(helmet.length && helmet.every((m) => m.textureName === "DAVISH.RAW"), "the helmet is drawn with its own texture");
+      assert.ok(truck.textures["DAVISH.RAW"]?.rgba?.length, "the helmet's texture is decoded");
+    }
     // Driven by MTM2's model on its own tires: it settles, upright, lower than a monster truck.
     const figures = { wheelAnchors: truck.anchors, scrapePoints: truck.scrapePoints, tireRadiusFt: truck.tire.radiusFt, tireWidthFt: truck.tire.widthFt };
     let p = S.createTruckParams(figures);

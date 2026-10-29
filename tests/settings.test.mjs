@@ -184,7 +184,7 @@ test("the OpenMTM2 preset: no MTM1 or MTM2 choice, the port's effects with norma
   const { VISUAL_OPTIONS } = await import("../src/game/visuals.js");
   const settings = applyOpenMtm2(applyMtm1Classic({ waterReflections: true, truckReflections: true, greyDust: true }));
   for (const key of ["mtm1EarthSky", "mtm1Particles", "mtm1Sounds", "originalBackdrops", "greyDust", "waterReflections", "truckReflections"]) assert.equal(settings[key], false, key);
-  for (const key of ["tireTracks", "waterSplash", "terrainDetail", "hdWeather", "reflections"]) assert.equal(settings[key], true, key);
+  for (const key of ["tireTracks", "waterSplash", "terrainDetail", "hdWeather", "reflections", "backdrops"]) assert.equal(settings[key], true, key);
   assert.equal(settings.physics, "auto");
   assert.equal(settings.dustAmount, 2);
   assert.equal(settings.sparkAmount, 2);

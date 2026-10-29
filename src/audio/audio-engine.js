@@ -7,7 +7,7 @@
   The audio context starts suspended until the page has had a click or key, and `resume` is
   safe to call as often as wanted.
 */
-import { attenuation, cullVoices, loopSeconds } from "../game/sound-model.js";
+import { UNDERWATER_MASTER, attenuation, cullVoices, loopSeconds } from "../game/sound-model.js";
 
 /** The effects sit under the music by this much, so the many voices of a race do not bury it. */
 const EFFECTS_TRIM = 0.5;
@@ -97,11 +97,11 @@ export function createAudio(assets, volumes = {}) {
     return buffers.get(key);
   }
 
-  let effectsPaused = false;
+  let effectsPaused = false, underwater = false;
   function setVolumes(v) {
     currentVolumes = v;
     const level = (x, fallback) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : fallback);
-    master.gain.value = v.muted ? 0 : level(v.master, 1);
+    master.gain.value = v.muted ? 0 : level(v.master, 1) * (underwater ? UNDERWATER_MASTER : 1);
     const effectsLevel = level(v.effects, 1), musicLevel = level(v.music, 0.6);
     // Paused: every sound stops but the music (`setEffectsPaused`).
     effects.gain.value = effectsPaused ? 0 : effectsLevel * EFFECTS_TRIM * (ducked ? 0.35 : 1);
@@ -115,6 +115,12 @@ export function createAudio(assets, volumes = {}) {
   }
   function setDucking(on) {
     ducked = !!on;
+    setVolumes(currentVolumes);
+  }
+  /** The listener goes under water or comes up: the master level drops to UNDERWATER_MASTER and back (0x41bbd0). */
+  function setUnderwater(on) {
+    if (underwater === !!on) return;
+    underwater = !!on;
     setVolumes(currentVolumes);
   }
   setVolumes(volumes);
@@ -199,10 +205,10 @@ export function createAudio(assets, volumes = {}) {
   }
 
   /**
-   * Play a buffer made here (the announcer's phrase, its clips joined end to end, as the game assembles them) once on
-   * a bus, unpositioned. Returns a voice `{ done, stopped, stop }`.
+   * Play a buffer made here (the announcer's phrase, its clips joined end to end, as the game assembles them; the
+   * jukebox's music) once on a bus, unpositioned, from `offset` seconds in. Returns a voice `{ done, stopped, stop }`.
    */
-  function playBuffer(buffer, { gain = 1, bus = "commentary" } = {}) {
+  function playBuffer(buffer, { gain = 1, bus = "commentary", offset = 0 } = {}) {
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     const volume = ctx.createGain();
@@ -212,7 +218,7 @@ export function createAudio(assets, volumes = {}) {
     let stopped = false;
     active++;
     const done = new Promise((resolve) => { source.onended = () => { if (!stopped) active--; stopped = true; resolve(); }; });
-    source.start();
+    source.start(0, Math.max(0, Math.min(offset, buffer.duration)));
     return {
       done,
       get stopped() { return stopped; },
@@ -278,6 +284,7 @@ export function createAudio(assets, volumes = {}) {
     resume: () => (ctx.state === "suspended" ? ctx.resume().catch(() => {}) : Promise.resolve()),
     suspend: () => ctx.suspend().catch(() => {}),
     setEffectsPaused,
+    setUnderwater,
     dispose: () => ctx.close().catch(() => {}),
     /**
      * The same mixer for one user, such as a race: `stopAll()` stops every sound it started, loops and one-shots alike,
@@ -314,7 +321,7 @@ export function createSilentAudio() {
   const voice = { done: Promise.resolve(), stopped: true, setGain() {}, setRate() {}, setPosition() {}, stop() {} };
   return {
     context: null, stats: () => ({ state: "none", samples: 0, sampleNames: [], voices: 0 }), sample: async () => null, preload() {}, clearSamples() {}, play: async () => voice, playBuffer: () => voice, playMod: async () => voice, setVolumes() {}, setListener() {}, setRange() {},
-    setDucking() {}, setEffectsPaused() {}, waveform: (out) => out.fill(128), resume: async () => {}, suspend: async () => {}, dispose: async () => {},
+    setDucking() {}, setEffectsPaused() {}, setUnderwater() {}, waveform: (out) => out.fill(128), resume: async () => {}, suspend: async () => {}, dispose: async () => {},
     scoped() { return { ...this, stopAll() {} }; },
   };
 }

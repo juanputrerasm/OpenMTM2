@@ -267,7 +267,7 @@ test("headless races finish on every stock Circuit track: 8 CPU trucks, 2 laps (
     let i = 0;
     while (!race.trucks.every((x) => x.finished) && i < 600 / STEP) { session.step({}); i++; }
     assert.ok(race.over, `${t.name}: nobody finished`);
-    // A CPU truck pinned or flipped now and then is known and not chased (docs/PLAN.md).
+    // A CPU truck pinned or flipped now and then is known and not chased (docs/CHANGELOG.md).
     const stuck = race.trucks.filter((x) => !x.finished).length;
     assert.ok(stuck <= 1, `${t.name}: ${stuck} trucks still racing after 600 s`);
     assert.deepEqual(race.trucks.map((x) => x.place).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8], t.name);

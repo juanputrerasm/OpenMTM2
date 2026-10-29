@@ -142,7 +142,8 @@ These are the defaults; every driving key can be rebound in Options.
 | Accelerate, brake and steer | Arrow keys or W, S, A, D |
 | Shift up / down | Q / Z or Page Up / Page Down |
 | Change camera; go back one camera | V; Shift+V |
-| Tilt the chase camera | + / - |
+| Turn the chase camera; tilt it | Insert / Delete; keypad - / + (or - / =) |
+| In the cockpit: look left, right, behind; rear-view mirror | Insert, Delete, keypad + (held); keypad - |
 | Course map; names on the map | Tab or M; N |
 | Dashboard gauges; finder ring | G; F |
 | Horn; YeeHaw; helicopter recovery | Space; Y; H |
@@ -235,7 +236,8 @@ See [the multiplayer guide](docs/MULTIPLAYER.md) for the protocols, ports and se
 - The truck simulation is a clean-room implementation of the original game's documented behaviour:
   suspension, tires, drivetrain, collisions and AI all advance at a fixed 60 Hz in a worker.
 - Ten camera views include chase, cockpit and track cameras. The cockpit has its dashboard, steering
-  wheel, shifter and mirror; Z mode adds zoom and orbit, while Inertia pulls back with speed. The
+  wheel, shifter and mirror, and its side and rear windows when you look round; Z mode adds the game's
+  zoom, while Inertia pulls back with speed. The
   mouse looks round the exterior views, and the wheel's zoom on each view is kept between games.
 - The HUD recreates the game's timing board, Lead and Back gaps, speedometer, tachometer, gear strip,
   finder ring, course map and message bar. Speed can be shown in MPH or KPH.
@@ -274,7 +276,9 @@ See [the visuals guide](docs/VISUALS.md) for the rendering choices and their con
 - Instant Replay records the race, plays it back with engine sound, gear changes, ambience and music,
   switches among any truck and camera, and provides VCR-style play,
   pause, rewind, fast-forward, slow-motion, frame-step and scrub controls. Replays can be saved to or
-  opened from the game's `.rpl` format.
+  opened from the game's `.rpl` format, crushed cars included.
+- Options, Data imports the game's own drivers (`player.pro`) and Hall of Fame (`MTM2 High Scores`) and saves
+  OpenMTM2's in the same files. The Start screen's Monster Manual is OpenMTM2's own guide to the game.
 - The Garage provides truck tuning. Options include rebindable keys, graphics presets, V-sync, a
   frame-rate limit and GOLD mode cheats. The drop-down console controls opponents, laps, track,
   weather, skill and truck selection.
@@ -326,14 +330,15 @@ Before contributing, read [AGENTS.md](AGENTS.md). In particular: do not add game
 code; implement Terminal Reality formats and simulation changes in OpenPhotex; and cover behaviour
 derived from the original game with tests.
 
-The project is under active development. Completed milestones and remaining work are tracked in
-[the project plan](docs/PLAN.md).
+The project is under active development. The current state and the remaining work are in
+[the project plan](docs/PLAN.md), and what was built, milestone by milestone, in [the changelog](docs/CHANGELOG.md).
 
 ## Documentation
 
 | Document | Contents |
 |---|---|
-| [Project plan](docs/PLAN.md) | Milestones, completed work and remaining tasks |
+| [Project plan](docs/PLAN.md) | Where the project stands and the open work |
+| [Changelog](docs/CHANGELOG.md) | What was built, milestone by milestone |
 | [Architecture](docs/ARCHITECTURE.md) | Modules, workers, storage and application data flow |
 | [Multiplayer](docs/MULTIPLAYER.md) | Online rooms, classic TCP/IP play and the server |
 | [Extensions](docs/EXTENSIONS.md) | The party modes and how to add one |

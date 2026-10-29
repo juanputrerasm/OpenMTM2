@@ -1,9 +1,11 @@
 /*
   The cockpit view's dashboard and the finder (MONSTER_EXE_ANALYSIS.md 11), drawn on 640 x 480
   canvases stretched over the race view with the art from `COCKPIT.POD` (worker/cockpit-art.js):
-  the front panel (its black is see-through), the speedometer and tachometer needles at the
-  layout's centres, the steering wheel frame for the steering angle, the shifter frame for the
-  gear, the shift light and the mirror frame. The finder is the 60 x 60 ring at the top right
+  the panel the head faces (front, left, right or back; its black is see-through), and facing
+  forward the speedometer and tachometer needles at the layout's centres, the steering wheel
+  frame for the steering angle, the shifter frame for the gear, the shift light and the mirror
+  frame; with the head turned the game draws the panel alone (MONSTER_EXE_ANALYSIS.md 11,
+  "Looking round the cab"). The finder is the 60 x 60 ring at the top right
   with the next checkpoint's number, an arrow at its top and a dot that circles it; both are green
   while the checkpoint is within 22.5 degrees of straight ahead (0x4ed31d). It has its own small
   canvas in device pixels: the ring is drawn as a circle in the colour and thickness of the
@@ -12,6 +14,9 @@
 import { drawNeedle, gaugeAngle } from "./race-gauges.js";
 import { drawText, textWidth } from "./bitmap-text.js";
 import { SHIFT_LIGHT_RPM } from "../game/vr/cab.js";
+
+/** The panel for a head turn (16-bit angle: 0 ahead, 0x4000 right, 0x8000 back, 0xc000 left). */
+export const panelForLook = (turn) => ({ 0x4000: "right", 0x8000: "back", 0xc000: "left" })[turn & 0xffff] ?? "front";
 
 /** The steering lock (radians) at which the wheel frames reach 35 degrees. */
 const STEER_LOCK = 0.45;
@@ -117,19 +122,23 @@ export function createCockpit(art, { needle = null, font = null, units = "mph" }
     mirror: mirror2d,
     setUnits(next) { units = next; lastDash = ""; },
     /**
-     * The cockpit's own panel, wheel, needles and shifter; `visible` is whether the view is the cockpit.
+     * The cockpit's own panel, wheel, needles and shifter; `visible` is whether the view is the cockpit. `look` is the
+     * head's turn (`panelForLook`): turned, only that side's panel is drawn. `mirror` false leaves the mirror's frame off.
      */
-    setDashboard({ visible, speed = 0, rpm = 0, gear = 1, steer = 0, instruments = true }) {
+    setDashboard({ visible, speed = 0, rpm = 0, gear = 1, steer = 0, instruments = true, look = 0, mirror: mirrorOn = true }) {
       dash.hidden = !visible;
       if (!visible) return;
       const kph = units === "kph";
       const reading = Math.abs(speed) * 3600 / 5280 * (kph ? 1.609344 : 1);
-      const key = `${reading.toFixed(1)}|${Math.round(rpm / 10)}|${gear}|${wheelFrame(steer)}|${units}|${instruments}`;
+      const side = panelForLook(look);
+      const key = `${reading.toFixed(1)}|${Math.round(rpm / 10)}|${gear}|${wheelFrame(steer)}|${units}|${instruments}|${side}|${mirrorOn}`;
       if (key === lastDash) return;
       lastDash = key;
       dashCtx.clearRect(0, 0, 640, 480);
       const draw = (image, x, y) => { if (image) dashCtx.drawImage(image, x, y); };
-      draw(panels.front, 0, 0);
+      // A side the install has no panel for shows the front one, as the game would draw nothing better.
+      draw(panels[side] ?? panels.front, 0, 0);
+      if (side !== "front") return;
       const { speedometer: speedo, tachometer: tacho } = layout;
       if (instruments) {
         drawNeedle(dashCtx, needle, speedo.center[0], speedo.center[1], gaugeAngle(reading / (kph ? 1.609344 : 1), speedo.zeroAngle - 90, speedo.degreesPerUnit, 110), speedo.radius);
@@ -139,7 +148,7 @@ export function createCockpit(art, { needle = null, font = null, units = "mph" }
       // The shifter art has MTM2's three forward gears: a higher gear shows as third.
       if (instruments) draw(shifter[["", "P", "R", "N", "1", "2", "3"][Math.min(gear, 6)]], layout.shifterRect[0], layout.shifterRect[1]);
       if (instruments && rpm >= SHIFT_LIGHT_RPM) draw(light, layout.shiftLightRect[0], layout.shiftLightRect[1]);
-      if (layout.mirrors[0]) draw(mirror, layout.mirrors[0].bitmapRect[0], layout.mirrors[0].bitmapRect[1]);
+      if (layout.mirrors[0] && mirrorOn) draw(mirror, layout.mirrors[0].bitmapRect[0], layout.mirrors[0].bitmapRect[1]);
     },
     /** The rear-view mirror's window in 640 x 480 pixels, or null. */
     mirrorRect,

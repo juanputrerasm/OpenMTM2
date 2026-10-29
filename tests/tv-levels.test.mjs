@@ -1,5 +1,5 @@
 // Terminal Velocity, Fury3 and Hellbender levels as places to drive and fly about in (worker/tv-track-build.js,
-// docs/PLAN.md Stage 3.2). The tests with real files skip without the games under ~/games.
+// docs/CHANGELOG.md Stage 3.2). The tests with real files skip without the games under ~/games.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -9,7 +9,7 @@ import { parsePod, readPodEntry } from "../src/vendor/openphotex/index.js";
 import { createVfs } from "../src/worker/vfs.js";
 import { buildCatalog } from "../src/worker/catalog.js";
 import { buildSky, buildTrackRender } from "../src/worker/track-build.js";
-import { SKY_CEILING_FT, TV_SCALES, drivableTvLevel, tvClrWords, tvEditorToFeet } from "../src/worker/tv-track-build.js";
+import { SKY_CEILING_FT, TV_SCALES, drivableTvLevel, settleTvPlacement, tvClrWords, tvEditorToFeet } from "../src/worker/tv-track-build.js";
 import { createSession } from "../src/worker/sim-worker.js";
 
 const GAMES = process.env.OPENMTM2_GAMES ?? join(process.env.HOME ?? "", "games");
@@ -21,11 +21,27 @@ const mount = (game) => {
 };
 const skipFor = (game) => (existsSync(join(GAMES, ...ARCHIVES[game])) ? false : `${ARCHIVES[game].join("/")} is not under ${GAMES}`);
 
-test("positions: a cell is 32 ft; a height step 2 ft in Terminal Velocity and 1.5 ft in Hellbender", () => {
-  assert.deepEqual(tvEditorToFeet([64, 128, 10], TV_SCALES["TV/F3"].heightFt), [32, 20, 64]);
-  assert.deepEqual(tvEditorToFeet([32, 0, 10], TV_SCALES.HB.heightFt), [16, 15, 0]);
+test("positions: a cell is 32 ft; a height step 1 ft in Terminal Velocity (1/32 of a cell) and 2 ft in Hellbender (1/16)", () => {
+  assert.deepEqual(tvEditorToFeet([64, 128, 10], TV_SCALES["TV/F3"].heightFt), [32, 10, 64]);
+  assert.deepEqual(tvEditorToFeet([32, 0, 10], TV_SCALES.HB.heightFt), [16, 20, 0]);
   assert.equal(TV_SCALES["TV/F3"].model, 1 / 128);
   assert.equal(TV_SCALES.HB.model, 1 / 64);
+});
+
+test("placements settle where each engine puts them", () => {
+  const flat = () => 10;
+  const tv = { origin: "TV/F3", heightFt: 1, groundAt: flat };
+  const def = (logic, y = 0, x = 0) => ({ logic, groundOffsetX: x, groundOffsetY: y, groundOffsetZ: 0 });
+  // Terminal Velocity: on the ground whatever the file says, plus the Y offset, plus half the radius for a flyer.
+  assert.deepEqual(settleTvPlacement([5, 99, 5], def(0), 65536, tv), [5, 10, 5]);
+  assert.deepEqual(settleTvPlacement([5, 99, 5], def(0, 1 << 15), 65536, tv), [5, 11, 5]);
+  assert.deepEqual(settleTvPlacement([5, 99, 5], def(4), 65536, tv), [5, 11, 5]);
+  assert.deepEqual(settleTvPlacement([5, 99, 5], def(0, 0, 1 << 20), null, tv), [37, 10, 5], "an X offset of a cell is 32 ft");
+  // Hellbender: the stored height, raised to the ground or onto a box it is inside; no Y offset, no lift.
+  const hb = { origin: "HB", heightFt: 2, groundAt: flat, boxAt: () => ({ lowerFt: 10, upperFt: 30 }) };
+  assert.deepEqual(settleTvPlacement([5, 4, 5], def(4, 1 << 20), 65536, hb), [5, 10, 5]);
+  assert.deepEqual(settleTvPlacement([5, 20, 5], def(0), null, hb), [5, 30, 5]);
+  assert.deepEqual(settleTvPlacement([5, 50, 5], def(0), null, hb), [5, 50, 5]);
 });
 
 test("the tile grid: one byte is six bits of tile and two of turn, Terminal Velocity's a step back; two bytes are MTM's word", () => {
@@ -119,7 +135,7 @@ test("Hellbender: a level's ground boxes are drawn and solid, at its own height 
   }
   assert.ok(found, "a Hellbender level with ground boxes");
   assert.ok(found.groundBoxes.positions.length > 0 && found.sim.ra0.length === 65536 && found.sim.ra1.length === 65536);
-  assert.equal(found.sim.groundBoxStepFt, 1.5);
+  assert.equal(found.sim.groundBoxStepFt, TV_SCALES.HB.heightFt);
   // The level's own 128 cells are laid out twice each way, its boxes with it.
   const { ra0, ra1 } = found.sim;
   let boxes = 0;
@@ -136,12 +152,12 @@ test("Hellbender: a level's ground boxes are drawn and solid, at its own height 
   for (let i = 0; i < 65536 && cell < 0; i++) {
     const row = i >> 8, col = i & 255;
     if (row < 2 || col < 2 || row > 253 || col > 253 || ra1[i] === ra0[i]) continue;
-    const top = ra1[i] * 1.5;
+    const top = ra1[i] * TV_SCALES.HB.heightFt;
     const flat = [-257, -256, -255, -1, 1, 255, 256, 257].every((d) => ra1[i + d] === ra1[i] && ra0[i + d] !== ra1[i + d]);
     if (flat && top - terrainAt(i) > 12) cell = i;
   }
   assert.ok(cell >= 0, "a flat roof of boxes to stand on");
-  const top = ra1[cell] * 1.5, x = (cell & 255) * 32 + 16, z = (cell >> 8) * 32 + 16;
+  const top = ra1[cell] * TV_SCALES.HB.heightFt, x = (cell & 255) * 32 + 16, z = (cell >> 8) * 32 + 16;
   const session = createSession({
     heights: found.heights ? found.heights.buffer : null, heightsFt: found.heightsFt ? found.heightsFt.buffer : null,
     clr: found.sim.clr.buffer, textureValues: found.sim.textureValues.buffer, waterLevelFt: found.sim.waterLevelFt,

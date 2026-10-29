@@ -11,12 +11,14 @@
 */
 import { el } from "../dom.js";
 import { frame, uiImageUrl } from "../frame.js";
-import { applyRaceConfig, inviteLink, leaveNet, netGo, netLocation, LOCATION } from "../../app/net.js";
-import { statusText, latencyText, skillText, versionText } from "../../net/legacy-session.js";
+import { applyRaceConfig, catalogHasTruck, inviteLink, leaveNet, netGo, netLocation, startProblem, LOCATION } from "../../app/net.js";
+import { statusText, latencyMs, latencyText, skillText, versionText } from "../../net/legacy-session.js";
 import { weatherName } from "../../game/weather.js";
 import { extensionById } from "../../game/extensions/loader.js";
 import { msg } from "../../game/strings.js";
 import { showConfirm, showPrompt } from "../dialogs.js";
+import { chatSettings, isMuted, setMuted } from "../../game/chat.js";
+import { saveSettings } from "../../app/settings.js";
 
 export default async function mount(container, context) {
   const { t } = context;
@@ -38,7 +40,6 @@ export default async function mount(container, context) {
   const info = el("div", { class: "net-game-info" });
   const goButton = el("button", { class: "net-go", "data-menu-sound": "GOOFF" });
   const disconnect = el("button", { class: "net-disconnect", "data-menu-sound": "STARTOFF" }, t("Disconnect"));
-  const radio = el("button", { class: "net-radio", disabled: true, title: t("Voice chat is not available") }, t("CB Radio"));
   const connect = el("button", { class: "net-connect-button", disabled: true }, t("Connect"));
   let readyArt = null, notReadyArt = null;
   const rooms = session.state().kind === "rooms";
@@ -59,6 +60,21 @@ export default async function mount(container, context) {
     return b;
   };
 
+  /** Mute or unmute a player's lines, here and in the race (game/chat.js); kept in the settings. */
+  const muteButton = (p) => {
+    const muted = isMuted(chatSettings(context.settings.net).muted, p.name);
+    const label = t(muted ? msg("Unmute <<1>>") : msg("Mute <<1>>"), p.name);
+    const b = el("button", { class: `net-mute${muted ? " on" : ""}`, title: label, "aria-label": label, "aria-pressed": String(muted) }, muted ? "🔇" : "🔈");
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      context.settings.net = { ...context.settings.net, muted: setMuted(chatSettings(context.settings.net).muted, p.name, !muted) };
+      saveSettings(context.settings);
+      addLine({ name: "", text: t(muted ? msg("<<1>> is no longer muted.") : msg("<<1>> is muted."), p.name), notice: true });
+      showPlayers();
+    });
+    return b;
+  };
+
   function showPlayers() {
     const st = session.state();
     playerList.replaceChildren(
@@ -66,10 +82,11 @@ export default async function mount(container, context) {
       el("tbody", {}, ...st.players.map((p) => el("tr", { class: p.local ? "selected" : null },
         el("td", { title: p.classicClient ? t("Playing the original Monster Truck Madness 2") : null },
           st.isHost && !p.local && !p.computer ? kickButton(p) : null,
+          !p.local && !p.computer ? muteButton(p) : null,
           `${p.name}${p.isHost ? ` (${rooms ? t("Owner") : t("Host")})` : ""}${p.computer ? ` (${t("Computer")})` : ""}${p.classicClient ? ` (${t("Classic")})` : ""}${versionText(p.version)}`),
         el("td", {}, t(skillText(p.skill))),
-        el("td", {}, truckName(p.truck)),
-        el("td", {}, context.settings.net?.latencyDisplay === false ? "" : t(latencyText(p))),
+        el("td", {}, `${truckName(p.truck)}${p.truck && !p.computer && !catalogHasTruck(net.catalog, p.truck) ? ` (${t("not installed")})` : ""}`),
+        el("td", {}, context.settings.net?.latencyDisplay === false ? "" : latencyMs(p) === null ? t(latencyText(p)) : `${t(latencyText(p))} (${latencyMs(p)} ms)`),
         el("td", {}, `${t(statusText(p))}${p.missingTrack ? ` (${t("no track")})` : p.otherVersion ? ` (${t("other version")})` : ""}`),
       ))),
     );
@@ -87,8 +104,10 @@ export default async function mount(container, context) {
     );
     const me = st.players.find((p) => p.local);
     goButton.textContent = st.isHost ? t("GO") : me?.ready ? t("Not Ready") : t("Ready");
-    goButton.title = st.isHost ? (st.canStart ? t("Start the race") : t("Waiting for every player to be Ready")) : "";
-    goButton.classList.toggle("blocked", st.isHost && !st.canStart);
+    // What stops the start, said on the button (app/net.js `startProblem`): a missing track or truck, or a player not Ready.
+    const problem = st.isHost ? startProblem(st, { hasTruck: (file) => catalogHasTruck(net.catalog, file), allowMissingTrucks: !!context.settings.net?.allowMissingTrucks }) : null;
+    goButton.title = st.isHost ? (problem ? t(problem.text, ...problem.args) : t("Start the race")) : "";
+    goButton.classList.toggle("blocked", st.isHost && !!problem);
     if (ui?.art && !st.isHost) {
       goButton.classList.add("net-go-art");
       goButton.style.backgroundImage = `url(${me?.ready ? notReadyArt : readyArt})`;
@@ -100,7 +119,7 @@ export default async function mount(container, context) {
   function addLine(line) {
     const body = messages.tBodies[0] ?? messages.appendChild(el("tbody"));
     body.append(el("tr", { class: line.notice ? "net-notice" : line.private ? "net-private-line" : null },
-      el("td", {}, line.notice ? "" : line.private && !line.own ? `${line.name} (${t("private")})` : line.name),
+      el("td", {}, line.notice ? "" : line.private && !line.own ? `${line.name} (${t("private")})` : line.team ? `${line.name} (${t("team")})` : line.name),
       el("td", {}, line.text)));
     while (body.rows.length > 60) body.deleteRow(0);
     messages.parentElement?.scrollTo?.({ top: 1e6 });
@@ -133,12 +152,13 @@ export default async function mount(container, context) {
   const ui = await frame(container, context, {
     title: net.name || msg("Multiplayer"), backdrop: "NETWORK", bar: "net", current: "multi",
     regions: {
-      players: [33, 116, 573, 66], info: [380, 36, 226, 52], radio: [33, 192, 90, 20], connect: [432, 192, 86, 20], disconnect: [520, 192, 86, 20],
+      // The game's CB Radio (voice chat) is not offered: `radioCover` hides the button its art paints.
+      players: [33, 116, 573, 66], info: [380, 36, 226, 52], radioCover: [30, 189, 96, 26], connect: [432, 192, 86, 20], disconnect: [520, 192, 86, 20],
       messages: [33, 236, 573, 94], sendTo: [33, 372, 150, 20], private: [187, 372, 22, 20], entry: [211, 372, 334, 20], send: [549, 372, 57, 20],
       go: [508, 408, 118, 44],
     },
     modernRegions: {
-      players: [24, 64, 592, 120], info: [24, 190, 592, 40], radio: [24, 236, 100, 26], connect: [400, 236, 100, 26], disconnect: [506, 236, 110, 26],
+      players: [24, 64, 592, 120], info: [24, 190, 592, 40], connect: [400, 236, 100, 26], disconnect: [506, 236, 110, 26],
       messages: [24, 268, 592, 92], sendTo: [24, 366, 150, 28], private: [178, 366, 28, 28], entry: [210, 366, 330, 28], send: [544, 366, 72, 28],
       go: [520, 408, 96, 44],
     },
@@ -146,7 +166,14 @@ export default async function mount(container, context) {
   if (ui.art) {
     [readyArt, notReadyArt] = await Promise.all([uiImageUrl(context.assets, "READYBTN"), uiImageUrl(context.assets, "NREDYBTN")]);
   }
-  for (const [region, node] of [["players", playerList], ["info", info], ["radio", radio], ["connect", connect], ["disconnect", disconnect], ["messages", messages], ["sendTo", sendTo], ["private", privateBox], ["entry", entry], ["send", sendButton], ["go", goButton]]) {
+  // The classic art's CB Radio button, painted over with the plain backdrop beside it (100 px to its right).
+  const cover = ui.regions.radioCover;
+  if (ui.art) {
+    const art = await uiImageUrl(context.assets, "NETWORK");
+    Object.assign(cover.style, { backgroundImage: `url(${art})`, backgroundSize: "640px 480px", backgroundPosition: "-130px -189px" });
+    cover.classList.add("net-radio-cover");
+  } else cover.hidden = true;
+  for (const [region, node] of [["players", playerList], ["info", info], ["connect", connect], ["disconnect", disconnect], ["messages", messages], ["sendTo", sendTo], ["private", privateBox], ["entry", entry], ["send", sendButton], ["go", goButton]]) {
     ui.regions[region].classList.add("net-region");
     ui.regions[region].append(node);
   }

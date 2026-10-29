@@ -126,7 +126,9 @@ export default async function mount(container, context, params) {
   const audio = context.menuAudio ?? createAudio(context.assets, context.settings.sound);
   const ownsAudio = !context.menuAudio;
   const ambience = await context.assets.call("ambience", { number: track.ambientSound ?? 0 }).catch(() => null);
-  const worldAudio = createWorldAudio(audio, { ambient: ambience, weather: weatherId, music: build.musicName ?? null, objects: build.soundObjects });
+  const worldAudio = createWorldAudio(audio, { ambient: ambience, weather: weatherId, music: build.musicName ?? null, objects: build.soundObjects, musicOff: () => !!context.jukebox?.on });
+  // The jukebox plays on in the track's music's place (audio/jukebox.js).
+  const unwatchJukebox = context.jukebox?.subscribe(() => worldAudio.refreshMusic()) ?? (() => {});
   audio.resume();
   const resumeAudio = () => audio.resume();
   window.addEventListener("keydown", resumeAudio);
@@ -137,6 +139,7 @@ export default async function mount(container, context, params) {
     audio.setEffectsPaused?.(false);
     window.removeEventListener("keydown", resumeAudio);
     window.removeEventListener("pointerdown", resumeAudio);
+    unwatchJukebox();
     worldAudio.dispose();
     if (ownsAudio) audio.dispose();
     context.menuMusic?.start();

@@ -177,5 +177,8 @@ OpenMTM2 Server folder and two browsers (or two computers) at `localhost` or the
    track.
 3. The race: everyone waits, then counts down together; trucks, horn, headlights and damage
    both ways; the computer trucks; results; back in the room.
+   In the race, the chat (`ui/race-chat.js`): lines both ways in the feed, the box's history,
+   a whisper (/w) and a reply (Tab to Reply, or /r), team lines in Hockey or Soccer reaching only
+   the teammates, a muted player, and the gamepad's quick-message wheel.
 4. A player leaving mid-race; the owner leaving (another owns the room, the computer trucks
    drive themselves); the owner removing a player; stopping the server (everyone is told).

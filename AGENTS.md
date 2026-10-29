@@ -1,7 +1,8 @@
 # OpenMTM2: rules for contributors and agents
 
 OpenMTM2 is an open reimplementation of Monster Truck Madness 2 (retail 2.00.42) that runs in the
-browser and reads the player's own install. `docs/PLAN.md` holds the milestones;
+browser and reads the player's own install. `docs/PLAN.md` holds the current state and the open work,
+`docs/CHANGELOG.md` what was built;
 `docs/ARCHITECTURE.md` explains how the code is laid out.
 
 ## Clean room

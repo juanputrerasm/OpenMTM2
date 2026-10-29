@@ -6,7 +6,7 @@
   Monster Truck Madness still carries in its INI code (MTM1_MONSTER_EXE_ANALYSIS.md 3: leftKey,
   rightKey, upKey, downKey, throttleUpKey, throttleDownKey, rollLeftKey, rollRightKey, with the
   scan codes of the arrows, A, Z, Home and Page Up). As in a flight game, Up puts the nose down.
-  "hb" is Hellbender's layout as the user gave it (docs/PLAN.md 1.3): the arrows, X and Z for the
+  "hb" is Hellbender's layout as the user gave it (docs/CHANGELOG.md 1.3): the arrows, X and Z for the
   speed, F for the turbo thrust, and no roll keys.
 */
 import { createStrings, msg } from "../strings.js";

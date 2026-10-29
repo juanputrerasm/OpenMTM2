@@ -11,6 +11,9 @@
   game's record, the three between are samples, which a file carries after its counted records
   where the games never read (OpenPhotex `writeMtmReplay`). An hour of eight trucks is some 40 MB.
   `ringReplay` cuts a replay to the game's 2240 records, for a file MTM2 itself can play.
+  How far each top-crush car is crushed is in no record of the game's (its kind 2 record holds the car's place
+  only), so the recorder keeps each change of a car's share and the file carries them in OpenPhotex's crush block,
+  which the games skip like the samples; playback gives each car its share at the time shown.
   Playback runs a smooth curve through the frames (Catmull-Rom: each frame's slope from its
   neighbours), so a jump is an arc, not straight chords. Pure, so it runs under Node.
 */
@@ -81,6 +84,8 @@ export function createReplayRecorder({ level, weather = 0, detailLevel = 2, vehi
    */
   const frames = [];
   const moved = new Map();
+  /** Each change of a top-crush car's share, `{ time, car, share }`, oldest first, and each car's share now. */
+  const crushChanges = [], crushNow = [];
   let next = REPLAY_SAMPLE_TICKS, nextFull = REPLAY_FRAME_TICKS;
   const keepTicks = keepSeconds * REPLAY_TICKS_PER_SECOND;
   return {
@@ -89,9 +94,16 @@ export function createReplayRecorder({ level, weather = 0, detailLevel = 2, vehi
      * `time` is the simulation's seconds; `poses` each truck's current snapshot; `boxes` the objects that
      * moved in this reply (`{ sitIndex, pos, euler }`); `damage(i)` a truck's damage code.
      */
-    update(time, poses, boxes = [], damage = () => 0) {
+    update(time, poses, boxes = [], damage = () => 0, crush = null) {
       for (const b of boxes) if (!numberOf || numberOf.has(b.sitIndex)) moved.set(b.sitIndex, b);
       const ticks = Math.round(time * REPLAY_TICKS_PER_SECOND);
+      // A crush only grows, step by step: kept when it has grown by a hundredth since the last kept, or reached the end.
+      (crush ?? []).forEach((share, car) => {
+        const was = crushNow[car] ?? 0;
+        if (!(share > was) || (share - was < 0.01 && share < 1)) return;
+        crushNow[car] = share;
+        crushChanges.push({ time: ticks, car, share });
+      });
       if (ticks < next) return;
       next = ticks - (ticks % REPLAY_SAMPLE_TICKS) + REPLAY_SAMPLE_TICKS;
       if (ticks < nextFull) {
@@ -136,7 +148,14 @@ export function createReplayRecorder({ level, weather = 0, detailLevel = 2, vehi
           });
         }
       }
-      return { level, weather, detailLevel, vehicles, objects: originals, records: out, ...(samples.length ? { samples } : {}) };
+      // The crush from where the replay starts: each car's share then, and every change after it.
+      const crush = [], before = new Map(), first = out.length ? out[0].time : from;
+      for (const c of crushChanges) {
+        if (c.time < first) before.set(c.car, c.share);
+        else crush.push(c);
+      }
+      crush.unshift(...[...before].map(([car, share]) => ({ time: first, car, share })));
+      return { level, weather, detailLevel, vehicles, objects: originals, records: out, ...(samples.length ? { samples } : {}), ...(crush.length ? { crush } : {}) };
     },
   };
 }
@@ -156,7 +175,14 @@ export function ringReplay(replay) {
     from = time;
   }
   const samples = replay.samples?.filter((p) => p.time >= from);
-  return { ...replay, records: replay.records.filter((r) => r.time >= from), ...(samples ? { samples } : {}) };
+  // The crush at the cut: each car's share before it, stamped at the cut, and the changes after.
+  let crush = replay.crush;
+  if (crush) {
+    const before = new Map();
+    for (const c of crush) if (c.time < from) before.set(c.car, c.share);
+    crush = [...[...before].map(([car, share]) => ({ time: from, car, share })), ...crush.filter((c) => c.time >= from)];
+  }
+  return { ...replay, records: replay.records.filter((r) => r.time >= from), ...(samples ? { samples } : {}), ...(crush ? { crush } : {}) };
 }
 
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -233,6 +259,12 @@ export function createPlayback(replay, { restTravel = [-4, -4], boxes = null } =
   // The file's object numbers count the game's box table; the scene knows SIT indexes (`boxes`, as the recorder's).
   const sitIndexOf = (number) => (boxes ? boxes[number] : number);
   const { vehicles, objects } = timelines(replay);
+  // The crush block's changes, in order, and the time the replay's first record stands at.
+  const crushes = [...(replay.crush ?? [])].sort((a, b) => a.time - b.time);
+  const crushCars = crushes.reduce((n, c) => Math.max(n, c.car + 1), 0);
+  let firstTicks = Infinity;
+  for (const r of replay.records) if (r.time < firstTicks) firstTicks = r.time;
+  if (firstTicks === Infinity) firstTicks = 0;
   const count = Math.max(replay.vehicles.length, vehicles.size ? Math.max(...vehicles.keys()) + 1 : 0);
   const last = [...vehicles.values(), ...objects.values()].reduce((m, list) => Math.max(m, list.at(-1).t), 0);
   const matrix = new Array(9).fill(0);
@@ -281,7 +313,17 @@ export function createPlayback(replay, { restTravel = [-4, -4], boxes = null } =
         mtm2Sim.eulerToMatrix(angles[0], angles[1], angles[2], matrix);
         moved.push({ sitIndex, pos: lerpVec(nearestCopy(a.record.ipos, b.record.ipos), b.record.ipos, kk), matrix: [...matrix] });
       }
-      return { trucks, damage, objects: moved };
+      // Each top-crush car's share at `t` (the last change at or before it), or null when the file has none.
+      let crush = null;
+      if (crushes.length) {
+        const now = firstTicks + t * REPLAY_TICKS_PER_SECOND;
+        crush = new Array(crushCars).fill(0);
+        for (const c of crushes) {
+          if (c.time > now + 1e-6) break;
+          crush[c.car] = c.share;
+        }
+      }
+      return { trucks, damage, objects: moved, crush };
     },
   };
 }

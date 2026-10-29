@@ -148,7 +148,10 @@ export default async function mount(container, context, { replay, namesMode: sta
   if (disposed) return { unmount };
   const worldAudio = createWorldAudio(audio, {
     ambient: inRace ? null : ambience, weather: replay.weather ?? 0, music: inRace ? null : build.musicName ?? null, objects: build.soundObjects,
+    musicOff: () => !!context.jukebox?.on,
   });
+  // The jukebox plays on in the track's music's place (audio/jukebox.js).
+  const unwatchJukebox = context.jukebox?.subscribe(() => worldAudio.refreshMusic()) ?? (() => {});
   const truckAudio = createTruckAudio(audio, {
     count: replay.vehicles.length, player: 0, kookyHorn: !!context.settings.kookyHorn, mtm1Sounds: !!context.settings.mtm1Sounds,
   });
@@ -163,6 +166,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   cleanups.push(() => {
     window.removeEventListener("keydown", resumeAudio);
     window.removeEventListener("pointerdown", resumeAudio);
+    unwatchJukebox();
     worldAudio.dispose();
     truckAudio.dispose();
     audio.stopAll?.();
@@ -468,6 +472,8 @@ export default async function mount(container, context, { replay, namesMode: sta
     if (held.has("ArrowDown")) zoom = Math.min(6, zoom * (1 + dt * 1.5));
     const headlights = !!WEATHER_LOOK[replay.weather ?? 0]?.headlights;
     const state = playback.at(clock);
+    // The top-crush cars as crushed at this moment (OpenMTM2's crush block); a game's file has none and leaves them be.
+    if (state.crush) world.userData.crush = state.crush;
     // The world is a torus: every truck is drawn at the copy nearest the one the camera is on.
     // The watched truck where it was last drawn (the picture's space has no seam), and the others beside it.
     const watched = state.trucks[focus] ?? state.trucks.find(Boolean);

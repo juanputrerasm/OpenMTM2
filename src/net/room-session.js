@@ -12,7 +12,8 @@
     trackCrc    (sit) -> Promise<number>, the track's checksum (the classic game's CRC-32 over its POD)
 
   Events: "change", "chat", "notice", "start", "left" ({ reason }). Extra over the classic session:
-  `state().room` (code, name, locked, maxPlayers), `setComputers(n)`, and `start({ computers })`.
+  `state().room` (code, name, locked, maxPlayers), `setComputers(n)`, `start({ computers })`, and team lines
+  (`teamChat(text, memberIds)`, where the server says it routes them: `canTeamChat()`).
 */
 import { createEmitter } from "./transport.js";
 import { LOCATION } from "./legacy-session.js";
@@ -32,7 +33,8 @@ export function createRoomSession({ server, room, me, hasTrack = () => true, tra
   let snapshot = room;
   const members = new Map();
   const local = { truck: me.truck ?? "", skill: me.skill ?? 1, location: LOCATION.MULTIPLAYER, ready: false, team: 0 };
-  let closed = false, race = null, lastPing = 0, sentLatency = null;
+  // `ownLatency`: this player's last measured round trip to the server, ms.
+  let closed = false, race = null, lastPing = 0, sentLatency = null, ownLatency = null;
   /** The track we last reported having (`sit:crc`), so a change is answered once. */
   let checkedTrack = null;
 
@@ -91,7 +93,7 @@ export function createRoomSession({ server, room, me, hasTrack = () => true, tra
       const name = nameOf(member);
       members.delete(member);
       snapshot = { ...snapshot, members: [...members.values()] };
-      notice("left", reason === "removed" ? `${name} was removed from the room.` : `${name} has left the room.`);
+      notice("left", reason === "removed" ? `${name} was removed from the room.` : `${name} has left the room.`, { name });
       changed();
     }),
     server.on("owner", ({ member }) => {
@@ -100,7 +102,7 @@ export function createRoomSession({ server, room, me, hasTrack = () => true, tra
       changed();
     }),
     server.on("room", ({ room: next }) => { adopt(next); changed(); }),
-    server.on("chat", (m) => events.emit("chat", { from: m.from, name: m.name, text: m.text, private: !!m.private })),
+    server.on("chat", (m) => events.emit("chat", { from: m.from, name: m.name, text: m.text, private: !!m.private, team: !!m.team })),
     server.on("kicked", ({ reason }) => end(reason === "removed" ? "removed" : "closed")),
     server.on("shutdown", ({ text }) => notice("shutdown", text || "The server is shutting down.")),
     server.on("closed", () => end("lost")),
@@ -123,6 +125,14 @@ export function createRoomSession({ server, room, me, hasTrack = () => true, tra
     server.request("chat", to ? { text: t, to } : { text: t }).catch((err) => notice("error", err.message));
     events.emit("chat", { from: self, name: members.get(self)?.name ?? me.name, text: t, private: !!to, own: true });
   }
+  /** A team line to `teammates` (member ids), where the server routes them (`canTeamChat`). */
+  function teamChat(text, teammates) {
+    const t = String(text).slice(0, 160);
+    const ids = [...new Set(teammates)].filter((id) => Number.isInteger(id) && id > 0 && id !== self && members.has(id));
+    if (ids.length) server.request("chat", { text: t, team: ids }).catch((err) => notice("error", err.message));
+    events.emit("chat", { from: self, name: members.get(self)?.name ?? me.name, text: t, team: true, own: true });
+  }
+  const canTeamChat = () => !!server.info?.features?.includes?.("teamChat");
   const quick = (text) => chat(text);
   const joinTeam = (team) => { local.team = team; profile({ team }); changed(); };
 
@@ -141,7 +151,11 @@ export function createRoomSession({ server, room, me, hasTrack = () => true, tra
   /** An extension mode by its id (game/extensions/loader.js), or "" for a plain race. */
   const setMode = (mode) => { requireHost(); putSettings({ mode }); };
   const kick = (id) => { requireHost(); server.request("kick", { member: id }).catch((err) => notice("error", err.message)); };
-  const canStart = () => isHost() && !!settings().track && [...members.values()].every((m) => m.id === self || m.ready);
+  /** Whether the owner may start: a track every member has (none reported lacking it), and everyone else ready. */
+  const canStart = () => {
+    const t = settings().track;
+    return isHost() && !!t && [...members.values()].every((m) => m.id === self || (m.ready && !(m.content?.sit === t.sit && m.content.crc === -1)));
+  };
   /** Start (owner): the server seats everyone. Random weather is drawn here, from what the track allows. */
   function start({ resolveWeather = () => 0, computers = [] } = {}) {
     requireHost();
@@ -237,6 +251,7 @@ export function createRoomSession({ server, room, me, hasTrack = () => true, tra
     lastPing = now();
     server.ping().then((ms) => {
       const v = Math.round(ms);
+      ownLatency = v;
       if (sentLatency === null || Math.abs(v - sentLatency) > LATENCY_STEP_MS) { sentLatency = v; profile({ latency: v }); }
     }).catch(() => {});
   }
@@ -263,7 +278,7 @@ export function createRoomSession({ server, room, me, hasTrack = () => true, tra
       return {
         dpid: m.id, name: m.name, truck: mineNow ? local.truck : m.truck, skill: mineNow ? local.skill : m.skill,
         location: mineNow ? local.location : m.location, ready: mineNow ? local.ready : m.ready, team: m.team,
-        version: MTM2_NET_VERSION, latency: mineNow ? 0 : m.latency, local: mineNow, computer: false, isHost: m.id === snapshot.owner,
+        version: MTM2_NET_VERSION, latency: mineNow ? ownLatency ?? 0 : m.latency, local: mineNow, computer: false, isHost: m.id === snapshot.owner,
         missingTrack: !!t && m.content?.sit === t.sit && m.content.crc === -1,
         otherVersion: !!t && t.crc !== -1 && m.content?.sit === t.sit && m.content.crc !== -1 && m.content.crc !== t.crc,
         client: m.client ?? "", classicClient: !!m.classic,
@@ -283,7 +298,7 @@ export function createRoomSession({ server, room, me, hasTrack = () => true, tra
 
   return {
     on: events.on, state, update, leave,
-    setLocation, setReady, setTruck, setSkill, chat, quick, ridicule: () => {}, horn: () => {}, yeehaw: () => {}, joinTeam,
+    setLocation, setReady, setTruck, setSkill, chat, teamChat, canTeamChat, quick, ridicule: () => {}, horn: () => {}, yeehaw: () => {}, joinTeam,
     setTrack, setLaps, setWeather, setTeamPlay: () => {}, setComputers, setMode, kick, addComputer: () => null, removeComputer: () => {},
     canStart, start,
     raceLink: () => race,

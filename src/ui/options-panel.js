@@ -10,6 +10,7 @@ import { LANGUAGES, PHYSICS_MODELS, applyMtm1Classic, applyMtm2Classic, applyOpe
 import { offlineStatusText } from "../app/offline.js";
 import { loadStrings } from "../app/strings-store.js";
 import { locName, msg } from "../game/strings.js";
+import { chatSettings, setMuted } from "../game/chat.js";
 import { ACTIONS, DEFAULT_BINDINGS, codeLabel, conflictFor, mergeBindings } from "../game/input/bindings.js";
 import { PAD_PEDALS, testRumble } from "../game/input/gamepad.js";
 
@@ -288,6 +289,63 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
     input.click();
   };
 
+  /**
+   * The game's own drivers and Hall of Fame (`player.pro` and `MTM2 High Scores` from the game folder, MONSTER_EXE_ANALYSIS.md
+   * 16): either or both files, told apart by what they hold, added to the port's (game/mtm2-saves.js).
+   */
+  const importGameSaves = () => {
+    const input = el("input", { type: "file", multiple: true });
+    input.addEventListener("change", async () => {
+      const files = [...(input.files ?? [])];
+      if (!files.length) return;
+      const [{ parseMtmPlayerPro }, { parseMtmHighScores }, saves, store] = await Promise.all([
+        import("../vendor/openphotex/mtm/player-pro.js"), import("../vendor/openphotex/mtm/high-scores.js"),
+        import("../game/mtm2-saves.js"), import("../app/profile-store.js"),
+      ]);
+      const catalog = await context.assets.call("catalog");
+      const lines = [];
+      for (const file of files) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const pro = parseMtmPlayerPro(bytes);
+        if (pro) {
+          const profiles = await store.getProfiles(context);
+          const { added, kept } = saves.mergeDrivers(profiles, saves.driversFromPlayerPro(pro, catalog.trucks));
+          await store.saveProfiles(context);
+          lines.push(t("<<1>>: <<2>> drivers added.", file.name, added.length));
+          if (kept.length) lines.push(t("Already here, kept as they are: <<1>>.", kept.join(", ")));
+          continue;
+        }
+        const boards = parseMtmHighScores(bytes);
+        if (boards) {
+          const hall = await store.getHall(context);
+          const { added, skipped } = saves.mergeHighScores(hall, boards, catalog);
+          await store.saveHall(context);
+          lines.push(t("<<1>>: <<2>> Hall of Fame entries added.", file.name, added));
+          if (skipped.length) lines.push(t("Tracks not installed: <<1>>.", skipped.join(", ")));
+          continue;
+        }
+        lines.push(t("<<1>> is not a Monster Truck Madness 2 player.pro or MTM2 High Scores file.", file.name));
+      }
+      await showAlert(t, lines.join("\n"));
+    });
+    input.click();
+  };
+  /** The port's drivers and Hall of Fame as the game's two files, to put in its folder. */
+  const exportGameSaves = async () => {
+    const [{ writeMtmPlayerPro }, { writeMtmHighScores, HIGH_SCORES_FILE }, saves, store] = await Promise.all([
+      import("../vendor/openphotex/mtm/player-pro.js"), import("../vendor/openphotex/mtm/high-scores.js"),
+      import("../game/mtm2-saves.js"), import("../app/profile-store.js"),
+    ]);
+    const catalog = await context.assets.call("catalog");
+    const download = (data, name) => {
+      const link = el("a", { href: URL.createObjectURL(new Blob([data], { type: "application/octet-stream" })), download: name });
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    };
+    download(writeMtmPlayerPro(saves.playerProFromProfiles(await store.getProfiles(context), catalog)), "player.pro");
+    download(writeMtmHighScores(saves.highScoresFromHall(await store.getHall(context), catalog)), HIGH_SCORES_FILE);
+  };
+
   // Leaving the options for another screen: the same warning as Close first.
   const leaveFor = (go) => async () => { if (await close()) await go(); };
   const nav = (label, onclick) => el("button", { class: "nav", "data-menu-sound": "STARTOFF", onclick }, t(label));
@@ -356,7 +414,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       target.textContent = t("Copying <<1>> <<2>>%", name, total ? Math.round((copied / total) * 100) : 100);
     });
     try {
-      const done = await context.assets.call("reloadInstall", { files: found.files, podIni: found.podIni, exeVersion: found.exeVersion ?? null, weatherArt: found.weatherArt ?? [], videos: context.settings.copyVideos ? found.videos ?? [] : [], force: true });
+      const done = await context.assets.call("reloadInstall", { files: found.files, podIni: found.podIni, exeVersion: found.exeVersion ?? null, weatherArt: found.weatherArt ?? [], videos: settings.copyVideos ? found.videos ?? [] : [], force: true });
       const lines = [t("<<1>> archives mounted, in POD.INI order.", done.archives.length)];
       if (done.added.length) lines.push(t("Read again: <<1>>.", done.added.join(", ")));
       if (done.removed.length) lines.push(t("Removed: <<1>>.", done.removed.join(", ")));
@@ -384,6 +442,92 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
     }
   }).catch(() => {});
 
+  /**
+   * "Copy the game's videos" acts at once, as an install step and not a draft setting: ticked, the game's folder is picked
+   * again (a browser keeps no handle on it) and its VIDEOS folder is copied; unticked, the copied videos are removed.
+   */
+  const setVideoSwitches = (on) => {
+    for (const r of [introVideosSwitch, resultVideosSwitch]) {
+      const input = r.querySelector("input");
+      input.disabled = !on;
+      if (!on) input.checked = false;
+      r.classList.toggle("opt-disabled", !on);
+    }
+  };
+  const copyVideosSwitch = el("input", { type: "checkbox", class: "opt-switch", checked: !!settings.copyVideos, "aria-label": t("Copy the game's videos"), "data-opt": "Copy the game's videos" });
+  const keepCopyVideos = (on) => {
+    copyVideosSwitch.checked = on;
+    settings.copyVideos = live.copyVideos = on;
+    saveSettings(live);
+    stored = JSON.stringify(live);
+  };
+  copyVideosSwitch.addEventListener("change", async () => {
+    const want = copyVideosSwitch.checked;
+    copyVideosSwitch.checked = !want;
+    if (!want) {
+      if (!await showConfirm(t, t("Remove the game's videos from this browser?"))) return;
+      await context.assets.call("installVideos", { videos: [] }).catch(() => {});
+      keepCopyVideos(false);
+      setVideoSwitches(false);
+      return;
+    }
+    const [{ pickInstallFolder }, { findVideos }] = await Promise.all([import("../install/picker.js"), import("../install/inspect-source.js")]);
+    if (!await showConfirm(t, t("Pick the Monster Truck Madness 2 folder to copy its videos (about 155 MB)."))) return;
+    const source = await pickInstallFolder();
+    if (!source) return;
+    const videos = await findVideos(source).catch(() => []);
+    if (!videos.some(({ name }) => name.toUpperCase() !== "EXTRAS.INI")) { await showAlert(t, t("That folder has no VIDEOS folder.")); return; }
+    const label = copyVideosRow.querySelector(".opt-label"), text = label.textContent;
+    copyVideosSwitch.disabled = true;
+    const off = context.assets.on("install-progress", ({ copied, total, name }) => {
+      label.textContent = t("Copying <<1>> <<2>>%", name, total ? Math.round((copied / total) * 100) : 100);
+    });
+    try {
+      const list = await context.assets.call("installVideos", { videos });
+      keepCopyVideos(true);
+      setVideoSwitches(true);
+      await showAlert(t, t("<<1>> videos copied.", list.filter((name) => name !== "EXTRAS.INI").length));
+    } catch (error) {
+      await showAlert(t, t("Could not copy the videos: <<1>>", error.message));
+    } finally {
+      off();
+      label.textContent = text;
+      copyVideosSwitch.disabled = false;
+    }
+  });
+  const copyVideosRow = row(msg("Copy the game's videos"), copyVideosSwitch, msg("Copy the game's VIDEOS folder (about 155 MB) now, from its folder; untick to remove them"));
+
+  /** Chat and the lobby (game/chat.js; settings.net, which keeps its other fields). */
+  function multiplayerRows() {
+    const chat = chatSettings(settings.net);
+    const setNet = (changes) => { settings.net = { ...settings.net, ...changes }; save(); };
+    const mutedList = el("div", { class: "opt-muted" });
+    const showMuted = () => {
+      const muted = chatSettings(settings.net).muted;
+      mutedList.replaceChildren(...(muted.length ? muted.map((name) => el("div", { class: "opt-muted-row" }, el("span", {}, name),
+        button(msg("Unmute"), () => { setNet({ muted: setMuted(chatSettings(settings.net).muted, name, false) }); showMuted(); })))
+        : [el("p", { class: "muted" }, t("No one is muted. Mute a player from the lobby's player list, or type /mute and their name in a race."))]));
+    };
+    showMuted();
+    return [
+      row(msg("Chat in races"), el("select", { "aria-label": t("Chat in races"), "data-opt": "Chat in races", onchange: (event) => setNet({ chat: event.target.value }) },
+        ...[["all", msg("Everyone")], ["team", msg("Team and private only")], ["off", msg("Off")]].map(([value, label]) => el("option", { value, selected: value === chat.mode }, t(label)))),
+      msg("Which lines show over a network race. The lobby always shows every line")),
+      slider(msg("Chat lines"), { min: 3, max: 10, step: 1, value: chat.lines, format: (v) => String(v), set: (v) => setNet({ chatLines: v }),
+        title: msg("How many lines the chat shows over the race at once") }),
+      slider(msg("Chat fade"), { min: 4, max: 30, step: 1, value: chat.fadeS, format: (v) => `${v} s`, set: (v) => setNet({ chatFadeS: v }),
+        title: msg("How long a line stays over the race") }),
+      row(msg("Allow missing trucks"), el("input", { type: "checkbox", class: "opt-switch", checked: !!settings.net?.allowMissingTrucks, "aria-label": t("Allow missing trucks"),
+        onchange: (event) => setNet({ allowMissingTrucks: event.target.checked }) }),
+      msg("When you host: start the race even if a player chose a truck you do not have installed; it is drawn as another truck. Off, every player must choose a truck you have")),
+      row(msg("Latency display"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.net?.latencyDisplay !== false, "aria-label": t("Latency display"),
+        onchange: (event) => setNet({ latencyDisplay: event.target.checked }) }), msg("The lobby's Latency column, with the round trip in milliseconds, and each player's latency in the corner of a network race")),
+      el("h3", {}, t("Muted players")),
+      mutedList,
+      el("p", { class: "muted" }, t("In a race: Enter (Chat) types a line, K (Team chat) types one to your team. Tab changes who it goes to, Page Up and Page Down scroll back, /help lists the commands. With a gamepad, hold View and point the right stick for a quick message.")),
+    ];
+  }
+
   const sections = [
     [msg("Game"), [
       row(msg("Physics"), el("select", { "aria-label": t("Physics"), "data-opt": "Physics", onchange: (event) => { settings.physics = event.target.value; save(); } },
@@ -403,7 +547,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       msg("How many computer trucks race by default; the Races screen picks which")),
       // The game's videos (game/videos.js): off and greyed while the install has none.
       introVideosSwitch, resultVideosSwitch,
-      toggle(msg("Copy the game's videos"), "copyVideos", msg("Copy the VIDEOS folder too (about 155 MB) the next time the game folder is picked (Reload POD.INI)")),
+      copyVideosRow,
       menus,
       // Fullscreen, where the browser can do it and the game is not installed (ui/display-mode.js), at the page's foot.
       ...(() => { const button = fullscreenButton(t, "opt-fullscreen-button"); return button ? [el("div", { class: "opt-actions opt-fullscreen" }, button)] : []; })(),
@@ -463,6 +607,9 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         save();
       } })),
       toggle(msg("Menu music"), "menuMusic"),
+      // The jukebox acts at once, apart from the draft (ui/jukebox-dialog.js, game/jukebox.js).
+      el("div", { class: "opt-actions" }, button(msg("Jukebox"), async () => { (await import("./jukebox-dialog.js")).openJukebox(context); },
+        null, msg("The music of the mounted tracks and menus as one playlist, in your own order, played in the menus and in races"))),
       // The game's two commentary switches (MONSTER.INI commentaryFlag and textCommentaryFlag).
       toggle(msg("Voice commentary"), "commentary", msg("The announcer talks about your truck and the one the camera follows. From the next race")),
       toggle(msg("Text commentary"), "textCommentary", msg("The announcer's lines are shown on screen. From the next race")),
@@ -497,6 +644,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         const said = await testRumble();
         target.textContent = said === "ok" ? t("Rumble: strong motor, then weak motor") : said === "no gamepad" ? t("No gamepad connected") : t("This browser or pad has no rumble");
       }))]],
+    [msg("Multiplayer"), multiplayerRows()],
     [msg("Extensions"), [
       el("p", { class: "muted" }, t("Optional game modes shipped with OpenMTM2. Each extension owns its settings and runtime rules.")),
       ...extensionPanels,
@@ -507,7 +655,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       el("div", { class: "opt-actions opt-presets" },
         preset(msg("MTM1 Classic preset"), applyMtm1Classic, "Monster Truck Madness 1 as it was: MTM1 sky, trucks apart, original backdrops shown, MTM1 particles and sounds with no dust or sparks, the 1996 physics, no terrain overlap, smooth textures, and the enhanced graphics off. Save to keep it."),
         preset(msg("MTM2 Classic preset"), applyMtm2Classic, "Monster Truck Madness 2 as it was: no MTM1 option, original backdrops, MTM2 classic dust (the game's few puffs), no sparks or water splashes, no CP3 HD weather or reflections, MTM2's water and truck reflections, backdrops, and the enhanced graphics off. Save to keep it."),
-        preset(msg("OpenMTM2 preset"), applyOpenMtm2, "The port's own picture: no MTM1 or MTM2 option, tire tracks, water splashes, normal dust puffs and sparks, every enhanced part including the glossy paint, and CP3 terrain detail, HD weather and reflections. Save to keep it.")),
+        preset(msg("OpenMTM2 preset"), applyOpenMtm2, "The port's own picture: no MTM1 or MTM2 option, the track backdrops, tire tracks, water splashes, normal dust puffs and sparks, every enhanced part including the glossy paint, and CP3 terrain detail, HD weather and reflections. Save to keep it.")),
       el("h3", {}, t("Display")),
       // 4x4 Evolution's grass: how far around the camera it is drawn (render/evo-grass.js `GRASS_RADII`).
       slider(msg("Evo grass"), {
@@ -599,6 +747,12 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       el("div", { class: "opt-actions opt-data" },
         button(msg("Export settings"), () => exportOptions()),
         button(msg("Import settings"), () => importOptions())),
+      el("h3", {}, t("Monster Truck Madness 2 saves")),
+      el("div", { class: "opt-actions opt-data" },
+        button(msg("Import drivers and Hall of Fame"), () => importGameSaves(), null,
+          msg("Pick player.pro, MTM2 High Scores or both from the game's folder: their drivers and results are added to OpenMTM2's")),
+        button(msg("Export drivers and Hall of Fame"), () => exportGameSaves(), null,
+          msg("Save OpenMTM2's drivers and Hall of Fame as player.pro and MTM2 High Scores, for the game's folder"))),
       el("div", { class: "opt-actions opt-data" },
         el("button", { class: "danger", onclick: async (event) => {
           const target = event.currentTarget;

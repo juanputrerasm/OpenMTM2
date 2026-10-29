@@ -23,14 +23,21 @@ export const ACTIONS = Object.freeze([
   { id: "dashboard", label: msg("Dashboard") },
   { id: "hud", label: msg("Timing display") },
   { id: "fps", label: msg("FPS counter") },
-  { id: "cameraUp", label: msg("Camera up") },
-  { id: "cameraDown", label: msg("Camera down") },
+  // The game's four View keys (MONSTER_EXE_ANALYSIS.md 11): in a chase view they turn the camera round the truck and
+  // tilt it; in the cockpit Left, Right and Back turn the head while held and View Forward switches the mirror.
+  { id: "viewLeft", label: msg("View Left") },
+  { id: "viewRight", label: msg("View Right") },
+  { id: "cameraUp", label: msg("View Forward") },
+  { id: "cameraDown", label: msg("View Back") },
   { id: "map", label: msg("Map") },
   { id: "names", label: msg("Names") },
   { id: "finder", label: msg("Finder") },
   { id: "headlights", label: msg("Headlights") },
   { id: "crashDamage", label: msg("Crash Damage") },
   { id: "pause", label: msg("Pause") },
+  // The game's Chat key: in a network race, opens the box to type a line (ui/race-chat.js); Team chat opens it on the team.
+  { id: "chat", label: msg("Chat") },
+  { id: "teamChat", label: msg("Team chat") },
   // Not one of the game's: in a headset, makes where the head is the driving position (docs/VR.md).
   { id: "recenter", label: msg("Recentre VR view") },
 ]);
@@ -53,15 +60,22 @@ export const DEFAULT_BINDINGS = Object.freeze({
   dashboard: Object.freeze(["KeyG"]),
   hud: Object.freeze(["KeyO"]),
   fps: Object.freeze(["KeyU"]),
-  // Held: the chase camera tilts up or down (game/cameras.js `CAMERA_PITCH_RATE`).
-  cameraUp: Object.freeze(["Equal", "NumpadAdd"]),
-  cameraDown: Object.freeze(["Minus", "NumpadSubtract"]),
+  // The game's Insert and Delete.
+  viewLeft: Object.freeze(["Insert"]),
+  viewRight: Object.freeze(["Delete"]),
+  // Held: the chase camera tilts (game/cameras.js `CAMERA_PITCH_RATE`), as the game's keypad minus and plus: View Forward
+  // raises the camera to look down on the truck, View Back lowers it. In the cockpit keypad plus looks back and minus
+  // switches the mirror (the Monster Manual's "Looking Around from Within the Cab").
+  cameraUp: Object.freeze(["Minus", "NumpadSubtract"]),
+  cameraDown: Object.freeze(["Equal", "NumpadAdd"]),
   map: Object.freeze(["Tab", "KeyM"]),
   names: Object.freeze(["KeyN"]),
   finder: Object.freeze(["KeyF"]),
   headlights: Object.freeze(["KeyL"]),
   crashDamage: Object.freeze(["KeyX"]),
   pause: Object.freeze(["Escape", "KeyP"]),
+  chat: Object.freeze(["Enter", "NumpadEnter"]),
+  teamChat: Object.freeze(["KeyK"]),
   recenter: Object.freeze(["KeyC"]),
 });
 

@@ -2,7 +2,7 @@
   A Terminal Velocity, Fury3 or Hellbender level, built into what a race draws and simulates: the same result
   worker/track-build.js gives for an MTM2 track. It is a place to drive or fly about in, no more: these games have no
   course and no checkpoints, and what their own objectives are is in their executables, which are not read
-  (docs/PLAN.md Stage 3.2).
+  (docs/CHANGELOG.md Stage 3.2).
 
   The files (OpenPhotex `parseTvLvl`, `parseDef`, the NAV readers; the rules are JSTrackViewer's):
 
@@ -16,10 +16,14 @@
 
   The engine is MTM's ancestor and the world is the same shape: a square of cells, wrapping. A Hellbender level is
   128 cells a side, half MTM's: since it wraps, it is laid out twice each way to fill MTM's 256 (`tileGrid`), its
-  objects with it, which is what flying on across its edge shows in any case. The scale is the port's
-  reading of JSTrackViewer's, which draws these levels and MTM's with one grid: a cell is MTM's 32 ft, a height step
-  Terminal Velocity's 2 ft (MTM's own) and Hellbender's 1.5 ft, and a model unit 1/128 (TV, Fury3) or 1/64
-  (Hellbender) of MTM's.
+  objects with it, which is what flying on across its edge shows in any case. The scale is the games' own: a cell
+  is MTM's 32 ft, and the engines are isotropic (a cell 2^20 world units in Terminal Velocity and Fury3, 2^19 in
+  Hellbender, a height step 2^15 in both), so a height step is 1/32 of a cell in Terminal Velocity and Fury3, 1 ft,
+  and 1/16 in Hellbender, 2 ft (MTM's own); a model unit is 1/128 (TV, Fury3) or 1/64 (Hellbender) of MTM's. See
+  JSTrackViewer's docs/TV_GAME_EXE_ANALYSIS.md 3.5 and HELLBENDER_EXE_ANALYSIS.md 2.
+
+  Objects stand where each engine puts them (TV GAME.EXE 0x230a0, Fury3 0x40c2b0, HELLBEND.EXE 0x404f60; see
+  `settleTvPlacement`). The ground is MTM2's, whose cells split on the same checkerboard diagonals as these games'.
 
   What the port decides:
     - MTM2's trucks drive it, with MTM2's physics. The ground is Dirt everywhere and there is no water.
@@ -28,10 +32,12 @@
     - The sky is the level's own, a ceiling fixed in the world at SKY_CEILING_FT: it can be flown up to, which no
       MTM sky can. The height is the port's; the games' own ceiling is not known here.
 
-  Not built: tunnel levels (they are separate levels, seen only from inside), Hellbender's cavern under the ground
-  and the objects that stand in it, powerups, texture animation, and star-field skies (drawn as the horizon colour).
+  Not built: tunnel levels (each a tube built from its .TNL, OpenPhotex `parseTvTunnel`), Terminal Velocity's
+  chamber ceilings, Hellbender's cavern under the ground with its openings and the objects that stand in it, its
+  moving terrain (.QKE), powerups, texture animation, and star-field skies (drawn as the horizon colour).
 */
 import { TR_ANGLE_TO_RAD, defPlacementToEditor, parseDef } from "../vendor/openphotex/tv/def.js";
+import { parseBin } from "../vendor/openphotex/model/bin.js";
 import { decodeRawTexture, rawTextureSide } from "../vendor/openphotex/texture/raw.js";
 import { isNullAssetName, parseTvLvl } from "../vendor/openphotex/tv/lvl.js";
 import { parseHbNavPoints } from "../vendor/openphotex/tv/hb-nav.js";
@@ -55,9 +61,15 @@ const CELL_FT = 32;
 const EDITOR_PER_CELL = 64;
 /** Feet to a height step, and a model's size against an MTM model's, by the level's kind. */
 export const TV_SCALES = Object.freeze({
-  "TV/F3": Object.freeze({ heightFt: 2, model: 1 / 128 }),
-  HB: Object.freeze({ heightFt: 1.5, model: 1 / 64 }),
+  "TV/F3": Object.freeze({ heightFt: 1, model: 1 / 128 }),
+  HB: Object.freeze({ heightFt: 2, model: 1 / 64 }),
 });
+/** World units per height step, in all three games. */
+const WORLD_PER_STEP = 1 << 15;
+/** World units per cell: Terminal Velocity and Fury3, and Hellbender's 16.16 at 8 a cell. */
+const WORLD_PER_CELL = Object.freeze({ "TV/F3": 1 << 20, HB: 8 * 65536 });
+/** The Terminal Velocity and Fury3 logics the engine lifts by half the model radius: the flyers. */
+const FLYER_LOGICS = new Set([2, 4, 7, 8]);
 /** The sky's height over the level's lowest ground, feet: above the highest a heightfield can reach. The port's. */
 export const SKY_CEILING_FT = 640;
 /** The sky art's palette slots, and where the sky .ACT keeps their sixteen colours (as MTM1's flat sky). */
@@ -137,6 +149,49 @@ export function tileRecords(values, side, bytes) {
   return out;
 }
 
+/**
+ * The engine's model radius, in world units (TV GAME.EXE 0x22df0, Fury3 0x40bf80, HELLBEND.EXE 0x404d40): per axis the
+ * larger of |min| and |max| over the raw vertices at `raw * 65536 / magnify`, then the length of that corner. It is
+ * what the engine writes over a definition's hit radius. Null for a model with no vertices.
+ */
+export function binCornerRadius(bytes) {
+  if (!bytes?.length) return null;
+  const bin = parseBin(bytes);
+  if (bin.kind !== "mrgl" || !bin.vertices.length || !(bin.magnify > 0)) return null;
+  const extent = [0, 0, 0], scale = 65536 / bin.magnify;
+  for (let i = 0; i < bin.vertices.length; i++) extent[i % 3] = Math.max(extent[i % 3], Math.abs(bin.vertices[i] * scale));
+  return Math.round(Math.hypot(extent[0], extent[1], extent[2]));
+}
+
+/**
+ * Where an engine puts a placement, in feet `[x, y, z]`, from where the file stores it (`stored`, feet).
+ *
+ * Terminal Velocity and Fury3 ignore the stored height on a surface level: the object goes on the ground at (x, z),
+ * plus the definition's Y offset, plus half the model radius for the flyers. Hellbender keeps the stored height,
+ * raises it to the ground when it is below, and onto the top of a ground box it is inside; it adds no Y offset and
+ * lifts nothing. All three add the X and Z offsets.
+ *
+ * @param {{ origin: string, heightFt: number, groundAt: (x: number, z: number) => number,
+ *   boxAt?: (x: number, z: number) => ({ lowerFt: number, upperFt: number } | null) }} level
+ */
+export function settleTvPlacement(stored, definition, radius, level) {
+  const [x, storedY, z] = stored;
+  const perCell = WORLD_PER_CELL[level.origin] ?? WORLD_PER_CELL["TV/F3"];
+  const ox = ((definition.groundOffsetX ?? 0) / perCell) * CELL_FT, oz = ((definition.groundOffsetZ ?? 0) / perCell) * CELL_FT;
+  const ground = level.groundAt(x, z);
+  if (level.origin !== "HB") {
+    const lift = FLYER_LOGICS.has(definition.logic) && radius ? radius / 2 : 0;
+    return [x + ox, ground + (((definition.groundOffsetY ?? 0) + lift) / WORLD_PER_STEP) * level.heightFt, z + oz];
+  }
+  let y = storedY;
+  if (y < ground) y = ground;
+  else {
+    const box = level.boxAt?.(x, z);
+    if (box && y >= box.lowerFt && y < box.upperFt) y = box.upperFt;
+  }
+  return [x + ox, y, z + oz];
+}
+
 /** A position OpenPhotex gives in JSTrackViewer's editor space, `[x, z, height steps]`, as game feet `[x, y, z]`. */
 export function tvEditorToFeet([ex, ez, steps], heightFt) {
   return [(ex / EDITOR_PER_CELL) * CELL_FT, steps * heightFt, (ez / EDITOR_PER_CELL) * CELL_FT];
@@ -185,7 +240,7 @@ export async function buildTvTrackRender(vfs, lvlPath, { truckFiles = [], tileOv
   /** How many times the level repeats each way inside MTM's world, and its own width in feet. */
   const repeats = GRID / side, spanFt = side * CELL_FT;
   const heights = tileGrid(raw, side, Uint8Array);
-  // Terminal Velocity's step is MTM's 2 ft, so its heights are MTM's as they are; Hellbender's go in feet.
+  // Hellbender's step is MTM's 2 ft, so its heights are MTM's as they are; Terminal Velocity's go in feet.
   const heightsFt = scales.heightFt === 2 ? null : Float32Array.from(heights, (h) => h * scales.heightFt);
   const act = await readNamed(vfs, "ART", lvl.actName);
   const palette = act ? act.slice(0, 768) : null;
@@ -220,8 +275,21 @@ export async function buildTvTrackRender(vfs, lvlPath, { truckFiles = [], tileOv
     return (x, z) => mtm2Sim.terrainHeightAt(terrain, x, z);
   })();
 
-  // The objects: each placement of a definition that names a model.
+  // The objects: each placement of a definition that names a model, where its engine puts it.
   const models = {}, objects = [], originals = [];
+  const radii = new Map();
+  const radiusOf = async (definition) => {
+    const simple = titleOf(definition.simpleAsset);
+    if (!simple.endsWith(".BIN")) return null;
+    if (!radii.has(simple)) radii.set(simple, binCornerRadius(await vfs.read(`MODELS\\${simple}`)));
+    return radii.get(simple);
+  };
+  const boxAt = ra0 ? (x, z) => {
+    const col = ((Math.floor(x / CELL_FT) % GRID) + GRID) % GRID, row = ((Math.floor(z / CELL_FT) % GRID) + GRID) % GRID;
+    const upper = ra1[row * GRID + col];
+    return upper >= 1 ? { lowerFt: ra0[row * GRID + col] * scales.heightFt, upperFt: upper * scales.heightFt } : null;
+  } : null;
+  const level = { origin, heightFt: scales.heightFt, groundAt, boxAt };
   const defBytes = isNullAssetName(titleOf(lvl.defName)) ? null : await readNamed(vfs, "DATA", lvl.defName);
   const def = defBytes ? parseDef(defBytes) : null;
   for (const [index, placement] of (def?.placements ?? []).entries()) {
@@ -237,7 +305,8 @@ export async function buildTvTrackRender(vfs, lvlPath, { truckFiles = [], tileOv
       try { models[file] = data ? decodeModel(data, file, scales.model) : null; } catch { models[file] = null; }
     }
     if (!models[file]?.meshes.length) continue;
-    const pos = tvEditorToFeet(defPlacementToEditor(placement, definition, side, origin), scales.heightFt);
+    const stored = tvEditorToFeet(defPlacementToEditor(placement, definition, side, origin), scales.heightFt);
+    const pos = settleTvPlacement(stored, definition, await radiusOf(definition), level);
     const theta = placement.pitch * TR_ANGLE_TO_RAD, phi = placement.roll * TR_ANGLE_TO_RAD, psi = placement.yaw * TR_ANGLE_TO_RAD;
     originals[index] = [pos[0], pos[1], pos[2], theta, phi, psi];
     const rotation = mtm2Sim.eulerToMatrix(theta, phi, psi, new Array(9));

@@ -30,6 +30,9 @@ import { createConsole, distanceCommand } from "../console.js";
 import { simGroundOfBuild, terrainOfBuild } from "../../shared/build-terrain.js";
 import * as THREE from "three";
 import { el } from "../dom.js";
+import { createRaceChat } from "../race-chat.js";
+import { keepNetCommands, netConsoleCommands } from "../net-console.js";
+import { latencyMs } from "../../net/legacy-session.js";
 import { PHYSICS_MODELS, physicsModel, resolvePhysics, saveSettings, tileOverlapOf } from "../../app/settings.js";
 import { createFlyController } from "../fly-controller.js";
 import { LOOK_BACK_KEY, createCameraLook, lookOptions, turnedTarget } from "../../game/camera-look.js";
@@ -40,7 +43,7 @@ import { mergeBindings } from "../../game/input/bindings.js";
 import { SunFlare, sunBlocked } from "../../render/sun-flare.js";
 import { enableSunShadows } from "../../render/sun-shadows.js";
 import * as mtm2Sim from "../../vendor/openphotex/sim/mtm2/index.js";
-import { COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, CAMERA_PITCH_MAX, CAMERA_PITCH_MIN, CAMERA_TILT_RATE, INERTIA_MODE, cameraMode, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, createChaseCamera, fovFor, groundHeightFn, nextInList, nextMode, raceCamera, shortViews, zoomToFov } from "../../game/cameras.js";
+import { COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, CAMERA_PITCH_MAX, CAMERA_PITCH_RATE, CAMERA_PITCH_MIN, CAMERA_TILT_RATE, INERTIA_MODE, cameraMode, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, createChaseCamera, fovFor, groundHeightFn, nextInList, nextMode, raceCamera, shortViews, zoomToFov } from "../../game/cameras.js";
 import { createBlimp, hasBlimp } from "../../game/blimp.js";
 import { soundRange, surfaceFamily } from "../../game/sound-model.js";
 import { createTireEffects } from "../../render/tire-effects.js";
@@ -75,6 +78,7 @@ import { createCrashDamage, crashDamageMessage } from "../../game/crash-damage.j
 import { createCaption } from "../../render/caption.js";
 import { courseLoop, createCourseMap } from "../../render/minimap.js";
 import { createSummitSounds } from "../../game/summit-sounds.js";
+import { coveredAt } from "../../game/ground-maps.js";
 import { createCockpit, finderAngle } from "../../render/cockpit.js";
 import { cpuNames, fillGrid, formatRaceTime, raceDrivers, seatDrivers, summitBoard } from "../../game/race-setup.js";
 import {
@@ -271,6 +275,8 @@ async function mountRace(container, context, params, owned = []) {
   const drivers = eventPass ? null
     : net ? [...net.entrants].sort((a, b) => Number(b.local) - Number(a.local)).map((e) => ({
       name: e.name, file: e.file, player: e.local, vehicle: e.vehicle, remote: !e.owned, computer: e.computer,
+      // Who drives it in the session (a member id or DirectPlay id), for the chat's colours and teams.
+      member: e.computer ? null : e.dpid ?? null,
     }))
     : raceDrivers({ playerTruck, trucks: catalogTrucks, opponents, playerName: driver.name, spectator, names: cpuNames(context.settings.aiNames) });
   const raceTruckFiles = [...new Set([playerTruck, ...(eventPass ? eventPass.entrants : drivers).map((e) => e.file)])];
@@ -289,7 +295,7 @@ async function mountRace(container, context, params, owned = []) {
   // The HUD is drawn with the game's own fonts (ART\FNT1_480 for rows, FNT2_480 for messages).
   const [hudFont, messageFont, lcdFont, needle, cockpitArt, effectsArt] = await Promise.all([
     loadFont(context.assets, "FNT1_480"), loadFont(context.assets, "FNT2_480"), loadFont(context.assets, "FNTO_480"), context.assets.call("needle").catch(() => null),
-    context.assets.call("cockpit").catch(() => null), context.assets.call("effectsArt").catch(() => null),
+    context.assets.call("cockpit", { weather: weatherId }).catch(() => null), context.assets.call("effectsArt").catch(() => null),
   ]);
   const scale = Math.max(1, window.innerHeight / 480);
   // The timing board is in the Small LCD font, whose digits all have the same width (the clock reads "0 1:04.91").
@@ -445,10 +451,16 @@ async function mountRace(container, context, params, owned = []) {
   const worldAudio = createWorldAudio(audio, {
     ambient: ambience, weather: weatherId, music: musicName, objects: build.soundObjects,
     hitInfo: new Map(build.sim.boxes.map((b) => [b.sitIndex, { hitSound: b.hitSound, type: b.type }])),
+    musicOff: () => !!context.jukebox?.on,
   });
+  // The jukebox plays on through the race in the track's music's place, and can be started or stopped from Options.
+  const unwatchJukebox = context.jukebox?.subscribe(() => worldAudio.refreshMusic()) ?? (() => {});
   const truckAudio = createTruckAudio(audio, {
     count: entrants.length, player: 0, kookyHorn: !!context.settings.kookyHorn, mtm1Sounds: !!context.settings.mtm1Sounds,
-    onHit: (sitIndex, force, pos) => worldAudio.hit(sitIndex, force, pos),
+    // An object struck under water sounds lower (game/sound-model.js `underwaterMix`); Snow's water is ice.
+    onHit: (sitIndex, force, pos) => worldAudio.hit(sitIndex, force, pos, {
+      sourceUnder: weatherScene.weather !== 5 && waterLevelNow !== null && pos[1] < waterLevelNow,
+    }),
   });
   // The announcer (game/commentary.js, MONSTER_EXE_ANALYSIS.md 12): the game's triggers about the player's truck and
   // the one the camera follows, its queue, and each phrase as one sound and, when asked for, a line of text.
@@ -489,6 +501,7 @@ async function mountRace(container, context, params, owned = []) {
     commentary.dispose();
     window.removeEventListener("keydown", resumeAudio);
     window.removeEventListener("pointerdown", resumeAudio);
+    unwatchJukebox();
     worldAudio.dispose();
     truckAudio.dispose();
     audio.stopAll?.();
@@ -897,7 +910,11 @@ async function mountRace(container, context, params, owned = []) {
       if (e.code === "ArrowRight" || e.code === "ArrowLeft") { watch(cameraTarget + (e.code === "ArrowRight" ? 1 : -1)); return; }
     }
     if (netChat?.typing) return;
-    if (net && e.key === "Enter" && !e.repeat) { e.preventDefault(); netChat.open(); return; }
+    if (netChat && !e.repeat && (keyMap.chat.includes(e.code) || keyMap.teamChat.includes(e.code))) {
+      e.preventDefault();
+      netChat.open(keyMap.teamChat.includes(e.code) ? "team" : "all");
+      return;
+    }
     // A combination (Ctrl, Alt or Cmd with a key) is never a single key's action: Ctrl + Y is no YeeHaw.
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     if (keyMap.horn.includes(e.code) && !e.repeat) { truckAudio.horn(0, playerPosition()); netSend("horn"); }
@@ -928,13 +945,19 @@ async function mountRace(container, context, params, owned = []) {
     }
     // The Headlights key (L) switches the player's lamps; every other truck keeps what the weather gave it.
     if (keyMap.headlights.includes(e.code) && !e.repeat) { lamps[0] = toggleLamps(lamps[0]); netSend("lights", { lamps: lamps[0] }); }
-    if (keyMap.crashDamage.includes(e.code) && !e.repeat && extension?.damageKey) {
+    // In GOLD's Z mode X stops and starts the computer trucks (ui/gold-mode.js), and is no Crash Damage key.
+    const zModeX = gold?.state.zMode && e.code === "KeyX";
+    // View Forward in the full cockpit, facing forward, switches the rear-view mirror (0x4ed1c0).
+    if (keyMap.cameraUp.includes(e.code) && !e.repeat && viewMode === 0 && dashMode() === 0 && cockpitTurn() === 0 && !gold?.zooming) {
+      context.cockpitMirror = !context.cockpitMirror;
+    }
+    if (keyMap.crashDamage.includes(e.code) && !e.repeat && !zModeX && extension?.damageKey) {
       // The mode's own use of the key (Combat: repair with the credits).
       const { action, message } = extensionKeyAction(latest?.race?.extension, 0);
       if (message) flash(t(message), performance.now(), 2);
       if (action) modeAction = action;
-    } else if (keyMap.crashDamage.includes(e.code) && !e.repeat && physics === "mtm1") flash(t("No crash damage in Monster Truck Madness 1 physics"), performance.now(), 3);
-    else if (keyMap.crashDamage.includes(e.code) && !e.repeat) {
+    } else if (keyMap.crashDamage.includes(e.code) && !e.repeat && !zModeX && physics === "mtm1") flash(t("No crash damage in Monster Truck Madness 1 physics"), performance.now(), 3);
+    else if (keyMap.crashDamage.includes(e.code) && !e.repeat && !zModeX) {
       const on = crash.toggle((i) => drawn[i].repair());
       context.settings.crashDamage = on;
       saveSettings(context.settings);
@@ -1106,6 +1129,9 @@ async function mountRace(container, context, params, owned = []) {
   if (waterMirror) { waterMirror.dress(waterSurface.material); cleanups.push(() => waterMirror.dispose()); }
   /** The water's level as it stands this frame, bob included, or null. */
   let waterLevelNow = build.waterLevelFt ?? null;
+  /** The camera under the water level last frame: what the sound is heard through. */
+  let listenerUnderwater = false;
+  cleanups.push(() => audio.setUnderwater?.(false));
   const chase = createChaseCamera();
   const straights = raceCourse, centroid = courseCentroid(straights);
   // The blimp flies the course (game/blimp.js); the BlimpCam hangs over the course's centre (game/cameras.js).
@@ -1133,7 +1159,7 @@ async function mountRace(container, context, params, owned = []) {
   let mirrorTick = 0, mirrorReading = false, mirrorWarmed = false;
   const renderMirror = () => {
     if (!mirrorTarget) return;
-    if (viewMode !== 0 || dashMode() !== 0) { cockpit.setMirror(mirrorPixels, mirrorTarget.width, mirrorTarget.height, false); return; }
+    if (!mirrorShown()) { cockpit.setMirror(mirrorPixels, mirrorTarget.width, mirrorTarget.height, false); return; }
     // Every other frame, and not while the picture before is still on its way back.
     if (mirrorTick++ % 2 || mirrorReading) return;
     mirrorCamera.position.copy(cockpitEye.position);
@@ -1154,7 +1180,7 @@ async function mountRace(container, context, params, owned = []) {
     // 15 to 50 ms on a small chip.
     mirrorReading = true;
     renderer.readRenderTargetPixelsAsync(mirrorTarget, 0, 0, mirrorTarget.width, mirrorTarget.height, mirrorPixels)
-      .then(() => { if (!disposed && viewMode === 0 && dashMode() === 0) cockpit.setMirror(mirrorPixels, mirrorTarget.width, mirrorTarget.height); })
+      .then(() => { if (!disposed && mirrorShown()) cockpit.setMirror(mirrorPixels, mirrorTarget.width, mirrorTarget.height); })
       .catch(() => {})
       .finally(() => { mirrorReading = false; });
     renderer.setRenderTarget(null);
@@ -1209,6 +1235,31 @@ async function mountRace(container, context, params, owned = []) {
   let lastView = -1;
   /** How far the player has tilted the chase camera from its view's own pitch (game angle units); a new view starts level. */
   let pitchBy = 0;
+  /**
+   * How far the View Left and View Right keys have turned the chase camera round the truck (radians): the game's heading
+   * offset, a quarter turn a second (`0x52cd90`); a new view starts from its own.
+   */
+  let headingBy = 0;
+  const VIEW_TURN_RAD_PER_S = (CAMERA_PITCH_RATE / 65536) * Math.PI * 2;
+  const held2 = (codes) => (codes ?? []).some((code) => held.has(code));
+  const turnCamera = (dt) => {
+    if (dt <= 0 || replaying || paused || context.optionsDialog?.isConnected || !cameraMode(viewMode)?.dist) return;
+    const way = (held2(keyMap.viewLeft) ? 1 : 0) - (held2(keyMap.viewRight) ? 1 : 0);
+    if (way) headingBy = (headingBy + way * VIEW_TURN_RAD_PER_S * Math.min(dt, 0.1)) % (Math.PI * 2);
+  };
+  /**
+   * The head's turn in the cockpit (game angle units, `0x4ec530`): View Back (or Backspace) 0x8000, View Right 0x4000,
+   * View Left 0xc000, held; Left over Right over Back, as the game tests them.
+   */
+  const cockpitTurn = () => {
+    if (viewMode !== 0 || paused) return 0;
+    if (held2(keyMap.viewLeft)) return 0xc000;
+    if (held2(keyMap.viewRight)) return 0x4000;
+    if (held2(keyMap.cameraDown) || mouseLook.back) return 0x8000;
+    return 0;
+  };
+  /** The rear-view mirror: the full cockpit facing forward, once View Forward has switched it on (it starts off, as in the game). */
+  const mirrorShown = () => viewMode === 0 && dashMode() === 0 && !!context.cockpitMirror && cockpitTurn() === 0;
   /** Tilt the chase camera while Camera up or down is held, at the game's rate, held within the pitches it allows. */
   const tiltCamera = (dt) => {
     const base = cameraMode(viewMode)?.pitch;
@@ -1235,8 +1286,8 @@ async function mountRace(container, context, params, owned = []) {
   });
   cleanups.push(() => { if (zoomSave !== null) { clearTimeout(zoomSave); saveSettings(context.settings); } });
   const lookFree = () => !flyer?.enabled && !host.presenting && !paused && !context.optionsDialog?.isConnected;
-  // The RaceCam (4) frames the truck itself: the mouse does not turn it.
-  const onLookMove = (e) => { if (lookFree() && viewMode !== 0 && viewMode !== 4) mouseLook.move(e.movementX ?? 0, e.movementY ?? 0); };
+  // The BlimpCam (3) and the RaceCam (4) frame the truck themselves: the mouse does not turn them (the wheel still zooms).
+  const onLookMove = (e) => { if (lookFree() && viewMode !== 0 && viewMode !== 3 && viewMode !== 4) mouseLook.move(e.movementX ?? 0, e.movementY ?? 0); };
   const onLookWheel = (e) => { if (lookFree() && viewMode !== 0) { e.preventDefault(); mouseLook.wheel(viewMode, e.deltaY); } };
   canvas.addEventListener("pointermove", onLookMove);
   canvas.addEventListener("wheel", onLookWheel, { passive: false });
@@ -1247,12 +1298,14 @@ async function mountRace(container, context, params, owned = []) {
     if (viewMode !== lastView) {
       lastView = viewMode;
       pitchBy = 0;
+      headingBy = 0;
       mouseLook.reset();
       if (!cameraMode(viewMode).dist) chase.reset();
       camera.fov = fovFor(viewMode);
       camera.updateProjectionMatrix();
     }
     tiltCamera(dt);
+    turnCamera(dt);
     mouseLook.setBack(held.has(LOOK_BACK_KEY) && !paused);
     mouseLook.step(dt);
     // The BlimpCam and RaceCam set their own zoom each frame, from their distance to the truck.
@@ -1270,8 +1323,9 @@ async function mountRace(container, context, params, owned = []) {
       body.decompose(cockpitEye.position, cockpitEye.quaternion, scratchScale);
       camera.position.set(COCKPIT_EYE[0], COCKPIT_EYE[1], -COCKPIT_EYE[2]).applyMatrix4(body);
       camera.quaternion.copy(cockpitEye.quaternion);
-      // Backspace: the view out of the back of the cab.
-      if (mouseLook.back) camera.rotateY(Math.PI);
+      // The head turned by the View keys (or Backspace): back, right or left out of the cab. The camera's x is the truck's right.
+      const turn = cockpitTurn();
+      if (turn) camera.rotateY(-(turn / 65536) * Math.PI * 2);
       cockpitEye.position.copy(camera.position);
       return null;
     }
@@ -1282,11 +1336,11 @@ async function mountRace(container, context, params, owned = []) {
     const stood = mode === 3 ? (centroid ? blimpCamera(sim, centroid) : blimpCameraNoCourse(sim, yaw, ground))
       : mode === 4 ? (raceCamera(straights, sim, p.course ?? 0, ground) ?? blimpCameraNoCourse(sim, yaw, ground)) : null;
     const placed = stood && { ...stood, position: stood.position.map((v, k) => v + off[k]), target: stood.target.map((v, k) => v + off[k]) };
-    // These two stand still: the mouse turns their gaze and the wheel their lens.
+    // These two stand still and frame the truck: the wheel changes their lens.
     const special = placed && { ...placed, target: turnedTarget(placed.position, placed.target, mouseLook.yaw, mouseLook.pitch), zoom: placed.zoom * mouseLook.zoom(mode) };
     // Z mode's orbit swings the chase views; the Inertia view follows the watched truck's speed; the mouse looks round.
     const view = special ?? chase.update(mode, p.pos, yaw, ground, dt, {
-      turn: gold?.cameraTurn ?? 0, speedFt: latest?.poses[cameraTarget]?.current.speed ?? latest?.poses[0]?.current.speed ?? 0,
+      turn: headingBy, speedFt: latest?.poses[cameraTarget]?.current.speed ?? latest?.poses[0]?.current.speed ?? 0,
       pitchBy, clearFt: context.settings.cameraClearance ? CAMERA_CLEAR_FT : 0,
       look: { yaw: mouseLook.yaw, pitch: mouseLook.pitch }, scale: mouseLook.zoom(mode),
     });
@@ -1486,36 +1540,17 @@ async function mountRace(container, context, params, owned = []) {
       else if (fx.kind === "yeehaw") truckAudio.yeehaw(fx.truck, pos);
       else if (fx.kind === "lights") lamps[fx.truck] = fx.lamps;
       else if (fx.kind === "damage") crash.adopt(fx.truck, fx.code, { dent: (zone, level) => drawn[fx.truck].dent(zone, level), repair: () => drawn[fx.truck].repair() });
-      else if (fx.kind === "gone") flash(`${entrants[fx.truck].name} ${t("has left the race")}.`, now, 3);
+      else if (fx.kind === "gone") netChat?.left(entrants[fx.truck].name);
     }
   };
-  /** Chat in a network race: the others' lines over the race, Enter to type one's own. */
-  const netChat = net ? (() => {
-    const lines = el("div", { class: "race-chat", "aria-live": "polite" });
-    const input = el("input", { class: "race-chat-entry", type: "text", maxlength: 81, hidden: true, "aria-label": t("Message") });
-    view.append(lines, input);
-    const show = (line) => {
-      const row = el("div", { class: line.notice ? "net-notice" : null }, line.notice ? line.text : `${line.name}: ${line.text}`);
-      lines.append(row);
-      while (lines.childElementCount > 5) lines.firstElementChild.remove();
-      setTimeout(() => row.remove(), 10000);
-    };
-    const appNet = context.net;
-    if (appNet) { appNet.onLine = show; cleanups.push(() => { if (appNet.onLine === show) appNet.onLine = null; }); }
-    // The keys typed go to the message, not to the truck.
-    for (const type of ["keydown", "keyup"]) input.addEventListener(type, (e) => e.stopPropagation());
-    const chat = {
-      typing: false,
-      open() { chat.typing = true; input.hidden = false; input.value = ""; input.focus(); },
-      close() { chat.typing = false; input.hidden = true; input.blur(); },
-    };
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { const text = input.value.trim(); if (text) context.net?.session.chat(text); chat.close(); }
-      else if (e.key === "Escape") chat.close();
-    });
-    input.addEventListener("blur", () => { chat.typing = false; input.hidden = true; });
-    return chat;
-  })() : null;
+  /** Chat in a network race (ui/race-chat.js): the feed over the race, the Chat key to type a line, the pad's wheel. */
+  const netChat = net ? createRaceChat({
+    context, view, entrants,
+    caption: (text) => flash(text, performance.now(), 4),
+    // An extension mode's teams (Hockey, Soccer, Race & Rumble), by entrant; null in a plain race.
+    teamOf: (i) => { const teams = latest?.race?.extension?.teams; return Array.isArray(teams) && Number.isInteger(teams[i]) ? teams[i] : null; },
+  }) : null;
+  if (netChat) cleanups.push(() => netChat.dispose());
 
   let busy = false, latest = null, drawnAt = performance.now(), poolsWarmed = false;
   // Held until the frames come steadily: `WARM_FRAMES` in a row each shorter than `WARM_FRAME_S`, or `WARM_LIMIT_MS` at most.
@@ -1580,7 +1615,7 @@ async function mountRace(container, context, params, owned = []) {
           else rumbleReadout.show({ on: false, reason: off, info: padInfo });
           if (netRace && !disposed) netTick(r, now);
           if (fpsCounter.visible) fpsCounter.noteSim(performance.now(), r.steps ?? 0, performance.now() - sentAt);
-          if ((r.race || freeRoam) && r.time !== undefined) recorder.update(r.time, r.poses.map((p) => p.current), r.boxes ?? [], (i) => crash.code(i));
+          if ((r.race || freeRoam) && r.time !== undefined) recorder.update(r.time, r.poses.map((p) => p.current), r.boxes ?? [], (i) => crash.code(i), r.crush ?? null);
           // 4x4 Evolution trees a truck knocked over start to fall (game/falling-trees.js).
           for (const f of r.fallen ?? []) {
             const object = treeObjects.get(f.id);
@@ -1608,8 +1643,9 @@ async function mountRace(container, context, params, owned = []) {
               if (!watching) cameraTarget = end.target;
               if (end.justFinished) viewMode = 4;
               // A watched race stays on screen when it is over, to be looked round as long as the spectator likes: the
-              // pause menu's Results goes on to them.
-              if (end.done && !finishing && watching) watchedOver();
+              // pause menu's Results goes on to them. Not in a network race: a player knocked out (Combat) and watching
+              // goes on to the results with the others, who wait for this machine's times (the results barrier).
+              if (end.done && !finishing && watching && !net) watchedOver();
               else if (end.done && !finishing) finish();
             }
           }
@@ -1681,9 +1717,11 @@ async function mountRace(container, context, params, owned = []) {
       const listener = [camera.position.x, camera.position.y, -camera.position.z];
       const raceNow = latest.race;
       const clock = raceNow ? (raceNow.started ? 3 + raceNow.clock : 3 - raceNow.countdown) : null;
-      if (!finishing) truckAudio.update(dt, latest.poses.map((p, i) => ({ ...p, current: shown[i] === undefined ? p.current : { ...p.current, pos: shown[i].pos } })), listener, clock, entrants.map((_, i) => crash.damaged(i)));
-      // The level's own sounds are placed in the simulation's world.
-      if (!finishing) worldAudio.update(dt, inWorld(listener), movedPositions);
+      if (!finishing) truckAudio.update(dt, latest.poses.map((p, i) => ({ ...p, current: shown[i] === undefined ? p.current : { ...p.current, pos: shown[i].pos } })), listener, clock, entrants.map((_, i) => crash.damaged(i)), { listenerUnder: listenerUnderwater });
+      // The level's own sounds are placed in the simulation's world. The rain drums on the cab's roof in the cockpit under open sky.
+      const heard = inWorld(listener);
+      worldAudio.setListener({ underwater: listenerUnderwater, cockpit: viewMode === 0, covered: coveredAt(build.cover, heard[0], heard[1], heard[2]) });
+      if (!finishing) worldAudio.update(dt, heard, movedPositions);
       {
         const now = performance.now() / 1000;
         if (raceNow && !paused && !finishing) {
@@ -1728,7 +1766,10 @@ async function mountRace(container, context, params, owned = []) {
       gauges.setVisible(viewMode === 0 ? dashMode() === 1 : context.settings.dashboard !== false);
       gauges.set(mine);
       if (cockpit) {
-        cockpit.setDashboard({ visible: viewMode === 0 && dashMode() === 0 && !host.presenting, speed: mine.speed, rpm: mine.rpm, gear: mine.gear, steer: mine.steer });
+        cockpit.setDashboard({
+          visible: viewMode === 0 && dashMode() === 0 && !host.presenting, speed: mine.speed, rpm: mine.rpm, gear: mine.gear, steer: mine.steer,
+          look: cockpitTurn(), mirror: mirrorShown(),
+        });
         const next = build.sim.checkpoints[latest.race?.trucks[0].checkpoint ?? 0];
         // An extension may point the finder at something else (Tag's It, the ball) or hide it.
         const modeTarget = latest.race?.extension ? extensionFinderTarget(latest.race.extension, 0, shown.map((p) => inWorld(p.pos))) : undefined;
@@ -1785,6 +1826,9 @@ async function mountRace(container, context, params, owned = []) {
     waterLevelNow = water ? water.userData.levelFt + bob : null;
     const under = isUnderwater(camera.position.y, water ? water.userData.levelFt + water.position.y : null, weatherScene.weather);
     weatherScene.setUnderwater(under);
+    // The sound under water (game/sound-model.js): the master level drops, and the trucks and the world are heard muffled.
+    listenerUnderwater = under;
+    audio.setUnderwater?.(under);
     // How far under the eye is, for the lens: it comes on over the first half foot (docs/VISUALS.md, "Under water").
     scenery.underwater(under && water ? (water.userData.levelFt + water.position.y - camera.position.y) / 0.5 : 0, {
       dt: paused ? 0 : dt, levelFt: water ? water.userData.levelFt + water.position.y : null, viewHeight: host.presenting ? HEADSET_VIEW_HEIGHT : canvas.height,
@@ -2144,6 +2188,14 @@ async function mountRace(container, context, params, owned = []) {
         return t("Event <<1>>: <<2>>.", to + 1, event.name);
       },
     };
+    // A network race keeps only what acts at once, and adds the players' commands (ui/net-console.js).
+    if (net) {
+      keepNetCommands(commands);
+      Object.assign(commands, netConsoleCommands(context, {
+        save: saveSettings,
+        latency: (p) => { const ms = latencyMs(p); return ms === null ? (p.local ? t("Local") : "-") : `${ms} ms`; },
+      }));
+    }
     gameConsole = createConsole({
       parent: view, window, commands, history: context.consoleHistory, t,
       banner: () => `${WATERMARK}\n${summary()}\n${t("Type help for commands")}`,

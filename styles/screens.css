@@ -395,6 +395,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 .opt-switch { width: 18px; height: 18px; }
 .opt-fixed { color: var(--muted, #aab); }
 .opt-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; }
+.opt-muted { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px; }
+.opt-muted-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .opt-page > .muted, .opt-page > .bindings, .opt-page > .opt-switches { grid-column: 1 / -1; }
 .opt-page > h3 { grid-column: 1 / -1; margin: 10px 0 2px; font-size: 13px; color: var(--muted, #aab); text-transform: uppercase; letter-spacing: 0.05em; }
 .opt-page > h3:first-child { margin-top: 0; }
@@ -433,6 +435,22 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 .pod-manager td.num, .pod-manager th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .pod-manager td.pod-actions { text-align: right; }
 .pod-manager td.pod-actions button { min-width: 0; margin-left: 4px; padding: 2px 8px; }
+
+/* Jukebox (ui/jukebox-dialog.js): the player's buttons over the list, the list as the POD manager's. */
+.jukebox { width: min(900px, calc(100vw - 32px)); }
+.jukebox-player { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.jukebox-now { flex: 1 1 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jukebox-time { font-variant-numeric: tabular-nums; }
+.jukebox-list { max-height: calc(100vh - 300px); overflow: auto; border: 1px solid var(--panel-edge); border-radius: 6px; }
+.jukebox table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.jukebox th, .jukebox td { padding: 5px 8px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--panel-edge); }
+.jukebox th { position: sticky; top: 0; background: var(--panel); color: var(--muted, #aab); font-weight: normal; }
+.jukebox td.num, .jukebox th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.jukebox td.jukebox-uses { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.jukebox td.pod-actions { text-align: right; }
+.jukebox td.pod-actions button { min-width: 0; margin-left: 4px; padding: 2px 8px; }
+.jukebox tr[draggable="true"] { cursor: grab; }
+.jukebox tr.jukebox-current td { color: var(--accent, #ffd34d); }
 
 /* The Races screen's Mode list: the list on the bottom row, its label beside it. */
 .stage-panel-mode, .stage-panel-modeLabel, .stage-modern .stage-panel-mode, .stage-modern .stage-panel-modeLabel { padding: 0; border: 0; border-radius: 0; background: none; }
@@ -555,21 +573,56 @@ input.race-off { background: #777; color: #222; }
 .net-lobby.stage-modern .net-region input[type="checkbox"] { opacity: 1; }
 .net-lobby:not(.stage-modern) .net-region button.net-send,
 .net-lobby:not(.stage-modern) .net-region button.net-disconnect,
-.net-lobby:not(.stage-modern) .net-region button.net-radio,
 .net-lobby:not(.stage-modern) .net-region button.net-connect-button { background: transparent; border: 0; color: transparent; cursor: pointer; }
 .net-lobby:not(.stage-modern) .net-region button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.18); }
 .net-game-info { font-size: 11px; line-height: 1.4; text-shadow: 0 1px 2px #000; }
 .net-lobby .stage-panel-info { background: rgba(0, 0, 0, 0.55); padding: 3px 6px; }
 .net-go { font-weight: 800; }
 .net-go.blocked { opacity: 0.6; }
+.stage-panel.net-radio-cover { padding: 0; border: 0; border-radius: 0; overflow: hidden; background-color: transparent; background-repeat: no-repeat; pointer-events: none; }
 .net-lobby:not(.stage-modern) .net-go { background: transparent; border: 0; color: transparent; border-radius: 16px; cursor: pointer; }
 .net-lobby:not(.stage-modern) .net-go.net-go-art { background-repeat: no-repeat; background-position: 2px 2px; background-size: 115px auto; }
 .net-lobby:not(.stage-modern) .net-go:not(.net-go-art):hover { background: rgba(255, 255, 255, 0.18); }
 /* In a race: the line of other players' chat, and the entry for one's own (src/ui/screens/race.js). */
-.race-chat { position: absolute; z-index: 6; left: 12px; bottom: 64px; max-width: min(46em, 70vw); display: flex; flex-direction: column; gap: 2px; pointer-events: none; font: 600 14px/1.3 system-ui, sans-serif; color: #fff; text-shadow: 0 1px 3px #000; }
-.race-chat .net-notice { color: #9fb2ff; }
-.race-chat-entry { position: absolute; z-index: 7; left: 12px; bottom: 30px; width: min(36em, 70vw); padding: 4px 8px; font-size: 14px; background: rgba(0, 0, 0, 0.75); color: #fff; border: 1px solid #f2c14e; }
-.race-chat-entry[hidden] { display: none; }
+/* Chat over a network race (src/ui/race-chat.js): a fading feed, the box with its history and channel, the pad's wheel. */
+.race-chat { position: absolute; z-index: 6; left: 12px; bottom: 72px; max-width: min(40em, 60vw); display: flex; flex-direction: column; gap: 3px; pointer-events: none; font: 600 14px/1.35 system-ui, sans-serif; color: #fff; }
+.race-chat[hidden] { display: none; }
+.race-chat-row { align-self: flex-start; padding: 2px 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.42); text-shadow: 0 1px 2px #000; overflow-wrap: anywhere; transition: opacity 0.3s linear; }
+.race-chat-row.is-team { box-shadow: inset 3px 0 0 #3fd16a; }
+.race-chat-row.is-private { box-shadow: inset 3px 0 0 #ffb057; }
+.race-chat-row.is-private .race-chat-text { color: #ffd9a8; }
+.race-chat-notice { color: #b6c4ff; font-style: italic; font-weight: 500; }
+.race-chat-tag { margin-right: 5px; font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: #cfd6e6; }
+.is-team .race-chat-tag { color: #7ff09a; }
+.is-private .race-chat-tag { color: #ffb057; }
+.race-chat-name { font-weight: 800; }
+.race-chat-count-badge { margin-left: 4px; font-size: 11px; color: #f2c14e; }
+.race-chat-box { position: absolute; z-index: 7; left: 12px; bottom: 24px; width: min(40em, calc(100% - 24px)); display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 6px; background: rgba(8, 10, 18, 0.72); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); font: 600 14px/1.35 system-ui, sans-serif; color: #fff; }
+.race-chat-box[hidden] { display: none; }
+.race-chat-history { max-height: min(14em, 32vh); overflow-y: auto; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; }
+.race-chat-history .race-chat-row { background: transparent; padding: 1px 4px; }
+.race-chat-line { display: flex; align-items: center; gap: 6px; }
+.race-chat-channel { flex: none; min-width: 4.5em; padding: 4px 8px; border: 0; border-radius: 4px; background: #3a4258; color: #fff; font: 800 11px/1.2 system-ui, sans-serif; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; }
+.race-chat-box[data-channel="team"] .race-chat-channel { background: #23753e; }
+.race-chat-box[data-channel="reply"] .race-chat-channel { background: #9a5a12; }
+.race-chat-entry { flex: 1; min-width: 0; padding: 5px 8px; font: 500 14px/1.3 system-ui, sans-serif; background: rgba(0, 0, 0, 0.6); color: #fff; border: 1px solid #f2c14e; border-radius: 4px; outline: none; }
+.race-chat-box[data-channel="team"] .race-chat-entry { border-color: #3fd16a; }
+.race-chat-box[data-channel="reply"] .race-chat-entry { border-color: #ffb057; }
+.race-chat-count { flex: none; min-width: 2.5em; text-align: right; font-size: 11px; color: #9aa3b8; }
+.race-ping { position: absolute; z-index: 3; top: 8px; right: 10px; display: grid; gap: 1px; padding: 4px 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.45); pointer-events: none; font: 600 11px/1.35 ui-monospace, monospace; font-variant-numeric: tabular-nums; color: #e6e6e6; }
+.race-ping[hidden] { display: none; }
+.fps-counter:not([hidden]) ~ .race-ping { top: 128px; }
+.race-ping-row { display: flex; justify-content: space-between; gap: 12px; }
+.race-ping-name { max-width: 12em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.race-ping-row .race-ping-ms::before { content: "\25CF  "; color: #8a8f99; }
+.race-ping-row.good .race-ping-ms::before { color: #3fd16a; }
+.race-ping-row.fair .race-ping-ms::before { color: #ffd23f; }
+.race-ping-row.poor .race-ping-ms::before { color: #ff4436; }
+.race-chat-wheel { position: absolute; z-index: 8; left: 50%; top: 50%; width: min(420px, 80vmin); aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(circle, rgba(8, 10, 18, 0.25) 0 22%, rgba(8, 10, 18, 0.7) 23% 100%); pointer-events: none; font: 700 14px/1.2 system-ui, sans-serif; color: #fff; }
+.race-chat-wheel[hidden] { display: none; }
+.race-chat-wheel-hint { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #9aa3b8; text-align: center; }
+.race-chat-wheel-item { position: absolute; transform: translate(-50%, -50%); max-width: 8.5em; padding: 4px 8px; border-radius: 4px; text-align: center; text-shadow: 0 1px 2px #000; }
+.race-chat-wheel-item.selected { background: #f2c14e; color: #111; text-shadow: none; }
 .race-waiting { position: absolute; z-index: 9; inset: auto 0 40% 0; text-align: center; font: 800 22px/1.4 system-ui, sans-serif; color: #fff; text-shadow: 0 2px 4px #000; }
 .race-waiting[hidden] { display: none; }
 /* Online rooms (src/ui/screens/rooms.js, multiplayer.js). */
@@ -581,6 +634,8 @@ input.race-off { background: #777; color: #222; }
 .net-motd[hidden] { display: none; }
 .net-code { width: 6.5em; text-transform: uppercase; letter-spacing: 1px; }
 .net-region .net-game-info button.net-small, .net-region .net-game-info select.net-small { width: auto; height: auto; padding: 0 4px; font-size: 10px; }
+.net-region .net-players button.net-mute { width: auto; height: auto; margin-right: 3px; padding: 0 2px; font-size: 10px; line-height: 1.2; opacity: 0.6; }
+.net-region .net-players button.net-mute.on { opacity: 1; }
 .net-region .net-players button.net-kick { width: auto; height: auto; margin-right: 3px; padding: 0 3px; font-size: 9px; line-height: 1.2; }
 .net-check[hidden] { display: none; }
 .net-port { width: 6em; flex: 0 0 auto; }
@@ -596,6 +651,9 @@ input.race-off { background: #777; color: #222; }
 .setup-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .setup-choice { display: flex; flex-direction: column; gap: 4px; }
 .setup-choice select { width: 100%; height: 32px; font: inherit; }
+/* A switch sits on its label's line, to the right of it. */
+.setup-choice.setup-check { flex-direction: row; align-items: center; gap: 10px; }
+.setup-choice input[type="checkbox"] { flex: none; width: 20px; height: 20px; margin: 0; }
 .setup-hint, .setup-note { font-size: 0.85em; }
 .setup-heading { margin: 8px 0 0; font-family: var(--font-heading); font-size: 1.1rem; text-transform: uppercase; }
 .setup-progress { display: flex; flex-direction: column; gap: 6px; }
@@ -644,3 +702,22 @@ body.pad-nav [role=option]:focus:not(.selected) td { background: rgba(242, 193, 
 .rumble-readout { position: absolute; z-index: 3; left: 10px; bottom: 10px; max-width: calc(100% - 20px); padding: 6px 8px; background: rgba(0, 0, 0, 0.7); border: 1px solid #555; color: #cfcfcf; font: 600 11px/1.45 ui-monospace, monospace; font-variant-numeric: tabular-nums; white-space: pre; overflow: hidden; pointer-events: none; }
 .rumble-readout[hidden] { display: none; }
 .rumble-readout.on { border-color: #4fd17a; color: #e8ffe8; }
+
+/* The Monster Manual (ui/screens/manual.js): the chapters beside the topic. */
+.stage-panel-manual.manual { display: grid; grid-template-columns: 34% 1fr; gap: 10px; padding: 8px; overflow: hidden; font-size: 12px; }
+.manual-contents { overflow-y: auto; padding-right: 6px; border-right: 1px solid rgba(255, 255, 255, 0.15); }
+.manual-contents h3 { margin: 8px 0 2px; font-size: 12px; color: #f2c14e; }
+.manual-contents ul { list-style: none; margin: 0; padding: 0; }
+.manual-link { display: block; width: 100%; text-align: left; background: none; border: 0; color: inherit; padding: 2px 4px; font: inherit; cursor: pointer; border-radius: 3px; }
+.manual-link:hover, .manual-link:focus-visible { background: rgba(255, 255, 255, 0.1); }
+.manual-link.current { background: rgba(242, 193, 78, 0.25); }
+.manual-topic { overflow-y: auto; padding-right: 6px; line-height: 1.45; }
+.manual-topic h2 { margin: 0 0 8px; font-size: 15px; }
+.manual-topic p, .manual-topic ul { margin: 0 0 8px; }
+.manual-topic ul { padding-left: 18px; }
+.manual-keys { border-collapse: collapse; margin: 0 0 8px; }
+.manual-keys th { text-align: left; white-space: nowrap; padding: 2px 12px 2px 0; color: #f2c14e; font-weight: normal; }
+.manual-keys td { padding: 2px 0; }
+.manual-modes { margin: 0 0 8px; }
+.manual-modes dt { color: #f2c14e; margin-top: 6px; }
+.manual-modes dd { margin: 2px 0 0 12px; }

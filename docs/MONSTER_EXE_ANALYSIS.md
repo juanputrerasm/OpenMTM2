@@ -764,9 +764,9 @@ wrestling-themed videos). The list's length is its `[Video]` count key (`Win=11`
 `Win1`, ... found in turn (0x4c51d0); one is picked at random and played by its `[Video]` key (0x4c4f50), the INI being
 `system\extras.ini` (string 135). The retail `EXTRAS.INI` lists 11, 12 and 12 videos for Win, Lose and Other, 4, 6 and 6
 for the WCW sets (`OtherWCW` repeats `LoseWCW`'s first three), under `VIDEOS\`; the files are Smacker (OpenPhotex
-`docs/SMK.md`). The Hall of Fame persists in `highscor.mtr`, one line per entry written as
-`%d,%s,%d,%s,%d,%f,%f` (0x4c7540): **hypothesis** rank, player name, skill level, truck name,
-points, time, fastest lap.
+`docs/SMK.md`). The Hall of Fame persists in the file `MTM2 High Scores` (section 16). `highscor.mtr` and its
+`%d,%s,%d,%s,%d,%f,%f` lines (reader 0x4c7150, writer 0x4c7540) are dead code in 2.00.42: the two call only each
+other, and nothing calls the writer.
 
 ---
 
@@ -1221,15 +1221,17 @@ CPU trucks and the player's autopilot use the same code.
   detail of the body (16, 10 and 08) gets, per zone, the list of its vertices that lie within
   the zone's radius of the zone's point. Model units are 1/256 ft (the BIN's own). Radii
   (`0x650ef8`): 512 (2 ft) for zones 1 to 4 and 384 (1.5 ft) for zones 5 to 12.
-- **The push** (`0x5323e0`) runs on every call, whatever the level: each listed vertex whose
+- **The push** (`0x5323e0`) runs on every call, whatever the level, for each of the three models in turn: each listed vertex whose
   *current* position is within the radius of the zone's point (in model units) moves by the
   zone's direction `D` (`0x650f30`, three signs per zone) times `(level + 1) x 16` plus a random
   0 to 8 units (`((level + 1) x 0xfffe + rand) x 16 >> 16`), every call, each vertex drawing its own
   random. Over several frames of contact a dent builds up: level 3 pushes 64 to 72 units (about
   a quarter foot) a call. `D` by zone 1 to 12 (x, y, z): (+,+,-), (-,+,-), (+,-,-), (-,-,-),
   (+,-,-), (-,-,-), (+,-,+), (-,-,+), (+,-,+), (-,-,+), (+,+,+), (-,+,+).
-- On the lowest level of detail the push also moves the truck's lights (`+0x1178`, 0x68 bytes
-  each) that lie near the zone's point and turns their cones by a random amount.
+- With the lowest level of detail (the last of the three) the push also moves the truck's lights (`+0x1178`,
+  0x68 bytes each) that lie near the zone's point and turns their cones by a random amount (section 11b). The
+  levels of detail are the game's own (the body's `16`, `10` and `08` models, the tires' `16l`..`08r`); the
+  renderer picks one by the model's size on the screen, and every one of them is dented.
 - `0x531e40` also throws two scrape sparks every eighth of a second from a zone in contact while
   the truck is moving.
 - Damage is replicated in network games (packet 0x20 from 0x532900). `GOODY.BIN` is loaded
@@ -1309,6 +1311,17 @@ mode not 0) the heading offset and the pitch each move by a quarter of the frame
 (`dt / 4`, so 0x4000 a second, 90 degrees), the heading offset wrapping at 0x10000 and the pitch
 held to -0x3fff..0x3fff, which the placement (`0x52b110`) then lifts to 0 when below it; choosing
 a view sets the mode's own pitch again (`0x52b780`);
+the keyboard's View keys do the same in the camera key routine (`0x52cd90`), in any view but the cockpit (or in
+slew mode): View Left adds `dt / 4` to the heading offset and View Right takes it away (wrapping at 0x10000), View
+Forward adds `dt / 4` to the pitch (held at 0x3fff) and View Back takes it away (held at -0x3fff). Their default
+scan codes (`[Keys]`, the value table behind `0x640910`): View Left 0x52 (Insert), View Right 0x53 (Delete), View
+Forward 0x4a (keypad minus), View Back 0x4e (keypad plus); Next View is 0x2f (V), Cockpit View 0x47 (keypad 7),
+Camera 0x25 (K, the watched truck, next or with Shift the one before). The zoom keys are scan codes 0x0d (=,
+zoom in: `+0x14` less 0x1000, at least 0x1000) and 0x0c (-, zoom out: plus 0x1000, at most 0x20000), and they work
+only in slew mode or Z mode (section 15); outside Z mode each frame sets the zoom from the view again. (The
+Monster Manual, `MONSTER.HLP`, says `-` and `=` give a wide-angle view in any external view; 2.00.42's code takes
+them only in those modes. The manual's other camera keys agree with the code: keypad plus points the camera up,
+keypad minus down, Insert and Delete left and right, and in the cockpit plus looks back and minus shows the mirror);
 View Next steps the mode 0 to 9 (Shift reverses). BlimpCam (3, `0x52c280`) and RaceCam (4, `0x52ba90`) place the camera by their own rules and set its zoom from the
 horizontal distance `h` to the truck: `65536 / (h x 0.0625)` held to 0x1000..0x8000, a telephoto (about 4 to 10
 degrees of view at the base of 60 degrees):
@@ -1396,7 +1409,12 @@ race HUD is two boxes at the top left, labels left and values right-aligned, tim
   colour (0, 0, 128) between radii 22 and 30. In that screenshot the gauges' numbers are white
   without a shadow and the gear strip uses a 3 x 5 pixel font that no stock font sheet holds.
 A standings list, `1st - ` to `8th - ` with each truck's name, is drawn instead when its
-toggle (`0x6505ec`) is on. The cockpit
+toggle (`0x6505ec`) is on. That toggle is `showInfoOverlay` (MONSTER.INI), flipped by the key at scan code
+0x18 (O). In a Summit Rumble (the HUD routine's Rumble branch) it draws `Time Remaining:` and the time left as
+`%02d:%05.2f` centred at the top, each over a dark box (with the full cockpit the cockpit's own box routine), then a
+list down the left from x = 6: the trucks sorted by score (`+0xf50`), highest first, each row `%s%s` (the
+ordinal, `1st - ` to `8th - `, and the truck's name) and its score as `%d` right-aligned, rows a font height apart,
+the player's own row in colour 0xf9; the sort also sets each truck's place (`+0x8f8`). The cockpit
 (`COCKPIT.POD`, `Cockpit.c`, `Ckptutil.c`) is a packed-bitmap dashboard per resolution with a
 speedometer and tachometer needle (`needle.bin`), gear indicator "P R N 1 2 3", mirror, the
 **finder** (an arrow to the next checkpoint, `fi%d*.raw`), the **map** and the **pitboard**.
@@ -1423,6 +1441,25 @@ The cockpit is drawn in layers: black, 3D window, mirror, redraw boxes, panels, 
 then finder, shifter and shift light. `.AAI` files are anti-alias overlays for the panels,
 wheel frames and finder ring, made by TRI's `AARaw.exe`.
 
+**Looking round the cab** (`Cockpit.c`, `0x4ec530`, run each frame in the cockpit view): the head's turn
+(`0x63f51c`, 16-bit angle) is 0 unless a View key is held (and no chat line is being typed): View Back gives
+0x8000, View Right 0x4000, View Left 0xc000 (a joystick hat or its View buttons do the same). The camera's
+heading adds the turn in the cockpit view only (`0x52b110`), so the eye stays at (0, 4, 1) ft and looks back,
+right or left. When the turn changes the panel bitmap is swapped for the powerbig file's matching background
+(front, left for 0xc000, right for 0x4000, back for 0x8000) and recoloured for the weather (below). With the head
+turned only the panel is drawn: the needles, steering wheel, shifter, shift light and gear strip are drawn for the
+front view only (`0x4ebf80`), and so is the rear-view mirror (`0x4ed1c0`, `0x5751c0`). The mirror's own switch is
+View Forward in the cockpit: with the full cockpit (`viewCockpit` 2) and the head forward, a press (or a new
+press of its joystick button) flips `0x7b52cc`, and the mirrors are drawn only while it is set. It lies in zeroed
+memory and nothing else writes it, so **the mirror is off when the game starts** and View Forward turns it on. The trucks' headlights count as "forward cockpit" only with the head forward
+(section 11b).
+
+**The panels in the weather.** Loading a panel (`0x4ec530`) recolours every non-zero pixel through the level's
+light table (`DATA\<track>.LTE`, read by `0x55c540` into `0x6a71f8`, 256 entries per level) at a level set by the
+weather: Cloudy 13, Foggy 14, Dense Fog 12, Rain 13, Snow 14, Dusk 11, Night 8, Pitch Black 5; Clear keeps the
+art as it is. The same table and levels darken the steering wheel, shifter and finder art (`0x4e9ed0`,
+`0x4ea110`, `0x4eabb0`, `0x4eb490`, all in `Ckptutil.c`): these are the "bitmap routines" of section 13.
+
 **Finder:** a 60x60 ring (`FI480.RAW` + `.AAI`) with the checkpoint number centred in it, a
 12x6 arrow (`FI480GA.RAW` green, `FI480RA.RAW` red) under its apex, and a 6x6 dot
 (`FI480GD.RAW`, `FI480RD.RAW`) that circles the ring. Green means the truck is lined up with the
@@ -1443,6 +1480,15 @@ reader 0x565050). The writer prints, per vehicle, the truck file then the driver
 pointer and count; records are written from the start of the ring. The port records the same
 frames (`game/replay.js`) and reads and writes the file with OpenPhotex.
 
+- **Top-crush records** (kind 2, `0x5665b0`, played by `0x566f00`): a crush car's record holds its position
+  (`+0x28`), the three words at `+0x94` in the velocity slot and its angles (`+0x40`), and its number; its rates
+  slot is not written. How far the roof is crushed (`+0x84`, the crushed share) is in no record, so playback moves
+  the cars and leaves each one crushed as it is now: a replay shown after the race has every car as the race left
+  it, from the first frame. The `.rpl` format has no field for it either.
+- **Demos.** There is no separate demo format. The debug VCR menu's "7. Load demo" and "8. Save demo"
+  ("Load which demo :", "Save demo (CR to abort) :") call the same reader and writer as the `.rpl` files, and the
+  exe names no `.dmo` file; `DEMO\DEMO1.DMO` in `STARTUP.POD` is an empty leftover. The DEMO cheat and the start
+  screen's demo are camera modes over a live race, not playback.
 - **Object numbers.** A box record's number, and the line order of `Original object locations`, index the box table
   (count `0xa31e84`), not the SIT's box list: the SIT loader puts type 99 boxes in the ramp table and the top-crush cars
   in their own, so those are not counted. Where a SIT opens with ramps (Mud Pie `CIRC5.SIT` and the drag strips have
@@ -1480,7 +1526,7 @@ frames (`game/replay.js`) and reads and writes the file with OpenPhotex.
 
 ### 11b. The truck's lamps
 
-(The exe has this code, but in play the lamps never showed; the port draws them as an addition, see `docs/PLAN.md`.)
+(The exe has this code, but in play the lamps never showed; the port draws them as an addition, see `docs/CHANGELOG.md`, "Additions".)
 
 The TRK lists up to 14 lamps (`Number of Lights`; 0xe or more is an error "Too many lights"), read by
 `0x4bddc0` into 0x68-byte records from truck `+0x1178` (count at `+0x1174`). A record holds, in float
@@ -1521,9 +1567,13 @@ that is 1 inside the view range and 0.2 beyond it (in Foggy, Dense Fog and Snow 
 by the angle to the viewer). Where the lamp has a positive cone length and the lamp flag is set, the
 beam is a six-sided truncated cone (base radius at the lamp, rim radius at the cone length) textured with
 the cone bitmap and added to the scene; a beacon's heading advances by its spin speed over time.
-Damage (section 10) also knocks the lamps askew: on the lowest level of detail `0x5323e0` moves the
-current position and turns the heading and pitch of lamps within 2 ft of a zone's point by a random amount
-(at most 20 degrees).
+Damage (section 10) also knocks the lamps askew. The push `0x5323e0` runs once for each of the body's three
+levels of detail; with the third (index 2) it also goes through the lamps, so every damage call moves them,
+whatever detail is drawn. A lamp whose current position is within 2 ft of the zone's point (distance squared
+under 4): if it has a cone (`[13]` above 0), its current heading `[9]` and pitch `[11]` each take a random step of
+up to 0.349 rad (20 degrees) either way (`rand * 0.349 * 2 / 32768 - 0.349`), held within 0.349 rad of the
+lamp's own heading `[8]` and pitch `[10]`; then its current position moves along the zone's direction `D`
+(section 10) by `rand / 65536` (0 to 0.5 ft) on x and y and a fifth of that on z.
 
 ### 11c. The sky dome
 
@@ -1634,6 +1684,19 @@ stereo separation, `UseRedBook` and `UseModMusic`.
   `0.1 - v_y / 9` (`v_y` the world vertical speed, ft/s), played only when that is above 0 and at most 1.7. While in
   water (and the camera above it) `Wtr-abv1.wav` loops (KLP) at `0.1 + |v| / 10`, at most 1.2; it stops on leaving the
   water. `SOUND\SPLASH.WAV` (`MUSIC.POD`) is never a sound effect: only `0x4207f0` names it, as the menu music.
+- **Under water** (`0x41f980` sets `0x6719a0` each frame: the camera below the water level, never in Snow). With the
+  listener under water, a truck that is itself in water (`0x41bbd0`) has its engine and skid loops and its
+  gear-change sounds at 0.65 of their pitch (`0x6078dc`) and does not start `Wtr-abv1`; the change in or out sets the
+  mixer's master level to 0.75 (`0x6078e0`) and back to 1. A one-shot from the world (a collision, an object's hit, `0x429cb0`, `0x428bc0`) is played at a volume by where
+  it is and where the listener is: source in the air and listener in the air 1, source under water only 1 (and 0.9 of
+  its pitch), listener under water only 0.2, both under water 1.2 (and 0.65 of its pitch, from the listener).
+- **Rain** (`0x57581b`, each frame, weather 4): `rain4.wav` loops at volume 0.25 with its pitch jittered by up to
+  1.5% each frame (`1 + (rand / 16384 - 1) * 0.015`), at 0.6 of that pitch with the camera under water. **Rain on
+  the roof**: `rainrf8.wav` loops at volume 0.7 with the same jitter while it rains, the camera is not under water,
+  the view is the cockpit (mode 0) and the camera's terrain cell has no cover over it (`0x502510`: the cell's table
+  entry at `0x7f09d8` is above the camera; a cell without one reads 0x40000, open sky); otherwise it stops. This is
+  the only sound in the exe that depends on the cockpit view. The loop meant for Night (`0xb66510`) is never
+  created, so nothing plays there.
 - **Bridges** (`0x41ec90`, from `0x41bbd0`, once for surface 1100 (Wood) and once for 1400): while the truck moves
   faster than 2 ft/s and any of its four tires on the ground stands on that surface, `bridge1.wav` loops (KLP) from the
   middle of those tires' contact points, at `speed / 60` (at most 1.4) times the truck's scale and at a pitch of
@@ -1804,7 +1867,8 @@ nothing in it tells Night from Pitch Black. Three bitmap routines (`0x4ea010`, `
 recolour every non-zero pixel of a bitmap through a shade table of sixteen levels, `0x6a71f8[level * 256 +
 pixel]`, with the level taken from the weather: Cloudy 13, Foggy 14, Dense Fog 12, Rain 13, Snow 14, Dusk
 11, Night 8, Pitch Black 5 (Clear is left as drawn). So the game darkens that art to 5/16 in Pitch Black and
-8/16 at Night; which bitmaps these are, and whether the 3D ground takes the same level, is not traced. Two
+8/16 at Night. The bitmaps are the cockpit's (section 11, "The panels in the weather"), and the table is the
+level's `.LTE` light table, not a fixed sixteen steps; whether the 3D ground takes the same level is not traced. Two
 more tests single Pitch Black out: the routine at about `0x4e...` (decompiled near `DAT_0063f54c`, a truck's
 heading sine and cosine) runs only when the weather is not Pitch Black (or `0x468450` returns more than
 0x3fff), read as the truck's shadow, **hypothesis**; and `0x5225d0` (the lens flare) is skipped in Pitch
@@ -2182,16 +2246,29 @@ autopilot cycle and the slew freeze flag are confirmed in code; the rest is not 
 | 0 (4 in slew) | writes consecutive screenshots (PCX in software, RAW in hardware) |
 | R | **reverse course direction** (`0x647564`): in the controls routine (`0x584490`) the key-state array at `0x694ee0` is indexed by DirectInput scan code, and scan code 0x13 (R) flips the flag while GOLD is on. Scan code 0x0B (0) is the screenshot key, 0x2D (X) toggles the CPU trucks' flag at `0xa9a4d0`. |
 
+**Z mode, traced** (the in-race key routine `0x585da0`, beside the weather cycle; the overlay `0x52d540`): Z (scan code 0x2c) flips
+Z mode (`0x63f4f4`) whenever GOLD is on and no chat line is typed; it does not need slew mode, and leaving slew
+mode leaves it as it is. While it is on:
+- the overlay draws `Zoom: %f` (the base zoom over the camera's), `Sector: %d %d Vis poly: %d Total: %d` (the
+  camera's x and z over 8192, that is 32 ft cells, the polygons drawn, and `(2 viewRange + 1)^2` cells), `Level:
+  %s Models: %d` and two more lines of renderer statistics;
+- `=` and `-` zoom the camera by 0x1000 in 0x1000..0x20000 (section 11), and the view's own zoom is no longer set
+  each frame, so the zoom stays;
+- X (0x2d), in a single-player race with more than one truck, flips every computer truck's autopilot (`+0x894`,
+  from the second truck on): with it off they stop driving;
+- Ctrl+L asks for a SIT name ("Load situation: ") and loads it.
+The View keys orbit the camera in Z mode and slew mode as they do in any chase view (section 11).
+
 **In OpenMTM2** (`src/ui/gold-mode.js`): typing GOLD or FRAME during a race works as in the game
 (the last 8 letters are compared). With GOLD on, R reverses the course, Ctrl+T cycles the
 player's autopilot (off, speed control only, full), Ctrl+B cycles the collision boxes (off,
 wireframe, solid), Ctrl+Y is slew mode, Z the technical overlay in slew mode, and 0 (4 in slew
 mode) saves a screenshot as a PNG download. Z mode stays on when slew mode is left, so its zoom
-(- and +), its orbit (Insert and Delete) and Ctrl+L (load a SIT by name) work while driving; this
-follows a player's account of the game (RuDeE), not a trace. Ctrl+4 and Ctrl+5 pick BlimpCam and
+(- and +), its orbit (Insert and Delete) and Ctrl+L (load a SIT by name) work while driving, as the trace above
+confirms. Ctrl+4 and Ctrl+5 pick BlimpCam and
 RaceCam at any time. Alt works in place of Ctrl, since browsers keep
-Ctrl+T and Ctrl+W. Not done: the X key's CPU flag (`0xa9a4d0`, meaning
-untraced), the DEMO, NOLOCK, CHUCK and 3DFX codes.
+Ctrl+T and Ctrl+W. Z goes on and off with GOLD at any time and X in Z mode stops and restarts the computer
+trucks, as traced above. Not done: the DEMO, NOLOCK, CHUCK and 3DFX codes.
 
 **Torture Pit unlock** (0x585da0): on Sidewinder Canyon (`Snake.sit`), park the player truck
 where `x / 32` is 155..159 and `z / 32` is 182..186, that is **x 4960-5119 ft, z
@@ -2209,13 +2286,53 @@ texture cache statistics, sector and polygon counts, screenshots as PCX (`vel%s.
 | File | Written by | Contents |
 |---|---|---|
 | `system\monster.ini` | 0x44e790 | all settings (sections above) |
-| `player.pro` | ProjNet.cpp 0x4dae90 | the driver profile, versioned ("Version is newer than supported") |
-| `highscor.mtr` | 0x4c7540 | Hall of Fame, CSV-like text |
+| `player.pro` | 0x4ca6d0 (list), ProjNet.cpp 0x4da480 (one driver); read by 0x4ca1d0, 0x4dae90 | the drivers, text (below) |
+| `MTM2 High Scores` | HighScor.cpp 0x460560; read by 0x460317 | the Hall of Fame, enciphered text (below) |
+| `highscor.mtr` | 0x4c7540, 0x4c7150 | dead code: never called (section 6.6) |
 | saved games | RACE.CPP 0x41a557/0x41aea2 | text, header `MonsterTruckMadness 2.00`, version-checked |
 | `*.sit` | Simobj.c 0x553230 | the debug "Save situation" writes a full SIT of the live state, `temp.sit` too |
 | registry | Metalapp.cpp | `InstalledPath`, `ProductID`, `DriverX` |
 
 ---
+
+**`player.pro`** (in the game folder, text, lines ending CR LF; each value on its own line, read with `fgets` and
+`atoi`, the line's last character dropped). The list (`0x4ca1d0`): the file version (103 in 2.00.42; the driver
+reader refuses 104 and up with "Version is newer than supported"), the number of drivers, the selected driver (1
+when 0), then each driver (`0x4dae90`, written by `0x4da480`). A driver, by version (older files stop earlier and
+keep the defaults of `0x4da110` for the rest):
+
+| Version | Lines | Field (driver object) | Default |
+|---|---|---|---|
+| all | name | `+0x08` | |
+| 103 | integer | `+0x88` | 0 |
+| 102 and up | integer (kept as a byte) | `+0xa0` | 0 |
+| 102 and up | seven text lines | `+0xa4 + 24 i`, set one by one through `0x4da450` | empty |
+| 101 and up | a count `n`, then `n` pairs of a text line and an integer | a list at `+0x8c` | none |
+| all | integer, integer, integer (a short) | `+0x40`, `+0x30`, `+0x44` | 0, 0, 0 |
+| all | text, text | `+0x48` (a truck: the catalogue's first truck by default), `+0x60` (a track: the current track by default) | |
+| all | four integers | `+0x78`, `+0x7c`, `+0x80`, `+0x84` | 1, 1, 600, 1 |
+
+**Hypothesis** for the four integers: the Garage setup, as the race takes a driver's setup (`0x4198a0` passes
+tire cut, suspension and transfer in that order; 600 is the transfer slider's lowest setting, section 8.5), then
+one more setting (1 by default). The seven text lines and the list are not used by any code read so far.
+
+**`MTM2 High Scores`** (the name is string 134, in the game folder; HighScor.cpp). The file is the Hall of Fame
+as text, enciphered in 8-byte blocks (`0x522210`, `0x522290`, `0x522370`): a TEA-like cipher with a 128-bit key
+`k = 5657cd21 1e8ed81f f7041c22 75055f5e` (little-endian words), the constant `D = 0x60cd2161` (`0x64f194`) and
+`R = 64` rounds. Blocks are two little-endian words `(v0, v1)`. With `p` the bytes read so far including this
+block and `s` a running total (0 at the start), a block is deciphered by setting `sum = (p + R) D + s`, then `R`
+times: `v1 -= ((v0 >>> 7) + k3) ^ ((v0 << 6) + k2) ^ (sum + v0)`, `v0 -= ((v1 << 6) + k0) ^ ((v1 >>> 7) + k1) ^
+(sum + v1)`, `sum -= D` (32-bit arithmetic); then `s += floor(v0 / R) + floor(v1 / R)` from the deciphered words.
+Enciphering is the same in reverse (`v0` first, `sum` rising from `p D + s`, `s` taken from the plain words). The
+last block is padded with zero bytes. The text: the number of tracks, then per track its name (the catalogue's
+track name) on a line, the number of entries, and per entry seven lines (`0x45e230`, read by `0x45e3a0`): the date
+(`_strdate`, `MM/DD/YY`), the driver's name, the truck's display name, the time (a float: the race time, a lap
+time, or a Summit Rumble's length in seconds), the points, the skill level (0 Rookie, 1 Intermediate, 2
+Professional), and `1` for a Summit Rumble entry or `0` for a race. After a race (the results code from
+`0x4c6150`) a race puts in each of the player's lap times (truck `+0xf50[lap]`) as its own entry, then the race
+time (`+0xa17c` of a results row) of each other driver in the list at `0x646c40` (**hypothesis**: the drivers of a
+network game); a Summit Rumble puts in each driver's score with the round's length as the time. Each entry is
+offered to the track's table, which keeps the best (`0x45f5d0`).
 
 ## 17. Other data the EXE uses
 
@@ -2338,7 +2455,8 @@ left.
 
 1. When `GOODY.BIN` parts spawn.
 2. The `0x5a0` weight term and the meaning of `+0x2a8`/`+0x518` (15000).
-3. The `player.pro` and saved-game layouts, and the Hall of Fame field meanings.
+3. The meaning of `player.pro`'s seven text lines, its list and its first numbers (the layout is in section 16),
+   and the saved-game layout.
 4. Answered in section 14: 0x1f is the headlights, and the lobby, barriers and start are traced.
 5. The `/h` and `/j <ip>` command-line switches documented by the patch readme (not found as
    strings; probably parsed inside the MFC command-line override).

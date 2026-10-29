@@ -11,7 +11,7 @@ import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
 import { smoothNormals } from "../shared/smooth-normals.js";
 import { BAR_HALF_WIDTH_FT, SHOCK_HALF_WIDTH_FT, ribbonCorners, ribbonNormal, suspensionParts } from "../game/suspension.js";
 import { EVO_BAR_HALF_FT, EVO_SHOCK_HALF_FT, evoSuspensionParts, stripCorners } from "../game/evo-suspension.js";
-import { BRAKE_ON, beamShows, blinkOn, lampHeading, lampLevel, lampTone, lensGlow, lightIntensity, throwsBeam } from "../game/truck-lights.js";
+import { BRAKE_ON, beamShows, blinkOn, freshKnock, knockLamp, lampHeading, lampLevel, lampTone, lensGlow, lightIntensity, throwsBeam } from "../game/truck-lights.js";
 import { createModelLibrary, dataTexture } from "./track-scene.js";
 import { BEAM_AXIS, BEAM_INTENSITY, SHAFT_INTENSITY, aimShaft, beamGeometry, beamMaterial, shaftGeometry, shaftMaterial } from "./light-beam.js";
 import { GLOSS } from "./gloss.js";
@@ -169,6 +169,8 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
         mesh.geometry.computeBoundingSphere();
       }
       if (moved) { smoothBody(); bodyChanged(); }
+      // The same damage call knocks the lamps near the zone's point askew (11b), whatever was dented.
+      lamps.knock?.(point, direction, random);
       return moved;
     },
     /** Put every vertex back: the damage is repaired. */
@@ -182,6 +184,7 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
         normal.needsUpdate = true;
         mesh.geometry.computeBoundingSphere();
       }
+      lamps.unknock?.();
       bodyChanged();
     },
     /**
@@ -443,7 +446,7 @@ function createRichLamps(truck) {
       group.add(beam);
     }
     // Where the lamp is now, body axes: where the TRK has it, until a dent moves the panel it sits on.
-    return { light, lens, beam, tone, lensTone: own ? [1, 1, 1] : tone, at: [...light.pos] };
+    return { light, lens, beam, tone, lensTone: own ? [1, 1, 1] : tone, at: [...light.pos], knock: freshKnock() };
   });
   const dir = new THREE.Vector3(), scene = new THREE.Vector3(), toward = new THREE.Vector3();
   return {
@@ -452,15 +455,25 @@ function createRichLamps(truck) {
     fit(shiftAt) {
       for (const item of items) {
         const [dx, dy, dz] = shiftAt(item.light.pos[0], item.light.pos[1], -item.light.pos[2]);
-        item.at = [item.light.pos[0] + dx, item.light.pos[1] + dy, item.light.pos[2] - dz];
+        const k = item.knock.pos;
+        item.at = [item.light.pos[0] + dx + k[0], item.light.pos[1] + dy + k[1], item.light.pos[2] - dz + k[2]];
       }
     },
+    /** A damage call at zone point `point` (body axes): the lamps near it are knocked askew (game/truck-lights.js). */
+    knock(point, direction, random) {
+      for (const item of items) {
+        const before = [...item.knock.pos];
+        if (!knockLamp(item.knock, item.light, point, direction, random)) continue;
+        for (let k = 0; k < 3; k++) item.at[k] += item.knock.pos[k] - before[k];
+      }
+    },
+    unknock() { for (const item of items) item.knock = freshKnock(); },
     /** `viewer` is the camera in the body's game axes, `eyeWorld` in the scene's. */
     update(state, clockMs, viewer, eyeWorld) {
       const seconds = clockMs / 1000;
-      for (const { light, lens, beam, tone, lensTone, at } of items) {
+      for (const { light, lens, beam, tone, lensTone, at, knock } of items) {
         const level = blinkOn(light, clockMs) ? lampLevel(light, state) : 0;
-        lampDirection(lampHeading(light, seconds), light.pitch, dir);
+        lampDirection(lampHeading(light, seconds) + knock.heading, light.pitch + knock.pitch, dir);
         if (lens) {
           toward.set(viewer[0] - at[0], viewer[1] - at[1], viewer[2] - at[2]);
           const distance = toward.length() || 1;
@@ -524,28 +537,42 @@ function createLamps(truck, look, rich = false) {
       beam.frustumCulled = false;
       group.add(beam);
     }
-    return { light, lens, beam };
+    return { light, lens, beam, knock: freshKnock() };
   });
   const dir = new THREE.Vector3(), scene = new THREE.Vector3(), toward = new THREE.Vector3();
   return {
     group,
+    /** A damage call at zone point `point` (body axes): the lamps near it are knocked askew (game/truck-lights.js). */
+    knock(point, direction, random) {
+      for (const item of items) {
+        if (!knockLamp(item.knock, item.light, point, direction, random) || !item.beam) continue;
+        item.beam.position.set(item.light.pos[0] + item.knock.pos[0], item.light.pos[1] + item.knock.pos[1], -(item.light.pos[2] + item.knock.pos[2]));
+      }
+    },
+    unknock() {
+      for (const item of items) {
+        item.knock = freshKnock();
+        item.beam?.position.set(item.light.pos[0], item.light.pos[1], -item.light.pos[2]);
+      }
+    },
     /** `viewer` is the camera in the body's game axes. */
     update(state, clockMs, viewer) {
       const seconds = clockMs / 1000;
-      for (const { light, lens, beam } of items) {
+      for (const { light, lens, beam, knock } of items) {
         const level = blinkOn(light, clockMs) ? lightIntensity(light, state) : 0;
-        const heading = lampHeading(light, seconds);
-        lampDirection(heading, light.pitch, dir);
+        const heading = lampHeading(light, seconds) + knock.heading;
+        lampDirection(heading, light.pitch + knock.pitch, dir);
+        const p = [light.pos[0] + knock.pos[0], light.pos[1] + knock.pos[1], light.pos[2] + knock.pos[2]];
         if (lens) {
           lens.visible = level > 0 && !state.cockpit;
           if (lens.visible) {
-            toward.set(viewer[0] - light.pos[0], viewer[1] - light.pos[1], viewer[2] - light.pos[2]);
+            toward.set(viewer[0] - p[0], viewer[1] - p[1], viewer[2] - p[2]);
             const distance = toward.length() || 1;
             toward.divideScalar(distance);
             // Full when the lamp faces the camera, gone when it faces away.
             lens.material.opacity = level * smoothstep(-0.2, 0.35, dir.dot(toward));
             const pull = Math.min(light.radius * 0.6, distance * 0.5);
-            lens.position.set(light.pos[0] + toward.x * pull, light.pos[1] + toward.y * pull, -(light.pos[2] + toward.z * pull));
+            lens.position.set(p[0] + toward.x * pull, p[1] + toward.y * pull, -(p[2] + toward.z * pull));
           }
         }
         if (beam) {

@@ -42,6 +42,8 @@ export function latencyText(p) {
   if (p.latency === null || p.latency === undefined) return msg("Unknown");
   return p.latency < 500 ? msg("Low") : p.latency < 1501 ? msg("Normal") : msg("High");
 }
+/** A player's round trip in ms, for a figure beside the Latency column's word; null when none is measured. */
+export const latencyMs = (p) => (Number.isFinite(p?.latency) && (p.latency > 0 || !p.local) ? Math.round(p.latency) : null);
 /** The Level column. */
 export const skillText = (skill) => SKILL_TEXT[skill] ?? "";
 /** The Player column's suffix for a version other than 2.00.42's ("Version 2.04"). */
@@ -295,7 +297,12 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
     send(to, "chat", { flag: 0, private: to ? 1 : 0, text: t });
     events.emit("chat", { from: self, name: local.name, text: t, private: !!to, own: true });
   }
-  const quick = (text) => send(null, "quick", { text: String(text).slice(0, 43) });
+  /** A quick message (0x0d, the game's `<<1>> says "<<2>>"`), shown here too. */
+  function quick(text) {
+    const t = String(text).slice(0, 43);
+    send(null, "quick", { text: t });
+    events.emit("chat", { from: self, name: local.name, text: t, quick: true, own: true });
+  }
   const ridicule = (n) => send(null, "ridicule", { n });
   const horn = () => send(null, "horn", { truck: -1 });
   const yeehaw = () => send(null, "yeehaw", { truck: -1 });
@@ -340,8 +347,8 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
   }
   // Computer opponents in a classic game are not offered: how the game announces them is not known (0x81 and 0x82
   // are the host's list of every player, 14.2).
-  /** Whether the host may start: a track, and every human ready. */
-  const canStart = () => isHost() && !!game.track && [...players.values()].every((p) => p.local || p.computer || p.ready);
+  /** Whether the host may start: a track no player lacks (0x26), and every human ready. */
+  const canStart = () => isHost() && !!game.track && [...players.values()].every((p) => p.local || p.computer || (p.ready && !p.missingTrack));
 
   /**
    * Start the race (host): shuffle the list (5n random swaps), close it, give every player its slot (its grid place and
@@ -524,7 +531,7 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
 
   return {
     on: events.on, state, update, leave,
-    setLocation, setReady, setTruck, setSkill, chat, quick, ridicule, horn, yeehaw, joinTeam,
+    setLocation, setReady, setTruck, setSkill, chat, quick, canTeamChat: () => false, teamChat: () => {}, ridicule, horn, yeehaw, joinTeam,
     setTrack, setLaps, setWeather, setTeamPlay, kick, addComputer: () => null, removeComputer: () => {}, canStart, start,
     raceLink: () => race,
     isHost,

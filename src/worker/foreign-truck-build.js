@@ -8,14 +8,15 @@
   game sees them (worker/vfs.js `scoped`).
 
   - A CPR car is its body (`MODELS\<name>.CMD`, the high-detail model, or a `.BIN`) and four wheel models, one per
-    corner. Of the body's two wing packages the road-course one is drawn. The driver's helmet is left out.
+    corner. Of the body's two wing packages the road-course one is drawn. The driver's helmet (`Helmet name`, a `.BIN`
+    centred on its own origin) sits in the cockpit at `Helmet pos`, drawn as part of the body (`withHelmet`).
   - An Evolution truck is its body (`MODELS\<name>.SMF`) and its tires (`<tire base>16L` and `16R`, else the next
     detail down). As 4x42.exe does (game/evo-suspension.js), a body's AXLEF and AXLER groups are taken out of it,
     recentred and scaled to their axle's track, and drawn at the axles; a truck with an axle-bar texture (AMT.TRK) has
     the game's bars and shocks too.
 
   No lamps, no cockpit and no crash dents: those are read from MTM2's own files, which these vehicles do not have.
-  The physics is MTM2's (docs/PLAN.md Stage 3.1): the manifest gives the wheel positions and the hull points, the
+  The physics is MTM2's (docs/CHANGELOG.md Stage 3.1): the manifest gives the wheel positions and the hull points, the
   wheel models their size (`tire`), and everything else is the monster truck's.
 */
 import { CMD_NORMAL_SCALE, CMD_POSITION_SCALE, CMD_UV_SCALE, cmdFaceTriangles, cmdWingPackages, parseCprCmd } from "../vendor/openphotex/cpr/cmd.js";
@@ -218,6 +219,8 @@ async function cprCar(view, file) {
     tireRR: await wheel("raxle.rtire.static_bpos"), tireRL: await wheel("raxle.ltire.static_bpos"),
   };
   if (!parts.body?.meshes.length) return null;
+  const helmet = manifest.helmetPosition ? await model(manifest.helmetModelName).catch(() => null) : null;
+  parts.body = withHelmet(parts.body, helmet, xyz(manifest.helmetPosition));
   parts.tireLeft = parts.tireFL ?? parts.tireRL;
   parts.tireRight = parts.tireFR ?? parts.tireRR;
   const textures = {};
@@ -234,6 +237,26 @@ async function cprCar(view, file) {
     scrapePoints: (manifest.scrapePoints ?? []).map(xyz),
     tire: placed.tire, game: "CPR",
   };
+}
+
+/**
+ * The body with the driver's helmet in it: the helmet model's meshes moved to `at` (the `.CAR`'s `Helmet pos`, feet,
+ * z forward; the meshes mirror z, the bounds do not) as a group "HELMET". The body as it was when there is no helmet to add.
+ */
+export function withHelmet(body, helmet, at) {
+  if (!body || !helmet?.meshes?.length || !at) return body;
+  const offset = [at[0], at[1], -at[2]];
+  const meshes = helmet.meshes.map((mesh) => ({
+    ...mesh, groupName: "HELMET",
+    positions: Float32Array.from(mesh.positions, (value, i) => value + offset[i % 3]),
+  }));
+  // The bounds are in the game's frame, z not mirrored.
+  const bounds = body.bounds && helmet.bounds ? {
+    min: body.bounds.min.map((v, a) => Math.min(v, helmet.bounds.min[a] + at[a])),
+    max: body.bounds.max.map((v, a) => Math.max(v, helmet.bounds.max[a] + at[a])),
+  } : body.bounds;
+  const textureNames = [...new Set([...(body.textureNames ?? []), ...(helmet.textureNames ?? [])])];
+  return { ...body, meshes: [...body.meshes, ...meshes], textureNames, bounds };
 }
 
 /** The body's suspension groups by simulation corner (FR, FL, RR, RL). */

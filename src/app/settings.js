@@ -71,7 +71,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   opponents: 3,               // MONSTER.INI defaultOpponents (built-in default 3)
   // Multiplayer (docs/MULTIPLAYER.md): the classic helper's port and pairing token, the last host typed, the room server and
   // the room servers used before.
-  net: Object.freeze({ helperPort: 47650, helperToken: "", lastHost: "", serverUrl: "", recentServers: Object.freeze([]), latencyDisplay: true, chat: true, classicKind: "dplay", cp3Port: 2350 }),
+  net: Object.freeze({ helperPort: 47650, helperToken: "", lastHost: "", serverUrl: "", recentServers: Object.freeze([]), latencyDisplay: true, chat: "all", chatLines: 6, chatFadeS: 8, muted: Object.freeze([]), allowMissingTrucks: false, classicKind: "dplay", cp3Port: 2350 }),
   opponentTrucks: Object.freeze([]), // explicitly selected CPU truck files from the Races dialog
   gameMode: "default",        // a core mode id, or an id registered by the extension loader
   extensions: Object.freeze(extensionSettingDefaults()), // settings owned by shipped extensions
@@ -323,13 +323,13 @@ export function applyMtm2Classic(settings) {
 }
 
 /**
- * The "OpenMTM2 preset" (Options, Advanced): the port's own picture. No MTM1 or MTM2 choice (MTM1's trucks stay listed
- * apart, which hides nothing), tire tracks, splashes, the normal dust puffs and sparks, every enhanced part, the glossy
+ * The "OpenMTM2 preset" (Options, Advanced, and Setup's Enhanced graphics): the port's own picture. No MTM1 or MTM2
+ * choice (MTM1's trucks stay listed apart, which hides nothing), the track backdrops (HD ones where an archive has them), tire tracks, splashes, the normal dust puffs and sparks, every enhanced part, the glossy
  * paint among them (Max), and Community Patch 3's terrain detail, HD weather and reflections. Changes `settings` in place.
  */
 export function applyOpenMtm2(settings) {
   Object.assign(settings, NO_MTM1, {
-    mtm1TrucksApart: true, originalBackdrops: false, greyDust: false, waterReflections: false, truckReflections: false, backdrops: false,
+    mtm1TrucksApart: true, originalBackdrops: false, greyDust: false, waterReflections: false, truckReflections: false, backdrops: true,
     tireTracks: true, waterSplash: true, dustAmount: 2, dustEffects: true, sparkAmount: 2, sparks: true,
     ...GRAPHICS_FLAGS.max, glossyPaint: true, graphics: "max", look: "enhanced",
     terrainDetail: true, hdWeather: true, reflections: true, cameraClearance: true, groundBoxGrain: false,

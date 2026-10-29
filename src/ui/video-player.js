@@ -35,10 +35,10 @@ const padPressed = () => [...(navigator.getGamepads?.() ?? [])].some((pad) => pa
  * "stopped" (Escape), or "missing" when the install lacks it or it cannot be read.
  */
 export async function playVideo(context, path) {
-  const bytes = await context.assets.call("video", { path }).catch(() => null);
-  if (!bytes) return "missing";
+  const bytes = await context.assets.call("video", { path }).catch((error) => { console.warn(`Video ${path}: not read`, error); return null; });
+  if (!bytes) { console.warn(`Video ${path}: not in the install (Options, Game, Copy the game's videos)`); return "missing"; }
   let decoder;
-  try { decoder = openSmk(bytes); } catch { return "missing"; }
+  try { decoder = openSmk(bytes); } catch (error) { console.warn(`Video ${path}: not a Smacker file OpenPhotex reads`, error); return "missing"; }
   const { info } = decoder;
   const tall = info.doubled || info.interlaced ? 2 : 1;
   const canvas = el("canvas", { class: "video-canvas", width: info.width, height: info.height * tall });
@@ -64,7 +64,9 @@ export async function playVideo(context, path) {
       const levels = context.settings?.sound ?? {};
       volume.gain.value = levels.muted ? 0 : Math.max(0, Math.min(1, (levels.master ?? 1) * (levels.effects ?? 1)));
       source.connect(volume).connect(audio.destination);
-      await audio.resume().catch(() => {});
+      // Before the player's first click or key Chrome holds resume() until there is one, which would leave the screen
+      // black at launch: it gets a moment, and without leave the video plays silent.
+      await Promise.race([audio.resume().catch(() => {}), new Promise((r) => setTimeout(r, 250))]);
       // No sound without the player's say-so (a browser's autoplay rule at launch): the picture runs on the clock.
       if (audio.state !== "running") { audio.close().catch(() => {}); audio = null; source = null; }
     }

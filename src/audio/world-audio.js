@@ -4,7 +4,7 @@
   after lightning, the music from `MUSIC.POD`, and the checkpoint and lap sounds. Ambient
   one-shots are heard from a random spot around the listener, as the file gives no positions.
 */
-import { nextDelay, objectHitSound } from "../game/sound-model.js";
+import { RAIN_UNDERWATER_PITCH, nextDelay, objectHitSound, rainJitter, rainOnRoof, roofGain, underwaterMix } from "../game/sound-model.js";
 import { weatherMaskIncludes } from "../vendor/openphotex/mtm/sound.js";
 
 /**
@@ -15,6 +15,8 @@ import { weatherMaskIncludes } from "../vendor/openphotex/mtm/sound.js";
 export const MOD_MUSIC_GAIN = 2.2;
 
 const THUNDER = ["THUNDR3B", "THUNDR5", "THUNDR6B", "THUNDR9B"];
+/** The rain loop's level in the port's mix. */
+const RAIN_LOOP_GAIN = 0.55;
 /** The slowest a truck may close on an object for its sound, ft/s (the port's floor; the game has none). */
 export const HIT_MIN_SPEED = 2;
 
@@ -22,16 +24,18 @@ export const HIT_MIN_SPEED = 2;
  * @param {ReturnType<import("./audio-engine.js").createAudio>} audio
  * @param {{ ambient: object|null, weather: number, music: string|null, random?: () => number,
  *   objects?: { sitIndex: number, positionFt: number[], sound: string, moving: boolean }[],
- *   hitInfo?: Map<number, { hitSound: string|null, type: number }> }} options
+ *   hitInfo?: Map<number, { hitSound: string|null, type: number }>, musicOff?: () => boolean }} options
  *   `objects` are the level's things that sound by themselves (a train, a crossing bell, a crowd);
- *   `hitInfo` what each collision box makes when it is hit.
+ *   `hitInfo` what each collision box makes when it is hit; `musicOff` whether the jukebox plays in the music's place.
  */
-export function createWorldAudio(audio, { ambient, weather, music, random = Math.random, objects = [], hitInfo = new Map(), onEvent = () => {} }) {
+export function createWorldAudio(audio, { ambient, weather, music, random = Math.random, objects = [], hitInfo = new Map(), onEvent = () => {}, musicOff = () => false }) {
   let current = weather, disposed = false;
   const loops = [];
   let ambientShot = null, ambientLeft = Infinity, ambientVoice = null, ambientPending = false;
   let lastAmbientWav = null;
-  let musicVoice = null, rainVoice = null;
+  let musicVoice = null, rainVoice = null, roofVoice = null;
+  /** Where the listener is (`setListener`): under water, in the cockpit, under cover. */
+  let place = { underwater: false, cockpit: false, covered: false };
   const pending = [];
   audio.preload?.([...new Set([...hitInfo.values()].map((info) => info.hitSound))]);
 
@@ -50,11 +54,24 @@ export function createWorldAudio(audio, { ambient, weather, music, random = Math
 
   function startRain() {
     rainVoice?.then((v) => v?.stop());
-    rainVoice = current === 4 ? audio.play("RAIN4", { loop: true, gain: 0.55 }) : null;
+    rainVoice = current === 4 ? audio.play("RAIN4", { loop: true, gain: RAIN_LOOP_GAIN }) : null;
+  }
+
+  /** The rain's pitch jitters each frame, lower under water; on the roof it drums only in the cockpit under open sky (0x57581b). */
+  function stepRain() {
+    if (current === 4) {
+      const jitter = rainJitter(random);
+      rainVoice?.then((v) => v?.setRate(jitter * (place.underwater ? RAIN_UNDERWATER_PITCH : 1)));
+    }
+    const roof = rainOnRoof({ weather: current, ...place });
+    if (roof && !roofVoice) roofVoice = audio.play("RAINRF8", { loop: true, gain: roofGain(RAIN_LOOP_GAIN) });
+    else if (!roof && roofVoice) { roofVoice.then((v) => v?.stop()); roofVoice = null; }
+    if (roofVoice) { const jitter = rainJitter(random); roofVoice.then((v) => v?.setRate(jitter)); }
   }
 
   function startMusic() {
-    if (!music) return;
+    // The jukebox plays in its place (audio/jukebox.js).
+    if (!music || musicOff()) return;
     // A level may name a tracker module instead of a WAV loop; the module is raised to the engine's level (MOD_MUSIC_GAIN).
     musicVoice = /\.mod$/i.test(music) ? audio.playMod(music, { gain: MOD_MUSIC_GAIN }) : audio.play(music, { loop: true, gain: 1, bus: "music" });
   }
@@ -134,6 +151,7 @@ export function createWorldAudio(audio, { ambient, weather, music, random = Math
   function update(dt, listener, moved = new Map()) {
     clock += dt;
     updateEmitters(listener, moved);
+    stepRain();
     if (!ambientPending && !ambientVoice && ambientShot) {
       ambientLeft -= dt;
       if (ambientLeft <= 0) playAmbientShot(listener);
@@ -153,6 +171,13 @@ export function createWorldAudio(audio, { ambient, weather, music, random = Math
       startRain();
       if (!ambientPending && !ambientVoice) scheduleAmbientShot();
     },
+    /**
+     * Where the listener is each frame: `underwater` (the camera under the water level), `cockpit` (the cockpit view)
+     * and `covered` (a deck, a tunnel's roof, over the camera).
+     */
+    setListener({ underwater = false, cockpit = false, covered = false } = {}) {
+      place = { underwater: !!underwater, cockpit: !!cockpit, covered: !!covered };
+    },
     /** Lightning flashed: the thunder follows after a moment. */
     thunder() {
       later(0.4 + random() * 2.2, () => { if (!disposed) audio.play(THUNDER[Math.floor(random() * THUNDER.length)], { gain: 0.9 }); });
@@ -163,7 +188,7 @@ export function createWorldAudio(audio, { ambient, weather, music, random = Math
      * `speed` is how fast the truck closed on it, ft/s; the game has no floor, the port asks for `HIT_MIN_SPEED` so a
      * truck resting against a fence does not set it off again each time its sound ends.
      */
-    hit(sitIndex, speed, position) {
+    hit(sitIndex, speed, position, { sourceUnder = false } = {}) {
       const info = hitInfo.get(sitIndex);
       if (!info || !(speed >= HIT_MIN_SPEED) || sounding.has(sitIndex)) return;
       const sound = objectHitSound(info);
@@ -171,9 +196,17 @@ export function createWorldAudio(audio, { ambient, weather, music, random = Math
       sounding.add(sitIndex);
       if (/^cowpain/i.test(sound.name)) onEvent("cow");
       const quiet = () => sounding.delete(sitIndex);
-      audio.play(sound.name, { gain: Math.min(2.5, sound.gain), position })
+      // Muffled from under water, by where it starts and where it is heard (game/sound-model.js `underwaterMix`).
+      const mix = underwaterMix(sourceUnder, place.underwater);
+      audio.play(sound.name, { gain: Math.min(2.5, sound.gain) * mix.gain, rate: mix.rate, position })
         .then((voice) => { if (voice?.done) voice.done.finally(quiet); else quiet(); })
         .catch(quiet);
+    },
+    /** The jukebox started or stopped: the track's music stops for it, or comes back after it. */
+    refreshMusic() {
+      if (disposed) return;
+      if (musicOff() && musicVoice) { musicVoice.then((v) => v?.stop()); musicVoice = null; }
+      else if (!musicOff() && !musicVoice) startMusic();
     },
     checkpoint() { if (ambient?.checkpointWav) audio.play(ambient.checkpointWav, { gain: 0.9 }); },
     lapDone() { if (ambient?.finishLapWav) audio.play(ambient.finishLapWav, { gain: 0.9 }); },
@@ -182,6 +215,7 @@ export function createWorldAudio(audio, { ambient, weather, music, random = Math
       for (const voice of loops) voice.then((v) => v?.stop());
       musicVoice?.then((v) => v?.stop());
       rainVoice?.then((v) => v?.stop());
+      roofVoice?.then((v) => v?.stop());
       ambientVoice?.stop();
       for (const e of emitters) e.voice?.then((v) => v?.stop());
     },

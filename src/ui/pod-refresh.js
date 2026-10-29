@@ -2,7 +2,7 @@
   After the POD manager changes the mounted archives, the menus read again without reloading
   the page. The asset worker already drops its file system and catalogue on every change
   (worker/asset-worker.js), so the next `catalog` call rebuilds them. What stays behind is only
-  what the page itself cached: UI pictures, truck builds, bitmap fonts and decoded sounds.
+  what the page itself cached: UI pictures, truck builds, bitmap fonts, decoded sounds and the jukebox's list.
   Those are forgotten here, the wording is read again (it may live in a new archive), and the
   screen underneath shows itself again, which reads the fresh catalogue.
 
@@ -21,6 +21,7 @@ export async function refreshAfterPodChange(context) {
   clearFontCache();
   context.menuAudio?.clearSamples?.();
   context.menuMusic?.reload?.();
+  context.jukebox?.reload?.();
   await loadStrings(context);
   const top = context.router?.stack.at(-1);
   if (top) await context.router.go(top.name, top.params, { replace: true });

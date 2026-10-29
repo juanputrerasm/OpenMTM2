@@ -11,7 +11,7 @@
     round (a three-point turn) instead of driving a wide circle.
   - **Steering clear** (`cpuAvoidStep`): the solid objects and ground-box walls in its way (game/obstacle-avoid.js).
 
-  The figures were tuned on the stock circuits, eight computer trucks for 4 minutes (docs/PLAN.md): on
+  The figures were tuned on the stock circuits, eight computer trucks for 4 minutes (docs/CHANGELOG.md): on
   Professional the field covers about 13 percent more laps with half the spins, on Intermediate about 4 percent.
   The steering added is taken back before the next autopilot step (the autopilot's steering is smoothed from its
   last value). Pure, so it runs under Node.

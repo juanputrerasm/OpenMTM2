@@ -1,5 +1,5 @@
 /*
-  The simulation worker: owns the race session and steps it at a fixed 1/60 s (docs/PLAN.md,
+  The simulation worker: owns the race session and steps it at a fixed 1/60 s (docs/CHANGELOG.md,
   "Threads and timing").
 
   Protocol (shared/worker-client.js): `init` sets up a session from plain data (terrain,
@@ -886,7 +886,8 @@ export function createSession(init) {
 
   // GOLD mode (MONSTER_EXE_ANALYSIS.md 15): the player's autopilot level, slew mode, the
   // reversed course.
-  const gold = { slew: false };
+  // `cpuStopped`: Z mode's X, every computer truck's autopilot off (MONSTER_EXE_ANALYSIS.md 15).
+  const gold = { slew: false, cpuStopped: false };
   /** 0 manual, 1 speed control only (the player steers), 2 full autopilot (Ctrl+T cycles them). */
   player.apLevel = player.autopilot ? 2 : 0;
   function setAutopilotLevel(level) {
@@ -1075,6 +1076,8 @@ export function createSession(init) {
     if (name === "reverse") return (apCtx.reversed = !apCtx.reversed);
     if (name === "autopilot") return setAutopilotLevel((player.apLevel + 1) % 3);
     if (name === "slew") return (gold.slew = !gold.slew);
+    // Z mode's X: the computer trucks stop driving, and drive again on the next press; a single-player race of two or more.
+    if (name === "cpuStop") return trucks.length > 1 && !trucks.some((t) => t.remote) ? (gold.cpuStopped = !gold.cpuStopped) : null;
     throw new Error(`Unknown command "${name}"`);
   }
 
@@ -1380,7 +1383,11 @@ export function createSession(init) {
         easeRemote(t);
         continue;
       }
-      if (t.autopilot) {
+      if (t.autopilot && gold.cpuStopped && i > 0) {
+        // Its autopilot off (Z mode's X): no one drives it, so it rolls to a stop where it is.
+        const c = t.state.controls;
+        c.throttle = 0; c.steer = 0; c.rearSteer = 0; c.brakeFront = c.brakeRear = 0;
+      } else if (t.autopilot) {
         if (!race || drag) S.advanceAutopilotSegment(t.state, apOf(t));
         recoveryOf(t);
         // An extension mode drives its trucks; one that answers false leaves the truck to the course's autopilot (Race & Rumble's racers).
@@ -1772,7 +1779,7 @@ if (typeof self !== "undefined" && typeof self.postMessage === "function" && typ
       origin = null;
       return true;
     },
-    /** A GOLD-mode debug command: "reverse", "autopilot" or "slew". */
+    /** A GOLD-mode debug command: "reverse", "autopilot", "slew" or "cpuStop". */
     command({ name, value }) {
       if (!session) throw new Error("No session.");
       return session.command(name, value);

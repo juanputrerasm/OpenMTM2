@@ -301,7 +301,7 @@ export async function buildCatalog(vfs) {
     seenStems.add(stem);
     picked.push(si2.get(stem) ?? first);
   }
-  // Other games' tracks are listed apart (CPR below; 4x4 Evolution with docs/PLAN.md F4).
+  // Other games' tracks are listed apart (CPR below; 4x4 Evolution with docs/CHANGELOG.md F4).
   const mtmSits = picked.filter((hit) => (hit.mount.family ?? "MTM") === "MTM");
   const sitReads = readAhead(mtmSits, (hit) => hit.mount.readEntry(hit.entry));
   for (const [i, { path, mount }] of mtmSits.entries()) {

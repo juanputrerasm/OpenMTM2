@@ -1,4 +1,4 @@
-// The world as a torus in a race (docs/PLAN.md Stage 4; MONSTER_EXE_ANALYSIS.md "The wrapping world"): a truck that
+// The world as a torus in a race (docs/CHANGELOG.md Stage 4; MONSTER_EXE_ANALYSIS.md "The wrapping world"): a truck that
 // drives out of the world comes in at the other side, and meets there what a truck inside meets.
 
 import test from "node:test";

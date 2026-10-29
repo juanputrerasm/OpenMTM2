@@ -38,7 +38,7 @@ const BARS = {
   // The Winner's Circle after a tournament's race: Continue goes back to the tournament.
   tournament: [["hall", msg("Hall of Fame"), "hall"], ["replay", msg("Instant Replay"), "replay"], ["continue", msg("Continue"), "tournament"]],
   results: [["hall", msg("Hall of Fame"), "hall"], ["replay", msg("Instant Replay"), "replay"], ["again", msg("Race Again"), "again", true], ["continue", msg("Continue"), "continue"]],
-  start: [["startWeb", msg("Web Page"), "web"], ["startDemo", msg("Monster Demo"), "demo"], ["startManual", msg("Monster Manual"), null], ["startDriver", msg("Driver Check-in"), "drivers"]],
+  start: [["startWeb", msg("Web Page"), "web"], ["startDemo", msg("Monster Demo"), "demo"], ["startManual", msg("Monster Manual"), "manual"], ["startDriver", msg("Driver Check-in"), "drivers"]],
   none: [],
 };
 
@@ -157,6 +157,7 @@ async function navigate(context, action) {
   if (action === "continue") return context.net ? router.go("multiplayer", {}, { replace: true }) : navigate(context, "races");
   if (action === "demo") return goDemo(context);
   if (action === "web") return window.open("https://mtm2.com/", "_blank", "noopener");
+  if (action === "manual") return router.go("manual");
   if (action === "replay") return context.lastReplay ? router.go("replay", { replay: context.lastReplay }) : undefined;
   const screens = { tournament: ["tournament"], drivers: ["drivers"], garage: ["garage"], hall: ["hall"], start: ["start"], races: ["race-select", { mode: context.raceConfig?.mode ?? "circuit" }] };
   const [name, params = {}] = screens[action];
