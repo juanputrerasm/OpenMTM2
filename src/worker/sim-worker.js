@@ -24,6 +24,7 @@ import { CLOSE_FT, STOPPED_FT_S, joinedSegment, obstacleAhead, offCourse, pickRo
 import { createRacerRecovery, racerRecovering, racerRecoveryBefore, racerRecoveryStep } from "../game/racer-recovery.js";
 import { cpuAvoidStep, cpuControlBefore, cpuControlStep, createCpuControl } from "../game/cpu-control.js";
 import { AVOID, boxObstacles, groundBoxWalls } from "../game/obstacle-avoid.js";
+import { replyError, sendWorkerFaults } from "../shared/worker-faults.js";
 
 export const STEP = 1 / 60;
 
@@ -1796,8 +1797,9 @@ if (typeof self !== "undefined" && typeof self.postMessage === "function" && typ
       if (!handler) throw new Error(`Unknown request "${type}"`);
       self.postMessage({ id, ok: true, payload: await handler(payload) });
     } catch (err) {
-      self.postMessage({ id, ok: false, error: err?.message ?? String(err) });
+      self.postMessage({ id, ok: false, error: err?.message ?? String(err), ...replyError(err) });
     }
   });
+  sendWorkerFaults(self);
   self.postMessage({ ready: true });
 }

@@ -42,6 +42,25 @@ The asset worker hands the simulation input straight to the sim worker through a
 `MessageChannel`. GitHub Pages cannot send the COOP/COEP headers that `SharedArrayBuffer` needs,
 so nothing relies on it.
 
+## Errors
+
+No failure is left to the browser's console alone. Everything goes through `reportError`
+(`shared/error-report.js`), and `ui/error-dialog.js` shows it as a message box that explains in plain words
+what happened and holds a report to copy: the error, what the game was doing, the debug rows and the stack.
+Each distinct error is shown once; repeats are counted in the open dialog.
+
+- **Where errors come from:** an exception anywhere on the page and a promise nobody waited for
+  (`startErrorReporting`); an exception in a frame (`render/xr/xr-host.js`, which keeps drawing, since three.js
+  asks for the next frame only after this one returns); the WebGL context lost; a worker's uncaught exception or
+  unwaited promise (`shared/worker-faults.js`, `shared/worker-client.js`); a failed simulation step; and a step
+  the simulation has not answered for 10 s (the race's watchdog).
+- **Debug rows:** a screen adds what it knows with `addDebugInfo`. The app adds the version, MONSTER.EXE build,
+  screen, graphics preset, GPU, window and browser. The race adds the track (name and `.SIT`), game, race mode,
+  truck (name and `.TRK`), physics, weather, truck position and speed, camera view, look, position and whether it
+  is under water, clock, state and draw distance.
+- A worker's reply to a failed request carries the error's name and stack; a request cut short by `terminate`
+  is not reported. A single-player race pauses while the dialog is open.
+
 ## Data on disk
 
 The game's data lives in the Origin Private File System (the app's own files are kept apart,

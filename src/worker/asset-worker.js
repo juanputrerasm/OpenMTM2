@@ -31,6 +31,7 @@ import { decodeModel } from "./models.js";
 import { FONT_SHEETS, parseBitmapFont } from "./bitmap-font.js";
 import { readUserData, removeUserData, writeUserData } from "./user-data.js";
 import { crcStart, crcUpdate } from "../net/vendor/mtmnet/track-crc.js";
+import { replyError, sendWorkerFaults } from "../shared/worker-faults.js";
 
 /** A reply whose buffers move to the main thread instead of being copied. */
 const TRANSFER = Symbol("transfer");
@@ -438,8 +439,9 @@ self.addEventListener("message", async ({ data }) => {
       self.postMessage({ id, ok: true, payload: result });
     }
   } catch (err) {
-    self.postMessage({ id, ok: false, error: err?.message ?? String(err) });
+    self.postMessage({ id, ok: false, error: err?.message ?? String(err), ...replyError(err) });
   }
 });
 
+sendWorkerFaults(self);
 self.postMessage({ ready: true });

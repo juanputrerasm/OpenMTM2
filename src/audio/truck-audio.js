@@ -180,8 +180,9 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
       if (near && s.inWater) {
         // Heard from under water the wading loop is not started (0x41bbd0).
         if (!playing(t.wade) && !listenerUnder) t.wade = loopVoice("WTR-ABV1", wadeGain(s.speed), 1, i === player ? null : pos);
-        t.wade.voice?.setGain(wadeGain(s.speed));
-        if (i !== player) t.wade.voice?.setPosition(pos);
+        // Not started when the truck went in heard from under water: there may be no loop to set.
+        t.wade?.voice?.setGain(wadeGain(s.speed));
+        if (i !== player) t.wade?.voice?.setPosition(pos);
       } else t.wade = stopLoop(t.wade);
 
       // Bridges (0x41ec90): BRIDGE1 while a tire on the ground stands on wood (1100) or 1400 and the truck moves.

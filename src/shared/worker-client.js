@@ -1,6 +1,10 @@
+import { reportError } from "./error-report.js";
+
 export class WorkerClient {
   constructor(url) {
     this.worker = new Worker(url, { type: "module" });
+    /** The worker's file, named in its error reports ("sim-worker.js"). */
+    this.name = String(url).split(/[/?#]/).filter(Boolean).find((part) => part.endsWith(".js")) ?? String(url);
     this.pending = new Map();
     this.nextId = 1;
     this.failure = null;
@@ -26,8 +30,12 @@ export class WorkerClient {
           + "private window."));
         return;
       }
+      // An exception the worker's own code did not catch (in a timer, say): its requests fail, and it is reported, as
+      // nothing waiting on a request may be there to see it.
       const where = e.filename ? ` (${e.filename}:${e.lineno})` : "";
-      this._fail(new Error(`Worker failed: ${e.message || "script error"}${where}`));
+      const error = Object.assign(new Error(`Worker failed: ${e.message || "script error"}${where}`), { worker: this.name });
+      this._fail(error);
+      reportError(error, { where: "background worker" });
     });
     this.worker.addEventListener("messageerror", () => {
       this._fail(new Error("Worker sent a message that could not be deserialised"));
@@ -67,14 +75,21 @@ export class WorkerClient {
 
   terminate() {
     this.worker.terminate();
+    // Stopped on purpose (the race left): nothing to report.
     for (const { reject } of this.pending.values()) {
-      reject(new Error("Worker terminated."));
+      reject(Object.assign(new Error("Worker terminated."), { expected: true }));
     }
     this.pending.clear();
   }
 
   _handleMessage(msg) {
     if (msg?.ready) { this.ready = true; return; }
+    // A worker's promise rejected with nobody waiting for it (shared/worker-faults.js).
+    if (msg?.event === "fault") {
+      const p = msg.payload ?? {};
+      reportError(Object.assign(new Error(p.message ?? "Worker error"), { name: p.name ?? "Error", worker: this.name, workerStack: p.stack }), { where: "background worker" });
+      return;
+    }
     if (msg?.event) {
       for (const listener of this.listeners.get(msg.event) ?? []) listener(msg.payload);
       return;
@@ -85,7 +100,10 @@ export class WorkerClient {
     if (msg.ok) {
       deferred.resolve(msg.payload);
     } else {
-      deferred.reject(new Error(msg.error ?? "Worker error"));
+      // The worker's stack goes with the error, for the report (shared/error-report.js).
+      deferred.reject(Object.assign(new Error(msg.error ?? "Worker error"), {
+        worker: this.name, ...(msg.stack ? { workerStack: msg.stack } : {}), ...(msg.name ? { name: msg.name } : {}),
+      }));
     }
   }
 }

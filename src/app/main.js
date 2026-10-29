@@ -18,6 +18,8 @@ import { mountWatermark } from "../ui/watermark.js";
 import { startGamepadNav } from "../ui/gamepad-nav.js";
 import { startInstallTip } from "../ui/display-mode.js";
 import { missingRequiredPods } from "../install/required-pods.js";
+import { startErrorReporting } from "../ui/error-dialog.js";
+import { reportError } from "../shared/error-report.js";
 
 const screens = {
   install: () => import("../ui/screens/install.js"),
@@ -61,6 +63,8 @@ async function boot() {
   applyGraphics(context.settings, graphicsHardware());
   const router = new Router(container, context, screens);
   context.router = router;
+  // From here on no error is left to the console alone: it is shown with what the game knew (ui/error-dialog.js).
+  startErrorReporting(context);
   // A gamepad works every screen, the install screen included (ui/gamepad-nav.js).
   startGamepadNav(context);
   // On a phone's browser tab, once: how to play fullscreen (ui/display-mode.js). The install prompt is caught from here on.
@@ -133,8 +137,8 @@ function takeInvite() {
 if (typeof document !== "undefined") {
   // The page's start watchdog (index.html) stands down once a screen is up, and speaks when the start failed.
   boot().then(() => globalThis.openmtm2Started?.(), (err) => {
-    console.error(err);
     document.getElementById("app").textContent = `OpenMTM2 failed to start: ${err.message}`;
+    reportError(err, { where: "starting the game", fatal: true });
     globalThis.openmtm2LoadFailed?.();
   });
 }

@@ -37,6 +37,7 @@ import { PHYSICS_MODELS, physicsModel, resolvePhysics, saveSettings, tileOverlap
 import { createFlyController } from "../fly-controller.js";
 import { LOOK_BACK_KEY, createCameraLook, lookOptions, turnedTarget } from "../../game/camera-look.js";
 import { WorkerClient } from "../../shared/worker-client.js";
+import { addDebugInfo, feet, onReport, reportError } from "../../shared/error-report.js";
 import { currentDriver, getProfiles } from "../../app/profile-store.js";
 import { createKeyboardInput } from "../../game/input/keyboard.js";
 import { mergeBindings } from "../../game/input/bindings.js";
@@ -121,6 +122,8 @@ const HEADSET_VIEW_HEIGHT = 1800;
 const DEMO_CAPTION = msg("Demo mode. Press any key to begin"), DEMO_CAMERA_S = 8;
 /** Before the race's clock starts, this many frames in a row must each take less than `WARM_FRAME_S`; `WARM_LIMIT_MS` at most. */
 const WARM_FRAMES = 6, WARM_FRAME_S = 0.08, WARM_LIMIT_MS = 15000;
+/** A simulation step not answered in this long is reported: the simulation is stuck or gone. */
+const STALL_MS = 10000;
 
 /** How much of the race the pause menu's instant replay shows: as much as the recorder keeps, an hour. */
 const INSTANT_REPLAY_S = 3600;
@@ -1553,6 +1556,8 @@ async function mountRace(container, context, params, owned = []) {
   if (netChat) cleanups.push(() => netChat.dispose());
 
   let busy = false, latest = null, drawnAt = performance.now(), poolsWarmed = false;
+  /** When the step in flight was asked for, and whether its silence was reported (the watchdog in `loop`). */
+  let tickSentAt = 0, stallReported = false;
   // Held until the frames come steadily: `WARM_FRAMES` in a row each shorter than `WARM_FRAME_S`, or `WARM_LIMIT_MS` at most.
   let ready = false, steadyFrames = 0;
   const warmStart = performance.now();
@@ -1561,6 +1566,32 @@ async function mountRace(container, context, params, owned = []) {
   const movedPositions = new Map();
   window.__openmtm2Race = { audio, scene, camera, renderer, sim, entrants, musicName, host, vr, scenery, tireFx, get latest() { return latest; } };
   cleanups.push(() => { delete window.__openmtm2Race; });
+  // The race stops while an error is shown, as for the pause menu; a network race goes on for the others.
+  cleanups.push(onReport(() => { if (!disposed && !net) setPaused(true).catch(() => {}); }));
+  // What an error report says of the race (shared/error-report.js): the track, the truck, and where it and the camera are.
+  cleanups.push(addDebugInfo("race", () => {
+    const me = entrants.find((e) => e.player) ?? entrants[0];
+    const truckName = catalogTrucks?.find?.((c) => c.file === me?.file)?.name;
+    const now = latest?.poses?.[cameraTarget]?.current ?? latest?.poses?.[0]?.current;
+    const view = cameraMode(viewMode);
+    const lookDeg = (r) => Math.round((r * 180) / Math.PI);
+    return [
+      ["Track", `${track.name ?? track.file} (${track.file})`],
+      ["Game", build.game ?? track.game ?? "MTM2"],
+      ["Race", [gameMode ?? track.raceType, net ? "network" : null, spectator ? "spectator" : null, demo ? "demo" : null, freeRoam ? "free roam" : null].filter(Boolean).join(", ")],
+      ["Truck", me ? `${truckName ?? me.name ?? "?"} (${me.file})` : null],
+      ["Physics", physicsSetting],
+      ["Weather", `${WEATHER_NAMES[weatherScene.weather] ?? weatherScene.weather} (${weatherScene.weather})`],
+      ["Truck pos", feet(now?.pos)],
+      ["Truck speed", now ? `${Math.round((now.speed ?? 0) * 0.6818)} mph` : null],
+      ["Camera", `${view?.name ?? viewMode} (${viewMode})${flyer?.enabled ? ", free camera" : ""}, look yaw ${lookDeg(mouseLook.yaw)} pitch ${lookDeg(mouseLook.pitch)} deg, zoom ${mouseLook.zoom(viewMode).toFixed(2)}`],
+      ["Camera pos", feet([camera.position.x, camera.position.y, -camera.position.z])],
+      ["Under water", listenerUnderwater ? `yes (water at ${waterLevelNow?.toFixed(1)} ft)` : waterLevelNow !== null ? `no (water at ${waterLevelNow.toFixed(1)} ft)` : "no"],
+      ["Clock", latest?.race ? formatRaceTime(latest.race.clock ?? 0) : latest?.time !== undefined ? `${latest.time.toFixed(1)} s` : "not started"],
+      ["State", [paused ? "paused" : "running", finishing ? "finishing" : null, replaying ? "replaying" : null, host.presenting ? "headset" : null].filter(Boolean).join(", ")],
+      ["Draw distance", `${drawnCells} cells`],
+    ];
+  }));
   /** One frame, from the window or from the headset (the host's loop): `now` as performance.now(). */
   const loop = (_dt, now) => {
     // The frame rate limit (the window's frames only: a headset keeps to its own rate): a frame that comes too soon is
@@ -1593,9 +1624,15 @@ async function mountRace(container, context, params, owned = []) {
         loading.hidden = true;
       }
     }
+    // The watchdog: a step the simulation has not answered in 10 s (it is stuck, or gone without a word) would leave the
+    // trucks frozen with nothing said. A hidden page's worker may be held back, so only while the page is seen.
+    if (busy && !stallReported && now - tickSentAt > STALL_MS && document.visibilityState === "visible") {
+      stallReported = true;
+      reportError(Object.assign(new Error(`The simulation has not answered a step for ${Math.round((now - tickSentAt) / 1000)} s`), { kind: "stalled" }), { where: "simulation step", fatal: !net });
+    }
     if (ready && !busy && !paused && !finishing) {
       busy = true;
-      const sentAt = performance.now();
+      const sentAt = tickSentAt = performance.now();
       sim.call("tick", { tMs: now, input: sampleInput(), net: netRace?.commands() })
         .then((r) => {
           latest = r;
@@ -1650,7 +1687,7 @@ async function mountRace(container, context, params, owned = []) {
             }
           }
         })
-        .catch((err) => { if (!disposed) showMessage(err.message); })
+        .catch((err) => { if (!disposed) { showMessage(err.message); reportError(err, { where: "simulation step" }); } })
         .finally(() => { busy = false; });
     }
     if (latest) {

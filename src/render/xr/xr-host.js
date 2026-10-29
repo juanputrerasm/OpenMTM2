@@ -30,6 +30,7 @@ import { createIdleStage } from "./idle-stage.js";
 import { createGpuPacer } from "../gpu-pacer.js";
 import { createVrMenu } from "./vr-panel.js";
 import { installAtmosphere } from "../atmosphere.js";
+import { reportError } from "../../shared/error-report.js";
 
 // Before this renderer compiles its first material: the fog's shader chunks (render/atmosphere.js).
 installAtmosphere();
@@ -56,6 +57,11 @@ export function createXrHost(context) {
     gl.getContextAttributes = () => ({ ...attributes(), alpha: false, antialias: true });
   }
   const renderer = new THREE.WebGLRenderer({ canvas, context: gl ?? null });
+  // The browser taking the graphics away (a driver reset, the video memory gone) leaves a black or frozen picture and
+  // one line in the console: it is reported instead.
+  canvas.addEventListener("webglcontextlost", () => {
+    reportError(Object.assign(new Error("WebGL context lost"), { kind: "contextLost" }), { where: "drawing a frame" });
+  });
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
   const xr = renderer.xr;
   xr.enabled = true;
@@ -207,8 +213,14 @@ export function createXrHost(context) {
     last = now;
     if (xr.isPresenting) readHead(frame);
     readHands();
-    if (loop) loop(dt, now);
-    else if (xr.isPresenting) (idle ??= createIdleStage(host)).frame(dt, now);
+    // three.js asks for the next frame only after this one returns: an exception here would stop the picture for good,
+    // with nothing but the console to say why. It is reported (shared/error-report.js) and the frames go on.
+    try {
+      if (loop) loop(dt, now);
+      else if (xr.isPresenting) (idle ??= createIdleStage(host)).frame(dt, now);
+    } catch (error) {
+      reportError(error, { where: "drawing a frame" });
+    }
     if (paced) pacer.drawn(now);
   };
   /*

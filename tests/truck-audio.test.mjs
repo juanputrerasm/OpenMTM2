@@ -29,6 +29,22 @@ test("going into water splashes with SPLASH1, never the menu song SPLASH", async
   assert.ok(!names.includes("SPLASH"));
 });
 
+test("a truck that goes into water while heard from under water has no wading loop, and the frame does not throw", async () => {
+  const audio = recorder();
+  const trucks = createTruckAudio(audio, { count: 1, random: () => 0.5 });
+  const under = { listenerUnder: true };
+  trucks.update(1 / 60, [pose(sound())], [0, 0, 0], 10, [], under);
+  // The chase camera under the water as the truck wades in (Voodoo Island): this threw on the missing loop.
+  assert.doesNotThrow(() => trucks.update(1 / 60, [pose(sound({ inWater: true, vy: -20 }))], [0, 0, 0], 10, [], under));
+  assert.doesNotThrow(() => trucks.update(1 / 60, [pose(sound({ inWater: true }))], [0, 0, 0], 10, [], under));
+  await settle();
+  assert.ok(!audio.plays.some((p) => p.name === "WTR-ABV1"));
+  // Back above the water, it starts.
+  trucks.update(1 / 60, [pose(sound({ inWater: true }))], [0, 0, 0], 10);
+  await settle();
+  assert.ok(audio.plays.some((p) => p.name === "WTR-ABV1"));
+});
+
 test("braking hard makes no skid sound; a sliding tire starts the rear corner loops", async () => {
   const audio = recorder();
   const trucks = createTruckAudio(audio, { count: 1, random: () => 0.5 });

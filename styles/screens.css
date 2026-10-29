@@ -680,6 +680,14 @@ body.pad-nav [role=option]:focus:not(.selected) td { background: rgba(242, 193, 
 /* The game's own message boxes (ui/dialogs.js). */
 .message-box-text { margin: 0 0 6px; white-space: pre-line; }
 .message-box-field { width: 100%; margin-top: 8px; }
+/* The error dialog (ui/error-dialog.js): over everything, the race's pause menu included. */
+.error-report { width: min(640px, calc(100vw - 32px)); z-index: 1000; }
+.error-report h2 { color: var(--danger); }
+.error-report-title { font-weight: 700; }
+.error-report-repeats { margin: 0 0 6px; color: var(--muted); }
+.error-report-text { width: 100%; margin-top: 6px; resize: vertical; font: 12px/1.35 ui-monospace, Menlo, Consolas, monospace; color: var(--text); background: var(--bg); border: 1px solid var(--panel-edge); border-radius: 4px; padding: 8px; white-space: pre; overflow: auto; }
+.error-report .options-sub-actions { flex-wrap: wrap; align-items: center; }
+.error-report-copied { margin-right: auto; color: var(--muted); }
 /* The on-screen keyboard (ui/pad-keyboard.js). */
 .pad-keyboard { width: min(560px, calc(100vw - 32px)); }
 .pad-keyboard-text { min-height: 1.6em; margin-bottom: 10px; padding: 6px 10px; border: 1px solid var(--panel-edge); border-radius: 6px; background: rgba(0, 0, 0, 0.3); overflow-wrap: anywhere; }

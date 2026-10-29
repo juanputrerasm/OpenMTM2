@@ -6086,5 +6086,97 @@
  {
   "tag": "not installed",
   "text": "no instalado"
+ },
+ {
+  "tag": "The graphics card stopped drawing the game.",
+  "text": "La tarjeta gráfica dejó de dibujar el juego."
+ },
+ {
+  "tag": "The browser took the graphics away from the page (the driver restarted, or it ran out of video memory). Go back to the menu and start the race again; lower Graphics in Options if it happens again.",
+  "text": "El navegador le quitó los gráficos a la página (el controlador se reinició o se quedó sin memoria de video). Vuelve al menú y empieza la carrera de nuevo; baja Gráficos en Opciones si vuelve a pasar."
+ },
+ {
+  "tag": "The simulation stopped answering.",
+  "text": "La simulación dejó de responder."
+ },
+ {
+  "tag": "The part of the game that moves the trucks has been busy for too long. The race cannot go on; go back to the menu.",
+  "text": "La parte del juego que mueve los camiones lleva demasiado tiempo ocupada. La carrera no puede continuar; vuelve al menú."
+ },
+ {
+  "tag": "The game ran out of memory.",
+  "text": "El juego se quedó sin memoria."
+ },
+ {
+  "tag": "Close other tabs, lower the draw distance and Graphics in Options, then try again.",
+  "text": "Cierra otras pestañas, baja la distancia de dibujo y Gráficos en Opciones, y vuelve a intentarlo."
+ },
+ {
+  "tag": "Part of the game could not be loaded.",
+  "text": "No se pudo cargar una parte del juego."
+ },
+ {
+  "tag": "The game was probably updated while it was open. Reload the page.",
+  "text": "Probablemente el juego se actualizó mientras estaba abierto. Recarga la página."
+ },
+ {
+  "tag": "The browser's storage for the game is full.",
+  "text": "El almacenamiento del navegador para el juego está lleno."
+ },
+ {
+  "tag": "Free some space on the disk, or remove add-ons in Options, then reload.",
+  "text": "Libera espacio en el disco o quita complementos en Opciones, y luego recarga."
+ },
+ {
+  "tag": "A game file could not be read.",
+  "text": "No se pudo leer un archivo del juego."
+ },
+ {
+  "tag": "The game's copy of your install may be incomplete. Pick the game folder again from the install screen.",
+  "text": "La copia de tu instalación puede estar incompleta. Elige de nuevo la carpeta del juego en la pantalla de instalación."
+ },
+ {
+  "tag": "A background part of the game failed.",
+  "text": "Falló una parte del juego que trabaja en segundo plano."
+ },
+ {
+  "tag": "The game may not work as it should from here. Copy the report, then go back to the menu.",
+  "text": "Desde aquí el juego puede no funcionar como debe. Copia el informe y vuelve al menú."
+ },
+ {
+  "tag": "Something went wrong in OpenMTM2.",
+  "text": "Algo salió mal en OpenMTM2."
+ },
+ {
+  "tag": "The game may go on, or it may not work as it should. Copy the report so the problem can be fixed.",
+  "text": "El juego puede seguir, o puede no funcionar como debe. Copia el informe para que el problema se pueda corregir."
+ },
+ {
+  "tag": "Error report",
+  "text": "Informe de error"
+ },
+ {
+  "tag": "This error happened <<1>> times.",
+  "text": "Este error ocurrió <<1>> veces."
+ },
+ {
+  "tag": "Copied",
+  "text": "Copiado"
+ },
+ {
+  "tag": "OpenMTM2 error",
+  "text": "Error de OpenMTM2"
+ },
+ {
+  "tag": "Copy report",
+  "text": "Copiar informe"
+ },
+ {
+  "tag": "Main menu",
+  "text": "Menú principal"
+ },
+ {
+  "tag": "Reload",
+  "text": "Recargar"
  }
 ]
