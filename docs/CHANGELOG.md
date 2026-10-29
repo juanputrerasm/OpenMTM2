@@ -4,7 +4,7 @@ What was built, milestone by milestone and stage by stage, as the plan recorded 
 current state and everything still open are in [PLAN.md](PLAN.md); a "Not done", "Left" or "Pending" line below is
 as it stood when it was written, and the plan's open items list is the one kept up to date.
 
-## Unreleased (after v0.6.4)
+## Unreleased (after v0.6.3)
 
 - **Error dialog** (`shared/error-report.js`, `ui/error-dialog.js`, ARCHITECTURE.md "Errors"): every error the
   game notices is shown in a message box with a plain explanation and a report to copy (track, truck, game, truck
@@ -14,7 +14,7 @@ as it stood when it was written, and the plan's open items list is the one kept 
   Island, Chase Far with the mouse look): the wading loop, not started when heard from under water, was set
   anyway (`audio/truck-audio.js`).
 
-## v0.6.4
+## v0.6.3
 
 - **Cockpit, looking round the cab** (MONSTER_EXE_ANALYSIS.md 11): View Left (Insert), View Right (Delete) and View
   Back (keypad plus, or Backspace) turn the head while held, with the side and rear panels from `COCKPIT.POD` and only
