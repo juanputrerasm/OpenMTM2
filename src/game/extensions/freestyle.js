@@ -25,6 +25,7 @@ export const FREESTYLE_EXTENSION = Object.freeze({
   length: Object.freeze({ key: "minutes", label: msg("Minutes"), default: DEFAULT_FREESTYLE_MINUTES, min: 1, max: 10 }),
   settings: Object.freeze([
     Object.freeze({ key: "minutes", label: msg("Run length"), type: "number", min: 1, max: 10, default: DEFAULT_FREESTYLE_MINUTES, suffix: msg("minutes") }),
+    Object.freeze({ key: "trickPhysics", label: msg("Trick physics (throttle and brake tilt the truck in the air)"), type: "boolean", default: true }),
   ]),
   acceptsTrack: () => true,
   trackLocked: false,
@@ -33,6 +34,19 @@ export const FREESTYLE_EXTENSION = Object.freeze({
   weather: null,
   detailLevel: null,
 });
+
+/**
+ * Trick physics (docs/EXTENSIONS.md, "Trick physics"): OpenPhotex's optional handling, under MTM2's physics model only.
+ * In the air the pedals pitch the truck (rad/s² a full pedal) and spins are damped a quarter as hard; with the wheels
+ * down the yaw is damped half as hard. Measured headless on KF2's Orlando Monster Show.
+ */
+export const TRICK_PHYSICS = Object.freeze({ airPitchControl: 5, airRotationDamping: 0.25, groundYawDamping: 0.5 });
+
+/** The race's physics rules with Trick physics on them when the run asks for it and the model is MTM2's. */
+export function freestyleRules(payload, rules) {
+  if (payload?.trickPhysics === false || rules?.id !== "mtm2") return rules;
+  return Object.freeze({ ...rules, ...TRICK_PHYSICS });
+}
 
 /** The categories in the order they are shown, with their share of the 10 points and their raw ceiling per minute. */
 export const CATEGORIES = Object.freeze([
@@ -55,15 +69,24 @@ export const JUDGE = Object.freeze({
   airPerS: 4, airPerHeightFt: 0.15, airPerLengthFt: 0.05, airVertical: 12,
   /** Huge air: a spectacular moment. */
   hugeHeightFt: 40, hugeLengthFt: 150, hugeAirS: 3,
-  /** A wheelie: the front wheels up, a rear one down, the nose at least this far up (forward axis' world y); a stoppie the other way. */
-  wheelieY: 0.35, skyY: 0.85, wheelieMinS: 1, stoppieMinS: 0.75,
+  /**
+   * A wheelie: the front wheels up, a rear one down, the nose past `startY` up (forward axis' world y, about 10 degrees),
+   * reaching `wheelieY` (about 20 degrees) and held `wheelieMinS`; a stoppie the other way. Sky: past `skyY` (about 50
+   * degrees) for `skyMinS`. Measured on MTM2's physics (docs/EXTENSIONS.md, "Freestyle"): the engine cannot lift the
+   * nose, so wheelies come from ramps and landings and the brake, not the throttle, makes them last.
+   */
+  wheelieY: 0.35, startY: 0.17, skyY: 0.77, skyMinS: 0.3, wheelieMinS: 0.75, stoppieMinS: 0.75,
   wheeliePoints: 3, wheeliePerS: 3, wheelieMost: 15, stoppiePoints: 4, stoppiePerS: 4, skyBonus: 6,
   /** A slap wheelie: a wheelie begun this soon after landing a jump. */
   slapS: 0.6, slapBonus: 3,
   /** A moonwalk: a wheelie going backwards at least this fast; its points count half again. */
   moonwalkFtS: 5, moonwalkFactor: 1.5,
-  /** A donut: turning faster than this with two wheels down and some speed; each full turn scores. */
-  donutRate: 1.8, donutFtS: 8, donutGapS: 0.5, donutPoints: 4,
+  /**
+   * A donut: a whole turn of yaw one way within `donutWindowS`, two wheels down, at `donutFtS` or more; each scores, at
+   * most `donutMost` in a set. A set ends after `donutGapS` without wheels down and speed, or turning back the other way
+   * (faster than `donutTurnBack`). Holding the throttle and a turn key does it; Trick physics makes it easier.
+   */
+  donutWindowS: 4.5, donutFtS: 8, donutGapS: 0.5, donutPoints: 4, donutMost: 5, donutTurnBack: 0.2,
   /** A flip or a roll: this share of a full turn about the pitch or roll axis, landed on its wheels within `landS`. */
   turnShare: 0.85, flipPoints: 25, rollPoints: 20, attemptPoints: 5, landS: 1.5, landedUp: 0.6,
   /** A save: the truck past this (up axis' world y) with two wheels or fewer down, back on four upright within `saveS`. */
@@ -88,6 +111,9 @@ export const MOMENT_NAMES = Object.freeze({
 
 const FULL_TURN = Math.PI * 2;
 
+/** A donut set: its turns, the yaw since it began, the yaw over the last `donutWindowS` and the way it turns. */
+const newDonut = () => ({ angle: 0, turns: 0, idle: 0, sign: 0, trail: [] });
+
 /** A run of `roundSeconds`. */
 export function createFreestyle(roundSeconds) {
   return {
@@ -95,8 +121,8 @@ export function createFreestyle(roundSeconds) {
     raw: { aggression: 0, air: 0, tricks: 0, saves: 0, spectacular: 0 },
     clock: 0, flowTime: 0, slowFor: 0, stalls: 0, stalled: false,
     jump: null, landedAt: -Infinity,
-    wheelie: null, donut: { angle: 0, turns: 0, idle: 0 },
-    spin: { pitch: 0, roll: 0, sign: 0, done: null, allDown: 0 },
+    wheelie: null, donut: newDonut(),
+    spin: { pitch: 0, roll: 0, done: null, allDown: 0 },
     danger: null,
     reverse: { pending: 0, since: -Infinity, total: 0 },
     crash: { over: 0, counted: false, upright: 0 }, crashes: 0, heli: false,
@@ -142,7 +168,7 @@ export function freestyleStep(g, dt, t) {
   // Crashes: upside down for a moment, or the helicopter called. The combo breaks and every trick in progress is lost.
   if (t.heli && !g.heli) crashed(g);
   g.heli = !!t.heli;
-  if (t.heli) { g.jump = null; g.wheelie = null; g.danger = null; g.spin = { pitch: 0, roll: 0, sign: 0, done: null, allDown: 0 }; return; }
+  if (t.heli) { g.jump = null; g.wheelie = null; g.danger = null; g.spin = { pitch: 0, roll: 0, done: null, allDown: 0 }; return; }
   if (t.up < JUDGE.crashUp) {
     g.crash.over += dt;
     g.crash.upright = 0;
@@ -196,31 +222,40 @@ export function freestyleStep(g, dt, t) {
   }
 
   // Wheelies, stoppies and moonwalks.
-  const wheelieNow = fronts === 0 && rears > 0 && t.forwardY >= JUDGE.wheelieY;
-  const stoppieNow = rears === 0 && fronts > 0 && t.forwardY <= -JUDGE.wheelieY;
+  const wheelieNow = fronts === 0 && rears > 0 && t.forwardY >= JUDGE.startY;
+  const stoppieNow = rears === 0 && fronts > 0 && t.forwardY <= -JUDGE.startY;
   if (wheelieNow || stoppieNow) {
     const kind = wheelieNow ? "wheelie" : "stoppie";
     if (!g.wheelie || g.wheelie.kind !== kind) {
       endWheelie(g);
-      g.wheelie = { kind, start: g.clock, slap: kind === "wheelie" && g.clock - g.landedAt <= JUDGE.slapS, sky: 0, back: 0 };
+      g.wheelie = { kind, start: g.clock, slap: kind === "wheelie" && g.clock - g.landedAt <= JUDGE.slapS, sky: 0, back: 0, peak: 0 };
     }
+    g.wheelie.peak = Math.max(g.wheelie.peak, Math.abs(t.forwardY));
     if (Math.abs(t.forwardY) >= JUDGE.skyY) g.wheelie.sky += dt;
     if (t.forward <= -JUDGE.moonwalkFtS) g.wheelie.back += dt;
   } else endWheelie(g);
 
-  // Donuts: whole turns at a hard yaw rate with wheels down.
-  const r = t.rates[2];
-  if (Math.abs(r) >= JUDGE.donutRate && down >= 2 && t.speed >= JUDGE.donutFtS) {
-    const d = g.donut;
+  // Donuts: a whole turn of yaw one way within `donutWindowS`, wheels down and moving, whatever the rate step by step.
+  const r = t.rates[2], d = g.donut;
+  if (down >= 2 && t.speed >= JUDGE.donutFtS) {
     d.idle = 0;
-    d.angle += Math.abs(r) * dt;
-    while (d.angle >= FULL_TURN) {
-      d.angle -= FULL_TURN;
-      d.turns++;
-      g.raw.tricks += JUDGE.donutPoints;
-      moment(g, "donut", { turns: d.turns });
+    // Turning the other way starts a new set.
+    if (d.sign && Math.abs(r) > JUDGE.donutTurnBack && Math.sign(r) !== d.sign) g.donut = newDonut();
+    const e = g.donut;
+    if (Math.abs(r) > JUDGE.donutTurnBack) e.sign = Math.sign(r);
+    e.angle += r * dt;
+    e.trail.push([g.clock, e.angle]);
+    while (g.clock - e.trail[0][0] > JUDGE.donutWindowS) e.trail.shift();
+    if (Math.abs(e.angle - e.trail[0][1]) >= FULL_TURN) {
+      e.turns++;
+      e.trail = [[g.clock, e.angle]];
+      // Circling on cannot fill the category on its own.
+      if (e.turns <= JUDGE.donutMost) {
+        g.raw.tricks += JUDGE.donutPoints;
+        moment(g, "donut", { turns: e.turns });
+      }
     }
-  } else if ((g.donut.idle += dt) >= JUDGE.donutGapS) g.donut = { angle: 0, turns: 0, idle: 0 };
+  } else if ((d.idle += dt) >= JUDGE.donutGapS) g.donut = newDonut();
 
   // Flips and barrel rolls: the turn about the pitch and roll axes while not on all four.
   const s = g.spin;
@@ -228,9 +263,9 @@ export function freestyleStep(g, dt, t) {
     s.allDown = 0;
     s.pitch += t.rates[1] * dt;
     s.roll += t.rates[0] * dt;
-    // Which way the nose went first names the flip, whatever the sign of the rate.
-    if (!s.sign && Math.abs(t.forwardY) > 0.5) s.sign = Math.sign(t.forwardY);
-    if (!s.done && Math.abs(s.pitch) >= JUDGE.turnShare * FULL_TURN) s.done = { kind: s.sign >= 0 ? "backFlip" : "frontFlip", at: g.clock };
+    // The way it turned names the flip (q < 0 is nose up: back). Not the way the nose went first: off a ramp lip the
+    // nose always goes up first, front flip or back.
+    if (!s.done && Math.abs(s.pitch) >= JUDGE.turnShare * FULL_TURN) s.done = { kind: s.pitch < 0 ? "backFlip" : "frontFlip", at: g.clock };
     else if (!s.done && Math.abs(s.roll) >= JUDGE.turnShare * FULL_TURN) s.done = { kind: "roll", at: g.clock };
   }
   if (s.done) {
@@ -239,13 +274,13 @@ export function freestyleStep(g, dt, t) {
       g.raw.tricks += s.done.kind === "roll" ? JUDGE.rollPoints : JUDGE.flipPoints;
       moment(g, s.done.kind);
       spectacular(g);
-      g.spin = { pitch: 0, roll: 0, sign: 0, done: null, allDown: 0 };
+      g.spin = { pitch: 0, roll: 0, done: null, allDown: 0 };
     } else if (g.clock - s.done.at > JUDGE.landS && down >= 2) {
       g.raw.tricks += JUDGE.attemptPoints;
       moment(g, "flipAttempt");
-      g.spin = { pitch: 0, roll: 0, sign: 0, done: null, allDown: 0 };
+      g.spin = { pitch: 0, roll: 0, done: null, allDown: 0 };
     }
-  } else if (down === 4 && (s.allDown += dt) >= 0.3) g.spin = { pitch: 0, roll: 0, sign: 0, done: null, allDown: s.allDown };
+  } else if (down === 4 && (s.allDown += dt) >= 0.3) g.spin = { pitch: 0, roll: 0, done: null, allDown: s.allDown };
 
   // Saves: past the danger line on two wheels or fewer, back on four and upright without crashing.
   if (t.up < JUDGE.dangerUp && down <= 2 && t.up > JUDGE.crashUp) {
@@ -276,14 +311,16 @@ function endWheelie(g) {
   if (!w) return;
   g.wheelie = null;
   const held = g.clock - w.start;
+  // Too shallow at its steepest is no wheelie, however long.
+  if (w.peak < JUDGE.wheelieY) return;
   if (w.kind === "wheelie" && held >= JUDGE.wheelieMinS) {
-    const moon = w.back >= held * 0.5;
+    const moon = w.back >= held * 0.5, sky = w.sky >= JUDGE.skyMinS;
     let points = Math.min(JUDGE.wheelieMost, JUDGE.wheeliePoints + JUDGE.wheeliePerS * held);
     if (moon) points *= JUDGE.moonwalkFactor;
     if (w.slap) points += JUDGE.slapBonus;
-    if (w.sky >= 0.5) points += JUDGE.skyBonus;
+    if (sky) points += JUDGE.skyBonus;
     g.raw.tricks += points;
-    moment(g, moon ? "moonwalk" : w.sky >= 0.5 ? "skyWheelie" : w.slap ? "slapWheelie" : "wheelie", { held });
+    moment(g, moon ? "moonwalk" : sky ? "skyWheelie" : w.slap ? "slapWheelie" : "wheelie", { held });
   } else if (w.kind === "stoppie" && held >= JUDGE.stoppieMinS) {
     g.raw.tricks += Math.min(JUDGE.wheelieMost, JUDGE.stoppiePoints + JUDGE.stoppiePerS * held);
     moment(g, "stoppie", { held });

@@ -1,13 +1,14 @@
 /*
   The course map (the Map key), an overlay on the 3D window (MONSTER_EXE_ANALYSIS.md 11, routine
   0x4e2410): the primary course drawn as a road outline, centred on the player's truck (a little right of and below the screen's middle, where the
-  game puts it) and turning with its heading, so the truck always points up. Each truck is a small plus with its
-  place number beside it (its name too when the Names key is on); the player's label is
-  brighter. The road is the straights' end points joined in order into a closed loop (0x4e1e90),
+  game puts it) and turning with its heading, so the truck always points up. Each truck is a small plus with a
+  label under it: the Map key cycles off, place numbers, truck names and places, driver names and places
+  (game/course-map-labels.js); the player's own label is dark red. The road is the straights' end points joined in order into a closed loop (0x4e1e90),
   with a second outline 48 ft either side of it along each corner's bisector (0x4e2160).
   A Summit Rumble has no course to show: its map is the summit and the scoring zone (6.3) round the trucks.
 */
 import { drawText, textWidth } from "./bitmap-text.js";
+import { MAP_OFF, mapLabel, mapLabelColor, mapMode, nextMapMode } from "../game/course-map-labels.js";
 
 /** Half the road's drawn width, feet (3072 in the map's 1/64 ft units). */
 export const MAP_HALF_WIDTH_FT = 48;
@@ -78,7 +79,7 @@ export function boxCorners(box) {
  * `open`: a one-way course (a rally from A to B) is drawn with its start and its end closed off, not joined.
  * `areas`: a Summit Rumble's `{ zone, summit }` boxes (`{ pos, half }`, feet), drawn in place of the course.
  */
-export function createCourseMap(course, { font = null, open = false, areas = null } = {}) {
+export function createCourseMap(course, { font = null, open = false, areas = null, summit = false } = {}) {
   const canvas = document.createElement("canvas");
   canvas.className = "race-minimap";
   canvas.hidden = true;
@@ -89,7 +90,7 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
   const zoneMap = !!(areas?.zone || areas?.summit);
   const loop = zoneMap ? [] : courseLoop(course);
   const offsets = loop.length > 2 ? edgeOffsets(loop, MAP_HALF_WIDTH_FT, open) : [];
-  let shown = false, blink = 0;
+  let mode = MAP_OFF, blink = 0;
 
   // The map's size on the page, read again only when it or its frame changes size: a read each frame, after the name tags
   // have moved, would make the browser lay the page out again then and there.
@@ -110,21 +111,24 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
 
   return {
     element: canvas,
-    get visible() { return shown; },
-    toggle() { shown = !shown; canvas.hidden = !shown; measured = null; return shown; },
-    setVisible(on) { shown = !!on; canvas.hidden = !shown; measured = null; },
+    get visible() { return mode !== MAP_OFF; },
+    get mode() { return mode; },
+    /** The Map key: the next mode, which is returned. */
+    cycle() { return this.setMode(nextMapMode(mode)); },
+    setMode(value) { mode = mapMode(value); canvas.hidden = mode === MAP_OFF; measured = null; return mode; },
     /** Stops watching the map's size. */
     dispose() { watching?.disconnect(); watching = null; },
     /**
-     * `trucks`: `{ pos, heading, place, label, color?, marker? }` in game feet, the player first; `label` (a truck's or a
-     * driver's name, or null) is shown with the place (the Names key, game/names.js). An extension mode may give a truck
+     * `trucks`: `{ pos, heading, place, truck, driver, color?, marker? }` in game feet; `truck` and `driver` are its
+     * names, written as the mode says. `player`: the local player's index, whose label is dark red (-1 for none, a
+     * spectator). An extension mode may give a truck
      * a `color` (its team) and a `marker` (`"arrow"`: Tag's It, the robber), drawn larger and kept at the map's edge when
      * the truck is off it. `focus`: the truck the map centres on (the watched one in spectator mode). `state`: on a
      * Rumble, the focused truck's scoring state (2 in the zone). `points`: other things an extension marks
      * (`{ pos, color }`, a ball).
      */
-    set(trucks, dt = 0.016, { focus = 0, state = 0, points = [] } = {}) {
-      if (!shown) return;
+    set(trucks, dt = 0.016, { focus = 0, player = 0, state = 0, points = [] } = {}) {
+      if (mode === MAP_OFF) return;
       const [w, h] = fit();
       ctx.clearRect(0, 0, w, h);
       const me = trucks[focus] ?? trucks[0];
@@ -211,9 +215,9 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
           for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) ctx.fillRect(x + (dx - 0.5) * unitPx, y + (dy - 0.5) * unitPx, unitPx, unitPx);
         }
         // A truck with no place (a Race & Rumble blocker) shows its name alone, or nothing.
-        const placed = t.place !== null && t.place !== undefined;
-        const label = t.label ? (placed ? `${t.label} (${t.place})` : t.label) : placed ? String(t.place) : "";
-        const colour = i === focus ? "#ffffff" : "#b5b5b5";
+        const label = mapLabel(mode, { truck: t.truck, driver: t.driver, place: t.place, summit });
+        if (!label) continue;
+        const colour = mapLabelColor(i, player);
         if (font) {
           const s = unitPx * 0.6, width = textWidth(font, label, s), left = x - width / 2, top = y + 3 * unitPx;
           drawText(ctx, font, label, left + unitPx, top + unitPx, { color: "#000", scale: s });

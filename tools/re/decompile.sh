@@ -3,6 +3,7 @@
 # Ghidra auto-analysis of MONSTER.EXE, a full decompile export, then the derived indexes.
 #   MTM2_DIR=~/games/mtm2 tools/re/decompile.sh            (MTM2, into re/)
 #   MTM1_DIR=~/games/mtm1 tools/re/decompile.sh mtm1       (MTM1, into re/mtm1/)
+#   MTM1BETA_DIR=~/Downloads/mtm_beta tools/re/decompile.sh mtm1beta   (MTM1 June 1996 beta, into re/mtm1beta/)
 #   EVO2_DIR=~/games/evo2 tools/re/decompile.sh evo2       (4x4 Evo 2, into re/evo2/)
 #   EVO1_DIR=~/games/evo1 tools/re/decompile.sh evo1       (4x4 Evo 1, into re/evo1/)
 #   CPR_DIR=~/games/cpr tools/re/decompile.sh cpr          (CART Precision Racing, into re/cpr/)
@@ -19,6 +20,11 @@ if [ "$TARGET" = mtm1 ]; then
   WORK="$REPO/re/mtm1"
   # MTM1 is not incrementally linked: a third of its code is only reached through MFC message
   # maps and vtables, which FindFuncs.java turns into functions before the export.
+  SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
+elif [ "$TARGET" = mtm1beta ]; then
+  # The June 1996 MTM1 beta: same toolchain as the retail build.
+  GAME_DIR=${MTM1BETA_DIR:-$HOME/Downloads/mtm_beta}
+  WORK="$REPO/re/mtm1beta"
   SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
 elif [ "$TARGET" = evo2 ]; then
   # 4x4 Evolution 2 is a Watcom build (AUTO/DGROUP sections, register calling convention).
@@ -65,7 +71,7 @@ else
     -scriptPath "$HERE" $SCRIPTS "$WORK/out"
 fi
 RE_TARGET=$TARGET "$REPO/re/venv/bin/python" "$HERE/postprocess.py"
-if [ "$TARGET" = mtm1 ]; then
-  RE_TARGET=mtm1 "$REPO/re/venv/bin/python" "$HERE/rsrc.py" "$GAME_DIR/MONSTER.EXE" > "$WORK/out/resources.txt"
-  RE_TARGET=mtm1 "$REPO/re/venv/bin/python" "$HERE/msgmap.py" > "$WORK/out/msgmaps.txt"
+if [ "$TARGET" = mtm1 ] || [ "$TARGET" = mtm1beta ]; then
+  RE_TARGET=$TARGET "$REPO/re/venv/bin/python" "$HERE/rsrc.py" "$GAME_DIR/MONSTER.EXE" > "$WORK/out/resources.txt"
+  RE_TARGET=$TARGET "$REPO/re/venv/bin/python" "$HERE/msgmap.py" > "$WORK/out/msgmaps.txt"
 fi

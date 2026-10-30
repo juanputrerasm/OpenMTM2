@@ -16,7 +16,9 @@ MTM2_DIR=~/games/mtm2 tools/re/decompile.sh
 ```
 
 For MTM1: `MTM1_DIR=~/games/mtm1 tools/re/decompile.sh mtm1`, which works in `re/mtm1/` and
-leaves the MTM2 workspace alone. For 4x4 Evolution 2 (`docs/EVO2_EXE_ANALYSIS.md`):
+leaves the MTM2 workspace alone. The June 1996 MTM1 beta (Beta 2, Build #41; JSTrackViewer's
+`docs/MTM1_BETA_EXE_ANALYSIS.md`): `MTM1BETA_DIR=~/Downloads/mtm_beta tools/re/decompile.sh mtm1beta`,
+into `re/mtm1beta/`; `match.py` and `fdiff.py` take `MATCH=mtm1beta:mtm1` and `FDIFF=mtm1beta:mtm1`. For 4x4 Evolution 2 (`docs/EVO2_EXE_ANALYSIS.md`):
 `EVO2_DIR=~/games/evo2 tools/re/decompile.sh evo2`, into `re/evo2/`, and 4x4 Evolution
 (`docs/EVO2_PHYSICS.md` 10, `docs/EVO_MULTIPLAYER.md`): `tools/re/decompile.sh evo1`, into
 `re/evo1/`. CART Precision Racing (`docs/CPR_PHYSICS.md`): `CPR_DIR=~/games/cpr tools/re/decompile.sh cpr`,

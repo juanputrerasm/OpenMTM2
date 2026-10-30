@@ -14,7 +14,7 @@ export const LEFT = 0, RIGHT = 1;
  * Start a weekend on `track` with `size` drivers (2 to 16): the player in their truck, and computer drivers in trucks
  * drawn from `trucks` (the catalogue's, not hidden), each with a personality drawn for the weekend.
  */
-export function startDragWeekend(context, { track, trucks, playerTruck, playerName, size, difficulty, weather, random = Math.random, field: given = null }) {
+export function startDragWeekend(context, { track, trucks, playerTruck, playerName, size, difficulty, weather, aiSpeed = null, random = Math.random, field: given = null }) {
   const others = trucks.filter((t) => t.file !== playerTruck);
   for (let i = others.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
@@ -31,7 +31,7 @@ export function startDragWeekend(context, { track, trucks, playerTruck, playerNa
       player: false, personality: kinds[Math.floor(random() * kinds.length)],
     });
   }
-  context.dragWeekend = { event: createDragEvent({ strip: { file: track.file, name: track.name }, field }), track, trucks, difficulty, weather, seen: null };
+  context.dragWeekend = { event: createDragEvent({ strip: { file: track.file, name: track.name }, field }), track, trucks, difficulty, weather, aiSpeed, seen: null };
   return context.dragWeekend;
 }
 
@@ -62,7 +62,7 @@ export async function runPass(context, lane = LEFT) {
   const entrants = passEntrants(weekend, lane);
   const driver = currentDriver(await getProfiles(context));
   return context.router.go("race", {
-    track: weekend.track, mode: "drag", laps: 1, difficulty: weekend.difficulty, opponents: [], weather: weekend.weather,
+    track: weekend.track, mode: "drag", laps: 1, difficulty: weekend.difficulty, opponents: [], weather: weekend.weather, aiSpeed: weekend.aiSpeed ?? null,
     truck: entrants[0].file, trucks: weekend.trucks, setup: entrants[0].player ? { ...driver.garage } : undefined,
     drag: { kind: weekend.event.phase === "qualifying" ? "qualify" : "pairing", entrants },
   }, { replace: true });

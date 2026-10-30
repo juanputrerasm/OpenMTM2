@@ -14,6 +14,7 @@ import { raceTypeName } from "../../game/menu-data.js";
 import { ordinal } from "../../game/race-setup.js";
 import { msg } from "../../game/strings.js";
 import { showAlert, showConfirm } from "../dialogs.js";
+import { AI_SPEED, aiSpeedPercent } from "../../game/ai-speed.js";
 
 const eligible = (track) => !track.freeRoamOnly && !track.noTournament && ["circuit", "rally", "drag"].includes(track.raceType);
 
@@ -125,11 +126,17 @@ export default async function mount(container, context) {
     head.textContent = t("Tournaments");
     const select = el("select", { size: 6, "aria-label": t("Tournaments") }, ...tournaments.map((item, i) => el("option", { value: i, selected: item === picked }, `${item.name}${item.stock ? "" : ` (${t("yours")})`}`)));
     const size = el("select", { "aria-label": t("Trucks") });
+    // AI Speed (game/ai-speed.js): the tournament keeps it for every event; it starts at the Options value.
+    const aiSpeedOut = el("output", { class: "opt-value" }, `${aiSpeedPercent(context.settings.aiSpeed)}%`);
+    const aiSpeed = el("input", {
+      type: "range", min: AI_SPEED.min, max: AI_SPEED.max, step: AI_SPEED.step, value: aiSpeedPercent(context.settings.aiSpeed), "aria-label": t("AI Speed"),
+      oninput: (event) => { aiSpeedOut.textContent = `${event.target.value}%`; },
+    });
     const detail = el("div", { class: "tournament-detail" });
     const note = el("p", { class: "muted" });
     const start = button(t("Race!"), async () => {
       try {
-        await beginTournament(context, picked, { tracks, trucks, size: Number(size.value), difficulty: context.settings.difficulty ?? 1, weather: 0 });
+        await beginTournament(context, picked, { tracks, trucks, size: Number(size.value), difficulty: context.settings.difficulty ?? 1, weather: 0, aiSpeed: Number(aiSpeed.value) });
         show();
       } catch (error) { note.textContent = t(error.message); }
     }, "primary tournament-race");
@@ -179,7 +186,8 @@ export default async function mount(container, context) {
     };
     select.addEventListener("change", pick);
     size.addEventListener("change", () => { const problem = startProblem(picked, Number(size.value)); note.textContent = problem ? t(problem) : ""; start.disabled = !!problem; });
-    body.replaceChildren(el("div", { class: "tournament-pick" }, select, detail), el("div", { class: "form-row" }, el("label", {}, `${t("Field")} `, size)), note, open);
+    body.replaceChildren(el("div", { class: "tournament-pick" }, select, detail), el("div", { class: "form-row" }, el("label", {}, `${t("Field")} `, size)),
+      el("div", { class: "form-row" }, el("label", {}, `${t("AI Speed")} `, aiSpeed, aiSpeedOut)), note, open);
     pick();
     actions.replaceChildren(edit, button(t("New"), () => showEditor(null)), remove, button(t("Open .TRN"), () => open.click()), saveAs, start);
   }

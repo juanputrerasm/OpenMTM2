@@ -29,14 +29,10 @@ test("a watched extension race keeps the selected extension", async () => {
     profiles: { current: 0, drivers: [{ name: "Player", lastTruck: "A.TRK", garage: {}, races: 0, wins: 0 }] },
     assets: { call: async () => ({ tracks: [track], trucks }) },
     router: { go: (screen, params) => { went.push({ screen, params }); return params; } },
+    // The spectator warning, accepted (the game's own dialog needs the DOM).
+    confirm: async () => true,
   };
-  const previousWindow = globalThis.window;
-  globalThis.window = { confirm: () => true };
-  try {
-    await goRace(context);
-  } finally {
-    if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow;
-  }
+  await goRace(context);
   assert.equal(went[0].screen, "race");
   assert.equal(went[0].params.gameMode, "tag");
   assert.equal(went[0].params.spectator, true);

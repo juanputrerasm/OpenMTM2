@@ -45,7 +45,7 @@ export function tournamentFromText(text, tracks) {
  * Start `tournament` with `size` drivers: the player in their truck and computer drivers in trucks drawn from `trucks`.
  * Throws when it cannot start (game/events/tournament.js `startProblem`).
  */
-export async function beginTournament(context, tournament, { tracks, trucks, size, difficulty, weather = 0, random = Math.random }) {
+export async function beginTournament(context, tournament, { tracks, trucks, size, difficulty, weather = 0, aiSpeed = null, random = Math.random }) {
   const driver = currentDriver(await getProfiles(context));
   const mine = (trucks.find((t) => t.file === driver.lastTruck) ?? trucks[0]).file;
   const others = trucks.filter((t) => t.file !== mine);
@@ -53,7 +53,8 @@ export async function beginTournament(context, tournament, { tracks, trucks, siz
   const field = [{ name: driver.name, truck: mine, player: true }];
   const names = cpuNames(context.settings?.aiNames);
   for (let i = 0; i < size - 1; i++) field.push({ name: names[i % names.length], truck: (others[i % Math.max(1, others.length)] ?? trucks[0]).file, player: false });
-  context.tournament = { run: startTournament(tournament, field), difficulty, weather, description: tournament.description ?? "", tracks, trucks };
+  // AI Speed (game/ai-speed.js): the tournament keeps the value it started with, as CP3's tournaments do (`AISPEED=`).
+  context.tournament = { run: startTournament(tournament, field), difficulty, weather, aiSpeed, description: tournament.description ?? "", tracks, trucks };
   await keep(context);
   return context.tournament;
 }
@@ -61,7 +62,7 @@ export async function beginTournament(context, tournament, { tracks, trucks, siz
 /** Store the run, or forget it when there is none. */
 export async function keep(context) {
   const t = context.tournament;
-  await store(context, "tournamentRun", t ? { run: t.run, difficulty: t.difficulty, weather: t.weather, description: t.description } : null);
+  await store(context, "tournamentRun", t ? { run: t.run, difficulty: t.difficulty, weather: t.weather, aiSpeed: t.aiSpeed ?? null, description: t.description } : null);
 }
 
 /** The run a reload left behind, tied to the catalogue again; null when there is none. */
@@ -96,6 +97,7 @@ export async function runEvent(context) {
     if (!context.dragWeekend?.tournament) {
       startDragWeekend(context, {
         track, trucks: t.trucks, playerTruck: me.truck, playerName: me.name, size: t.run.drivers.length, difficulty: t.difficulty, weather: t.weather,
+        aiSpeed: t.aiSpeed ?? null,
         field: t.run.drivers.map((d) => ({ name: d.name, truck: d.truck, player: d.player })),
       });
       context.dragWeekend.tournament = true;
@@ -106,6 +108,7 @@ export async function runEvent(context) {
   return context.router.go("race", {
     track, mode: track.raceType, laps: event.raceType === "circuit" ? event.laps : 1, difficulty: t.difficulty, weather: t.weather,
     opponents: others.map((d) => d.truck), truck: me.truck, trucks: t.trucks, setup: { ...driver.garage }, tournament: true,
+    aiSpeed: t.aiSpeed ?? null,
   }, { replace: true });
 }
 

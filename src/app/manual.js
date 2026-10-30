@@ -37,6 +37,7 @@ export const MANUAL = Object.freeze([
         id: "pause", title: msg("Pausing, restarting and leaving a race"),
         body: [
           msg("Press the Pause key to stop the race. The pause menu resumes it, restarts it, shows the instant replay, opens the options or ends the race."),
+          msg("Save race keeps the race as it is in a .mtm file, the Monster Truck Madness 2 saved game; Options, Game, Load race starts it again where it was left. Leave and watch hands your truck to the autopilot and lets you watch the race to its end, with no points for it."),
           msg("Ending a race takes you to the Winner's Circle with the results so far."),
         ],
       },
@@ -200,7 +201,8 @@ export const MANUAL = Object.freeze([
         id: "replay", title: msg("Watching and saving replays"),
         body: [
           msg("Every race is recorded. Pause and choose Instant Replay, or click Instant Replay in the Winner's Circle, to play it with the VCR buttons from any truck and any view."),
-          msg("Save keeps the replay as a .rpl file that Monster Truck Madness 2 and Community Patch 3 can play as well. Options, Instant Replay opens a saved one, the game's included."),
+          msg("Save keeps the whole replay as a .rpl file with OpenMTM2's extra detail, which Community Patch 3 plays as well. Save to classic MTM2 keeps only the last 2240 records, as much as Monster Truck Madness 2 itself plays back. Options, Instant Replay opens a saved one, the game's included."),
+          msg("Free mouse look, off at first, lets the mouse turn the outside cameras; the wheel zooms either way."),
         ],
       },
     ],

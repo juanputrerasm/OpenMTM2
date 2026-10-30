@@ -20,6 +20,14 @@ const RAIN_LOOP_GAIN = 0.55;
 /** The slowest a truck may close on an object for its sound, ft/s (the port's floor; the game has none). */
 export const HIT_MIN_SPEED = 2;
 
+/** The stock checkpoint and lap sounds (MONSTER_EXE_ANALYSIS.md, "Track ambience"). */
+export const STOCK_CUES = Object.freeze({ checkpoint: "airhorn.wav", lap: "check2.wav" });
+
+/** The checkpoint and lap sounds a level's script names, the stock ones in place of any it does not name. */
+export function checkpointSounds(script) {
+  return { checkpoint: script?.checkpointWav || STOCK_CUES.checkpoint, lap: script?.finishLapWav || STOCK_CUES.lap };
+}
+
 /**
  * @param {ReturnType<import("./audio-engine.js").createAudio>} audio
  * @param {{ ambient: object|null, weather: number, music: string|null, random?: () => number,
@@ -28,7 +36,16 @@ export const HIT_MIN_SPEED = 2;
  *   `objects` are the level's things that sound by themselves (a train, a crossing bell, a crowd);
  *   `hitInfo` what each collision box makes when it is hit; `musicOff` whether the jukebox plays in the music's place.
  */
-export function createWorldAudio(audio, { ambient, weather, music, random = Math.random, objects = [], hitInfo = new Map(), onEvent = () => {}, musicOff = () => false }) {
+export function createWorldAudio(audio, { ambient, cues = ambient, weather, music, random = Math.random, objects = [], hitInfo = new Map(), onEvent = () => {}, musicOff = () => false }) {
+  // The checkpoint and lap sounds: the level's script's (`cues`, its SOUNDnnn.TXT, which a race's instant replay passes
+  // without its ambience), or the stock ones when it has none or names a WAV the install lacks (checkpointSounds).
+  const cueNames = checkpointSounds(cues);
+  for (const key of ["checkpoint", "lap"]) {
+    const name = cueNames[key];
+    if (name === STOCK_CUES[key] || !audio.sample) continue;
+    audio.sample(name).then((data) => { if (!data) cueNames[key] = STOCK_CUES[key]; }).catch(() => { cueNames[key] = STOCK_CUES[key]; });
+  }
+  audio.preload?.([...new Set([cueNames.checkpoint, cueNames.lap, STOCK_CUES.checkpoint, STOCK_CUES.lap])]);
   let current = weather, disposed = false;
   const loops = [];
   let ambientShot = null, ambientLeft = Infinity, ambientVoice = null, ambientPending = false;
@@ -208,8 +225,8 @@ export function createWorldAudio(audio, { ambient, weather, music, random = Math
       if (musicOff() && musicVoice) { musicVoice.then((v) => v?.stop()); musicVoice = null; }
       else if (!musicOff() && !musicVoice) startMusic();
     },
-    checkpoint() { if (ambient?.checkpointWav) audio.play(ambient.checkpointWav, { gain: 0.9 }); },
-    lapDone() { if (ambient?.finishLapWav) audio.play(ambient.finishLapWav, { gain: 0.9 }); },
+    checkpoint() { audio.play(cueNames.checkpoint, { gain: 0.9 }); },
+    lapDone() { audio.play(cueNames.lap, { gain: 0.9 }); },
     dispose() {
       disposed = true;
       for (const voice of loops) voice.then((v) => v?.stop());

@@ -146,6 +146,10 @@ export function parseMtmSit(input, sitTitle = "") {
         trackName: valueAfter("!Race Track Name")?.trim() ?? null,
         flyBy: valueAfter("Track Fly-By .AVI file")?.trim() ?? null,
         sonicTrack: valueAfter("Track Fly-By .AVI file")?.trim() === "Sonic",
+        raceTimes: (() => {
+            const at = lines.findIndex((line) => line.trim().startsWith("$racetime"));
+            return at >= 0 && at + 1 < lines.length ? parseFloatTriplet(lines[at + 1]) : null;
+        })(),
         localeName: valueAfter("Race Track Locale")?.trim() ?? null,
         logoBmp: valueAfter("Track Logo .BMP file")?.trim() || null,
         mapBmp: valueAfter("Track Map .BMP file")?.trim() || null,
@@ -561,7 +565,55 @@ function parseTruckBlock(lines, startIdx) {
     const followIdx = indexOfLinePrefix(lines, "!ap.courseToFollow", startIdx, end);
     if (followIdx >= 0 && followIdx + 1 < lines.length)
         truck.courseToFollow = parseLeadingInt(lines[followIdx + 1]);
+    truck.state = parseTruckState(lines, startIdx);
     return truck;
+}
+/** The numbers on the line after `label` in [start, end), or null. */
+function numbersAfter(lines, label, start, end) {
+    const at = indexOfLinePrefix(lines, label, start, end);
+    if (at < 0 || at + 1 >= lines.length)
+        return null;
+    return lines[at + 1].split(",").map((part) => parseLeadingFloat(part));
+}
+/**
+ * A truck record's live lines, from its first line to the next record's delimiter or section header (the lap and
+ * checkpoint times' own star lines have no space after the stars).
+ */
+function parseTruckState(lines, startIdx) {
+    let end = startIdx;
+    while (end < lines.length && !(lines[end].trim() === "*********************************************" || /^\*\*\* \S/.test(lines[end].trim())))
+        end++;
+    const bvel = numbersAfter(lines, "bvel", startIdx, end);
+    if (!bvel)
+        return null;
+    const n = (label, count) => {
+        const values = numbersAfter(lines, label, startIdx, end) ?? [];
+        return Array.from({ length: count }, (_, i) => values[i] ?? 0);
+    };
+    const damage = numbersAfter(lines, "@damageCode", startIdx, end);
+    const race = n("^segments", 6), times = n("totalracetime", 3), ap = n("ap.autopilot", 2);
+    const lapTimes = [], checkpointTimes = [];
+    for (let i = startIdx; i < end; i++) {
+        if (lines[i].trim() !== "***Lap time***")
+            continue;
+        lapTimes.push(parseLeadingFloat(lines[i + 1]));
+        const splits = [];
+        if (lines[i + 2]?.trim() === "*****Checkpoint times*****")
+            for (let k = 0; k < 20 && i + 3 + k < end; k++)
+                splits.push(parseLeadingFloat(lines[i + 3 + k]));
+        checkpointTimes.push(splits);
+    }
+    const pair = (v) => [v[0], v[1]];
+    return {
+        bvel: [bvel[0] ?? 0, bvel[1] ?? 0, bvel[2] ?? 0], rates: n("p,q,r", 3),
+        frontAxle: pair(n("faxle.angle", 2)), rearAxle: pair(n("raxle.angle", 2)),
+        frontOnGround: pair(n("faxle.rtire", 2)), rearOnGround: pair(n("raxle.rtire", 2)),
+        gear: n("xm.gear", 1)[0], autopilot: ap[0], cnumber: ap[1], apControl: n("ap.speed_control", 3),
+        damageCode: damage ? damage[0] >>> 0 : null,
+        heli: n("$heliTimer", 4), heliPos: n("heliPos", 3),
+        segments: race[0], laps: race[1], staged: race[2], bonusLaps: race[3], finished: race[4], nextCheckpoint: race[5],
+        totalRaceTime: times[0], fastestLap: times[1], dragTimer: times[2], lapTimes, checkpointTimes,
+    };
 }
 /** Parse an MTM-family .LVL. Returns null when it has fewer than six lines. */
 export function parseMtmLvl(input) {

@@ -26,7 +26,8 @@ import {
   racerPlaces, rnrPlaces, rnrSided, rnrVariant, rnrWinner, timingTruck,
 } from "./race-rumble.js";
 import { createCombatRuntime } from "./combat-session.js";
-import { createFreestyleRuntime } from "./freestyle-session.js";
+import { createFreestyleRuntime, freestyleSimRules } from "./freestyle-session.js";
+import { createLooseWheelsRuntime } from "./loose-wheels-session.js";
 
 const worldVelocity = (state) => {
   const matrix = state.matrix, [x, y, z] = state.bvel;
@@ -512,8 +513,13 @@ const FACTORIES = new Map([
   ["cops-robbers", { ground: (ground) => ground, create: createCnrRuntime }],
   ["race-rumble", { ground: (ground) => ground, create: createRnrRuntime }],
   ["combat", { ground: (ground) => ground, create: createCombatRuntime }],
-  ["freestyle", { ground: (ground) => ground, create: createFreestyleRuntime }],
+  ["freestyle", { ground: (ground) => ground, create: createFreestyleRuntime, rules: freestyleSimRules }],
 ]);
+
+/** The physics model's rules as the extension wants them (OpenPhotex `Mtm2Rules`); most keep the race's. */
+export function extensionSimRules(payload, rules) {
+  return payload ? (FACTORIES.get(payload.mode)?.rules?.(payload, rules) ?? rules) : rules;
+}
 
 /** Extension-specific driving ground selected before trucks are constructed. */
 export function extensionSessionGround(payload, ground) {
@@ -523,4 +529,12 @@ export function extensionSessionGround(payload, ground) {
 /** Create a runtime from a registered simulation payload. */
 export function createExtensionSession(payload, environment) {
   return payload ? (FACTORIES.get(payload.mode)?.create(payload, environment) ?? null) : null;
+}
+
+/**
+ * A mutator's runtime (docs/EXTENSIONS.md, "Mutators"): it rides on any race beside the mode, at the hooks it has
+ * (`groundFor`, `movableBoxes`, `touch`, `tick`, `afterTruckStep`, `action`, `view`). Loose Wheels is the one there is.
+ */
+export function createMutatorSession(payload, environment) {
+  return payload?.mode === "loose-wheels" ? createLooseWheelsRuntime(payload, environment) : null;
 }

@@ -12,7 +12,7 @@ import { mergeBindings } from "../../game/input/bindings.js";
 import { DENT_STEPS, FRAME_SECONDS, RATES, createPlayback, damageZones, levelPath, ringReplay } from "../../game/replay.js";
 import { parseMtmReplay, writeMtmReplay } from "../../vendor/openphotex/mtm/replay.js";
 import * as mtm2Sim from "../../vendor/openphotex/sim/mtm2/index.js";
-import { COCKPIT_EYE, CAMERA_MODES, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, createChaseCamera, fovFor, groundHeightFn, nextMode, raceCamera, zoomToFov } from "../../game/cameras.js";
+import { COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, createChaseCamera, fovFor, groundHeightFn, nextMode, raceCamera, zoomToFov } from "../../game/cameras.js";
 import { createWeatherScene } from "../../render/weather-scene.js";
 import { WEATHER_LOOK, isUnderwater, waterOffsetFt } from "../../game/weather.js";
 import { beamAir, lampsAtStart } from "../../game/truck-lights.js";
@@ -50,6 +50,8 @@ import { createAudio } from "../../audio/audio-engine.js";
 import { createTruckAudio } from "../../audio/truck-audio.js";
 import { createWorldAudio } from "../../audio/world-audio.js";
 import { createReplaySound } from "../../game/replay-sound.js";
+import { createReplayGates } from "../../game/replay-gates.js";
+import { createBoxSolid } from "../../game/ground-boxes.js";
 import { screenSampled } from "../../game/aa.js";
 import { msg } from "../../game/strings.js";
 
@@ -147,15 +149,22 @@ export default async function mount(container, context, { replay, namesMode: sta
   const ambience = await context.assets.call("ambience", { number: trackInfo.ambientSound ?? 0 }).catch(() => null);
   if (disposed) return { unmount };
   const worldAudio = createWorldAudio(audio, {
-    ambient: inRace ? null : ambience, weather: replay.weather ?? 0, music: inRace ? null : build.musicName ?? null, objects: build.soundObjects,
+    ambient: inRace ? null : ambience, cues: ambience, weather: replay.weather ?? 0, music: inRace ? null : build.musicName ?? null, objects: build.soundObjects,
+    hitInfo: new Map((build.sim.boxes ?? []).map((b) => [b.sitIndex, { hitSound: b.hitSound, type: b.type }])),
     musicOff: () => !!context.jukebox?.on,
   });
   // The jukebox plays on in the track's music's place (audio/jukebox.js).
   const unwatchJukebox = context.jukebox?.subscribe(() => worldAudio.refreshMusic()) ?? (() => {});
+  // Every truck is heard from where it is, the watched one too: the camera, not truck 0, is the ear (a free camera
+  // flies away from them all).
   const truckAudio = createTruckAudio(audio, {
-    count: replay.vehicles.length, player: 0, kookyHorn: !!context.settings.kookyHorn, mtm1Sounds: !!context.settings.mtm1Sounds,
+    count: replay.vehicles.length, player: -1, kookyHorn: !!context.settings.kookyHorn, mtm1Sounds: !!context.settings.mtm1Sounds,
   });
   const replaySound = createReplaySound(drawn.map((d) => d?.tireRadius ?? 2.75));
+  // The checkpoint and lap sounds, found from the film (game/replay-gates.js); a Summit Rumble has none.
+  const gates = createReplayGates(trackInfo.raceType === "summit" ? [] : build.sim.checkpoints ?? []);
+  const listenerForward = new THREE.Vector3();
+  const lastHeight = [];
   /** The effects are heard only while the film plays forward; paused, scrubbed or rewound, the music alone. */
   let effectsOn = null;
   const hearEffects = (on) => { if (on !== effectsOn) { effectsOn = on; audio.setEffectsPaused?.(!on); } };
@@ -201,7 +210,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   if (startLamps) { startLamps.set(false); cleanups.push(() => startLamps.dispose()); }
   const weatherScene = createWeatherScene({
     scene, camera, world, sun, ambient: ambientLight, skyAverage: background, look, drawDistance, backdrops: !!context.settings.backdrops, art: effectsArt,
-    onSun: (_, shadow) => shadows?.follow(sun, shadow), onLightning: () => {},
+    onSun: (_, shadow) => shadows?.follow(sun, shadow), onLightning: () => { if (playing && rate > 0) worldAudio.thunder(); },
     volume: scenery.volume, groundSurface: scenery.groundSurface, lightRig: scenery.lightRig,
     groundDetail: scenery.groundDetail, dressGround: scenery.dressGround, gloss: scenery.gloss, water: scenery.water,
   });
@@ -258,6 +267,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   let turn = 0, zoom = 1;
   let clock = 0, rate = 1, playing = true;
   const chase = createChaseCamera();
+  const boxSolid = createBoxSolid({ ra0: build.sim.ra0, ra1: build.sim.ra1 });
   /** Where the watched truck was last drawn: the picture's place in its own unbroken space. */
   let drawAnchor = null;
   const straights = build.sim.course, centroid = courseCentroid(straights);
@@ -318,6 +328,14 @@ export default async function mount(container, context, { replay, namesMode: sta
     document.body.append(link); link.click(); link.remove();
     say(t("Replay saved"));
   };
+  // Free mouse look on the outside cameras: off unless ticked, so a mouse moved over the picture leaves the camera be.
+  const freeLookToggle = el("label", { class: "replay-toggle", title: t("The mouse looks round on the outside cameras") },
+    el("input", { type: "checkbox", checked: !!context.settings.replayFreeLook, onchange: (e) => {
+      context.settings.replayFreeLook = e.target.checked;
+      saveSettings(context.settings);
+      if (!e.target.checked) mouseLook.reset();
+      e.target.blur();
+    } }), t("Free mouse look"));
   const controls = el("div", { class: "replay-controls" },
     button("⏮", msg("To the start (Home)"), () => { clock = 0; }),
     button("⏪", msg("Rewind (R)"), rewind),
@@ -329,8 +347,9 @@ export default async function mount(container, context, { replay, namesMode: sta
     button("−", msg("Slower ([)"), () => setRate(-1)), button("+", msg("Faster (])"), () => setRate(1)),
     scrub, time, speed, truckSelect, viewSelect,
     button(t("Free camera"), msg("Fly the camera free, as a spectator (B)"), (e) => { setFlying(!flyer.enabled); e.currentTarget.blur(); }),
-    button(t("Save for CP3"), msg("Save the whole replay as a .rpl file: Community Patch 3 and OpenMTM2 play it all back; Monster Truck Madness 2 itself cannot load one this long"), () => save(false)),
-    button(t("Save for MTM2"), msg("Save the last 2240 records, as much as Monster Truck Madness 2 itself plays back"), () => save(true)),
+    freeLookToggle,
+    button(t("Save"), msg("Save the whole replay as a .rpl file with OpenMTM2's extra detail: OpenMTM2 and Community Patch 3 play it all back; Monster Truck Madness 2 itself cannot load one this long"), () => save(false)),
+    button(t("Save to classic MTM2"), msg("Save the last 2240 records as a .rpl file, as much as Monster Truck Madness 2 itself plays back"), () => save(true)),
     button(t("Close"), msg("Back (Esc)"), back));
   view.append(controls);
   refreshButtons();
@@ -395,7 +414,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   };
   const onWheel = (e) => { if (!flyer.enabled && viewMode !== 0) { e.preventDefault(); mouseLook.wheel(viewMode, e.deltaY); } };
   // The RaceCam (4) frames the truck itself: the mouse does not turn it.
-  const onLookMove = (e) => { if (!flyer.enabled && viewMode !== 0 && viewMode !== 4) mouseLook.move(e.movementX ?? 0, e.movementY ?? 0); };
+  const onLookMove = (e) => { if (context.settings.replayFreeLook && !flyer.enabled && viewMode !== 0 && viewMode !== 4) mouseLook.move(e.movementX ?? 0, e.movementY ?? 0); };
   canvas.addEventListener("wheel", onWheel, { passive: false });
   canvas.addEventListener("pointermove", onLookMove);
   cleanups.push(() => { canvas.removeEventListener("wheel", onWheel); canvas.removeEventListener("pointermove", onLookMove); });
@@ -443,7 +462,10 @@ export default async function mount(container, context, { replay, namesMode: sta
       : viewMode === 4 ? (raceCamera(straights, sim, pose.course ?? 0, ground) ?? blimpCameraNoCourse(sim, yaw, ground)) : null;
     const placed = stood && { ...stood, position: stood.position.map((v, k) => v + off[k]), target: stood.target.map((v, k) => v + off[k]) };
     const special = placed && { ...placed, target: turnedTarget(placed.position, placed.target, mouseLook.yaw, mouseLook.pitch), zoom: placed.zoom * mouseLook.zoom(viewMode) };
-    const result = special ?? chase.update(viewMode, pose.pos, yaw, ground, dt, { turn, scale: zoom * mouseLook.zoom(viewMode), look: { yaw: mouseLook.yaw, pitch: mouseLook.pitch } });
+    const result = special ?? chase.update(viewMode, pose.pos, yaw, ground, dt, {
+      turn, scale: zoom * mouseLook.zoom(viewMode), look: { yaw: mouseLook.yaw, pitch: mouseLook.pitch },
+      clearFt: context.settings.cameraClearance ? CAMERA_CLEAR_FT : 0, solid: boxSolid,
+    });
     if (special) {
       const fov = zoomToFov(special.zoom);
       if (Math.abs(camera.fov - fov) > 1e-3) { camera.fov = fov; camera.updateProjectionMatrix(); }
@@ -500,14 +522,39 @@ export default async function mount(container, context, { replay, namesMode: sta
     const filmDt = filmClock !== null && playing && rate > 0 ? Math.min(0.25, Math.max(0, clock - filmClock)) : 0;
     // The sound follows the film forward; a jump starts each engine afresh where its truck then is.
     const forwardFilm = playing && rate > 0;
-    if (filmClock === null || Math.abs(clock - filmClock) > 0.5) replaySound.reset(state.trucks);
+    const jumped = filmClock === null || Math.abs(clock - filmClock) > 0.5;
+    if (jumped) { replaySound.reset(state.trucks); gates.reset(clock < 0.5); }
+    const simPositions = state.trucks.map((pose) => (pose ? [wrapFt(pose.pos[0]), pose.pos[1], wrapFt(pose.pos[2])] : null));
+    if (!forwardFilm || jumped) { gates.follow(simPositions); lastHeight.length = 0; }
     filmClock = clock;
     hearEffects(forwardFilm);
+    // Where each hull point comes down hard on the ground this frame (sparks, and the sound's knock).
+    const hullHits = state.trucks.map((pose, i) => (filmDt > 0 && pose && drawn[i]
+      ? replayContacts({ hull: (zone) => drawn[i].hullPoint(zone), ground: standOn, last: contacts[i], dt: filmDt }) : []));
     if (forwardFilm) {
       const listener = [camera.position.x, camera.position.y, -camera.position.z];
-      const sounds = replaySound.frame(state.trucks, filmDt, replay.weather ?? 0);
-      truckAudio.update(filmDt, state.trucks.map((pose, i) => (pose ? { current: { pos: pose.pos }, sound: sounds[i] } : { current: { pos: [0, 0, 0] }, sound: null })), listener, clock);
-      worldAudio.update(filmDt, listener, new Map());
+      const level = build.waterLevelFt ?? null, weatherId = replay.weather ?? 0;
+      // What the picture tells of each truck for its sounds (game/replay-sound.js `extras`).
+      const extras = state.trucks.map((pose, i) => {
+        if (!pose || !drawn[i]) return null;
+        const tires = [0, 1, 2, 3].map((k) => {
+          const hub = drawn[i].tireHub(k), onGround = hub[1] - drawn[i].tireRadius - standOn(hub[0], hub[2], hub[1]) < ON_GROUND_FT;
+          return { onGround, surface: madeOf ? madeOf.surface(hub[0], hub[1] + 100, hub[2]) : -1 };
+        });
+        const vy = filmDt > 0 && lastHeight[i] !== undefined ? (pose.pos[1] - lastHeight[i]) / filmDt : 0;
+        lastHeight[i] = pose.pos[1];
+        return {
+          tires, vy, inWater: weatherId !== 5 && level !== null && pose.pos[1] < level,
+          clearance: pose.pos[1] - ground(pose.pos[0], pose.pos[2]), impact: Math.max(0, ...hullHits[i].map((hit) => hit.force)),
+        };
+      });
+      const sounds = replaySound.frame(state.trucks, filmDt, weatherId, extras);
+      truckAudio.update(filmDt, state.trucks.map((pose, i) => (pose ? { current: { pos: pose.pos }, sound: sounds[i] } : { current: { pos: [0, 0, 0] }, sound: null })), listener, null);
+      const moved = new Map(state.objects.map((o) => [o.sitIndex, o.pos]));
+      worldAudio.update(filmDt, [wrapFt(listener[0]), listener[1], wrapFt(listener[2])], moved);
+      const passed = gates.pass(simPositions);
+      if (passed[focus] === "lap") worldAudio.lapDone();
+      else if (passed[focus] === "checkpoint") worldAudio.checkpoint();
     }
     const flags = effectFlags(), weatherNow = replay.weather ?? 0;
     if (tireFx) {
@@ -529,9 +576,7 @@ export default async function mount(container, context, { replay, namesMode: sta
       if (filmDt > 0) {
         state.trucks.forEach((pose, i) => {
           if (!pose || !drawn[i]) return;
-          for (const contact of replayContacts({ hull: (zone) => drawn[i].hullPoint(zone), ground: standOn, last: contacts[i], dt: filmDt })) {
-            tireFx.hit(i, drawn[i], contact.zone, contact.steps, contact.force, pose.speed ?? 0, flags);
-          }
+          for (const contact of hullHits[i]) tireFx.hit(i, drawn[i], contact.zone, contact.steps, contact.force, pose.speed ?? 0, flags);
         });
       }
     }
@@ -543,6 +588,10 @@ export default async function mount(container, context, { replay, namesMode: sta
       drawn.forEach((d, i) => { if (d) d.setBodyHidden(viewMode === 0 && i === focus); });
     }
     camera.updateMatrixWorld();
+    // The ear is the camera, every frame, as in the race: the mixer fades each voice by its distance from here. Without
+    // it the mixer kept the race's last ear and gains, and the paused race's engine droned on under the film.
+    camera.getWorldDirection(listenerForward);
+    audio.setListener(camera.position, listenerForward, camera.up);
     nameTags.update(camera, canvas.clientWidth, canvas.clientHeight, replayEntrants.map((e) => nameLabel(namesMode, e, truckTitle)),
       state.trucks.map((p) => p?.pos ?? null), replayEntrants.map((_, i) => i === focus && viewMode === 0 && !flyer.enabled));
     time.textContent = formatRaceTime(clock);

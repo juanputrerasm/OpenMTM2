@@ -105,7 +105,8 @@ export const hudFontScale = (deviceHeight) => Math.max(1, Math.round(deviceHeigh
  * pairs drawn at the left and right of `width` (`fit` makes it as wide as the text instead),
  * on a `background` colour with `padX` and `padY` sheet pixels around (the caption bar), or `[label, value, middle]` with a second value
  * set just after the label (the HUD's `Place: 1/4     Lap: 1/2`); a value may be pieces in their own colours,
- * `[{ text, color }]` (Combat's damage, green to red), drawn one after the other. `rowHeight` is the row pitch. Falls back to plain text when the font is
+ * `[{ text, color }]` (Combat's damage, green to red), drawn one after the other; so may a label (the player's row in
+ * a Summit Rumble's standings, dark red). `rowHeight` is the row pitch. Falls back to plain text when the font is
  * missing. `set(rows)` redraws only when the text changes; `version` counts the redraws, for
  * whoever copies the canvas elsewhere (the headset's HUD, render/xr/vr-hud.js). `pixelRatio` is
  * device pixels per CSS pixel: the canvas is laid out at its size divided by it, so each of its
@@ -152,7 +153,7 @@ export function createTextPanel(font, {
       const lineH = (rowHeight ?? font.lineHeight + 1) * scale;
       // Wide enough for the widest row, with a gap between a label and its value.
       const content = Math.max(0, ...rows.map((r) => (Array.isArray(r)
-        ? textWidth(font, r[0]) + textWidth(font, valueText(r[1])) + 10 : textWidth(font, r)) + 4));
+        ? textWidth(font, valueText(r[0])) + textWidth(font, valueText(r[1])) + 10 : textWidth(font, r)) + 4));
       const w = (Math.max(fit ? 0 : width, Math.ceil(content)) + 2 * padX) * scale;
       const h = rows.length * lineH + pad * 2 + 2 * padY * scale;
       const ctx = canvas.getContext("2d");
@@ -179,11 +180,15 @@ export function createTextPanel(font, {
       }
       rows.forEach((row, i) => {
         const y = pad + padY * scale + i * lineH;
-        const left = Array.isArray(row) ? row[0] : row, right = Array.isArray(row) ? row[1] : null;
+        const leftPieces = Array.isArray(row) && Array.isArray(row[0]) ? row[0] : null;
+        const left = Array.isArray(row) ? valueText(row[0]) : row, right = Array.isArray(row) ? row[1] : null;
         const draw = (text, x, c, dy = 0) => drawText(ctx, font, text, x, y + dy, { color: c, scale });
         const place = (text) => (align === "center" ? Math.round((canvas.width - textWidth(font, text, scale)) / 2) : pad + padX * scale);
         if (shadow) draw(left, place(left) + scale, shadow, scale);
-        draw(left, place(left), labelColor);
+        if (leftPieces) {
+          let x = place(left);
+          for (const piece of leftPieces) { draw(piece.text, x, piece.color ?? labelColor); x += textWidth(font, piece.text, scale); }
+        } else draw(left, place(left), labelColor);
         if (Array.isArray(row) && row[2]) {
           const x = place(left) + textWidth(font, `${left} `, scale) + 6 * scale;
           if (shadow) draw(row[2], x + scale, shadow, scale);

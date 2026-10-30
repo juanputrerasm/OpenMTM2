@@ -513,7 +513,7 @@ fly off as loose wheels, one or two, or the other axle's when that one is alread
 and driveshaft go from the truck and are thrown with a flash (`axlesLost`, `render/extensions/combat-scene.js`). The
 wheels lost travel over the network as any lost wheel, so every machine shows the same. A wreck stops where it lies (no
 helicopter, no turning it back over), smokes, and leaves the race. The player may also leave the fight from the pause
-menu ("Leave the fight and watch"). A player who is out watches the race on as in spectator mode (Left and Right: the
+menu ("Leave and watch", which every mode with others to watch now has: outside Combat the truck races on under the full autopilot, its result counting for no points and no Hall of Fame place). A player who is out watches the race on as in spectator mode (Left and Right: the
 truck watched, B: the free camera), to the results.
 
 **Rammer and victim.** When two trucks meet, the faster into the other (by 1.3 times, over 5 ft/s) is the rammer: it
@@ -552,6 +552,51 @@ Out under a truck that is out.
 Not in replays: a replay shows the trucks without the loose wheels, the debris and the smoke. Online rooms: see "Over the
 network" (each machine judges the trucks it drives; the owner decides the end).
 
+## Mutator: Wheels damage
+
+A mutator rides on a race beside its mode instead of being one. Wheels damage (an addition; Options, Game,
+"Wheels damage", off by default, and only with Crash damage on; `loose-wheels` in the code) gives every race Combat's wheels and nothing else of Combat: no hit points for the truck, no
+engine or gearbox wear, no wrecks, no credits.
+
+- **Where:** circuit, rally, summit, drag and free roam races, quick races, tournament events and drag weekends, and a
+  mode whose manifest says `looseWheels: true` (Race & Rumble), and online rooms. Not in Combat, which has its own
+  wheels; not in a classic session (MTM2's packets cannot carry wheels); not under MTM1 physics (no crash damage) or
+  another game's model (no stubs). `game/extensions/loader.js` `looseWheelsFor` decides.
+- **Online** (rooms only): the room owner's setting is the room's rule. As the race starts the owner's client puts its
+  Wheels damage switch and wait into the room's settings (`wheels`, `wheelsRepairS`; the server's docs/PROTOCOL.md),
+  and every player races by them, whatever their own Options say. Each machine judges the trucks it drives (its
+  player's, and the owner's computer trucks), as Combat does, and sends their wheels as the `wheels` race event
+  (`net/net-race.js`): the lost wheels and torn-away axles as bit masks, each wheel's wear, and the repair and pit
+  counts, at once when a wheel comes off or goes back on, the wear alone at most once a second. The other machines
+  throw a lost wheel where the truck is, and put the wheels back on a repair (`loose-wheels-session.js` `netOwn`,
+  `applyNetOwn`).
+- **Hits** are measured as Combat's (`loose-wheels-core.js`: the change of velocity step by step, the other truck's
+  closing speed, the fight's first blow). A hit of `IMPACT.least` or more wears the struck corner's wheels by Combat's
+  `SHARES`, each by at most `WHEEL_CAP` of its 250-point pool; a landing wears all four by its `each` share; a roll at
+  speed wears all four by Combat's roll cost and takes none off.
+- **Off:** a wheel struck again once its pool is empty; the struck wheel at once on a hit of `popAt` (150) or more; the
+  struck end's axle with both its wheels on a hit of `axleAt` (260) or more (Combat's `wreckShed`). The wheel is thrown
+  as a loose object every truck meets; the truck drives on the bare axle end, which has no grip and drags (Combat's
+  stub). Combat's scene draws it all: the wheel, the flying shock and bar, the axle beam, the sparks.
+- **Body:** a hit that counts dents the struck corner's two outermost hull zones (`dentsOf`) through the race's crash
+  damage, at the game's levels (its amount times 200 as the force). A landing or a roll dents nothing of its own.
+- **Back on:** `repairS` seconds after the last wheel came off (each wheel lost starts the wait again, and the pit
+  crew's hold when it is at work) (Options, "Wheels back on after": 5, 8, 12 s or never)
+  every wheel and axle is restored with full pools. The computer trucks always get theirs back, after 8 s when the
+  player's is set to never. The pit crew, the Crash Damage key (X): with a wheel off or worn, the truck is held still
+  (no throttle, full brakes) for `pitS` (2 s), then everything is restored and the body's dents taken out; the wait
+  leaves the dents. With Wheels damage on, X is the pit crew; Crash damage is switched in Options. A repair refills the
+  truck's arrays in place: the lost-wheel ground holds them.
+- **Hooks** (`session-loader.js` `createMutatorSession`): `groundFor`, `movableBoxes`, `touch`, `tick` (once the race has
+  started, or at once in free roam), `afterTruckStep`, `action("pit")` and `view()` (the reply's `wheels`, in Combat's
+  shape). The worker calls them beside the mode's own; the mode is not told.
+
+- **Damage shown:** the timing board's last line, `Wheels:`, is the weakest wheel's pool left, in percent: 0% only
+  with a wheel off, then followed by the seconds until the wheels come back on, or the pit crew's. A wheel worn to
+  nothing but still on shows 1%. With the names over the trucks shown (N), each carries its truck's figure.
+
+Not in replays, as Combat's.
+
 ## Shipped extension: Freestyle
 
 After the freestyle runs of monster truck shows such as Monster Jam: one truck alone on any track, any weather,
@@ -570,11 +615,30 @@ so a longer run must show more. The score is the sum less the deductions, 0.0 to
 | Speed and momentum | 1.5 | The share of the time at 25 ft/s or more, or in the air; each stall (under 5 ft/s for 3 s) takes 0.1 of the share. |
 | Aggression | 1.5 | Each object met at 10 ft/s or more scores its closing speed (to 60 ft/s) over 10; the same object again only after 1.5 s. Full at 12 a minute. |
 | Air | 2 | Each jump (all four wheels off for 0.5 s or more): 4 a second aloft, 0.15 a foot of height over the take-off, 0.05 a foot of length, and 12 times how far past 0.5 the nose's steepest pointed up or down (its forward axis' world y). Full at 40 a minute. |
-| Tricks | 2 | Wheelie (front wheels up, a rear one down, the nose 0.35 up, held 1 s): 3 and 3 a second, at most 15; slap wheelie (begun within 0.6 s of a landing) 3 more; sky wheelie (nose 0.85 up for 0.5 s) 6 more; moonwalk (a wheelie backwards at 5 ft/s) half again. Nose wheelie (the other way, 0.75 s): 4 and 4 a second. Donut: 4 for each whole turn at 1.8 rad/s or more, two wheels down, 8 ft/s. Back or front flip (0.85 of a turn about the pitch axis, named by which way the nose went first) 25, barrel roll 20, landed on three wheels upright within 1.5 s; else an attempt, 5. Full at 40 a minute. |
+| Tricks | 2 | Wheelie (front wheels up, a rear one down, timed from the nose 0.17 up, about 10 degrees, reaching 0.35, about 20 degrees, held 0.75 s): 3 and 3 a second, at most 15; slap wheelie (begun within 0.6 s of a landing) 3 more; sky wheelie (nose 0.77 up, about 50 degrees, for 0.3 s) 6 more; moonwalk (a wheelie backwards at 5 ft/s) half again. Nose wheelie (the other way, the same angles, 0.75 s): 4 and 4 a second. Donut: a whole turn of yaw one way within 4.5 s, two wheels down, 8 ft/s: 4, at most 5 turns in a set (a set ends after 0.5 s stopped or off the wheels, or on turning back the other way). Back or front flip (0.85 of a turn about the pitch axis, named by the way it turned: nose up and over is a back flip) 25, barrel roll 20, landed on three wheels upright within 1.5 s; else an attempt, 5. Full at 40 a minute. |
 | Saves | 1 | Past 0.35 up on two wheels or fewer and back on four upright within 4 s without going over: 1, or 1.5 from under 0.15 ("What a save!"). Full at 1.5 a minute. |
 | Spectacular moments | 1 | Huge air (40 ft high, 150 ft long or 3 s aloft), a landed flip or roll, a big save, a combo of three tricks each within 2 s of the last. Full at 1 a minute. |
 | Reversing | minus | Backwards at 4 ft/s or more in reverse gear: 0.05 a second, at most 1, forgiven when a jump or a hit comes within 3 s (backing up for a run at a jump, or over an obstacle backwards) and in a moonwalk. |
 | Crashes | minus | Upside down (up under -0.2) for 1 s, or the helicopter called: 0.4 each, at most 1.6; the combo breaks. |
+
+**Tricks on MTM2's physics** (measured headless on KF2's Orlando Monster Show, about 12,000 scripted runs over
+every ramp, speed, approach and Garage setting). Tire forces act at hub height, about level with the centre of
+gravity, so the engine cannot lift the nose (at most 5 degrees on flat ground under full power): wheelies and nose
+wheelies come only from ramps and landings, and **holding the brake** after landing nose up stretches a wheelie from
+about 0.75 s to 1.4 to 2.5 s, where the throttle shortens it. The wheelie thresholds are set to what that allows.
+Donuts: at full lock a truck circles at 0.5 to 1.0 rad/s with the stick; **holding the throttle and a turn key** spins
+it harder, a turn in about 4 s, which the 4.5 s window counts. The game's rotation damping (MTM2_PHYSICS.md 14.7,
+`q_bar` at least 26.74) stops a spin in the air within about half a second: without Trick physics no run turned more
+than 224 degrees of pitch or 263 of roll, and only in crashes.
+
+**Trick physics** (the run's setting, on by default; `freestyle.js` `TRICK_PHYSICS`, `freestyleRules`): under MTM2's
+physics model only, the run drives on OpenPhotex's optional handling (its docs/SIM_MTM2.md, "Optional handling"),
+which neither game has. In the air the throttle pitches the nose up and the brakes pitch it down (5 rad/s² a full
+pedal) and spins are damped a quarter as hard; with the wheels down the yaw is damped half as hard. The worker asks
+the extension for its rules before it builds the ground (`session-loader.js` `extensionSimRules`). Measured on the
+same track, the new rules judging: a back flip held on the throttle off a ramp landed in 90 of 190 tries (0 without),
+sky wheelies 49 runs against 17, slap wheelies 15 against 5, keyboard donuts 20 runs in 30 against 17; levelling the
+truck in the air kept ordinary jumps at a 4% crash rate (3% without), and flip attempts crash 37% of the time.
 
 The HUD shows the time left, the score, each category's points and the deductions, and announces each move as it is
 judged ("Back flip!", "Donuts x2!", "What a save!"), the crowd's YeeHaw for a spectacular one. The checkpoint finder

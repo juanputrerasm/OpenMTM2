@@ -73,9 +73,57 @@ function mass(value) {
     return typeof value === "string" ? value : (value ?? 0).toFixed(6);
 }
 function truck(out, vehicle) {
-    out.push("truckFile", vehicle.truckFile ?? "POWERBIG.TRK", "ipos", triple(vehicle.position), "bvel", "0,0,0", "theta,phi,psi", triple(vehicle.orient), "p,q,r", "0,0,0", "faxle.angle,faxle.steering_angle", "0,0", "faxle.rtire.on_gnd,faxle.ltire.on_gnd", "-1,1", "raxle.angle,raxle.steering_angle", "0,0", "raxle.rtire.on_gnd,raxle.ltire.on_gnd", "-1,1", "xm.gear", "4", "ap.autopilot,ap.cnumber", "0,1", "ap.speed_control,ap.course_control,ap.lasterror", "0,0,0", "!ap.courseToFollow", String(vehicle.courseToFollow ?? 2), "$heliTimer,heliTheta,heliPhi,heliPsi", "0,0,0,0", "heliPos", "0,0,0", "^segments,laps,staged,bonusLaps,finishedRace,nextcheckpoint", "0,0,0,0,0,0", "totalracetime,fastestLap,dragTimer", "0,0,0");
-    for (let lap = 0; lap < 20; lap++)
-        out.push("***Lap time***", "0", "*****Checkpoint times*****", ...Array(20).fill("0"));
+    const s = vehicle.state;
+    if (!s) {
+        out.push("truckFile", vehicle.truckFile ?? "POWERBIG.TRK", "ipos", triple(vehicle.position), "bvel", "0,0,0", "theta,phi,psi", triple(vehicle.orient), "p,q,r", "0,0,0", "faxle.angle,faxle.steering_angle", "0,0", "faxle.rtire.on_gnd,faxle.ltire.on_gnd", "-1,1", "raxle.angle,raxle.steering_angle", "0,0", "raxle.rtire.on_gnd,raxle.ltire.on_gnd", "-1,1", "xm.gear", "4", "ap.autopilot,ap.cnumber", "0,1", "ap.speed_control,ap.course_control,ap.lasterror", "0,0,0", "!ap.courseToFollow", String(vehicle.courseToFollow ?? 2), "$heliTimer,heliTheta,heliPhi,heliPsi", "0,0,0,0", "heliPos", "0,0,0", "^segments,laps,staged,bonusLaps,finishedRace,nextcheckpoint", "0,0,0,0,0,0", "totalracetime,fastestLap,dragTimer", "0,0,0");
+        for (let lap = 0; lap < 20; lap++)
+            out.push("***Lap time***", "0", "*****Checkpoint times*****", ...Array(20).fill("0"));
+        return;
+    }
+    // As 0x4c0360 prints a live truck: floats with six decimals (`%f`), the damage code unsigned (`%u`).
+    const f = (v) => Number(v || 0).toFixed(6);
+    const fs = (vs) => vs.map(f).join(",");
+    const i = (v) => String(Math.trunc(Number(v || 0)));
+    out.push("truckFile", vehicle.truckFile ?? "POWERBIG.TRK", "ipos", fs(vehicle.position.map(Number)), "bvel", fs(s.bvel), "theta,phi,psi", fs(vehicle.orient.map(Number)), "p,q,r", fs(s.rates), "faxle.angle,faxle.steering_angle", fs(s.frontAxle ?? [0, 0]), "faxle.rtire.on_gnd,faxle.ltire.on_gnd", (s.frontOnGround ?? [-1, 1]).map(i).join(","), "raxle.angle,raxle.steering_angle", fs(s.rearAxle ?? [0, 0]), "raxle.rtire.on_gnd,raxle.ltire.on_gnd", (s.rearOnGround ?? [-1, 1]).map(i).join(","), "xm.gear", i(s.gear), "ap.autopilot,ap.cnumber", `${i(s.autopilot)},${i(s.cnumber)}`, "ap.speed_control,ap.course_control,ap.lasterror", fs(s.apControl ?? [0, 0, 0]), "!ap.courseToFollow", String(vehicle.courseToFollow ?? 2), "@damageCode", String(s.damageCode >>> 0), "$heliTimer,heliTheta,heliPhi,heliPsi", fs(s.heli ?? [0, 0, 0, 0]), "heliPos", fs(s.heliPos ?? [0, 0, 0]), "^segments,laps,staged,bonusLaps,finishedRace,nextcheckpoint", [s.segments, s.laps, s.staged, s.bonusLaps, s.finished, s.nextCheckpoint].map(i).join(","), "totalracetime,fastestLap,dragTimer", fs([s.totalRaceTime, s.fastestLap, s.dragTimer]));
+    for (let lap = 0; lap < 20; lap++) {
+        out.push("***Lap time***", f(s.lapTimes[lap]), "*****Checkpoint times*****", ...Array.from({ length: 20 }, (_, k) => f(s.checkpointTimes[lap]?.[k])));
+    }
+}
+/**
+ * The lines of one SIT truck record (after its delimiter), as `writeMtm2Sit` writes it: for a caller that rewrites
+ * the vehicles of an existing SIT (`replaceSitVehicles`).
+ */
+export function sitTruckLines(vehicle) {
+    const out = [];
+    truck(out, vehicle);
+    return out;
+}
+const RECORD_DELIMITER = "*********************************************";
+/**
+ * An existing SIT's text with its `*** Vehicles ***` section put in place of `vehicles`, and, when given, its
+ * `$racetime, raceStartTime, dragDebugTimer` line: what MONSTER.EXE's "Save situation" writer (0x553230) changes in a
+ * level's SIT, the live trucks and the race clock. The rest is kept line for line. Lines end CRLF.
+ */
+export function replaceSitVehicles(sitText, vehicles, { raceTimes } = {}) {
+    const lines = sitText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+    const start = lines.findIndex((line) => line.trim() === "*** Vehicles ***");
+    if (start < 0)
+        throw new Error("The SIT has no *** Vehicles *** section");
+    let end = start + 1;
+    while (end < lines.length && !/^\*\*\* \S/.test(lines[end].trim()))
+        end++;
+    const section = ["*** Vehicles ***", String(vehicles.length)];
+    for (const vehicle of vehicles)
+        section.push(RECORD_DELIMITER, ...sitTruckLines(vehicle));
+    lines.splice(start, end - start, ...section);
+    if (raceTimes) {
+        const label = lines.findIndex((line) => line.trim().startsWith("$racetime"));
+        if (label >= 0 && label + 1 < lines.length)
+            lines[label + 1] = raceTimes.map((v) => Number(v || 0).toFixed(6)).join(",");
+    }
+    while (lines.length && lines[lines.length - 1] === "")
+        lines.pop();
+    return lines.join(CRLF) + CRLF;
 }
 function course(out, segments, direction) {
     out.push(`${segments.length},${direction}`);

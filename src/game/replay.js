@@ -298,6 +298,9 @@ export function createPlayback(replay, { restTravel = [-4, -4], boxes = null } =
           tires, steer: lerp(ra.steering?.[0] ?? 0, rb.steering?.[0] ?? 0, k), rearSteer: lerp(ra.steering?.[1] ?? 0, rb.steering?.[1] ?? 0, k),
           axles: [{ articulation: 0, travel: restTravel[0] }, { articulation: 0, travel: restTravel[1] }],
           gear: ra.gear ?? 0, course: ra.course ?? 0, speed: Math.hypot(...lerpVec(ra.bvel, rb.bvel, k)), throttle: lerp(ra.throttle ?? 0, rb.throttle ?? 0, k),
+          // Body-forward speed (ft/s) and the brakes, for the sound: the full records keep them, the samples do not.
+          forward: lerp(ra.bvel?.[2] ?? 0, rb.bvel?.[2] ?? ra.bvel?.[2] ?? 0, k),
+          brake: Math.max(ra.brakeFront ?? 0, ra.brakeRear ?? 0),
         });
         damage.push(ra.damageCode ?? 0);
       }

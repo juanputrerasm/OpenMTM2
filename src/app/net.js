@@ -294,7 +294,11 @@ export function netGo(context) {
   const problem = startProblem(st, { hasTruck: (file) => catalogHasTruck(net.catalog, file), allowMissingTrucks: !!context.settings.net?.allowMissingTrucks });
   if (problem) { const t = context.t ?? createStrings(); return t(problem.text, ...problem.args); }
   const track = net.catalog.tracks.find((t) => t.file.toUpperCase() === st.game.track.sit.toUpperCase());
-  s.start({ resolveWeather: () => resolveWeather("random", track?.weatherMask), computers: net.kind === "rooms" ? pickComputers(context, st.game.computers ?? 0) : [] });
+  s.start({
+    resolveWeather: () => resolveWeather("random", track?.weatherMask), computers: net.kind === "rooms" ? pickComputers(context, st.game.computers ?? 0) : [],
+    // The owner's Wheels damage for the whole room (game/extensions/loader.js `looseWheelsFor`); a classic session has no such rule.
+    wheels: net.kind === "rooms" ? { on: !!context.settings.looseWheels && context.settings.crashDamage !== false, repairS: Number(context.settings.looseWheelsRepairS ?? 8) } : null,
+  });
   return null;
 }
 
@@ -322,6 +326,10 @@ async function startNetRace(context, net, e) {
     track, mode: track.raceType, laps: e.laps, difficulty: Number(context.settings.difficulty ?? 1), weather: e.weather,
     gameMode: net.kind === "rooms" ? roomMode(e.mode, track) : null,
     truck: mine, trucks, setup: { ...driver.garage }, opponents: [],
-    net: { link: net.session.raceLink(), entrants, host: e.host, policy: net.kind === "rooms" ? "smooth" : "legacy", rateHz: net.kind === "rooms" ? 20 : 4 },
+    net: {
+      link: net.session.raceLink(), entrants, host: e.host, policy: net.kind === "rooms" ? "smooth" : "legacy", rateHz: net.kind === "rooms" ? 20 : 4,
+      // The room's Wheels damage rule, the owner's (rooms only).
+      wheels: net.kind === "rooms" ? { on: !!net.session.state().game?.wheels, repairS: net.session.state().game?.wheelsRepairS ?? 8 } : null,
+    },
   }, { replace: true });
 }

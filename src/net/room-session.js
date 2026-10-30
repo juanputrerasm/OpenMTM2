@@ -157,10 +157,12 @@ export function createRoomSession({ server, room, me, hasTrack = () => true, tra
     return isHost() && !!t && [...members.values()].every((m) => m.id === self || (m.ready && !(m.content?.sit === t.sit && m.content.crc === -1)));
   };
   /** Start (owner): the server seats everyone. Random weather is drawn here, from what the track allows. */
-  function start({ resolveWeather = () => 0, computers = [] } = {}) {
+  /** `wheels`: the owner's Wheels damage rule (`{ on, repairS }`), put into the room's settings first so every player races by it. */
+  async function start({ resolveWeather = () => 0, computers = [], wheels = null } = {}) {
     requireHost();
     const w = settings().weather;
     const weather = w < 0 ? resolveWeather() : w;
+    if (wheels) await putSettings({ wheels: !!wheels.on, wheelsRepairS: Math.max(0, Math.min(600, Math.trunc(wheels.repairS ?? 8))) });
     server.request("start", { weather, computers: computers.slice(0, settings().computers) }).catch((err) => notice("error", err.message));
   }
 
@@ -205,8 +207,8 @@ export function createRoomSession({ server, room, me, hasTrack = () => true, tra
           server.sendState({ ...e, seq: e.seq ?? seq, time: now() });
           return;
         }
-        const { kind, vehicle, next, split, code, lamps, data } = e;
-        const fields = { kind, vehicle, next, split, code, lamps, data };
+        const { kind, vehicle, next, split, code, lamps, data, lost, axles, wear, repairs, pits } = e;
+        const fields = { kind, vehicle, next, split, code, lamps, data, lost, axles, wear, repairs, pits };
         for (const k of Object.keys(fields)) if (fields[k] === undefined) delete fields[k];
         server.send("race", { e: fields });
       },
@@ -286,7 +288,11 @@ export function createRoomSession({ server, room, me, hasTrack = () => true, tra
     });
     return {
       kind: "rooms", self, hostId: snapshot.owner, isHost: isHost(),
-      game: { track: t ? { sit: t.sit, name: t.name || t.sit } : null, laps: s.laps, weather: s.weather, teamPlay: false, crc: t?.crc ?? null, computers: s.computers, mode: s.mode },
+      game: {
+        track: t ? { sit: t.sit, name: t.name || t.sit } : null, laps: s.laps, weather: s.weather, teamPlay: false, crc: t?.crc ?? null, computers: s.computers, mode: s.mode,
+        // Wheels damage, the owner's rule for the room (set as the race starts).
+        wheels: !!s.wheels, wheelsRepairS: Number.isInteger(s.wheelsRepairS) ? s.wheelsRepairS : 8,
+      },
       room: { code: snapshot.code, name: snapshot.name, locked: snapshot.locked, maxPlayers: snapshot.maxPlayers, public: snapshot.public, classic: !!snapshot.classic },
       players, racing: !!race, canStart: canStart(),
     };

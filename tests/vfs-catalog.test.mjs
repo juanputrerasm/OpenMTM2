@@ -4,7 +4,7 @@ import { parsePod, readPodEntry, writePod1 } from "../src/vendor/openphotex/inde
 import { createVfs } from "../src/worker/vfs.js";
 import { RACE_TYPES, bmpStem, buildCatalog, defaultLaps } from "../src/worker/catalog.js";
 import { parsePodIni } from "../src/install/pod-ini.js";
-import { skipWithoutStock, stockVfs } from "./helpers/stock.mjs";
+import { RETAIL_TRUCKS, skipWithoutStock, stockVfs } from "./helpers/stock.mjs";
 
 const text = (s) => new TextEncoder().encode(s);
 
@@ -51,10 +51,13 @@ test("the track list keeps POD.INI's order, not the names'", { skip: skipWithout
   assert.equal(tracks[0].file, "TPARK.SIT");
 });
 
-test("the stock catalog lists the 20 trucks; retail ships no CHUCK.TRK", { skip: skipWithoutStock("POD.INI") }, async () => {
+test("the stock catalog lists the 20 retail trucks; retail ships no CHUCK.TRK", { skip: skipWithoutStock("POD.INI") }, async () => {
   const { trucks, problems } = await buildCatalog(stockVfs());
   assert.deepEqual(problems, []);
-  assert.equal(trucks.length, 20);
+  // A player's install may carry more (a truck pack, or a TRUCK2.POD rebuilt with extra trucks): the retail 20 are there.
+  const files = new Set(trucks.map((t) => t.file.toUpperCase()));
+  assert.deepEqual(RETAIL_TRUCKS.filter((f) => !files.has(f)), []);
+  assert.ok(!files.has("CHUCK.TRK"));
   assert.deepEqual(trucks.filter((t) => t.hidden), []);
   assert.ok(trucks.every((t) => t.name && t.dialect));
 });

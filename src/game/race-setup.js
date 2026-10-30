@@ -7,6 +7,7 @@
   order), and shuffles the first start slots among the drivers.
 */
 import { msg } from "./strings.js";
+import { MAP_PLAYER_COLOR as PLAYER_DARK_RED } from "./course-map-labels.js";
 
 /** The default CPU driver names (0x551f90). */
 export const CPU_NAMES = Object.freeze(["Mark", "Greg", "Rich", "Brett", "Gaither", "Chuck", "Terry", "Joe"]);
@@ -94,10 +95,15 @@ export function ordinal(place) {
   return [msg("1st"), msg("2nd"), msg("3rd"), msg("4th"), msg("5th"), msg("6th"), msg("7th"), msg("8th")][place - 1] ?? `${place}th`;
 }
 
-/** A Summit Rumble's drivers for the overlay, best score first (ties in grid order): `[[name, score], ...]`. */
-export function summitBoard(trucks, names) {
+/**
+ * A Summit Rumble's drivers for the overlay, best score first (ties in grid order): `[[name, score], ...]`. The
+ * `player`'s row (its index, -1 for none) has its name as a piece in dark red, `[{ text, color }]`, as the game marks
+ * the player's own row in the standings (MONSTER_EXE_ANALYSIS.md 11).
+ */
+export function summitBoard(trucks, names, player = -1) {
   return trucks.map((row, i) => ({ name: names[i] ?? `Driver ${i + 1}`, score: Math.round(row.score ?? 0), i }))
-    .sort((a, b) => b.score - a.score || a.i - b.i).map((row) => [row.name, String(row.score)]);
+    .sort((a, b) => b.score - a.score || a.i - b.i)
+    .map((row) => [row.i === player ? [{ text: row.name, color: PLAYER_DARK_RED }] : row.name, String(row.score)]);
 }
 
 /**

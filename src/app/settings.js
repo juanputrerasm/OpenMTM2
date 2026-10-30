@@ -63,7 +63,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   units: "mph",               // the gauges' speed unit: "mph" or "kph"
   dashboard: true,            // the chase view's speedometer and tachometer (the Dashboard key toggles them)
   finder: true,               // the checkpoint finder ring in the cockpit, BlimpCam and RaceCam views (the Finder key)
-  minimap: false,             // the course map (the Map key toggles it)
+  replayFreeLook: false,      // the instant replay's "Free mouse look": the mouse turns the outside cameras
+  minimap: 0,                 // the course map: 0 off, 1 places, 2 truck names, 3 driver names (the Map key cycles it)
   detailLevel: 2,             // MONSTER.INI detailLevel: boxes with a higher priority are not drawn
   difficulty: 1,              // 0 Rookie, 1 Intermediate, 2 Professional
   laps: 3,
@@ -82,12 +83,16 @@ export const DEFAULT_SETTINGS = Object.freeze({
   sound: Object.freeze({ master: 1, effects: 1, music: 0.8, muted: false }),
   commentary: true,           // MONSTER.INI commentaryFlag: the announcer's voice (game/commentary.js)
   textCommentary: false,      // MONSTER.INI textCommentaryFlag: the announcer's lines shown as text
+  commentaryTruckNames: false, // the text commentary names the trucks (as the game does) in place of their drivers
+  cp3Commentary: false,       // Community Patch 3's announcer: more lines, its own calls, shorter pauses (docs/CP3_EXE_ANALYSIS.md 4)
   menuMusic: true,            // the menus play SOUND\\SPLASH.WAV from MUSIC.POD
   copyVideos: false,          // the setup copies the game's videos (VIDEOS) too; off by default
   introVideos: true,          // the game's start videos at launch (game/videos.js), when the install has them
   resultVideos: true,         // a win, lose or other video after a race (game/videos.js), when the install has them
   kookyHorn: false,           // MONSTER.INI kookyHorn: three horns instead of one
   crashDamage: true,          // MONSTER.INI allowCrashDamage (the game's own default is off): collisions dent the bodies
+  looseWheels: false,         // Loose Wheels (game/extensions/loose-wheels.js): wheels and axles come off in every race
+  looseWheelsRepairS: 8,      // seconds before they come back on by themselves; 0 never (the pit crew, X, only)
   autoShift: true,            // automatic gears (the game's default)
   steeringResponse: 10,       // MONSTER.INI [Control] steeringResponse, 0 to 10 (the game's default 10): lower makes a stick's steering less steep
   installTipSeen: false,      // the phone tip on fullscreen (Add to Home Screen, Install) was closed (ui/display-mode.js)
@@ -109,6 +114,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   fpsLimit: false,            // hold the frame rate to `fpsLimitValue`
   fpsLimitValue: 60,
   opponentFps: 30,            // the frame rate the computer trucks drive as if the game ran at (the 1998 game's is about 30)
+  aiSpeed: 100,               // CP3's AI Speed (game/ai-speed.js): the computer trucks' speed and torque, 70 to 130 %
   timingHud: true,            // the times, laps and place in the corner (the Timing display key, O, switches them in every view)
   fpsCounter: false,          // the frames per second in the corner (the FPS counter key switches it)
   shortViewCycle: false,      // the Camera key steps through `shortViews` only

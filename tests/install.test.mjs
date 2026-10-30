@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parsePodIni, installPathKey } from "../src/install/pod-ini.js";
-import { readStock, skipWithoutStock } from "./helpers/stock.mjs";
+import { RETAIL_PODS, readStock, skipWithoutStock } from "./helpers/stock.mjs";
 
 test("parsePodIni reads the count and names, in order, any whitespace", () => {
   const ini = parsePodIni("3\r\nstartup.pod\r\nmusic.pod\r\nsystem\\ui.pod\r\n");
@@ -25,10 +25,10 @@ test("installPathKey compares paths without case or slash style", () => {
   assert.equal(installPathKey("\\System\\Startup.pod"), "SYSTEM/STARTUP.POD");
 });
 
-test("the stock POD.INI lists 19 archives", { skip: skipWithoutStock("POD.INI") }, () => {
+test("the stock POD.INI lists the 19 retail archives in retail order; mods may come with them", { skip: skipWithoutStock("POD.INI") }, () => {
   const ini = parsePodIni(new TextDecoder().decode(readStock("POD.INI")));
-  assert.equal(ini.keys.length, 19);
-  assert.equal(ini.keys[0], "STARTUP.POD");
+  // A player's POD.INI may mount HD textures or truck packs too, usually first so they win.
+  assert.deepEqual(ini.keys.map((key) => key.toUpperCase()).filter((key) => RETAIL_PODS.includes(key)), RETAIL_PODS);
   assert.deepEqual(ini.warnings, []);
 });
 

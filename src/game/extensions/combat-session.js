@@ -7,28 +7,22 @@
 */
 import * as S from "../../vendor/openphotex/sim/mtm2/index.js";
 import {
-  adoptRules, IMPACT, STUB_DRAG_FT_S2, TOUCH_MEMORY_S, applyHit, combatPlaces, combatTruckView, createCombat, creditDamage, creditProgress,
-  CRAWL, closingSpeed, crawling, ENGAGE, engageShare, enginePower, rollCost, truckShare, gearboxStep, impactOf, lastStanding, quit, ramShares, repair, running, say, wheelsOn, wreck,
+  adoptRules, IMPACT, TOUCH_MEMORY_S, applyHit, combatPlaces, combatTruckView, createCombat, creditDamage, creditProgress,
+  CRAWL, closingSpeed, crawling, engageShare, enginePower, rollCost, truckShare, gearboxStep, impactOf, lastStanding, quit, ramShares, repair, running, say, wheelsOn, wreck,
 } from "./combat.js";
 import { lostWheelGround } from "./combat-ground.js";
 import { createCombatDriver, ramPoint, ramStep, wantsRepair } from "./combat-ai.js";
 import { seeded } from "./combat-debris.js";
 import { createRumbleDriver, driveToPoint } from "../rumble-ai.js";
+import { createLooseWheels, hitStep, recordTouch, stubStep, stubsOf, toWorld, worldVelocity } from "./loose-wheels-core.js";
 
-/** A loose wheel's mass (slugs, about 400 lb), and the most kept; the oldest goes first. */
-export const LOOSE_WHEEL_SLUGS = 12, MOST_LOOSE = 12;
+export { LOOSE_WHEEL_SLUGS, MOST_LOOSE } from "./loose-wheels-core.js";
 /** The impacts kept for the drawing's debris. */
 export const HITS_KEPT = 24;
 /** A truck one stretch past its next checkpoint and this far from its gate has missed it (feet). */
 const FAR_FROM_GATE_FT = 250;
-/** A hit lasts at most this many steps before it is counted. */
-const HIT_STEPS = 8;
 /** How fast a truck's "fastest lately" eases down (ft/s a second), for the cost of a flip. */
-const ROLL_EASE_FT_S2 = 40;
-
-const toBody = (m, v) => [m[0] * v[0] + m[3] * v[1] + m[6] * v[2], m[1] * v[0] + m[4] * v[1] + m[7] * v[2], m[2] * v[0] + m[5] * v[1] + m[8] * v[2]];
-const toWorld = (m, v) => [m[0] * v[0] + m[1] * v[1] + m[2] * v[2], m[3] * v[0] + m[4] * v[1] + m[5] * v[2], m[6] * v[0] + m[7] * v[1] + m[8] * v[2]];
-const worldVelocity = (s) => toWorld(s.matrix, s.bvel);
+export const ROLL_EASE_FT_S2 = 40;
 
 /** The course's stretch nearest a point (x and z), by its index; `course` is the oriented course (straights and arcs). */
 export function courseSegmentOf(course, pos) {
@@ -82,11 +76,12 @@ export function createCombatRuntime(payload, env) {
     fast: 0, over: false,
   }));
   trucks.forEach((t) => { t.extensionDriver = createRumbleDriver(0.6); });
-  const loose = [];
   const hits = [];
   /** Each pair of trucks' fight (ENGAGE): when it began, when they last touched; by "a,b". */
   const fights = new Map();
   let nextId = 1, decided = null, winner = -1;
+  const wheelsLoose = createLooseWheels(() => nextId++);
+  const loose = wheelsLoose.loose;
 
   /*
     Online (docs/EXTENSIONS.md, "Over the network"): only the machine that drives a truck sees its own crashes, so each
@@ -120,27 +115,10 @@ export function createCombatRuntime(payload, env) {
     const w = toWorld(s.matrix, body);
     return { pos: [s.pos[0] + w[0], s.pos[1] + w[1], s.pos[2] + w[2]], normal: w };
   };
-  const hubOf = (i, wheel) => {
-    const t = trucks[i], s = t.state, w = toWorld(s.matrix, t.params.hubs[wheel]);
-    return [s.pos[0] + w[0], s.pos[1] + w[1], s.pos[2] + w[2]];
-  };
-
-  /** Throw truck `i`'s wheel off: a loose box with the hub's velocity, kicked out and up. */
+  /** Throw truck `i`'s wheel off: a loose box with the hub's velocity, kicked out and up (loose-wheels-core.js). */
   function throwWheel(i, wheel) {
-    const t = trucks[i], s = t.state, p = t.params;
     per[i].lost[wheel] = true;
-    const pos = hubOf(i, wheel);
-    const side = wheel % 2 === 0 ? 1 : -1;
-    const out = toWorld(s.matrix, [side * 14, 10, 0]);
-    const v = worldVelocity(s);
-    const box = S.createBox(pos, [p.tireWidthFt, p.tireRadiusFt * 2, p.tireRadiusFt * 2], LOOSE_WHEEL_SLUGS, [s.euler[0], s.euler[1], s.euler[2]]);
-    box.extensionOwned = true;
-    for (let k = 0; k < 3; k++) box.vel[k] = v[k] + out[k];
-    box.bvel.set(toBody(box.matrix, box.vel));
-    box.rates.set([(per[i].rand() - 0.5) * 6, side * 4, (per[i].rand() - 0.5) * 6]);
-    const id = nextId++;
-    loose.push({ id, truck: i, wheel, box, seed: id * 7919 });
-    if (loose.length > MOST_LOOSE) loose.shift();
+    wheelsLoose.throw(i, trucks[i], wheel, per[i].rand);
   }
 
   /** Truck `i` is out: it stops where it is and leaves the race. */
@@ -154,10 +132,8 @@ export function createCombatRuntime(payload, env) {
     t.recovery.player = false;
   }
 
-  /** Count truck `i`'s hit now that it is over. */
-  function settle(i) {
-    const h = per[i].hit;
-    per[i].hit = null;
+  /** Count truck `i`'s hit `h` now that it is over. */
+  function settle(i, h) {
     if (!h || !running(c.trucks[i])) return;
     const met = per[i].met && clock() - per[i].met.at <= TOUCH_MEMORY_S ? per[i].met : null;
     const impact = impactOf(h.dv, h.excess, met?.toward ?? null);
@@ -214,19 +190,9 @@ export function createCombatRuntime(payload, env) {
     trucks.forEach((t, i) => {
       const s = t.state, v = worldVelocity(s), p = per[i];
       rolled(i, Math.hypot(v[0], v[1], v[2]));
-      const before = p.prevVel;
-      p.prevVel = v;
       // Another machine's truck is judged there: its copy here only follows it.
-      if (!before || s.heliTimer > 0 || t.flight || !judgedHere(i)) { p.hit = null; return; }
-      const d = [v[0] - before[0], v[1] - before[1], v[2] - before[2]];
-      const size = Math.hypot(d[0], d[1], d[2]);
-      if (size > IMPACT.stepFtS) {
-        const h = p.hit ?? (p.hit = { dv: [0, 0, 0], excess: 0, steps: 0, start: clock() });
-        const b = toBody(s.matrix, d);
-        for (let k = 0; k < 3; k++) h.dv[k] += b[k];
-        h.excess += size - IMPACT.stepFtS;
-        if (++h.steps >= HIT_STEPS) settle(i);
-      } else if (p.hit) settle(i);
+      const done = hitStep(p, s, v, clock(), !(s.heliTimer > 0 || t.flight || !judgedHere(i)));
+      if (done) settle(i, done);
     });
   }
 
@@ -332,36 +298,12 @@ export function createCombatRuntime(payload, env) {
       if (!p?.hubs || !(p.tireRadiusFt > 0) || trucks[i].cprCar || trucks[i].state.evo) return null;
       return lostWheelGround(ground, () => trucks[i].state, p, per[i].lost);
     },
-    movableBoxes: () => loose.map((l) => l.box),
+    movableBoxes: () => wheelsLoose.boxes(),
     heliAllowed: (i) => running(c.trucks[i]),
     /** A computer truck gets itself out of a jam (game/racer-recovery.js); the helicopter is its last resort. */
     selfRecovery: () => true,
     touch(a, b) {
-      const now = clock();
-      const sa = trucks[a].state, sb = trucks[b].state;
-      const va = worldVelocity(sa), vb = worldVelocity(sb);
-      const d = [sb.pos[0] - sa.pos[0], sb.pos[1] - sa.pos[1], sb.pos[2] - sa.pos[2]];
-      const len = Math.hypot(d[0], d[1], d[2]) || 1;
-      const u = d.map((x) => x / len);
-      // How fast each was going into the other, along the line between them.
-      const closeA = va[0] * u[0] + va[1] * u[1] + va[2] * u[2], closeB = -(vb[0] * u[0] + vb[1] * u[1] + vb[2] * u[2]);
-      // The pair's fight (ENGAGE): it goes on while they touch or stay apart for less than `apartS`; a hard new blow
-      // after a short gap starts a new one.
-      const key = a < b ? `${a},${b}` : `${b},${a}`;
-      const was = fights.get(key);
-      const gap = was ? now - was.at : Infinity;
-      const fresh = gap > ENGAGE.apartS || (gap >= ENGAGE.rehitGapS && closingSpeed(closeA, closeB) >= IMPACT.truckFullFtS);
-      const fight = fresh ? { since: now, at: now } : was;
-      fight.at = now;
-      fights.set(key, fight);
-      // A blow keeps the closing speeds of its first step for `TOUCH_MEMORY_S`; trucks still touching after that are
-      // tangled or leaning on each other, and go by their closing speeds now (small).
-      const first = now - fight.since <= TOUCH_MEMORY_S;
-      const pa = per[a], pb = per[b];
-      const fa = first && pa.met?.other === b && pa.met.since === fight.since ? pa.met : null;
-      const fb = first && pb.met?.other === a && pb.met.since === fight.since ? pb.met : null;
-      pa.met = { other: b, at: now, since: fight.since, close: fa?.close ?? closeA, theirs: fa?.theirs ?? closeB, toward: toBody(sa.matrix, d), towardWorld: d };
-      pb.met = { other: a, at: now, since: fight.since, close: fb?.close ?? closeB, theirs: fb?.theirs ?? closeA, toward: toBody(sb.matrix, d.map((x) => -x)), towardWorld: d.map((x) => -x) };
+      recordTouch(fights, trucks[a].state, trucks[b].state, per[a], per[b], a, b, clock());
     },
     tick() {
       if (decided) { decided.forEach((place, i) => { race.trucks[i].place = place; }); return; }
@@ -463,22 +405,7 @@ export function createCombatRuntime(payload, env) {
         truck.recovery.racing = false;
         return;
       }
-      let stubs = 0;
-      for (let w = 0; w < 4; w++) {
-        if (!p.lost[w]) continue;
-        const tire = s.tires[w];
-        if (tire.penetration > -0.1) stubs++;
-        tire.onGround = false;
-        tire.grip = 0;
-      }
-      if (stubs) {
-        const speed = Math.hypot(s.bvel[0], s.bvel[2]);
-        if (speed > 0) {
-          const keep = Math.max(0, speed - STUB_DRAG_FT_S2 * stubs * step) / speed;
-          s.bvel[0] *= keep;
-          s.bvel[2] *= keep;
-        }
-      }
+      stubStep(s, p.lost, step);
       ctl.throttle = Math.min(ctl.throttle, enginePower(c, i));
       gearboxStep(c, i, ctl, S.GEAR, p.gearbox, clock(), p.rand());
       // A dead engine or gearbox: a crawl, held under its top speed.
@@ -498,20 +425,14 @@ export function createCombatRuntime(payload, env) {
       return null;
     },
     view() {
-      const stubs = [];
-      trucks.forEach((t, i) => {
-        per[i].lost.forEach((lost, w) => {
-          if (!lost || t.state.tires[w].penetration <= -0.1) return;
-          stubs.push({ truck: i, wheel: w, pos: hubOf(i, w), speed: Math.hypot(t.state.bvel[0], t.state.bvel[2]) });
-        });
-      });
+      const stubs = stubsOf(trucks, (i) => per[i].lost);
       return {
         mode: payload.mode, credits: c.credits,
         trucks: trucks.map((_, i) => combatTruckView(c, i)),
         lost: per.map((p) => [...p.lost]),
         log: c.log.map((e) => ({ ...e })), events: c.events,
         hits: hits.map((h) => ({ ...h })),
-        loose: loose.map((l) => ({ id: l.id, truck: l.truck, wheel: l.wheel, seed: l.seed, pos: [...l.box.pos], matrix: Array.from(l.box.matrix) })),
+        loose: wheelsLoose.view(),
         stubs,
         over: !!decided, winner: decided ? winner : -1, places: decided ? [...decided] : null,
         out: c.trucks.map((t) => !running(t)),

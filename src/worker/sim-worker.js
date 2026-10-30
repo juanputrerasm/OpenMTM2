@@ -15,7 +15,7 @@ import * as S from "../vendor/openphotex/sim/mtm2/index.js";
 import { createCrossingLog, raceGap, recordCrossings } from "../game/timing.js";
 import { buildRumbleField, createRumbleDriver, rumbleControls } from "../game/rumble-ai.js";
 import { REVERSE_SPEED, TREE_S, createDrag, dragCollision, dragLamps, dragOver, dragPedals, dragPlaces, dragTick, mirrorCourse, stageSpeed, stagingDistance, stillStaging } from "../game/drag-race.js";
-import { createExtensionSession, extensionSessionGround } from "../game/extensions/session-loader.js";
+import { createExtensionSession, createMutatorSession, extensionSessionGround, extensionSimRules } from "../game/extensions/session-loader.js";
 import { createEvoPathRunner } from "../game/evo-paths.js";
 import { applyCprAids, cprAids, cprCarFigures, cprCourse, createCprDriver, createWidthLookup, spinCorrection } from "../game/cpr-driver.js";
 import { cprAnchorsForSag } from "../shared/cpr-anchors.js";
@@ -25,6 +25,7 @@ import { createRacerRecovery, racerRecovering, racerRecoveryBefore, racerRecover
 import { cpuAvoidStep, cpuControlBefore, cpuControlStep, createCpuControl } from "../game/cpu-control.js";
 import { AVOID, boxObstacles, groundBoxWalls } from "../game/obstacle-avoid.js";
 import { replyError, sendWorkerFaults } from "../shared/worker-faults.js";
+import { aiSpeedFactor } from "../game/ai-speed.js";
 
 export const STEP = 1 / 60;
 
@@ -336,7 +337,10 @@ export function createSession(init) {
   const evoModel = E.isEvoRules(init.rules);
   // CART Precision Racing's model (OpenPhotex sim/cpr): its cars drive on it, every other vehicle on MTM2's.
   const cprModel = Cp.isCprRules(init.rules);
-  const rules = evoModel ? E.evoRules(init.rules) : cprModel ? Cp.CPR_RULES : S.simRules(init.rules);
+  /** Optional rules loaded over the race's countdown and clock. */
+  const extensionPayload = init.extension && init.race ? init.extension : null;
+  // An extension may change the model's handling (Freestyle's Trick physics, OpenPhotex `Mtm2Rules`).
+  const rules = extensionSimRules(extensionPayload, evoModel ? E.evoRules(init.rules) : cprModel ? Cp.CPR_RULES : S.simRules(init.rules));
   const terrainGround = S.createTerrainGround(terrain, surfaces, weather, init.waterLevelFt ?? null, rules);
   // CPR's road layer lies over the terrain and is the ground where it does (OpenPhotex world/road.ts).
   const ground = init.road ? S.createRoadGround(terrainGround, init.road) : terrainGround;
@@ -344,8 +348,6 @@ export function createSession(init) {
   // truck asks with its own height, so what stands over it is not its ground (OpenPhotex world/road.ts `below`).
   const meshGround = init.meshGround ? S.createRoadGround(terrainGround, init.meshGround) : null;
   for (const g of [ground, meshGround]) if (g) g.rules = rules;
-  /** Optional rules loaded over the race's countdown and clock. */
-  const extensionPayload = init.extension && init.race ? init.extension : null;
   const extensionGround = extensionSessionGround(extensionPayload, ground);
   // Static scenery (CPR's walls, 4x4 Evolution's objects and trees): immovable upright boxes, found by a grid of 64 ft
   // cells (a box is in every cell it reaches).
@@ -462,6 +464,8 @@ export function createSession(init) {
   const opponentFps = Number(init.opponentFps);
   const apCtx = { course, height: (x, z) => ground.height(x, z), dt: STEP, difficulty, sonicTrack };
   if (opponentFps >= 10 && opponentFps <= 240) apCtx.frameDt = 1 / opponentFps;
+  // AI Speed (Community Patch 3, game/ai-speed.js): the computer trucks' target speed and torque, never the player's.
+  const cpuAiSpeed = aiSpeedFactor(init.aiSpeed);
 
   const specs = init.trucks ?? [{ truck: init.truck, start: init.start, autopilot: init.autopilot }];
   // The CPR Skill Level (Options, Advanced): the player's driving aids under CPR physics.
@@ -518,7 +522,9 @@ export function createSession(init) {
     // A foot under the body's origin: a step up to about a wheel's height is climbed, a taller face is not ground.
     const ownGround = meshGround ? meshGround.below(() => state.pos[1] - 1) : extensionGround;
     const ctx = { ground: ownGround, human: i === 0 && !autopilot && !remote, difficulty, sonicTrack, recovery };
-    return { state, params, autopilot, remote, recovery, ctx, evoVehicle: !!spec.truck.evo, cprCar, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, bottoming: 0, collide: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
+    const aiSpeed = autopilot && i > 0 && cpuAiSpeed !== null ? cpuAiSpeed : undefined;
+    if (aiSpeed !== undefined) ctx.aiSpeed = aiSpeed;
+    return { state, params, autopilot, remote, recovery, ctx, aiSpeed, evoVehicle: !!spec.truck.evo, cprCar, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, bottoming: 0, collide: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
   });
   const player = trucks[0];
   // Under CPR physics a CPR car drives by CART.EXE's autopilot on the SIT course (game/cpr-driver.js, CPR_PHYSICS.md
@@ -571,8 +577,19 @@ export function createSession(init) {
     // Auto Stage (Options, Game, or its key during a pass): the player's truck stages itself.
     player.autoStage = !!init.race.autoStage;
   }
-  /** The autopilot context a truck drives by: its lane's in a drag race. */
-  const apOf = (t) => t.apCtx ?? apCtx;
+  /**
+   * The autopilot context a truck drives by: its lane's in a drag race. A computer truck with an AI Speed gets a view
+   * that inherits the shared context (so a reversed course still reaches it) and adds its own `aiSpeed`.
+   */
+  const apOf = (t) => {
+    const base = t.apCtx ?? apCtx;
+    if (t.aiSpeed === undefined) return base;
+    if (t.apViewBase !== base) {
+      t.apView = Object.create(base, { aiSpeed: { value: t.aiSpeed, enumerable: true } });
+      t.apViewBase = base;
+    }
+    return t.apView;
+  };
 
   const crossings = createCrossingLog(trucks.length);
   /** Laps each truck closed in first place. */
@@ -720,10 +737,13 @@ export function createSession(init) {
     // The helicopter for a truck, set down on course segment `segment` (as for a missed checkpoint).
     liftTo: (t, segment) => liftToSegment(t, segment),
   });
+  // Loose Wheels (Options, Game; game/extensions/loose-wheels.js): a mutator beside any mode, at its own few hooks.
+  const mutator = createMutatorSession(init.looseWheels ?? null, { step: STEP, trucks, race, now: () => time });
   // An extension may give a truck a ground of its own (Combat's, which hides a lost wheel's ground: the wheel never touches).
-  if (extensionSession?.groundFor) {
+  for (const session of [extensionSession, mutator]) {
+    if (!session?.groundFor) continue;
     trucks.forEach((t, i) => {
-      const own = extensionSession.groundFor(i, t.ctx.ground);
+      const own = session.groundFor(i, t.ctx.ground);
       if (own) t.ctx.ground = own;
     });
   }
@@ -768,6 +788,7 @@ export function createSession(init) {
     }
     // An extension's own loose objects (Combat's lost wheels) are always in the list: every truck meets them.
     for (const box of extensionSession?.movableBoxes?.() ?? []) listed.push(box);
+    for (const box of mutator?.movableBoxes() ?? []) listed.push(box);
     ground.ramps.length = 0;
     for (const ramp of allRamps) {
       if (nearTruck(ramp) || listed.some((o) => near(o.pos[0], o.pos[2], o.radius, ramp))) ground.ramps.push(ramp);
@@ -811,6 +832,7 @@ export function createSession(init) {
         if (force > 0) {
           if (drag) dragCollision(drag, a.lane, b.lane);
           extensionSession?.touch?.(i, j);
+          mutator?.touch(i, j);
           const where = [0, 1, 2].map((k) => (a.state.pos[k] + b.state.pos[k]) / 2);
           // `hull`: bodywork met, not only tires (which throw no sparks).
           for (const t of [a, b]) {
@@ -1054,11 +1076,76 @@ export function createSession(init) {
     if (name === "mode") return extensionSession?.applyNet ? (extensionSession.applyNet(value), true) : false;
     if (name === "modeAuthority") { netRole.authority = value ? "owner" : "follower"; return true; }
     if (name === "modeOwn") return extensionSession?.applyNetOwn ? (extensionSession.applyNetOwn(value), true) : false;
+    // Wheels damage online: another machine's trucks' wheels (game/extensions/loose-wheels-session.js `applyNetOwn`).
+    if (name === "wheelsOwn") return mutator?.applyNetOwn ? mutator.applyNetOwn(value) : false;
     return undefined;
+  }
+
+  /**
+   * The race as Monster Truck Madness 2's saved game keeps it (MONSTER_EXE_ANALYSIS.md 16, "Saved games"): the clock
+   * and every truck's motion, gear, course segment and race progress. Null outside a circuit, rally or Rumble.
+   */
+  function savedRace() {
+    if (!race || drag) return null;
+    return {
+      clock: race.clock, startTime: race.startTime,
+      trucks: trucks.map((t, i) => {
+        const st = t.state, rt = race.trucks[i];
+        return {
+          pos: [...st.pos], bvel: [...st.bvel], euler: [...st.euler], rates: [...st.rates], gear: st.controls.gear,
+          autopilot: t.autopilot ? 1 : 0, cnumber: st.ap?.segment ?? 0, progress: rt.progress ?? 0, laps: rt.laps,
+          passCount: rt.passCount ?? 0, finished: rt.finished ? 1 : 0, checkpoint: rt.checkpoint, raceTime: rt.raceTime,
+          fastestLap: rt.fastestLap ?? 0, splits: [...(rt.splits ?? [])],
+          // A Rumble keeps its score where a race keeps its first lap's time (+0xf50).
+          lapTimes: race.summit ? [race.summit.trucks[i].score] : [...rt.lapTimes],
+        };
+      }),
+    };
+  }
+  /** Put a saved race (`savedRace`'s shape) back: each truck where it was, as fast, with its laps and times. */
+  function restoreRace(saved) {
+    if (!race || drag || !Array.isArray(saved?.trucks)) return false;
+    const n = race.checkpoints.length;
+    if (Number.isFinite(saved.clock)) race.clock = saved.clock;
+    if (Number.isFinite(saved.startTime) && saved.startTime > 0) race.startTime = saved.startTime;
+    saved.trucks.forEach((v, i) => {
+      const t = trucks[i], rt = race.trucks[i];
+      if (!t || !rt || !v) return;
+      const st = t.state;
+      for (let k = 0; k < 3; k++) {
+        st.pos[k] = Number(v.pos?.[k]) || 0;
+        st.bvel[k] = Number(v.bvel?.[k]) || 0;
+        st.euler[k] = Number(v.euler?.[k]) || 0;
+        st.rates[k] = Number(v.rates?.[k]) || 0;
+      }
+      S.eulerToMatrix(st.euler[0], st.euler[1], st.euler[2], st.matrix);
+      if (Number.isInteger(v.gear)) st.controls.gear = v.gear;
+      if (st.ap && Number.isInteger(v.cnumber)) st.ap.segment = v.cnumber;
+      rt.progress = v.progress ?? rt.progress;
+      rt.laps = Math.max(0, v.laps | 0);
+      rt.passCount = v.passCount ?? rt.passCount;
+      rt.checkpoint = n ? Math.max(0, Math.min(n - 1, v.checkpoint | 0)) : 0;
+      rt.passed = rt.laps * n + rt.checkpoint;
+      rt.finished = !!v.finished;
+      rt.splits = (v.splits ?? []).slice(0, rt.checkpoint).map(Number);
+      if (race.summit) {
+        race.summit.trucks[i].score = Number(v.lapTimes?.[0]) || 0;
+      } else {
+        rt.lapTimes = (v.lapTimes ?? []).slice(0, rt.laps).map(Number);
+        rt.raceTime = rt.lapTimes.reduce((a, x) => a + x, 0);
+        rt.fastestLap = Number(v.fastestLap) || (rt.lapTimes.length ? Math.min(...rt.lapTimes) : 0);
+      }
+      t.previous = snapshot(st);
+    });
+    // Restored after GO: the countdown's gears are not set again.
+    if (S.raceStarted(race)) started = true;
+    return true;
   }
 
   /** A debug command from the page; returns the new state of what it changed. */
   function command(name, value) {
+    if (name === "savedRace") return savedRace();
+    if (name === "restoreRace") return restoreRace(value);
     const net = netCommand(name, value);
     if (net !== undefined) return net;
     if (name === "weather") {
@@ -1075,7 +1162,8 @@ export function createSession(init) {
       return race.laps;
     }
     if (name === "reverse") return (apCtx.reversed = !apCtx.reversed);
-    if (name === "autopilot") return setAutopilotLevel((player.apLevel + 1) % 3);
+    // A player who left the race (Leave and watch) cannot take the wheel back.
+    if (name === "autopilot") return player.left ? player.apLevel : setAutopilotLevel((player.apLevel + 1) % 3);
     if (name === "slew") return (gold.slew = !gold.slew);
     // Z mode's X: the computer trucks stop driving, and drive again on the next press; a single-player race of two or more.
     if (name === "cpuStop") return trucks.length > 1 && !trucks.some((t) => t.remote) ? (gold.cpuStopped = !gold.cpuStopped) : null;
@@ -1240,7 +1328,7 @@ export function createSession(init) {
     if (at === null) return false;
     const pick = pickRoute(routes, s.pos);
     if (pick) {
-      t.route = { ctx: { ...apCtx, course: routes[pick.route], traffic: undefined }, segment: pick.segment };
+      t.route = { ctx: { ...apCtx, course: routes[pick.route], traffic: undefined, aiSpeed: t.aiSpeed }, segment: pick.segment };
       t.headway = null;
       return true;
     }
@@ -1340,6 +1428,17 @@ export function createSession(init) {
     // until a step takes it, as a tick may run none (the first after a pause).
     if (modeAction) pendingAction = modeAction;
     if (input) input.modeAction = null;
+    // Leave and watch (ui/screens/race.js): the player's truck races on under the full autopilot, for good.
+    if (pendingAction === "leave") {
+      setAutopilotLevel(2);
+      player.left = true;
+      pendingAction = null;
+    }
+    // The pit crew (Loose Wheels) is the mutator's, whatever the mode.
+    if (pendingAction === "pit" && mutator && (!race || S.raceStarted(race))) {
+      mutator.action("pit", 0);
+      pendingAction = null;
+    }
     if (pendingAction && extensionSession?.action && (!race || S.raceStarted(race))) {
       extensionSession.action(pendingAction, 0);
       pendingAction = null;
@@ -1375,6 +1474,7 @@ export function createSession(init) {
       recordCrossings(crossings, race.trucks);
     }
     const go = !race || S.raceStarted(race);
+    if (mutator && go) mutator.tick();
     // The at-rest reset and lift-off run only in the race state, not through the countdown (10.3).
     // A remote truck's resets and helicopter are its owner's; they arrive as position snaps.
     for (const t of trucks) t.recovery.racing = go && !t.remote;
@@ -1507,6 +1607,7 @@ export function createSession(init) {
       // The player's helicopter holds the truck still and carries it itself (game/heli-flight.js).
       if (t.flight) { flyTruck(t); continue; }
       extensionSession?.afterTruckStep?.(t);
+      mutator?.afterTruckStep(t);
       if (t.cprCar) Cp.stepCprTruck(t.state, t.params, t.ctx, STEP);
       else if (evoModel) E.stepEvoTruck(t.state, t.params, t.ctx, STEP);
       else S.stepTruck(t.state, t.params, t.ctx, STEP);
@@ -1657,6 +1758,8 @@ export function createSession(init) {
       /** A drag race's tree: its phase, and each truck's lamps and lane. */
       drag: drag ? {
         phase: drag.phase,
+        /** Seconds in this phase (CP3's announcer counts the staging time down). */
+        phaseTime: drag.phaseTime,
         lamps: trucks.map((t) => dragLamps(drag, t.lane)),
         lane: trucks.map((t) => t.lane),
       } : null,
@@ -1674,6 +1777,8 @@ export function createSession(init) {
         place: places ? places[i] : rt.place,
         /** A drag pass: why the truck is out (a name of game/drag-race.js `DQ_CODE`), whether its pass is to be run again, its reaction time. */
         dq: laneOf(i)?.dq ?? null,
+        /** Out of lane: over the "centre" line or the outside "edge". */
+        dqLine: laneOf(i)?.line ?? null,
         rerun: !!laneOf(i)?.rerun,
         reaction: laneOf(i)?.reaction ?? null,
         score: race.summit ? race.summit.trucks[race.trucks.indexOf(rt)].score : extensionSession?.score(i) ?? 0,
@@ -1735,6 +1840,8 @@ export function createSession(init) {
     return {
       previous: poses[0].previous, current: poses[0].current, alpha: (target - time) / STEP, time, steps, boxes,
       poses, race: raceView(),
+      // Loose Wheels: each truck's wheels, the loose ones, the stubs and what came off (free roam too).
+      wheels: mutator?.view() ?? null,
       // How far each top-crush car's cab is flattened: 0 intact, 1 as flat as it goes (its roof 0.25 ft over the body).
       crush: crushCars.map(crushShare),
       // 4x4 Evolution trees knocked over since the last reply: `{ id, pos, dir, speed }`, game feet.
@@ -1747,6 +1854,8 @@ export function createSession(init) {
       modeNet: netRole.authority === "owner" ? extensionSession?.netState?.() ?? null : null,
       // A mode that judges each truck where it is driven (Combat): this machine's trucks' state, from every machine.
       modeOwn: init.net && extensionSession?.netOwn ? extensionSession.netOwn() : null,
+      /** Online, Wheels damage: the wheels of the trucks this machine judges, for the others. */
+      wheelsOwn: init.net && mutator?.netOwn ? mutator.netOwn() : null,
     };
   }
 

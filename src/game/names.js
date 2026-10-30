@@ -1,7 +1,7 @@
 /*
-  The Names key (N) cycles what is written beside the trucks, on the course map and above each truck in
-  the world: nothing, the trucks' names, the drivers' names, then both (the driver, and under it the truck). A port
-  addition for the world labels; the course map's driver names are the game's.
+  The Names key (N) cycles what is written above each truck in the world: nothing, the trucks' names, the drivers'
+  names, then both (the driver, and under it the truck). The course map has its own modes, on the Map key
+  (game/course-map-labels.js).
 */
 export const NAMES_OFF = 0, NAMES_TRUCKS = 1, NAMES_DRIVERS = 2, NAMES_BOTH = 3;
 

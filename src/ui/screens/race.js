@@ -52,11 +52,11 @@ import { createStartLamps } from "../../render/start-lamps.js";
 import { createTrackLights } from "../../render/track-lights.js";
 import { createHelicopters } from "../../render/heli-object.js";
 import { createNameTags } from "../../render/name-tags.js";
-import { NAMES_DRIVERS, nameLabel, nameLine, nextNamesMode } from "../../game/names.js";
+import { NAMES_DRIVERS, nameLabel, nextNamesMode } from "../../game/names.js";
 import { createAudio } from "../../audio/audio-engine.js";
 import { createCommentaryAudio } from "../../audio/commentary-audio.js";
 import { pickVideo, raceVideoKey } from "../../game/videos.js";
-import { GROUPS as COMMENTARY_GROUPS, createCommentaryQueue, createPhrasePicker, phraseText, textSeconds } from "../../game/commentary.js";
+import { commentaryTables, createCommentaryQueue, createPhrasePicker, phraseText, textSeconds } from "../../game/commentary.js";
 import { createCommentaryWatcher } from "../../game/commentary-events.js";
 import { createTruckAudio } from "../../audio/truck-audio.js";
 import { createWorldAudio } from "../../audio/world-audio.js";
@@ -78,6 +78,7 @@ import { createFpsCounter } from "../fps-counter.js";
 import { createCrashDamage, crashDamageMessage } from "../../game/crash-damage.js";
 import { createCaption } from "../../render/caption.js";
 import { courseLoop, createCourseMap } from "../../render/minimap.js";
+import { createBoxSolid } from "../../game/ground-boxes.js";
 import { createSummitSounds } from "../../game/summit-sounds.js";
 import { coveredAt } from "../../game/ground-maps.js";
 import { createCockpit, finderAngle } from "../../render/cockpit.js";
@@ -103,13 +104,14 @@ import { vrButton } from "../vr-button.js";
 import {
   extensionFinderTarget, extensionHud, extensionResult, extensionKeepsRace, extensionMapMarks, extensionMapPoints, extensionMarkerTarget, extensionNetFromWire,
   extensionNetOwnFromWire, extensionNetOwnToWire, extensionNetToWire, extensionResultTime, extensionTruckLabels, extensionTruckMarks, prepareExtensionRace, resolveRaceExtension,
-  extensionKeyAction, extensionTruckOut,
+  extensionKeyAction, extensionTruckOut, damageColour,
 } from "../../game/extensions/race-loader.js";
-import { entrantTeamPicks, settingsForExtension } from "../../game/extensions/loader.js";
+import { LOOSE_WHEEL_TEXT, damagePercent, damageText, entrantTeamPicks, looseWheelsFor, settingsForExtension, soloExtension } from "../../game/extensions/loader.js";
 import { createExtensionScene } from "../../render/extensions/loader.js";
 import { GRASS_RADII, grassLevel } from "../../render/evo-grass.js";
 import { createNetRace } from "../../net/net-race.js";
 import { showPrompt } from "../dialogs.js";
+import { effectiveAiSpeed } from "../../game/ai-speed.js";
 
 /** The race HUD text is a light grey with a one-pixel black shadow (the game's own look). */
 const DRIVE_MODES = ["2WD", "4WD High", "4WD Low"];
@@ -119,7 +121,8 @@ const HEADSET_FINE_RANGE_FT = 800;
 /** About how tall a headset's picture is for one eye, pixels: rain and snow are kept no thinner than one of them. */
 const HEADSET_VIEW_HEIGHT = 1800;
 
-const DEMO_CAPTION = msg("Demo mode. Press any key to begin"), DEMO_CAMERA_S = 8;
+// The demo moves the camera on to the next truck every 10 seconds (MONSTER_EXE_ANALYSIS.md, camera views).
+const DEMO_CAPTION = msg("Demo mode. Press any key to begin"), DEMO_CAMERA_S = 10;
 /** Before the race's clock starts, this many frames in a row must each take less than `WARM_FRAME_S`; `WARM_LIMIT_MS` at most. */
 const WARM_FRAMES = 6, WARM_FRAME_S = 0.08, WARM_LIMIT_MS = 15000;
 /** A simulation step not answered in this long is reported: the simulation is stuck or gone. */
@@ -228,6 +231,14 @@ async function mountRace(container, context, params, owned = []) {
    * out (Combat's, `watchWhenOut`) from when the player is (`startWatching`).
    */
   let watching = spectator;
+  /**
+   * Whether Leave and watch is offered: a race with other trucks to watch, the player driving, in the default mode,
+   * Race & Rumble or a mode whose players watch on when out (Combat). Not in free roam, a demo or a mode driven alone.
+   */
+  const canLeave = !spectator && !demo && !freeRoam && (params.opponents?.length ?? 1) > 0
+    && (!!extension?.watchWhenOut || !gameMode || (keepsRace && !soloExtension(extension)));
+  /** The player chose Leave and watch outside Combat: their truck drives on by itself. */
+  let leftRace = false;
   /** A mode's own action for the simulation (Combat's repair, leaving the fight), sent with the next input. */
   let modeAction = null;
   /**
@@ -329,7 +340,21 @@ async function mountRace(container, context, params, owned = []) {
   const vrMessage = createTextPanel(messageFont, { width: 360, scale: 2, align: "center", backing: "rgba(0, 0, 0, 0.42)" });
   // The headset's copy is drawn only while a headset shows it; the rows it missed are drawn when it begins to.
   let vrRowsMissed = null;
-  const setHud = (rows) => {
+  /**
+   * Advanced damage (Loose Wheels): the board's last line, the damage left before a wheel comes off for the player's
+   * truck (the watched one when watching); 0% with a wheel off, with the pit crew's or the wait's seconds.
+   */
+  let wheelsNow = null;
+  const withDamage = (rows) => {
+    const view = wheelsNow?.trucks?.[watching ? cameraTarget : 0];
+    if (!view) return rows;
+    const d = damageText(view);
+    const figure = [{ text: `${d.percent}%`, color: damageColour(d.percent / 100) }];
+    if (d.extra !== null) figure.push({ text: d.pit ? ` ${t("pit")} ${d.extra}s` : ` ${d.extra}s` });
+    return [...rows, [t("Wheels:"), figure]];
+  };
+  const setHud = (raw) => {
+    const rows = withDamage(raw);
     hud.set(rows);
     if (host.presenting) { vrTiming.set(rows); vrRowsMissed = null; } else vrRowsMissed = rows;
   };
@@ -381,10 +406,10 @@ async function mountRace(container, context, params, owned = []) {
     : (Number(difficulty) === 2 && build.sim.proRaceCourse) || build.sim.raceCourse || build.sim.course;
   // A Summit Rumble's map shows the summit and the scoring zone (checkpoints 0 and 1, 6.3), not a course.
   const minimap = createCourseMap(build.sim.course, {
-    font: hudFont, open: !!build.sim.courseOpen,
+    font: hudFont, open: !!build.sim.courseOpen, summit: !!summit,
     areas: summit ? { zone: build.sim.checkpoints?.[0]?.gate ?? null, summit: build.sim.checkpoints?.[1]?.gate ?? null } : null,
   });
-  minimap.setVisible(!!context.settings.minimap);
+  minimap.setMode(context.settings.minimap);
   view.append(minimap.element);
   cleanups.push(() => minimap.dispose());
   const extensionTerrain = extension ? terrainOfBuild(build) : null;
@@ -439,7 +464,16 @@ async function mountRace(container, context, params, owned = []) {
   // 4x4 Evolution's knockable trees by id, and the falls under way.
   const treeObjects = new Map((build.objects ?? []).filter((o) => typeof o.sitIndex === "string" && o.sitIndex.startsWith("t")).map((o) => [o.sitIndex, o]));
   const falls = [];
-  const extensionScene = createExtensionScene(scene, world, extensionDress);
+  // The physics model (Options, Game; the console's `physics`): the 1996 game has no crash damage.
+  // "auto" picks the model of the player's vehicle's game, "track" the track's (app/settings.js `resolvePhysics`).
+  const physicsSetting = physicsModel(params.physics ?? context.settings.physics).id;
+  const physics = resolvePhysics(physicsSetting, entrants.find((e) => e.player)?.file ?? playerTruck, build.game ?? track.game ?? null);
+  // Loose Wheels (Options, Game; game/extensions/loose-wheels.js): the simulation's payload, or null.
+  // Online, the room's rule (its owner's settings), and only in a room: the classic game's packets cannot carry wheels.
+  const looseWheels = net
+    ? (net.policy !== "legacy" && net.wheels?.on ? looseWheelsFor({ ...context.settings, looseWheels: true, crashDamage: true, looseWheelsRepairS: net.wheels.repairS }, { extension, physics }) : null)
+    : looseWheelsFor(context.settings, { extension, physics });
+  const extensionScene = createExtensionScene(scene, world, extensionDress, { looseWheels: !!looseWheels });
   // Sound: the engines, skids and impacts of every truck, and the world's ambience and music.
   context.menuMusic?.stop();
   // Reuse the already unlocked menu context. A newly created context after the asynchronous
@@ -469,25 +503,38 @@ async function mountRace(container, context, params, owned = []) {
   // the one the camera follows, its queue, and each phrase as one sound and, when asked for, a line of text.
   const voiceOn = !!context.settings.commentary, textOn = !!context.settings.textCommentary;
   const commentaryOn = voiceOn || textOn;
+  // CP3 voice commentary (Options, Advanced; docs/CP3_EXE_ANALYSIS.md 4): its larger bags, new calls and shorter pauses.
+  const cp3Commentary = !!context.settings.cp3Commentary;
+  const commentaryTable = commentaryTables({ cp3: cp3Commentary });
   const boxModels = new Map(build.sim.boxes.map((b) => [b.sitIndex, b.modelName ?? null]));
-  const watcher = createCommentaryWatcher({ drivers: entrants.length, summit, drag: dragRace, hitModel: (i) => boxModels.get(i) });
-  const commentaryQueue = createCommentaryQueue({ summit });
-  const phrasePicker = createPhrasePicker();
+  const boxTypes = new Map(build.sim.boxes.map((b) => [b.sitIndex, b.type ?? null]));
+  const watcher = createCommentaryWatcher({
+    drivers: entrants.length, summit, drag: dragRace, hitModel: (i) => boxModels.get(i), hitType: (i) => boxTypes.get(i),
+    cp3: cp3Commentary, sit: track.file, weekend: !!eventPass,
+  });
+  const commentaryQueue = createCommentaryQueue({ summit, groups: commentaryTable.groups, silenceScale: commentaryTable.silenceScale });
+  const phrasePicker = createPhrasePicker(Math.random, commentaryTable.phrases);
   const commentary = createCommentaryAudio(audio, {
     drivers: entrants.map((e) => ({ name: e.name, waves: catalogTrucks.find((c) => c.file === e.file)?.waves ?? [] })),
+    // CP3's drag calls need its own Sound.POD: a phrase missing a clip is shown, not half said.
+    whole: cp3Commentary,
   });
   /** Say a trigger's phrase now: its voice and its line, each when switched on. */
   const sayPhrase = (trigger) => {
     const phrase = phrasePicker.pick(trigger.group, { ...trigger.ctx, args: trigger.args });
     if (!phrase) return;
     if (voiceOn) commentary.speak(phrase);
-    const line = phrase.text ? phraseText(t(phrase.text), phrase.args.map((n) => entrants[n - 1]?.name ?? "")) : "";
+    // The game's lines name the trucks (MONSTER_EXE_ANALYSIS.md, truck +0x10c0); the port's default names the drivers.
+    const nameOf = (entrant) => (!entrant ? "" : context.settings.commentaryTruckNames ? truckName(entrant.file) : entrant.name ?? "");
+    const names = phrase.args.map((n) => nameOf(entrants[n - 1]));
+    for (const [arg, value] of Object.entries(phrase.numbers ?? {})) names[Number(arg) - 1] = String(value);
+    const line = phrase.text ? phraseText(t(phrase.text), names) : "";
     if (textOn && line && !caption.active) caption.show(line, textSeconds(line));
   };
   /** This frame's triggers into the queue (the start and GO at once), and the queue's phrase, if any, said. */
   const commentaryFrame = (triggers, dt) => {
     for (const trigger of triggers) {
-      if (COMMENTARY_GROUPS[trigger.group]?.now) { if (!commentary.speaking) sayPhrase(trigger); }
+      if (commentaryTable.groups[trigger.group]?.now) { if (!commentary.speaking) sayPhrase(trigger); }
       else commentaryQueue.add(trigger.group, trigger.args, trigger.ctx);
     }
     const next = commentaryQueue.tick(dt, commentary.speaking);
@@ -565,10 +612,6 @@ async function mountRace(container, context, params, owned = []) {
   });
 
   // Crash damage (game/crash-damage.js): the hull contacts the simulation reports dent the bodies.
-  // The physics model (Options, Game; the console's `physics`): the 1996 game has no crash damage.
-  // "auto" picks the model of the player's vehicle's game, "track" the track's (app/settings.js `resolvePhysics`).
-  const physicsSetting = physicsModel(params.physics ?? context.settings.physics).id;
-  const physics = resolvePhysics(physicsSetting, entrants.find((e) => e.player)?.file ?? playerTruck, build.game ?? track.game ?? null);
   // A mode that owns the Crash Damage key (Combat's repairs) always has damage on.
   const crash = createCrashDamage(entrants.length, { enabled: (extension?.damageKey ? true : context.settings.crashDamage !== false) && physics !== "mtm1" });
   // Instant replay (game/replay.js): a frame every quarter second, kept for the results screen.
@@ -594,6 +637,9 @@ async function mountRace(container, context, params, owned = []) {
     ...simGroundOfBuild(build),
     startOnNearestSegment: !!build.sim.startOnNearestSegment,
     opponentFps: context.settings.opponentFps ?? 30,
+    looseWheels,
+    // AI Speed (game/ai-speed.js): a tournament's or drag weekend's own value, else Options.
+    aiSpeed: effectiveAiSpeed({ setting: context.settings.aiSpeed, tournament: params.aiSpeed ?? null }).percent,
     // CART Precision Racing's Skill Level: the player's aids under its physics (game/cpr-driver.js `cprAids`).
     cprSkill: context.settings.cprSkill ?? "rookie",
     clr: build.sim.clr.buffer,
@@ -694,6 +740,15 @@ async function mountRace(container, context, params, owned = []) {
   // The loading screen stays until the first frames have been drawn at an even pace (`ready` in the frame loop below):
   // the race's clock starts only then, so the countdown is not spent while shaders compile and textures go up.
   loadingText.textContent = `${t("Getting ready")}…`;
+  // A loaded race (Options, Game, Load race; game/saved-race.js): every truck back where it was, with its laps, times
+  // and dents.
+  if (params.resume && !net) {
+    await sim.call("command", { name: "restoreRace", value: params.resume.saved });
+    if (disposed) return { unmount };
+    (params.resume.damage ?? []).forEach((code, i) => {
+      if (code && drawn[i]) crash.adopt(i, code, { dent: (zone, level) => drawn[i].dent(zone, level), repair: () => drawn[i].repair() });
+    });
+  }
 
   // The race in a headset: the seat, the boards, the cab and the controllers.
   const vr = createRaceVr(host, {
@@ -763,10 +818,43 @@ async function mountRace(container, context, params, owned = []) {
   };
   // Spectator mode: once the race is over, the way on to its results (`watchedOver`).
   const resultsButton = el("button", { class: "primary", hidden: true, "data-menu-sound": "STARTOFF", onclick: async () => { if (finishing) return; await setPaused(false); finish(); } }, t("Results"));
+  /*
+    Leave and watch: the player leaves the race and watches it to its end, in every mode with others to watch. Combat
+    wrecks the truck out of the fight (its own "quit"); anywhere else the truck races on under the full autopilot, and
+    its result counts for no points and no Hall of Fame place (results.js, `left`).
+  */
   const leaveFightButton = el("button", {
-    hidden: !extension?.watchWhenOut || spectator || demo,
-    onclick: async () => { modeAction = "quit"; leaveFightButton.hidden = true; await setPaused(false); },
-  }, t("Leave the fight and watch"));
+    hidden: !canLeave,
+    onclick: async () => {
+      leaveFightButton.hidden = true;
+      if (extension?.watchWhenOut) modeAction = "quit";
+      else { modeAction = "leave"; leftRace = true; }
+      await setPaused(false);
+      if (leftRace && !watching) startWatching();
+    },
+  }, t("Leave and watch"));
+  /** Save race: offered in a single-player Circuit, Rally or Summit Rumble in the default mode, as the game offers it. */
+  const canSave = !net && !demo && !spectator && !freeRoam && !gameMode && !eventPass && !params.tournament
+    && ["circuit", "rally", "summit"].includes(track.raceType);
+  const saveRace = async () => {
+    try {
+      const [saved, sitText, catalog] = await Promise.all([
+        sim.call("command", { name: "savedRace" }), context.assets.call("trackSit", { path: track.path }), context.assets.call("catalog"),
+      ]);
+      if (!saved || !sitText) throw new Error(t("This race cannot be saved."));
+      const { savedGameBytes } = await import("../../game/saved-race.js");
+      const bytes = savedGameBytes({
+        track, tracks: catalog.tracks, laps, weather: weatherId, entrants, setup: params.setup ?? null, saved,
+        damage: entrants.map((_, i) => crash.code(i)), sitText,
+      });
+      const link = el("a", { href: URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" })), download: `${track.file.replace(/\.sit$/i, "")}.mtm` });
+      document.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+      caption.show(t("Race saved"), 3);
+    } catch (error) {
+      caption.show(t("The race could not be saved: <<1>>", error.message), 5);
+    }
+  };
   let overShown = false;
   const watchedOver = () => {
     if (overShown) return;
@@ -777,9 +865,12 @@ async function mountRace(container, context, params, owned = []) {
   pauseMenu.append(
     el("p", { class: "race-pause-title" }, t("Pause")),
     el("button", { class: "primary", onclick: () => setPaused(false) }, t("Resume")),
-    el("button", { hidden: !!net, "data-menu-sound": "STARTOFF", onclick: () => context.router.go("race", params, { replace: true }) }, t("Restart race")),
+    // A loaded race starts again from its start, not from where it was saved.
+    el("button", { hidden: !!net, "data-menu-sound": "STARTOFF", onclick: () => context.router.go("race", { ...params, resume: undefined }, { replace: true }) }, t("Restart race")),
     // The game has no instant replay with more than one networked player (MONSTER_EXE_ANALYSIS.md 14.4).
     el("button", { hidden: !!net, onclick: () => showInstantReplay() }, t("Instant replay")),
+    // Monster Truck Madness 2's saved game (game/saved-race.js): the race as it is now, to load later here or in the game.
+    el("button", { hidden: !canSave, onclick: () => saveRace() }, t("Save race")),
     // The console, for a keyboard whose key for it is hard to find; the race stays paused under it.
     el("button", { hidden: demo, onclick: () => gameConsole?.setOpen(true) }, t("Console")),
     el("button", { onclick: async () => {
@@ -959,6 +1050,11 @@ async function mountRace(container, context, params, owned = []) {
       const { action, message } = extensionKeyAction(latest?.race?.extension, 0);
       if (message) flash(t(message), performance.now(), 2);
       if (action) modeAction = action;
+    } else if (keyMap.crashDamage.includes(e.code) && !e.repeat && !zModeX && looseWheels) {
+      // Loose Wheels: the key calls the pit crew (the Crash Damage switch stays in Options).
+      const mine = latest?.wheels?.trucks?.[0];
+      if (mine && (mine.pit !== null || (!mine.wheels.some((w) => w < 1) && !mine.axles.some(Boolean)))) flash(t(mine.pit !== null ? LOOSE_WHEEL_TEXT.pit : LOOSE_WHEEL_TEXT.nothing, Math.ceil(mine.pit ?? 0)), performance.now(), 2);
+      else modeAction = "pit";
     } else if (keyMap.crashDamage.includes(e.code) && !e.repeat && !zModeX && physics === "mtm1") flash(t("No crash damage in Monster Truck Madness 1 physics"), performance.now(), 3);
     else if (keyMap.crashDamage.includes(e.code) && !e.repeat && !zModeX) {
       const on = crash.toggle((i) => drawn[i].repair());
@@ -973,7 +1069,7 @@ async function mountRace(container, context, params, owned = []) {
     if (keyMap.map.includes(e.code)) {
       e.preventDefault();
       if (!e.repeat) {
-        context.settings.minimap = minimap.toggle();
+        context.settings.minimap = minimap.cycle();
         saveSettings(context.settings);
       }
     }
@@ -1136,6 +1232,8 @@ async function mountRace(container, context, params, owned = []) {
   let listenerUnderwater = false;
   cleanups.push(() => audio.setUnderwater?.(false));
   const chase = createChaseCamera();
+  // The ground boxes the chase camera keeps out of (a tunnel's roof and walls).
+  const boxSolid = createBoxSolid({ ra0: build.sim.ra0, ra1: build.sim.ra1 });
   const straights = raceCourse, centroid = courseCentroid(straights);
   // The blimp flies the course (game/blimp.js); the BlimpCam hangs over the course's centre (game/cameras.js).
   const blimp = build.blimp && hasBlimp({ detailLevel: context.settings.detailLevel ?? 2, raceType: track.raceType }) && straights.length
@@ -1199,7 +1297,7 @@ async function mountRace(container, context, params, owned = []) {
   let cameraTarget = 0;
   // A watched race: the truck the camera is on is the spectator's to choose, and the camera can be flown free
   // (ui/fly-controller.js, the fly-by's own).
-  const flyer = spectator || extension?.watchWhenOut ? createFlyController({
+  const flyer = spectator || canLeave ? createFlyController({
     canvas, settings: context.settings, save: () => saveSettings(context.settings), course: build.sim.course, courseOpen: !!build.sim.courseOpen,
     groundAt: groundHeightFn(terrain), say: (text, seconds) => caption.show(text, seconds ?? 4), baseFov: fovFor(1), font: hudFont, t,
     blocked: () => paused || finishing || !!gameConsole?.open || !!replaying || !!context.optionsDialog?.isConnected,
@@ -1209,7 +1307,8 @@ async function mountRace(container, context, params, owned = []) {
   /** The player is out of the race (Combat's wrecked or left): the race is watched to its end, on a truck still running. */
   const startWatching = () => {
     watching = true;
-    raceEnd = createRaceEnd({ spectator: true });
+    // A Summit Rumble still ends on its round's clock.
+    raceEnd = createRaceEnd({ spectator: true, summit: summit || (!!gameMode && !keepsRace) });
     leaveFightButton.hidden = true;
     viewMode = 4;
     const running = latest?.race?.trucks?.map((rt, i) => ({ rt, i })).filter(({ i }) => i !== 0 && !extensionTruckOut(latest.race.extension, i)).sort((a, b) => a.rt.place - b.rt.place) ?? [];
@@ -1345,7 +1444,7 @@ async function mountRace(container, context, params, owned = []) {
     const view = special ?? chase.update(mode, p.pos, yaw, ground, dt, {
       turn: headingBy, speedFt: latest?.poses[cameraTarget]?.current.speed ?? latest?.poses[0]?.current.speed ?? 0,
       pitchBy, clearFt: context.settings.cameraClearance ? CAMERA_CLEAR_FT : 0,
-      look: { yaw: mouseLook.yaw, pitch: mouseLook.pitch }, scale: mouseLook.zoom(mode),
+      look: { yaw: mouseLook.yaw, pitch: mouseLook.pitch }, scale: mouseLook.zoom(mode), solid: boxSolid,
     });
     // Game feet to the scene: z is mirrored.
     camera.position.set(view.position[0], view.position[1], -view.position[2]);
@@ -1354,7 +1453,20 @@ async function mountRace(container, context, params, owned = []) {
   };
 
   /** Labels and optional marks are extension presentation hooks. */
-  const truckLabels = (state) => extensionTruckLabels(state, entrants, (entrant) => nameLabel(namesMode, entrant, truckName));
+  // With Advanced damage, every name shown (N) carries its truck's damage left, coloured as on the board.
+  const truckLabels = (state) => {
+    const labels = extensionTruckLabels(state, entrants, (entrant) => nameLabel(namesMode, entrant, truckName));
+    const wheels = wheelsNow?.trucks;
+    if (!wheels || state?.mode === "combat") return labels;
+    return labels.map((label, i) => {
+      if (!label || !wheels[i]) return label;
+      const p = damagePercent(wheels[i]);
+      const lines = Array.isArray(label) ? [...label] : [label];
+      const first = Array.isArray(lines[0]) ? lines[0] : [{ text: String(lines[0]) }];
+      lines[0] = [...first, { text: " " }, { text: `${p}%`, color: damageColour(p / 100) }];
+      return lines;
+    });
+  };
   const extensionMarks = (state) => extensionTruckMarks(state, entrants.length);
   // The demo keeps its own caption up.
   const flash = (text, now, seconds = 3) => { if (!demo) { caption.show(text, seconds); vrMessage.set([text]); } };
@@ -1450,7 +1562,7 @@ async function mountRace(container, context, params, owned = []) {
       // code was not traced).
       setHud([
         [t("Time Remaining:"), formatRaceTime(race.summit?.left ?? 0)], [t("Score:"), String(Math.round(me.score))], [t("Place:"), `${me.place}/${race.trucks.length}`], ["", ""],
-        ...summitBoard(race.trucks, entrants.map((e) => e.name)),
+        ...summitBoard(race.trucks, entrants.map((e) => e.name), spectator ? -1 : 0),
       ]);
       return;
     }
@@ -1501,6 +1613,8 @@ async function mountRace(container, context, params, owned = []) {
     }
     const rows = race.trucks.map((t, i) => ({
       ...t, name: entrants[i].name, file: entrants[i].file, truckName: truckName(entrants[i].file), player: entrants[i].player,
+      // Left to the autopilot (Leave and watch): its time is shown, not counted.
+      ...(i === 0 && leftRace ? { left: true } : {}),
       // An extension supplies the result time shown in the Winner's Circle.
       ...(gameMode && extensionResultTime(gameMode, laps, race) !== undefined ? { raceTime: extensionResultTime(gameMode, laps, race) } : {}),
       // And its score as shown, and the lines under the table (Freestyle's score out of 10 and its categories).
@@ -1556,6 +1670,37 @@ async function mountRace(container, context, params, owned = []) {
   if (netChat) cleanups.push(() => netChat.dispose());
 
   let busy = false, latest = null, drawnAt = performance.now(), poolsWarmed = false;
+  /**
+   * Wheels damage's news for the player (game/extensions/loose-wheels.js): a wheel or an axle off, the pit crew at work,
+   * the wheels back. Its hits dent the bodies (through the crash damage, so only with Crash damage on); the pit crew
+   * takes a truck's dents out, the wait does not.
+   */
+  let wheelsSeen = 0, dentsSeen = 0, pitShown = false;
+  const repairsSeen = [], pitsSeen = [];
+  const looseWheelsFrame = (state) => {
+    const at = performance.now();
+    for (const e of state.log ?? []) {
+      if (e.id <= wheelsSeen) continue;
+      wheelsSeen = e.id;
+      if (e.truck !== 0) continue;
+      const back = state.trucks[0]?.back;
+      flash(e.axle >= 0 ? t(LOOSE_WHEEL_TEXT.axle) : back !== null && back !== undefined ? t(LOOSE_WHEEL_TEXT.offAuto, Math.ceil(back)) : t(LOOSE_WHEEL_TEXT.off), at, 3);
+    }
+    for (const d of state.dents ?? []) {
+      if (d.id <= dentsSeen) continue;
+      dentsSeen = d.id;
+      if (!entrants[d.truck]?.remote && drawn[d.truck]) crash.contacts(d.truck, [d], (zone, level) => drawn[d.truck].dent(zone, level));
+    }
+    state.trucks.forEach((truck, i) => {
+      if (pitsSeen[i] !== undefined && truck.pits > pitsSeen[i]) crash.repairOne(i, () => drawn[i]?.repair());
+      if (repairsSeen[i] !== undefined && truck.repairs > repairsSeen[i] && i === 0) flash(t(LOOSE_WHEEL_TEXT.back), at, 2);
+      repairsSeen[i] = truck.repairs;
+      pitsSeen[i] = truck.pits;
+    });
+    const pit = state.trucks[0]?.pit ?? null;
+    if (pit !== null && !pitShown) flash(t(LOOSE_WHEEL_TEXT.pit, Math.ceil(pit)), at, 2);
+    pitShown = pit !== null;
+  };
   /** When the step in flight was asked for, and whether its silence was reported (the watchdog in `loop`). */
   let tickSentAt = 0, stallReported = false;
   // Held until the frames come steadily: `WARM_FRAMES` in a row each shorter than `WARM_FRAME_S`, or `WARM_LIMIT_MS` at most.
@@ -1636,6 +1781,8 @@ async function mountRace(container, context, params, owned = []) {
       sim.call("tick", { tMs: now, input: sampleInput(), net: netRace?.commands() })
         .then((r) => {
           latest = r;
+          wheelsNow = r.wheels ?? null;
+          if (r.wheels) looseWheelsFrame(r.wheels);
           const felt = r.poses?.[0]?.sound, padInfo = pad.rumbleInfo();
           const off = felt ? rumbleOff(padInfo) : "no truck to feel";
           if (!off) {
@@ -1675,7 +1822,7 @@ async function mountRace(container, context, params, owned = []) {
             if (demo) {
               // The RaceCam moves on to the next truck every few seconds; when the race is over the demo starts again.
               cameraTarget = Math.floor(r.time / DEMO_CAMERA_S) % r.race.trucks.length;
-              if (end.done && !leaveDemo.done) { leaveDemo.done = true; context.router.go("race", params, { replace: true }); }
+              if (end.done && !leaveDemo.done) { leaveDemo.done = true; import("../../app/flow.js").then(({ goDemo }) => goDemo(context, { avoid: track.file, replace: true })); }
             } else {
               if (!watching) cameraTarget = end.target;
               if (end.justFinished) viewMode = 4;
@@ -1821,15 +1968,15 @@ async function mountRace(container, context, params, owned = []) {
         const focus = watching ? cameraTarget : 0;
         const modeState = latest.race?.extension ?? null;
         const mapMarks = extensionMapMarks(modeState, entrants.length);
-        minimap.set(shown.map((p, i) => ({ pos: inWorld(p.pos), heading: p.euler[2], place: latest.race?.trucks[i] ? latest.race.trucks[i].place : i + 1, label: nameLine(nameLabel(namesMode, entrants[i], truckName)), ...(mapMarks[i] ?? {}) })), dt,
-          { focus, state: latest.race?.summit?.states?.[focus] ?? 0, points: extensionMapPoints(modeState) });
+        minimap.set(shown.map((p, i) => ({ pos: inWorld(p.pos), heading: p.euler[2], place: latest.race?.trucks[i] ? latest.race.trucks[i].place : i + 1, truck: entrants[i] ? truckName(entrants[i].file) : "", driver: entrants[i]?.name ?? "", ...(mapMarks[i] ?? {}) })), dt,
+          { focus, player: spectator ? -1 : 0, state: latest.race?.summit?.states?.[focus] ?? 0, points: extensionMapPoints(modeState) });
       }
       if (latest.race && !finishing) showRace(latest.race, now);
       // Free roam has only the clock.
-      else if (freeRoam && !latest.race) hud.set([[t("Clock:"), formatRaceTime(latest.time ?? 0)]]);
+      else if (freeRoam && !latest.race) setHud([[t("Clock:"), formatRaceTime(latest.time ?? 0)]]);
     } else if (host.presenting) vr.place(startPose, dt, camera);
     // After the camera is placed: the arrow faces it, and a wall in front of it hides it.
-    if (extensionDress) {
+    if (extensionDress || looseWheels) {
       const extensionNow = latest?.race?.extension;
       const itIndex = extensionMarkerTarget(extensionNow);
       const itPose = itIndex >= 0 ? shownPoses?.[itIndex] : null;
@@ -1839,7 +1986,7 @@ async function mountRace(container, context, params, owned = []) {
       extensionScene.updateMarker(itPose && !insideIt ? itPose.pos : null, camera, now / 1000);
       // What the mode draws as the race runs (Combat's loose wheels, debris, smoke and the sparks of a bare axle).
       extensionScene.update?.({
-        state: extensionNow ?? null, poses: shownPoses, drawn, dt: paused ? 0 : dt, camera, effects: tireFx, flags: effectFlags(),
+        state: extensionNow ?? null, wheels: latest?.wheels ?? null, poses: shownPoses, drawn, dt: paused ? 0 : dt, camera, effects: tireFx, flags: effectFlags(),
         near: (pos) => nearestCopy(pos, shownPoses?.[cameraTarget]?.pos ?? pos), floorAt: (x, z, y) => tireFloor(x, z, y),
       });
     }

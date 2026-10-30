@@ -1,3 +1,3 @@
-openphotex 1.5.0 (8a5008d)
+openphotex 1.5.1 (f7e242e)
 Vendored build of https://github.com/juanputrerasm/OpenPhotex. Do not edit these files;
 change OpenPhotex and re-run its 'npm run vendor -- <this folder>'.

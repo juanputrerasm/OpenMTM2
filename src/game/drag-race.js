@@ -98,7 +98,7 @@ export function createDrag(checkpoints, used = [true, true], rules = "cp3") {
     gap: Math.max(0, local(frames[1], frames[2].pos).z),
     bounds: [frames.slice(4, 6), frames.slice(6, 8)],
     lanes: used.map((u) => ({
-      empty: !u, state: STAGED.NONE, stagedAt: null, dq: null, rerun: false, reaction: null, et: null, seen: {}, side: [], reverse: 0,
+      empty: !u, state: STAGED.NONE, stagedAt: null, dq: null, line: null, rerun: false, reaction: null, et: null, seen: {}, side: [], reverse: 0,
     })),
   };
 }
@@ -144,11 +144,11 @@ export function dragTick(drag, trucks, dt) {
     }
     if (!green) return;
     if (finish !== null && lane.state === STAGED.LAUNCHED) { lane.et = finish - drag.greenAt; return; }
-    // Outward over the lane's own centre line or edge.
+    // Outward over the lane's own centre line (the first bound) or edge (the second); `line` says which, for CP3's announcer.
     for (const [k, gate] of (drag.bounds[i] ?? []).entries()) {
       const l = local(gate, truck.centre);
       const inside = Math.abs(l.x) <= gate.half;
-      if (inside && lane.side[k] !== undefined && lane.side[k] < 0 && l.z >= 0) lane.dq = "out of lane";
+      if (inside && lane.side[k] !== undefined && lane.side[k] < 0 && l.z >= 0) { lane.dq = "out of lane"; lane.line = k === 0 ? "centre" : "edge"; }
       lane.side[k] = inside ? l.z : undefined;
     }
     lane.reverse = truck.reversing && drag.rules !== "mtm1" ? lane.reverse + dt : 0;

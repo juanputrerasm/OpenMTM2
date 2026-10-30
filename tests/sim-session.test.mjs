@@ -539,3 +539,39 @@ test("the kept ground boxes are the boxes OpenPhotex makes, one object a cell", 
     }
   }
 });
+
+test("Leave and watch: the player's truck races on under the full autopilot, and Ctrl+T cannot take it back", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const { buildCatalog } = await import("../src/worker/catalog.js");
+  const vfs = stockVfs();
+  const { tracks } = await buildCatalog(vfs);
+  const build = await buildTrackRender(vfs, tracks.find((x) => x.file === "TPARK.SIT").path);
+  const session = raceSession(build, { laps: 3, mode: "circuit", playerAutopilot: false });
+  session.step({ modeAction: "leave" });
+  assert.equal(session.race.trucks[0].player, false, "the autopilot drives");
+  assert.equal(session.command("autopilot"), 2, "and keeps driving");
+  assert.equal(session.race.trucks[0].player, false);
+});
+
+test("a saved race comes back as it was: each truck where it was, as fast, with its laps and times (MONSTER_EXE_ANALYSIS.md 16)", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const { buildCatalog } = await import("../src/worker/catalog.js");
+  const vfs = stockVfs();
+  const { tracks } = await buildCatalog(vfs);
+  const build = await buildTrackRender(vfs, tracks.find((x) => x.file === "TPARK.SIT").path);
+  const first = raceSession(build, { laps: 3, mode: "circuit", playerAutopilot: true });
+  for (let i = 0; i < 8 / STEP; i++) first.step({});
+  first.race.trucks[1].laps = 1;
+  first.race.trucks[1].lapTimes = [61.5];
+  const saved = first.command("savedRace");
+  assert.ok(saved.clock > 3, "after GO");
+  const second = raceSession(build, { laps: 3, mode: "circuit", playerAutopilot: true });
+  assert.equal(second.command("restoreRace", saved), true);
+  assert.equal(second.race.clock, saved.clock);
+  assert.deepEqual([...second.race.trucks[2].s.pos], saved.trucks[2].pos);
+  assert.deepEqual([...second.race.trucks[2].s.bvel], saved.trucks[2].bvel);
+  assert.equal(second.race.trucks[1].laps, 1);
+  assert.equal(second.race.trucks[1].raceTime, 61.5);
+  assert.equal(second.race.trucks[2].s.controls.gear, saved.trucks[2].gear);
+  // And it races on from there.
+  second.step({});
+  assert.ok(second.race.clock > saved.clock);
+});

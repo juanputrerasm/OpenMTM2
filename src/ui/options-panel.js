@@ -23,7 +23,8 @@ import { graphicsHardware } from "../app/graphics-hardware.js";
 import { VISUAL_OPTIONS } from "../game/visuals.js";
 import { CPU_NAMES, CPU_NAME_MAX, cpuNames } from "../game/race-setup.js";
 import { SHORT_VIEW_CHOICES, shortViews } from "../game/cameras.js";
-import { EXTENSIONS, setExtensionSetting, settingsForExtension } from "../game/extensions/loader.js";
+import { EXTENSIONS, REPAIR_CHOICES, setExtensionSetting, settingsForExtension } from "../game/extensions/loader.js";
+import { AI_SPEED, aiSpeedPercent, effectiveAiSpeed } from "../game/ai-speed.js";
 
 /*
   The controls edit a draft. Save puts it to use and stores it; Close warns first when the draft differs from what is
@@ -132,6 +133,28 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
     }), out), title);
   };
   const percent = (v) => `${Math.round(v * 100)}%`;
+  const wheelsDamageTitle = msg("Hard hits, bad landings and rolls wear the wheels and dent the body; a worn wheel or a violent crash knocks one off, a huge one a whole axle. The truck limps on until they come back on, or press X for the pit crew (two seconds standing still; it fixes the body too). The timing board's Wheels line shows what is left before a wheel comes off, and N shows every truck's. Needs Crash damage. Not in Combat (it has its own), a classic network game or under MTM1 physics. Online rooms race by the owner's setting. From the next race");
+  /** Wheels damage's switch, which only Crash damage on allows (it follows that switch). */
+  const wheelsDamageRow = () => {
+    const input = el("input", {
+      type: "checkbox", class: "opt-switch", checked: !!settings.looseWheels && settings.crashDamage !== false, disabled: settings.crashDamage === false,
+      "aria-label": t("Wheels damage"), "data-opt": "Wheels damage",
+      onchange: (event) => { settings.looseWheels = event.target.checked; save(); },
+    });
+    wheelsDamageInput = input;
+    return row(msg("Wheels damage"), input, wheelsDamageTitle);
+  };
+  let wheelsDamageInput = null;
+  // AI Speed (Community Patch 3, game/ai-speed.js). A running tournament keeps its own value: shown, locked.
+  const aiSpeedTitle = msg("Community Patch 3's AI Speed: how fast the computer trucks drive, from 70 to 130 percent; 100 is the standard. A tournament keeps the value it started with");
+  const aiSpeedRow = () => {
+    const held = effectiveAiSpeed({ setting: settings.aiSpeed, tournament: context.tournament?.aiSpeed ?? null });
+    if (held.locked) return row(msg("AI Speed"), el("output", { class: "opt-value", "data-opt": "AI Speed" }, t("<<1>>% (locked)", held.percent)), aiSpeedTitle);
+    return slider(msg("AI Speed"), {
+      min: AI_SPEED.min, max: AI_SPEED.max, step: AI_SPEED.step, value: aiSpeedPercent(settings.aiSpeed), format: (v) => `${v}%`,
+      set: (v) => { settings.aiSpeed = v; save(); }, title: aiSpeedTitle,
+    });
+  };
   const sound = (label, key) => slider(label, {
     min: 0, max: 1, step: 0.05, value: settings.sound[key], format: percent,
     set: (v) => { settings.sound = { ...settings.sound, [key]: v }; save(); },
@@ -285,6 +308,32 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       stored = JSON.stringify(live);
       await showAlert(t, t("Settings imported."));
       closeNow();
+    });
+    input.click();
+  };
+
+  /**
+   * Load race: a saved race (`*.mtm`, Monster Truck Madness 2's own or the pause menu's Save race; game/saved-race.js)
+   * started where it was left. The dialog closes and the race starts.
+   */
+  const loadRace = () => {
+    const input = el("input", { type: "file", accept: ".mtm" });
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const [{ readSavedGame }, catalog] = await Promise.all([import("../game/saved-race.js"), context.assets.call("catalog")]);
+        const trucks = catalog.trucks.filter((item) => !item.hidden);
+        const race = readSavedGame(new Uint8Array(await file.arrayBuffer()), { tracks: catalog.tracks, trucks });
+        if (unsaved() && !await showConfirm(t, t("The changes not saved here are lost."))) return;
+        closeNow();
+        context.router.go("race", {
+          track: race.track, mode: race.track.raceType, laps: race.laps, difficulty: 1, opponents: race.opponents, weather: race.weather,
+          truck: race.truck, trucks, setup: race.setup ?? undefined, resume: { saved: race.saved, damage: race.damage },
+        }, { replace: true });
+      } catch (error) {
+        await showAlert(t, t("The race could not be loaded: <<1>>", t(error.message)));
+      }
     });
     input.click();
   };
@@ -533,7 +582,20 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       row(msg("Physics"), el("select", { "aria-label": t("Physics"), "data-opt": "Physics", onchange: (event) => { settings.physics = event.target.value; save(); } },
         ...PHYSICS_MODELS.map((m) => el("option", { value: m.id, selected: m.id === physicsModel(settings.physics).id, title: t(m.note) }, t(m.label)))),
       msg("The rules the trucks are driven by, from the next race on. Monster Truck Madness is the 1996 game: tires that touch throw trucks twice as hard, water stops a truck, weather does not change the grip, no crash damage, and its drag rules")),
-      toggle(msg("Automatic gears"), "autoShift"), toggle(msg("Crash damage"), "crashDamage", msg("Trucks dent where they are hit")),
+      toggle(msg("Automatic gears"), "autoShift"), row(msg("Crash damage"), el("input", {
+        type: "checkbox", class: "opt-switch", checked: settings.crashDamage !== false, "aria-label": t("Crash damage"), "data-opt": "Crash damage",
+        onchange: (event) => {
+          settings.crashDamage = event.target.checked;
+          // Wheels damage goes with it.
+          if (!settings.crashDamage) settings.looseWheels = false;
+          if (wheelsDamageInput) { wheelsDamageInput.disabled = !settings.crashDamage; wheelsDamageInput.checked = !!settings.looseWheels; }
+          save();
+        },
+      }), msg("Trucks dent where they are hit")),
+      // Wheels damage (game/extensions/loose-wheels.js), an OpenMTM2 addition: Combat's wheels in every race. A part of
+      // crash damage: it can be switched on only with Crash damage on.
+      wheelsDamageRow(),
+      choose(msg("Wheels back on after"), "looseWheelsRepairS", [msg("5 seconds"), msg("8 seconds"), msg("12 seconds"), msg("Never (X only)")], [...REPAIR_CHOICES]),
       row(msg("Terrain overlap"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.terrainOverlap !== false, "aria-label": t("Terrain overlap"), "data-opt": "Terrain overlap", onchange: (event) => { settings.terrainOverlap = event.target.checked; save(); } }),
         msg("The ground tiles overlap by two pixels, as Monster Truck Madness 2 draws them. Off, they meet edge to edge, as MTM1 draws them. Some HD texture packs need it on. From the next race")),
       toggle(msg("Drag auto stage"), "autoStage", msg("Drag races: the truck drives itself to the staging beams. Off, you stage it yourself; the Auto Stage key (T) then does it for one pass")),
@@ -547,7 +609,8 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       msg("How many computer trucks race by default; the Races screen picks which")),
       // The game's videos (game/videos.js): off and greyed while the install has none.
       introVideosSwitch, resultVideosSwitch,
-      copyVideosRow,
+      // Monster Truck Madness 2's saved race (the pause menu's Save race, or the game's own .mtm).
+      row(msg("Saved race"), button(msg("Load race..."), () => loadRace()), msg("Start a race saved with Save race in the pause menu, or by Monster Truck Madness 2, where it was left")),
       menus,
       // Fullscreen, where the browser can do it and the game is not installed (ui/display-mode.js), at the page's foot.
       ...(() => { const button = fullscreenButton(t, "opt-fullscreen-button"); return button ? [el("div", { class: "opt-actions opt-fullscreen" }, button)] : []; })(),
@@ -656,45 +719,51 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         preset(msg("MTM1 Classic preset"), applyMtm1Classic, "Monster Truck Madness 1 as it was: MTM1 sky, trucks apart, original backdrops shown, MTM1 particles and sounds with no dust or sparks, the 1996 physics, no terrain overlap, smooth textures, and the enhanced graphics off. Save to keep it."),
         preset(msg("MTM2 Classic preset"), applyMtm2Classic, "Monster Truck Madness 2 as it was: no MTM1 option, original backdrops, MTM2 classic dust (the game's few puffs), no sparks or water splashes, no CP3 HD weather or reflections, MTM2's water and truck reflections, backdrops, and the enhanced graphics off. Save to keep it."),
         preset(msg("OpenMTM2 preset"), applyOpenMtm2, "The port's own picture: no MTM1 or MTM2 option, the track backdrops, tire tracks, water splashes, normal dust puffs and sparks, every enhanced part including the glossy paint, and CP3 terrain detail, HD weather and reflections. Save to keep it.")),
-      el("h3", {}, t("Display")),
+      el("h3", {}, t("MTM1")),
+      toggle(msg("No overlap on MTM1 tracks"), "mtm1NoOverlap", msg("With Terrain overlap on: the ground tiles of a Monster Truck Madness 1 track still meet edge to edge, as MTM1 draws them; the other tracks keep the two-pixel overlap. From the next race")),
+      toggle(msg("MTM1 particles"), "mtm1Particles", msg("Monster Truck Madness 1's own particles and tracks: single points of the ground's colour thrown by the tires, which mark the ground where they land, and tracks darkened into the ground, in place of the dust, the spray and the tire tracks. From the next race")),
+      toggle(msg("MTM1 sounds"), "mtm1Sounds", msg("Monster Truck Madness 1's skids from MTM2's SOUND.POD: its corner, wheelspin and brake skids. MTM1's engine is not in MTM2's archives; the engine stays MTM2's")),
+      toggle(msg("MTM1 sky"), "mtm1EarthSky", msg("Monster Truck Madness 1's flat sky on every track: an MTM1 track's own, and EARTHSKY on the others, in the weathers without a sky of their own. Needs MTM1's sky files mounted (EARTHSKY.ACT and ALIENSKY.RAW, in MTM1's GAME.POD). From the next race")),
+      toggle(msg("Keep MTM1 trucks apart"), "mtm1TrucksApart", msg("Monster Truck Madness 1 trucks named like MTM2's (BIGFOOT.TRK and the rest) are listed too, as \"Bigfoot (MTM1)\", and drawn from MTM1's own files. Off, a name goes to the archive mounted first, MTM2's, as in the game")),
+      el("h3", {}, t("MTM2")),
+      toggle(msg("Original backdrops"), "originalBackdrops", msg("The game's own backdrops in place of HD ones (Community Patch 3's backdropsHD.pod), wherever an archive still has the original. From the next race")),
+      // MTM2's own two (MONSTER.INI reflectionFlag and truckReflectionFlag), for the game's water and every truck.
+      toggle(msg("MTM2 Water reflections"), "waterReflections", msg("MTM2's: the world mirrored in the game's water (\"Reflective water\" has its own). From the next race")),
+      toggle(msg("MTM2 Truck reflections"), "truckReflections", msg("MTM2's: the clouds mirrored on the trucks' bodies, or the sky in Rain, Dusk and Night; none in fog or Pitch Black. From the next race")),
+      toggle(msg("MTM2 classic dust"), "greyDust", msg("Wheels' dust and collisions' smoke in the game's own grey puff colour, as MTM2 draws them, in place of the port's earth-coloured dust and dark smoke. From the next race")),
+      toggle(msg("Ground box grain"), "groundBoxGrain", msg("With Ground detail on: its grain on the ground boxes too, the walls, buildings and signs built of them. Off, they keep their textures plain. From the next race")),
+      row(msg("Opponent frame rate"), el("select", { "aria-label": t("Opponent frame rate"), "data-opt": "Opponent frame rate", onchange: (event) => { settings.opponentFps = Number(event.target.value); save(); } },
+        ...[15, 20, 24, 30, 45, 60].map((n) => el("option", { value: n, selected: n === (settings.opponentFps ?? 30) }, `${n} FPS`))),
+      msg("The frame rate the computer trucks drive as if the game ran at: they steer by the frame, so it changes how they handle. 30 is the standard")),
+      toggle(msg("Sonic trucks"), "sonicTrucks", msg("Professional only: the computer trucks drive as on a Sonic track, on every track")),
+      toggle(msg("Full Autopilot"), "fullAutopilot", msg("The truck drives itself")),
+      row(msg("Computer drivers"), button(msg("Names..."), () => editDriverNames()), "The names of the computer drivers"),
+      toggle(msg("Show hidden tracks"), "showHiddenTracks"),
+      toggle(msg("Kooky horn"), "kookyHorn", msg("Three horns instead of one")),
+      copyVideosRow,
+      toggle(msg("Commentary truck names"), "commentaryTruckNames", msg("The text commentary names the trucks, as the game's does, in place of their drivers. From the next race")),
+      toggle(msg("CP3 voice commentary"), "cp3Commentary", msg("Community Patch 3's announcer: many more lines, calls for the final lap, the weather, road signs, trains, the Summit Rumble and drag passes, and shorter pauses between lines. The drag calls need Community Patch 3's Sound.POD. From the next race")),
+      aiSpeedRow(),
+      toggle(msg("CP3 Terrain detail"), "terrainDetail", msg("Community Patch 3 tracks: detail normals where the track paints a mask, and HD ground normal maps (Enhanced look)")),
+      row(msg("CP3 HD weather"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.hdWeather !== false, "aria-label": t("CP3 HD weather"), "data-opt": "CP3 HD weather", onchange: (event) => { settings.hdWeather = event.target.checked; save(); } }),
+        msg("Community Patch 3's HD skies for Rain, Dusk and Night and the older levels' clouds: the pictures in the game folder's WeatherArt folder, or the port's own copy of the community's set. Off: the game's own sky art")),
+      toggle(msg("CP3 Reflections"), "reflections", msg("Community Patch 3 materials: the sky reflected in glass and paint (Enhanced look)")),
+      el("h3", {}, t("CPR")),
+      // CART Precision Racing's Skill Level (docs/CPR_PHYSICS.md 14.3; game/cpr-driver.js `cprAids`).
+      row(msg("CPR skill level"), el("select", { "aria-label": t("CPR skill level"), "data-opt": "CPR skill level", onchange: (event) => { settings.cprSkill = event.target.value; save(); } },
+        ...[["rookie", msg("Rookie")], ["intermediate", msg("Intermediate")], ["professional", msg("Professional")]]
+          .map(([value, label]) => el("option", { value, selected: (settings.cprSkill ?? "rookie") === value }, t(label)))),
+      msg("Under the CART Precision Racing physics, how much the game helps the player's car, as its Driving Aids. Rookie: full grip, Auto-Brake, Stay on track, anti-lock brakes, traction control and Spin Correction. Intermediate: four fifths of the grip, with Stay on track, anti-lock brakes, traction control and Spin Correction. Professional: four fifths of the grip, less still on grass, dirt and rocks, and no aids")),
+      el("h3", {}, t("EVO")),
       // 4x4 Evolution's grass: how far around the camera it is drawn (render/evo-grass.js `GRASS_RADII`).
       slider(msg("Evo grass"), {
         min: 0, max: GRASS_LEVEL_NAMES.length - 1, step: 1, value: grassLevel(settings), format: (v) => GRASS_LEVEL_NAMES[v],
         set: (v) => { settings.evoGrassRange = v; settings.evoGrass = v > 0; save(); },
         title: msg("4x4 Evolution tracks: how far around the camera the grass is drawn, on every tile its .TEX marks for vegetation, pressed down under the trucks. Near is about the game's own. From the next race"),
       }),
-      toggle(msg("Ground box grain"), "groundBoxGrain", msg("With Ground detail on: its grain on the ground boxes too, the walls, buildings and signs built of them. Off, they keep their textures plain. From the next race")),
-      toggle(msg("No overlap on MTM1 tracks"), "mtm1NoOverlap", msg("With Terrain overlap on: the ground tiles of a Monster Truck Madness 1 track still meet edge to edge, as MTM1 draws them; the other tracks keep the two-pixel overlap. From the next race")),
-      toggle(msg("MTM1 particles"), "mtm1Particles", msg("Monster Truck Madness 1's own particles and tracks: single points of the ground's colour thrown by the tires, which mark the ground where they land, and tracks darkened into the ground, in place of the dust, the spray and the tire tracks. From the next race")),
-      toggle(msg("Original backdrops"), "originalBackdrops", msg("The game's own backdrops in place of HD ones (Community Patch 3's backdropsHD.pod), wherever an archive still has the original. From the next race")),
-      toggle(msg("MTM1 sounds"), "mtm1Sounds", msg("Monster Truck Madness 1's skids from MTM2's SOUND.POD: its corner, wheelspin and brake skids. MTM1's engine is not in MTM2's archives; the engine stays MTM2's")),
-      toggle(msg("MTM1 sky"), "mtm1EarthSky", msg("Monster Truck Madness 1's flat sky on every track: an MTM1 track's own, and EARTHSKY on the others, in the weathers without a sky of their own. Needs MTM1's sky files mounted (EARTHSKY.ACT and ALIENSKY.RAW, in MTM1's GAME.POD). From the next race")),
-      // MTM2's own two (MONSTER.INI reflectionFlag and truckReflectionFlag), for the game's water and every truck.
-      toggle(msg("MTM2 Water reflections"), "waterReflections", msg("MTM2's: the world mirrored in the game's water (\"Reflective water\" has its own). From the next race")),
-      toggle(msg("MTM2 Truck reflections"), "truckReflections", msg("MTM2's: the clouds mirrored on the trucks' bodies, or the sky in Rain, Dusk and Night; none in fog or Pitch Black. From the next race")),
-      toggle(msg("MTM2 classic dust"), "greyDust", msg("Wheels' dust and collisions' smoke in the game's own grey puff colour, as MTM2 draws them, in place of the port's earth-coloured dust and dark smoke. From the next race")),
       toggle(msg("Evo particles"), "evoParticles", msg("4x4 Evolution tracks: the game's tire debris, in the ground's colour, by surface (gravel, grass, sand, mud, snow) from spinning and sliding tires, and the leaves on Autumn. From the next race")),
       toggle(msg("Evo AI life"), "evoLife", msg("4x4 Evolution tracks: the game's AI life, four flocks of birds that follow the computer drivers' line, circle, land and take off when a truck comes near, as the game's ailife setting. From the next race")),
       toggle(msg("Evo forest"), "evoForest", msg("4x4 Evolution tracks without a vegetation file (the first game's): a forest generated over every tile its .TEX marks for trees, as 4x4 Evolution 2 does, from the track's own tree models. From the next race")),
-      toggle(msg("CP3 Terrain detail"), "terrainDetail", msg("Community Patch 3 tracks: detail normals where the track paints a mask, and HD ground normal maps (Enhanced look)")),
-      row(msg("CP3 HD weather"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.hdWeather !== false, "aria-label": t("CP3 HD weather"), "data-opt": "CP3 HD weather", onchange: (event) => { settings.hdWeather = event.target.checked; save(); } }),
-        msg("Community Patch 3's HD skies for Rain, Dusk and Night and the older levels' clouds: the pictures in the game folder's WeatherArt folder, or the port's own copy of the community's set. Off: the game's own sky art")),
-      toggle(msg("CP3 Reflections"), "reflections", msg("Community Patch 3 materials: the sky reflected in glass and paint (Enhanced look)")),
-      el("h3", {}, t("Game")),
-      row(msg("Opponent frame rate"), el("select", { "aria-label": t("Opponent frame rate"), "data-opt": "Opponent frame rate", onchange: (event) => { settings.opponentFps = Number(event.target.value); save(); } },
-        ...[15, 20, 24, 30, 45, 60].map((n) => el("option", { value: n, selected: n === (settings.opponentFps ?? 30) }, `${n} FPS`))),
-      msg("The frame rate the computer trucks drive as if the game ran at: they steer by the frame, so it changes how they handle. 30 is the standard")),
-      toggle(msg("Keep MTM1 trucks apart"), "mtm1TrucksApart", msg("Monster Truck Madness 1 trucks named like MTM2's (BIGFOOT.TRK and the rest) are listed too, as \"Bigfoot (MTM1)\", and drawn from MTM1's own files. Off, a name goes to the archive mounted first, MTM2's, as in the game")),
-      toggle(msg("Sonic trucks"), "sonicTrucks", msg("Professional only: the computer trucks drive as on a Sonic track, on every track")),
-      row(msg("Computer drivers"), button(msg("Names..."), () => editDriverNames()), "The names of the computer drivers"),
-      toggle(msg("Full Autopilot"), "fullAutopilot", msg("The truck drives itself")),
-      // CART Precision Racing's Skill Level (docs/CPR_PHYSICS.md 14.3; game/cpr-driver.js `cprAids`).
-      row(msg("CPR skill level"), el("select", { "aria-label": t("CPR skill level"), "data-opt": "CPR skill level", onchange: (event) => { settings.cprSkill = event.target.value; save(); } },
-        ...[["rookie", msg("Rookie")], ["intermediate", msg("Intermediate")], ["professional", msg("Professional")]]
-          .map(([value, label]) => el("option", { value, selected: (settings.cprSkill ?? "rookie") === value }, t(label)))),
-      msg("Under the CART Precision Racing physics, how much the game helps the player's car, as its Driving Aids. Rookie: full grip, Auto-Brake, Stay on track, anti-lock brakes, traction control and Spin Correction. Intermediate: four fifths of the grip, with Stay on track, anti-lock brakes, traction control and Spin Correction. Professional: four fifths of the grip, less still on grass, dirt and rocks, and no aids")),
-      toggle(msg("Show hidden tracks"), "showHiddenTracks"),
-      toggle(msg("Kooky horn"), "kookyHorn", msg("Three horns instead of one")),
       el("h3", {}, t("Cameras")),
       row(msg("Short camera cycle"), el("span", { class: "opt-slider" },
         el("input", { type: "checkbox", class: "opt-switch", checked: !!settings.shortViewCycle, "aria-label": t("Short camera cycle"), "data-opt": "Short camera cycle", onchange: (event) => { settings.shortViewCycle = event.target.checked; save(); } }),
@@ -793,6 +862,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
     const shown = {
       "Physics": () => physicsModel(settings.physics).id, "Smooth textures": () => settings.look === "enhanced",
       "Enhanced graphics": () => graphicsChoice(settings.graphics), "Terrain overlap": () => settings.terrainOverlap !== false,
+      "Crash damage": () => settings.crashDamage !== false, "Wheels damage": () => !!settings.looseWheels && settings.crashDamage !== false,
       "CP3 HD weather": () => settings.hdWeather !== false, "Dust": () => dustLevel(settings), "Sparks": () => sparkLevel(settings), "Evo grass": () => grassLevel(settings),
     };
     // A slider's figure beside it, in its own words.
@@ -804,6 +874,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       if (control.type === "checkbox") control.checked = !!value; else control.value = String(value);
       if (control.type === "range" && named[label] && control.nextElementSibling) control.nextElementSibling.textContent = t(named[label][value]);
     }
+    if (wheelsDamageInput) wheelsDamageInput.disabled = settings.crashDamage === false;
     showScenery();
   }
 

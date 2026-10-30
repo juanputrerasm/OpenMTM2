@@ -163,7 +163,8 @@ export function createCombatScene(scene) {
      * point; `floorAt(x, z, y)` the ground under a point.
      */
     update({ state, poses, drawn, dt, effects, flags, near, floorAt }) {
-      if (!state || state.mode !== "combat" || !poses) return;
+      // Combat's state, or Loose Wheels' in Combat's shape (game/extensions/loose-wheels.js `wheelView`).
+      if (!state || (state.mode !== "combat" && state.mode !== "loose-wheels") || !poses) return;
       clock += dt;
       effectsNow = effects;
       flagsNow = flags;
@@ -173,7 +174,7 @@ export function createCombatScene(scene) {
           const share = truck.wheels[w];
           drawn[i]?.setTire?.(w, { hidden: share < 0, wobble: share >= 0 && share < WOBBLE_UNDER ? 1 - share / WOBBLE_UNDER : 0 });
         }
-        const lost = axlesLost(truck), shown = axlesShown.get(i) ?? [false, false];
+        const lost = truck.axles ?? axlesLost(truck), shown = axlesShown.get(i) ?? [false, false];
         lost.forEach((gone, k) => {
           drawn[i]?.setAxle?.(k, { hidden: gone });
           const pose = poses[i];

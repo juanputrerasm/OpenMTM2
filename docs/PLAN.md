@@ -29,8 +29,9 @@ behaviour the port adds is named as an addition, never passed off as the game's.
 
 ### The original game, still missing or approximated
 
-1. **Saved races.** The game can save a race and carry it on later (`*.mtm`, "Saving a Race for Later Play" in its
-   manual; RACE.CPP `0x41a557`, `0x41aea2`, header `MonsterTruckMadness 2.00`). Not traced, not built.
+1. **Saved races.** Traced and built (MONSTER_EXE_ANALYSIS.md 16, "Saved games"; pause menu, Save race; Options,
+   Game, Load race). Left: a race saved by the retail game and loaded here, and the other way round, to be tested;
+   the port keeps only the running lap's checkpoint times and does not save the objects' moved positions.
 2. **Darkness in the dark weathers.** Dusk, Night and Pitch Black darken the cockpit art by the traced shade levels;
    how they darken the 3D world (the software renderer's fog tables) is not traced, and the port approximates it
    (`game/weather.js`).
@@ -84,7 +85,11 @@ behaviour the port adds is named as an addition, never passed off as the game's.
   the detail texture and wakes; the handbrake, gears past third and transfer case keys; Evolution garage settings;
   CPR's lamps, cockpits and dents. Terminal Velocity, Fury3 and Hellbender objectives need their executables
   read.
-- **Community Patch 3:** a view-angle Fresnel term, `.TXV` track version records.
+- **Community Patch 3:** a view-angle Fresnel term, `.TXV` track version records. From the survey
+  (`CP3_EXE_ANALYSIS.md` 3): trace and port `aiMode`, `aiCornerMargin`, `aiTerrainCaution`, the computer trucks' horn
+  and yee-haw switches, tournament driver form, `centreCommentary` and `commentarySilence` as a setting.
+- **Wheels damage:** online play (each machine sends its trucks' wheels, a room protocol addition), replays, and the
+  `popAt` and `axleAt` figures tuned in play.
 - **The wrapping world:** precision after hundreds of worlds in one direction; box against box, a Summit zone or a
   drag gate across the seam.
 - **VR:** a run on a real headset, hand tracking, the remaining menus in the headset.

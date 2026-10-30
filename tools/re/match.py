@@ -74,6 +74,7 @@ class Target:
 
 TARGETS = {
     "mtm1": ("mtm1/out", "~/games/mtm1", "MONSTER.EXE"),
+    "mtm1beta": ("mtm1beta/out", "~/Downloads/mtm_beta", "MONSTER.EXE"),
     "mtm2": ("out", "~/games/mtm2", "MONSTER.EXE"),
     "evo1": ("evo1/out", "~/games/evo1", "4x4LE.exe"),
     "evo2": ("evo2/out", "~/games/evo2", "4x42.exe"),

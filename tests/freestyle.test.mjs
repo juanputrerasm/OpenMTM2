@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CATEGORIES, FREESTYLE_EXTENSION, JUDGE, createFreestyle, freestyleEnd, freestyleScore, freestyleStep, momentText } from "../src/game/extensions/freestyle.js";
+import { CATEGORIES, FREESTYLE_EXTENSION, JUDGE, TRICK_PHYSICS, createFreestyle, freestyleEnd, freestyleRules, freestyleScore, freestyleStep, momentText } from "../src/game/extensions/freestyle.js";
+import { extensionSimRules } from "../src/game/extensions/session-loader.js";
+import { mtm2Sim as S } from "../src/vendor/openphotex/index.js";
 import { extensionById, opponentsFor, soloExtension } from "../src/game/extensions/loader.js";
-import { extensionHud, extensionResult, extensionResultTime } from "../src/game/extensions/race-loader.js";
+import { extensionHud, extensionResult, extensionResultTime, prepareExtensionRace } from "../src/game/extensions/race-loader.js";
 import { createStrings } from "../src/game/strings.js";
 import { skipWithoutStock, stockVfs } from "./helpers/stock.mjs";
 
@@ -53,7 +55,7 @@ test("freestyle: a jump scores by airtime, height, length and verticality; a hug
   assert.equal(g.raw.spectacular, 1);
 });
 
-test("freestyle: a wheelie held a second scores, a short one does not; a slap wheelie follows a landing", () => {
+test("freestyle: a wheelie held long enough scores, a short one does not; a slap wheelie follows a landing", () => {
   const g = createFreestyle(120);
   const up = [false, false, true, true];
   run(g, 0.5, () => sample({ wheels: up, forwardY: 0.5 }));
@@ -68,6 +70,33 @@ test("freestyle: a wheelie held a second scores, a short one does not; a slap wh
   run(g, 1.2, () => sample({ wheels: up, forwardY: 0.5 }));
   freestyleStep(g, DT, sample());
   assert.equal(lastTrick(g), "slapWheelie");
+});
+
+test("freestyle: a wheelie counts from 10 degrees up once it reaches 20, held three quarters of a second", () => {
+  const up = [false, false, true, true];
+  // 0.8 s from 0.2 up, steepest 0.5: a wheelie, timed from the start.
+  const g = createFreestyle(120);
+  run(g, 0.8, (time) => sample({ wheels: up, forwardY: time < 0.4 ? 0.2 : 0.5 }));
+  freestyleStep(g, DT, sample());
+  assert.equal(lastTrick(g), "wheelie");
+  assert.ok(g.moments.at(-1).held >= JUDGE.wheelieMinS);
+  // Two seconds that never reach 0.35: none.
+  const shallow = createFreestyle(120);
+  run(shallow, 2, () => sample({ wheels: up, forwardY: 0.3 }));
+  freestyleStep(shallow, DT, sample());
+  assert.equal(shallow.raw.tricks, 0);
+  // Under 10 degrees is not on the rear wheels yet: 0.6 s at 0.15, then 0.5 s at 0.5, is too short.
+  const late = createFreestyle(120);
+  run(late, 0.6, () => sample({ wheels: up, forwardY: 0.15 }));
+  run(late, 0.5, () => sample({ wheels: up, forwardY: 0.5 }));
+  freestyleStep(late, DT, sample());
+  assert.equal(late.raw.tricks, 0);
+  // A sky wheelie: 0.3 s past 0.77 is enough.
+  const sky = createFreestyle(120);
+  run(sky, 0.5, () => sample({ wheels: up, forwardY: 0.5 }));
+  run(sky, 0.35, () => sample({ wheels: up, forwardY: 0.8 }));
+  freestyleStep(sky, DT, sample());
+  assert.equal(lastTrick(sky), "skyWheelie");
 });
 
 test("freestyle: a nose wheelie, a sky wheelie and a moonwalk", () => {
@@ -93,10 +122,50 @@ test("freestyle: donuts count whole turns", () => {
   assert.equal(g.donut.turns, 2);
   assert.equal(g.raw.tricks, 2 * JUDGE.donutPoints);
   assert.equal(momentText(t, g.moments.at(-1)), "Donuts x2!");
-  // Too slow a turn is no donut.
+  // Too slow a turn is no donut: 1 rad/s takes 6.3 s a turn, past the 4.5 s window.
   const slow = createFreestyle(120);
-  run(slow, 6, () => sample({ speed: 15, rates: [0, 0, 1] }));
+  run(slow, 12, () => sample({ speed: 15, rates: [0, 0, 1] }));
   assert.equal(slow.raw.tricks, 0);
+  // The rate may wobble below any figure: an average of 1.5 rad/s (4.2 s a turn) counts.
+  const wobble = createFreestyle(120);
+  run(wobble, 4.3, (time) => sample({ speed: 25, rates: [0, 0, 1.5 + 0.6 * Math.sin(5 * time)] }));
+  assert.equal(wobble.donut.turns, 1);
+});
+
+test("freestyle: a donut set scores at most five turns, and turning back starts a new one", () => {
+  const g = createFreestyle(120);
+  run(g, 20, () => sample({ speed: 25, rates: [0, 0, -2.5] }));
+  assert.ok(g.donut.turns >= 7);
+  assert.equal(g.raw.tricks, JUDGE.donutMost * JUDGE.donutPoints);
+  // Half a turn one way and half the other is no donut.
+  const s = createFreestyle(120);
+  run(s, 1.5, () => sample({ speed: 25, rates: [0, 0, 2.5] }));
+  run(s, 1.5, () => sample({ speed: 25, rates: [0, 0, -2.5] }));
+  assert.equal(s.raw.tricks, 0);
+  // Stopping ends a set: five more turns score after it.
+  run(g, 1, () => sample({ speed: 0, rates: [0, 0, 0] }));
+  run(g, 3, () => sample({ speed: 25, rates: [0, 0, 2.5] }));
+  assert.equal(g.raw.tricks, (JUDGE.donutMost + 1) * JUDGE.donutPoints);
+});
+
+test("freestyle: Trick physics is on by default, under MTM2's model only, and can be turned off", () => {
+  const setting = FREESTYLE_EXTENSION.settings.find((x) => x.key === "trickPhysics");
+  assert.equal(setting.default, true);
+  const on = freestyleRules({ mode: "freestyle" }, S.MTM2_RULES);
+  assert.equal(on.airPitchControl, TRICK_PHYSICS.airPitchControl);
+  assert.equal(on.airRotationDamping, TRICK_PHYSICS.airRotationDamping);
+  assert.equal(on.groundYawDamping, TRICK_PHYSICS.groundYawDamping);
+  assert.equal(on.waterDragDensity, S.MTM2_RULES.waterDragDensity);
+  assert.equal(freestyleRules({ mode: "freestyle", trickPhysics: false }, S.MTM2_RULES), S.MTM2_RULES);
+  assert.equal(freestyleRules({ mode: "freestyle" }, S.MTM1_RULES), S.MTM1_RULES);
+  // Through the loader: Freestyle's, and every other mode keeps the race's.
+  assert.equal(extensionSimRules({ mode: "freestyle" }, S.MTM2_RULES).airPitchControl, TRICK_PHYSICS.airPitchControl);
+  assert.equal(extensionSimRules({ mode: "tag" }, S.MTM2_RULES), S.MTM2_RULES);
+  assert.equal(extensionSimRules(null, S.MTM2_RULES), S.MTM2_RULES);
+  // The setup screen's setting goes to the simulation.
+  const sim = (settings) => prepareExtensionRace(FREESTYLE_EXTENSION, { entrants: [{}], length: 2, settings }).simulation;
+  assert.equal(sim({}).trickPhysics, true);
+  assert.equal(sim({ trickPhysics: false }).trickPhysics, false);
 });
 
 test("freestyle: a back flip landed on the wheels scores and is spectacular; one landed on the roof is a crash", () => {
@@ -113,6 +182,14 @@ test("freestyle: a back flip landed on the wheels scores and is spectacular; one
   run(c, 2, () => sample({ wheels: NONE, up: -1 }));
   assert.equal(c.crashes, 1);
   assert.ok(!kinds(c).includes("backFlip"));
+});
+
+test("freestyle: a flip is named by the way it turned, not by where the nose went first", () => {
+  // Off a ramp lip the nose is up first, then the truck turns nose down all the way round: a front flip.
+  const g = createFreestyle(120);
+  run(g, 1.2, (time) => sample({ wheels: NONE, rates: [0, 2 * Math.PI / 1.2, 0], forwardY: Math.cos(2 * Math.PI * time / 1.2 + 0.6) * 0.8 + 0.2 }));
+  freestyleStep(g, DT, sample());
+  assert.equal(lastTrick(g), "frontFlip");
 });
 
 test("freestyle: a save is getting back on four wheels from the edge without going over", () => {
@@ -229,4 +306,6 @@ test("Freestyle in the simulation worker: the clock runs out and the run is judg
   assert.ok(r.race.extension.done);
   assert.ok(r.race.extension.score > 0 && r.race.extension.score <= 10, `score ${r.race.extension.score}`);
   assert.equal(r.race.trucks[0].score, r.race.extension.score);
+  // Trick physics reaches the ground the trucks drive on.
+  assert.equal(session.ground.rules.airPitchControl, TRICK_PHYSICS.airPitchControl);
 });

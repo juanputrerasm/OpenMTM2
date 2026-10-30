@@ -4,7 +4,79 @@ What was built, milestone by milestone and stage by stage, as the plan recorded 
 current state and everything still open are in [PLAN.md](PLAN.md); a "Not done", "Left" or "Pending" line below is
 as it stood when it was written, and the plan's open items list is the one kept up to date.
 
-## Unreleased (after v0.6.3)
+## v0.6.4 (test build; player notes in releases/v0.6.4.txt)
+
+- **Freestyle tricks fitted to MTM2's physics** (docs/EXTENSIONS.md, "Tricks on MTM2's physics"): a wheelie or nose
+  wheelie is timed from 10 degrees, needs 20 at its steepest and 0.75 s (was 20 throughout and 1 s for a wheelie); a
+  sky wheelie needs 50 degrees for 0.3 s (was 58 for 0.5 s). A donut is a whole turn one way within 4.5 s (was 1.8
+  rad/s at every step, which no truck holds), at most 5 scoring in a set. A flip is named by the way it turned (off a
+  ramp lip every front flip was called a back flip). On the same scripted runs wheelies went from 7 to 17, moonwalks
+  4 to 17, sky wheelies 29 to 41, nose wheelies 19 to 43.
+- **Freestyle Trick physics** (a run setting, on by default; docs/EXTENSIONS.md, "Trick physics"): OpenPhotex's new
+  optional handling under MTM2's model, which neither game has. In the air the throttle lifts the nose and the brakes
+  drop it, and spins are damped a quarter as hard; on the wheels the yaw is damped half as hard. Back flips off the
+  ramps of KF2's Orlando Monster Show land about half the time for a driver who holds the throttle, where none could
+  before. Extensions may now change the model's rules (`session-loader.js` `extensionSimRules`).
+- **Course map modes** (MONSTER_EXE_ANALYSIS.md 11, "Course map"; `game/course-map-labels.js`): the Map key (Tab)
+  cycles off, place numbers, truck names with places (the game's two modes) and driver names with places (the port's);
+  the player's own label is dark red (palette colour 1), the others light grey. In a Summit Rumble the numbers mode
+  writes nothing and the name modes the name alone. The game's names are the trucks', not the drivers'.
+- **Summit Rumble standings:** the player's own row in dark red.
+- **Watermark** placed on whole device pixels, its transparency drawn into the canvas, so the game's font stays sharp
+  at any pixel ratio (`ui/watermark.js`).
+- **Options, Advanced** sorted by game: MTM1, MTM2 (with Community Patch 3's), CPR, EVO, then Cameras and App. "Copy
+  the game's videos" moved there, under MTM2, with a new **Commentary truck names**: the text commentary names the
+  trucks, as the game does, in place of the drivers.
+- **Instant replay:** "Free mouse look" checkbox, off by default (the mouse no longer turns the outside cameras
+  unless ticked). The buttons are now "Save" (the whole replay with OpenMTM2's extra detail) and "Save to classic MTM2"
+  (the last 2240 records). Sound: the replay now moves the mixer's ear with the camera every frame (the paused race's
+  engine droned on under the film, and the replay's own engines stayed silent); every truck is heard from where it is;
+  the engine follows the forward speed, free-revs in the air and has no countdown ramp; wheelspin, bridges, splashes,
+  wading, hard landings, moving objects, thunder and the checkpoint and lap sounds (found from the film by
+  `game/replay-gates.js`) play. Camera clearance applies to replays too.
+- **Checkpoint and lap sounds:** a track whose sound script is missing, or names a WAV the install lacks, plays the
+  stock `airhorn.wav` and `check2.wav`.
+- **Chase cameras in ground-box tunnels** (`game/ground-boxes.js` `createBoxSolid`): the camera is pulled in to stay
+  out of ground boxes as out of the ground, so it stays under a tunnel's roof and between its walls.
+- **Monster Demo:** a random Circuit or Rally in the default mode, with the player's number of computer opponents,
+  another track each time; the camera moves on every 10 s, as the game's.
+- **Leave and watch** (was Combat's "Leave the fight and watch"): in every mode with others to watch; outside Combat
+  the truck races on under the full autopilot, its result marked and counting for no points or Hall of Fame place.
+- **Save race / Load race** (MONSTER_EXE_ANALYSIS.md 16, "Saved games"; `game/saved-race.js`, OpenPhotex
+  `mtm/saved-game`): Monster Truck Madness 2's `.mtm` saved game, from the pause menu and Options, Game. To be tested
+  against the retail game.
+- **Wheels damage online** (EXTENSIONS.md, "Mutator: Wheels damage"): in rooms, by the owner's setting; each machine
+  sends its trucks' wheels as the server's new `wheels` race event (OpenMTM2 Server, unreleased).
+
+- **Community Patch 3 survey** ([CP3_EXE_ANALYSIS.md](CP3_EXE_ANALYSIS.md)): our own analysis of CP3's 64-bit
+  `monster.exe` 2.0.52, with its hidden and unported features listed (AI driving style keys, the computer trucks'
+  horn and yee-haw switches, tournament driver form, mirrors, racing line, demo mode and more), its announcer and its
+  AI Speed.
+- **AI Speed** (CP3_EXE_ANALYSIS.md 5; `game/ai-speed.js`, OpenPhotex `truck/autopilot` and `truck/drivetrain`):
+  70 to 130 %, default 100, on Options, Advanced, Game. It scales the computer trucks' target speed (last, after the
+  17 ft/s floor and the speed limit) and their torque, never the player's or a truck another machine drives. A
+  tournament takes its own value at its start (the tournament screen's slider) and keeps it for every event and its
+  drag weekends; Options then shows it locked. To be tested.
+- **CP3 voice commentary** (CP3_EXE_ANALYSIS.md 4; `game/commentary.js` `CP3_PHRASES`, `game/commentary-events.js`),
+  Options, Advanced, Game, off by default: CP3's larger shuffle bags (166 lines against retail's 88), its shorter
+  pauses (60% of each silence), and its new calls: intros by track and weather, the final lap, road signs, barricades
+  and trains, the Summit Rumble's points, and a drag pass talked through from staging to the heat's winner. A phrase
+  missing a clip (the drag calls need CP3's own `Sound.POD`) is shown as text and not half said. With it off the
+  announcer is retail's. To be tested.
+- **Wheels damage** (EXTENSIONS.md, "Mutator: Wheels damage"; `game/extensions/loose-wheels.js`,
+  `loose-wheels-session.js`), an addition, Options, Game, off by default: Combat's wheels in every race. The timing
+  board's Wheels line shows how much of the weakest wheel is left before one comes off (0% with a wheel off, with the
+  seconds to the wait's end or the pit crew's), and the names shown with N carry each truck's. Its hits dent the body
+  where they land; the wait puts the wheels back, the pit crew the body too. It needs Crash damage on (Options keeps
+  the two together). Fixed in testing: in a race with no mode the lost wheels were not drawn; a repair left the
+  physics on the old lost-wheel list, so after the first one the truck drove on stubs with its wheels drawn on and X
+  had nothing to fix; the wait ran from the first wheel lost, so a later one came back within a second or two (now
+  every wheel lost starts the wait, and the pit crew's hold, again). Hits, bad
+  landings and rolls wear the wheels; a worn wheel struck again, or a violent hit, knocks one off, a huge one a whole
+  axle. The truck limps on its stub; the wheels come back on after 8 s (5, 12 or never in Options; the computer
+  trucks always), or X calls the pit crew: two seconds standing still, then everything back and the dents out. In
+  every race type and Race & Rumble; not in Combat, online, or under MTM1 or another game's physics. Combat's hit
+  measuring, loose wheels and stubs now live in `loose-wheels-core.js`, shared by both. To be tested.
 
 - **Error dialog** (`shared/error-report.js`, `ui/error-dialog.js`, ARCHITECTURE.md "Errors"): every error the
   game notices is shown in a message box with a plain explanation and a report to copy (track, truck, game, truck

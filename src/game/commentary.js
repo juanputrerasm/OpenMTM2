@@ -12,6 +12,8 @@
   - `createCommentaryQueue`: the game's queue (0x4213a0): one phrase a frame, the ready one with the lowest priority.
   - `createPhrasePicker`: each group's shuffle bag (RANDGEN, 0x421ef0); a line drawn that may not be said is used up
     and nothing is said.
+  - `CP3_PHRASES`, `CP3_GROUPS`: Community Patch 3's announcer (docs/CP3_EXE_ANALYSIS.md 4), larger bags, new calls and
+    shorter pauses; `commentaryTables({ cp3 })` gives the tables a race uses.
 
   Pure, so it runs under Node.
 */
@@ -176,17 +178,228 @@ export const GROUPS = Object.freeze({
   blimp: { priority: 100, silence: 5, life: 0.1 },
 });
 
+/*
+  Community Patch 3's announcer (docs/CP3_EXE_ANALYSIS.md 4). Its bags replace the retail ones whole (the retail lines
+  stay in them); the new groups are its new calls. A script token `<<n>>` with no voice mark is a number, said with
+  `NUMBER_CLIPS` (the drag countdowns' seconds).
+*/
+const CAM = { camera: true };
+export const CP3_PHRASES = Object.freeze({
+  // The groups CP3 leaves as they were.
+  ...PHRASES,
+  introRace: [
+    ...PHRASES.introRace,
+    P("start_01.wav", msg("Those trucks are lighting the fires and smoking the tires.")),
+    P("start_02.wav", msg("Those trucks are lighting the fires and smoking the tires. Let's go.")),
+    P("start_07.wav", msg("Here comes the big boys.")),
+    P("start_11.wav", msg("Just because you have a truck, doesn't mean you can drive. Let's see what you got.")),
+    P("start_12.wav", msg("Hey buddy, ready to get muddy?")),
+    P("start_18.wav", msg("Ah, how do I love these trucks. Let me count the ways.")),
+    P("stump_01.wav", msg("Now is the time to make some tracks.")),
+    P("rock_04.wav", msg("Who's it gonna be at the back of this pack?")),
+    P("whobe2.wav", msg("Who's it gonna be?")),
+    P("coltry.wav", msg("They're gonna give it the old college try, although frankly, I don't think these drivers went to college.")),
+    P("tearstan.wav", msg("They'll be tearing down the grandstands when they see this.")),
+    P("prove.wav", msg("These trucks are out to prove something.")),
+    P("tuffrace.wav", msg("This is one tough race.")),
+  ],
+  introSummit: [
+    ...PHRASES.introSummit,
+    P("king_01.wav", msg("Train tracks, trucks and trestles, it doesn't get much better than this.")),
+    P("load_07.wav", msg("Let's get inside the squared circle.")),
+    P("sum_12.wav", msg("Prepare yourself, this ain't no funhouse.")),
+    P("sum_13.wav", msg("This is the part of town that yo' mamma always warned you about.")),
+    P("add_12.wav", msg("There can only be one.")),
+    P("whobe2.wav", msg("Who's it gonna be?")),
+    P("coltry.wav", msg("They're gonna give it the old college try, although frankly, I don't think these drivers went to college.")),
+  ],
+  introSnake: [
+    P("snake_01.wav", msg("In Snake Canyon country, the secret to success is to slither past all those other suckers.")),
+    P("snake_02.wav", msg("Which one of you reptiles is going to be king of Snake Canyon?")),
+  ],
+  introNight: [
+    P("night_01.wav", msg("Hey, who turned out all the lights?")),
+    P("night_02.wav", msg("These trucks are doing it on the dark side.")),
+  ],
+  introSnow: [
+    P("snow_01.wav", msg("Looks like Frosty is in for one wild ride!")),
+    P("snow_02.wav", msg("Trucketh in a winter wonderland.")),
+  ],
+  introFog: [
+    P("fog_01.wav", msg("I cannot see a thing.")),
+    P("fog_02.wav", ""),
+    P("fog_03.wav", msg("What's up ahead? Danged if I know.")),
+    P("fog_04.wav", msg("This stuff is thicker than molasses in January.")),
+    P("fog_05.wav", msg("It's as clear as mud out there.")),
+    P("wea_02.wav", msg("Looks like we all got blindfolds on. I can't see a thing!")),
+  ],
+  finishWinner: [
+    P("(<<1>> haswon.wav", msg("<<1>> has won the race.")),
+    P("(<<1>> stage12.wav", msg("<<1>> has won the race.")),
+    P("(<<1>> hasone.wav", msg("<<1>> has won the race.")),
+    ...PHRASES.finishWinner,
+    P("win_01.wav", msg("There's no day like payday.")),
+  ],
+  move: [
+    ...PHRASES.move,
+    P("pass_10.wav )<<1>>", msg("Abandon all hope, here comes <<1>>."), CAM),
+    P("pass_12a.wav *<<1>> pass_12b.wav", msg("My oh my, <<1>> is making the move."), CAM),
+    P("pass_08.wav", msg("Hell has no fury like a Monster Truck scorned."), CAM),
+    P("(<<1>> start_08.wav", msg("<<1>> is a truck with a mission."), CAM),
+  ],
+  pass: [
+    ...PHRASES.pass,
+    P("(<<1>> pass_09.wav", msg("<<1>> has turned the tables."), CAM),
+    P("pass_14.wav", msg("The worm has turned."), CAM),
+    P("track_4a.wav *<<1>> track_4b.wav", msg("Looks like <<1>> made a deal with the local witchdoctor."), CAM),
+    P("pass_11.wav", msg("Drive, you magnificent Monster Truck. Drive."), CAM),
+  ],
+  clash: [
+    ...PHRASES.clash,
+    P("crash_09.wav", msg("This one is off the Richter scale."), CAM),
+    P("crash_12.wav", msg("Knocks one out of the park."), CAM),
+    P("crash_13.wav", msg("Maybe down for the count."), CAM),
+    P("crash_14.wav", msg("Just opened a big ol' can of whoop ass on those other trucks."), CAM),
+    P("crash_15.wav", msg("Just opened a big ol' can of whoop ass on the competition."), CAM),
+    P("crash_16.wav", msg("Demolition Derby time!"), CAM),
+    P("add_24.wav", msg("That boy ain't right."), CAM),
+    P("gen_07.wav", msg("What the heck was that?"), CAM),
+    P("(<<1>> game_01.wav", msg("<<1>> will not budge."), CAM),
+    P("(<<1>> sum_18.wav", msg("<<1>> takes a direct hit."), CAM),
+    P("add_31.wav", msg("Those wrestle trucks are hard to beat."), CAM),
+    P("gen_29.wav", msg("Sic 'em."), CAM),
+    P("sum_19.wav", msg("Clash of the titans."), CAM),
+    P("mkeblood.wav", msg("That'll make your blood start flowin'."), CAM),
+    P("(<<2>> gen_23.wav", msg("<<2>> is having the other truck for lunch.")),
+  ],
+  spin: [...PHRASES.spin, P("rink_01.wav", msg("What about the pairs competition?"))],
+  flipped: [
+    ...PHRASES.flipped,
+    P("gen_09.wav", msg("Looks like that truck had one too many."), CAM),
+    P("gen_15.wav", msg("The big trucks cometh."), CAM),
+    P("gen_16a.wav *<<1>> gen_16b.wav", msg("The <<1>> cometh.")),
+    P("gen_30.wav", msg("Spoken like a true champion."), CAM),
+    P("gen_32.wav", msg("I have never seen anything like that before."), CAM),
+    P("gen_40.wav", msg("Un-freaking-believable."), CAM),
+    P("smelrose.wav", msg("I've heard of stopping to smell the roses, but this is ridiculous."), CAM),
+    P("(<<1>> overcent.wav", msg("<<1>> has gone over to say hello to the neighbors, which means the truck's out of the competition.")),
+    P("thunkit.wav", msg("Who would've thunk it?"), CAM),
+    P("gen_04.wav", msg("When going your way, it's still going your way."), CAM),
+    P("unbeliev.wav", msg("Unbelievable!"), CAM),
+    P("keepontr.wav", msg("Keep on truckin'."), CAM),
+  ],
+  missedCheckpoint: [P("gen_03.wav", msg("Don't forget to hit your checkpoints.")), ...PHRASES.missedCheckpoint],
+  blimp: [...PHRASES.blimp, P("blimp_03.wav", msg("And now for the blimp side view."))],
+  finalLap: [P("add_35.wav", msg("One more lap to go."))],
+  sign: [
+    P("(<<1>> signcake.wav", msg("<<1>> specialty: road sign pancakes.")),
+    P("truktime.wav", msg("Signs of monster truckin' times.")),
+    P("alivkill.wav", msg("If that were alive, it'd be roadkill now.")),
+  ],
+  barricade: [P("(<<1>> detour.wav", msg("<<1>> is looking for a detour."))],
+  train: [
+    P("train_01.wav", msg("That ain't no love train comin' down the tracks. Watch out!")),
+    P("train_02.wav", msg("The score as it stands right now... Big Giant Train: 1, Monster Truck: 0")),
+    P("train_03.wav", msg("If you wanna ride that train, you gotta buy a ticket.")),
+  ],
+  summitHold: [
+    P("(<<1>> sum_05.wav", msg("<<1>> appears to be glued to the top of that thing.")),
+    P("(<<1>> sum_07.wav", msg("<<1>> is standing its ground.")),
+    P("(<<1>> sum_08.wav", msg("<<1>> won't budge. How long can he stay up there?")),
+    P("add_33.wav", msg("The points continue to pour on.")),
+    P("add_34.wav )<<1>>", msg("The points are piling up for <<1>>.")),
+    P("game_02.wav", msg("And the clock continues to tick away.")),
+  ],
+  summitKnocked: [
+    P("(<<1>> add_02.wav", msg("<<1>> has left the building.")),
+    P("(<<1>> add_05.wav", msg("<<1>> has taken a leave of absence.")),
+    P("(<<1>> add_06.wav", msg("<<1>> has fallen off the summit.")),
+    P("sum_17.wav", msg("Look out below!")),
+    P("terr_12.wav", msg("Maybe down for the count. No, he's on his feet again!")),
+  ],
+  summitOut: [P("(<<1>> add_10.wav", msg("<<1>> steps out of the ring."))],
+  summitLeader: [
+    P("(<<1>> add_03.wav", msg("<<1>> has taken over the summit.")),
+    P("add_04a.wav *<<1>> add_04b.wav", msg("Now <<1>> is on top.")),
+    P("(<<1>> add_11.wav", msg("<<1>> takes the top.")),
+    P("(<<1>> game_06.wav", msg("<<1>> is dominating the summit.")),
+    P("(<<1>> gen_28.wav", msg("<<1>> turns the tables.")),
+    P("(<<1>> gen_37.wav", msg("<<1>> is kicking up mud and taking names.")),
+    P("gen_41.wav", msg("Un-freaking-stoppable.")),
+    P("game_07.wav", msg("Who says it's lonely at the top?")),
+    P("add_21.wav", msg("Yeehaw!")),
+  ],
+  dragPrestageTime: [P("(<<1>> STAGE5.WAV <<2>> SECONDS.WAV STAGE6.WAV", msg("<<1>> has <<2>> seconds to prestage."))],
+  dragStageTime: [P("(<<1>> STAGE5.WAV <<2>> SECONDS.WAV STAGE7.WAV", msg("<<1>> has <<2>> seconds to stage."))],
+  dragPrestaged: [P("(<<1>> STAGE1.WAV", msg("<<1>> is prestaged."))],
+  dragStaged: [P("(<<1>> STAGE2.WAV", msg("<<1>> is staged."))],
+  dragRedLight: [P("(<<1>> STAGE3.WAV", msg("<<1>> has red lighted."))],
+  dragJump: [P("(<<1>> stage4.wav )<<2>>", msg("<<1>> has the jump on <<2>>."))],
+  dragCentreLine: [P("(<<1>> STAGE8.WAV", msg("<<1>> has been disqualified for crossing the center line."))],
+  dragOutsideEdge: [P("(<<1>> STAGE13.WAV", msg("<<1>> has been disqualified for crossing the outside edge."))],
+  dragReversing: [P("(<<1>> STAGE14.WAV", msg("<<1>> has been disqualified for reversing on the track."))],
+  dragTimeLimit: [P("(<<1>> STAGE9.WAV", msg("<<1>> has been disqualified for exceeding the time limit."))],
+  dragHeatWinner: [P("(<<1>> STAGE11.WAV", msg("<<1>> has won the heat."))],
+});
+
+/** CP3's figures: the retail ones, the winner's life raised to 8 s, and its new calls (docs/CP3_EXE_ANALYSIS.md 4). */
+export const CP3_GROUPS = Object.freeze({
+  ...GROUPS,
+  introSnake: { now: true }, introNight: { now: true }, introSnow: { now: true }, introFog: { now: true },
+  finishWinner: { priority: 0, silence: 0, life: 8 },
+  hasWon: { priority: 0, silence: 0, life: 8 },
+  finalLap: { priority: 3, silence: 0.5, life: 8 },
+  sign: { priority: 10, silence: 8, life: 3 },
+  barricade: { priority: 10, silence: 8, life: 3 },
+  train: { priority: 10, silence: 8, life: 3 },
+  summitHold: { priority: 16, silence: 14, life: 3 },
+  summitKnocked: { priority: 6, silence: 4, life: 1.5 },
+  summitOut: { priority: 12, silence: 8, life: 1.5 },
+  summitLeader: { priority: 8, silence: 5, life: 2 },
+  dragPrestageTime: { now: true }, dragStageTime: { now: true }, dragPrestaged: { now: true }, dragStaged: { now: true },
+  dragRedLight: { priority: 1, silence: 0, life: 8 },
+  dragJump: { priority: 6, silence: 0, life: 3 },
+  dragCentreLine: { priority: 1, silence: 0, life: 8 },
+  dragOutsideEdge: { priority: 1, silence: 0, life: 8 },
+  dragReversing: { priority: 1, silence: 0, life: 8 },
+  dragTimeLimit: { priority: 1, silence: 0, life: 8 },
+  dragHeatWinner: { priority: 0, silence: 0, life: 8 },
+});
+
+/** CP3's `commentarySilence` default: every phrase needs 60% of its silence (docs/CP3_EXE_ANALYSIS.md 4.1). */
+export const CP3_SILENCE_SCALE = 0.6;
+
+/** The number clips CP3 says a figure with: 0 to 20, 30, 40 and 50. */
+export const NUMBER_CLIPS = Object.freeze({
+  0: "ZERO.WAV", 1: "ONE.WAV", 2: "TWO.WAV", 3: "THREE.WAV", 4: "FOUR.WAV", 5: "FIVE.WAV", 6: "SIX.WAV", 7: "SEVEN.WAV",
+  8: "EIGHT.WAV", 9: "NINE.WAV", 10: "TEN.WAV", 11: "ELEVEN.WAV", 12: "TWELVE.WAV", 13: "THIRTEEN.WAV", 14: "FOURTEEN.WAV",
+  15: "FIFTEEN.WAV", 16: "SIXTEEN.WAV", 17: "SEVENTEE.WAV", 18: "EIGHTEEN.WAV", 19: "NINETEEN.WAV", 20: "TWENTY.WAV",
+  30: "THIRTY.WAV", 40: "FORTY.WAV", 50: "FIFTY.WAV",
+});
+
+/** The tables a race's announcer uses: retail's, or CP3's with its shorter pauses. */
+export function commentaryTables({ cp3 = false } = {}) {
+  return cp3
+    ? { phrases: CP3_PHRASES, groups: CP3_GROUPS, silenceScale: CP3_SILENCE_SCALE }
+    : { phrases: PHRASES, groups: GROUPS, silenceScale: 1 };
+}
+
 /** The queue holds at most this many phrases (the game's 32 slots). */
 export const QUEUE_SLOTS = 32;
 /** The game's FUN_00421600 plays every phrase at 0.7. */
 export const COMMENTARY_GAIN = 0.7;
 
-/** The clips in a phrase: `{ kind: "wav", name }` and `{ kind: "name", variant, arg }` (arg counts from 1). */
+/**
+ * The clips in a phrase: `{ kind: "wav", name }`, `{ kind: "name", variant, arg }` and, for CP3's `<<n>>` with no voice
+ * mark, `{ kind: "number", arg }` (arg counts from 1).
+ */
 export function parseSpec(spec) {
   const out = [];
   for (const token of String(spec).split(/[\s,]+/).filter(Boolean)) {
     const driver = /^([()*])<<(\d+)>>$/.exec(token);
+    const number = /^<<(\d+)>>$/.exec(token);
     if (driver) out.push({ kind: "name", variant: driver[1], arg: Number(driver[2]) });
+    else if (number) out.push({ kind: "number", arg: Number(number[1]) });
     else out.push({ kind: "wav", name: token });
   }
   return out;
@@ -226,17 +439,18 @@ export function createBag(items, random = Math.random) {
  * The game's queue (0x4213a0): `add` a phrase for a group with its arguments (`GROUPS` gives its figures, `delay` 0);
  * `tick(dt, speaking)` once a frame returns the phrase to say now, or null. The silence counts up only while nothing
  * is said. Ready phrases go lowest priority first, then the one longer past its delay, then the one with less life.
+ * `groups` and `silenceScale` come from `commentaryTables` (CP3 needs only 60% of each silence).
  */
-export function createCommentaryQueue({ summit = false } = {}) {
+export function createCommentaryQueue({ summit = false, groups = GROUPS, silenceScale = 1 } = {}) {
   const slots = [];
   let silence = 0;
   return {
     add(group, args, extra = {}) {
-      const g = GROUPS[group];
+      const g = groups[group];
       if (!g || g.now || slots.length >= QUEUE_SLOTS) return false;
       slots.push({
         group, args, extra, priority: g.priority, delay: 0, life: g.life,
-        silence: summit && g.summitSilence !== undefined ? g.summitSilence : g.silence,
+        silence: (summit && g.summitSilence !== undefined ? g.summitSilence : g.silence) * silenceScale,
       });
       return true;
     },
@@ -262,19 +476,21 @@ export function createCommentaryQueue({ summit = false } = {}) {
  * not be said: `ctx.camera` the truck the camera follows is in the event (and close, for move and pass);
  * `ctx.passedLeader` the truck passed had the lead; `ctx.nearFinish` past three quarters of the lap, not a Summit
  * Rumble. A phrase naming a driver the event has none for is not said either. The phrase comes back with `args`, the
- * drivers it names in its own order (`phraseArgs`).
+ * drivers it names in its own order (`phraseArgs`), and `numbers` (`ctx.numbers`, figure by argument) when the event
+ * has any. `phrases` is the table to draw from (`commentaryTables`).
  */
-export function createPhrasePicker(random = Math.random) {
+export function createPhrasePicker(random = Math.random, phrases = PHRASES) {
   const bags = new Map();
   return {
     pick(group, ctx = {}) {
-      if (!PHRASES[group]) throw new Error(`Unknown phrase group "${group}"`);
-      if (!bags.has(group)) bags.set(group, createBag(PHRASES[group], random));
+      if (!phrases[group]) throw new Error(`Unknown phrase group "${group}"`);
+      if (!bags.has(group)) bags.set(group, createBag(phrases[group], random));
       const phrase = bags.get(group)();
       if (phrase.camera && !ctx.camera) return null;
       if (phrase.when && !ctx[phrase.when]) return null;
       const args = phraseArgs(phrase, ctx.args ?? []);
       if (specArgs(phrase.script).some((n) => !(args[n - 1] >= 1))) return null;
+      if (ctx.numbers) return { ...phrase, args, numbers: ctx.numbers };
       return { ...phrase, args };
     },
   };

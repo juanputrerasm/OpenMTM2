@@ -610,6 +610,9 @@ rates, which drops the truck.
 
 CPU trucks, and the player with autopilot on, drive the SIT's `*** Course ***` segments.
 
+Community Patch 3 adds AI Speed (`CP3_EXE_ANALYSIS.md` 5): the computer trucks' target speed, last of all, and their
+torque times `aiSpeed / 100`. OpenPhotex takes it as `AutopilotContext.aiSpeed` and `StepContext.aiSpeed`.
+
 **The course as stored and as driven.** A SIT's `*** Course ***` block holds only
 **straights**. The loader (`0x4e0970`) reads them, and the course builder (`0x4e13b0`) inserts
 an **arc** between each straight and the next, wrapping from the last straight to the first.

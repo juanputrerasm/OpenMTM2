@@ -89,3 +89,23 @@ test("loopback: messages arrive on flush, the host migrates to the lowest id lef
   assert.equal(host, b.self);
   assert.ok(b.isHost());
 });
+
+test("Wheels damage: an owned truck's wheels go out at once on a lost wheel, the wear alone at most once a second", () => {
+  const net = createNetRace({ entrants, rateHz: 4 });
+  const wheels = (w) => reply({ wheelsOwn: [{ truck: 0, lost: 0, axles: 0, wear: [1, 1, 1, 1], repairs: 0, pits: 0, ...w }] });
+  assert.equal(net.collect(wheels({}), 0).filter((e) => e.kind === "wheels").length, 0, "whole wheels at the start: nothing to say");
+  const lost = net.collect(wheels({ lost: 2, wear: [1, 0, 1, 1] }), 10).filter((e) => e.kind === "wheels");
+  assert.deepEqual(lost, [{ kind: "wheels", vehicle: 2, lost: 2, axles: 0, wear: [1, 0, 1, 1], repairs: 0, pits: 0 }]);
+  assert.equal(net.collect(wheels({ lost: 2, wear: [0.9, 0, 1, 1] }), 500).filter((e) => e.kind === "wheels").length, 0, "wear only, too soon");
+  assert.equal(net.collect(wheels({ lost: 2, wear: [0.9, 0, 1, 1] }), 1100).filter((e) => e.kind === "wheels").length, 1);
+  assert.equal(net.collect(wheels({ lost: 0, wear: [1, 1, 1, 1], repairs: 1 }), 1200).filter((e) => e.kind === "wheels").length, 1, "a repair at once");
+});
+
+test("Wheels damage: another machine's truck's wheels become a worker command for its local truck", () => {
+  const net = createNetRace({ entrants, rateHz: 4 });
+  assert.equal(net.receive({ kind: "wheels", vehicle: 3, lost: 1, axles: 0, wear: [0, 1, 1, 1], repairs: 0, pits: 0 }), true);
+  assert.equal(net.receive({ kind: "wheels", vehicle: 2, lost: 1, axles: 0 }), false, "our own truck");
+  const [cmd] = net.commands();
+  assert.equal(cmd.name, "wheelsOwn");
+  assert.deepEqual(cmd.value, [{ truck: 2, lost: 1, axles: 0, wear: [0, 1, 1, 1], repairs: 0, pits: 0 }]);
+});

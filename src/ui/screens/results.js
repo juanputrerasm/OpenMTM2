@@ -69,19 +69,21 @@ export default async function mount(container, context, { track, laps, difficult
   // Coming back from the replay mounts this screen again with the same rows: count the race once.
   const counted = context.countedRows === rows;
   context.countedRows = rows;
-  if (me && !counted) {
+  // A player who left the race to the autopilot (Leave and watch) gets no record, no points and no Hall of Fame place.
+  const left = !!me?.left;
+  if (me && !counted && !left) {
     recordRace(driver, me.place);
     saveProfiles(context);
   }
   // The points (game/race-points.js): a Rumble's score, else the place's base with the lap bonuses.
   const ordered = [...rows].sort((a, b) => a.place - b.place);
   const pointList = racePoints(ordered, laps);
-  const pointsOf = new Map(ordered.map((r, i) => [r, summit || extension ? Math.round(r.score) : pointList[i]]));
+  const pointsOf = new Map(ordered.map((r, i) => [r, r.left ? 0 : summit || extension ? Math.round(r.score) : pointList[i]]));
   // A tournament's race (app/tournament.js): its points go to the tournament, once.
   if (tournament && context.tournament) await takeRace(context, rows, rows.map((r) => pointsOf.get(r) ?? 0));
   // A finished race, or any Rumble, may earn a Hall of Fame place; an extension race does not.
   let hallNote = null;
-  if (me && !counted && !extension && (summit || (me.finished && !me.dq && me.raceTime > 0))) {
+  if (me && !counted && !left && !extension && (summit || (me.finished && !me.dq && me.raceTime > 0))) {
     const hall = await getHall(context);
     const rank = addEntry(hall, {
       name: driver.name, truck: truck ?? "", track: track.file, trackName: track.name, mode, difficulty, laps,
@@ -156,6 +158,8 @@ export default async function mount(container, context, { track, laps, difficult
         cells[0] = context.t(cells[0]);
         cells[3] = context.t(cells[3]);
         cells[5] = context.t(cells[5]);
+        // Left to the autopilot (Leave and watch): said beside the name.
+        if (r.left) cells[1] = context.t("<<1>> (autopilot)", cells[1]);
         const placeCell = el("td", {}, cells[0]);
         if (ui.classic) uiImageUrl(context.assets, `RESULT${r.place}`).then((url) => {
           if (url) placeCell.replaceChildren(el("img", { class: "place-icon", src: url, alt: cells[0] }));

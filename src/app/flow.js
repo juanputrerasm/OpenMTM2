@@ -6,6 +6,7 @@
 import { currentDriver, getProfiles } from "./profile-store.js";
 import { entrantsShortfall, extensionById, opponentsFor, soloExtension } from "../game/extensions/loader.js";
 import { createStrings, msg } from "../game/strings.js";
+import { pickDemoRace } from "../game/demo-pick.js";
 import { showAlert, showConfirm } from "../ui/dialogs.js";
 
 /**
@@ -18,18 +19,20 @@ export function setRaceConfig(context, config) {
 }
 
 /**
- * Monster Demo: Farm Road 29 (or the first Circuit the install has) with eight computer trucks, the player's among them,
- * watched from the RaceCam. Any key leaves it (ui/screens/race.js, `demo`).
+ * Monster Demo: a Circuit or a Rally at random, in the default mode, with the player's number of computer opponents
+ * (game/demo-pick.js), every truck driving itself, watched from the RaceCam. Any key leaves it; when the race is over
+ * the next demo picks another track (ui/screens/race.js, `demo`). `avoid`: the track just shown.
  */
-export async function goDemo(context) {
+export async function goDemo(context, { avoid = null, replace = false } = {}) {
   const catalog = await context.assets.call("catalog");
-  const track = catalog.tracks.find((t) => t.file === "TPARK.SIT") ?? catalog.tracks.find((t) => t.raceType === "circuit");
+  const driver = currentDriver(await getProfiles(context));
+  const pick = pickDemoRace({ tracks: catalog.tracks, trucks: catalog.trucks, settings: context.settings, playerTruck: driver.lastTruck, avoid });
+  if (!pick) return undefined;
   const trucks = catalog.trucks.filter((t) => !t.hidden);
-  if (!track || !trucks.length) return undefined;
   return context.router.go("race", {
-    track, mode: track.raceType, laps: track.defaultLaps, difficulty: 1, opponents: trucks.slice(1, 8).map((t) => t.file), weather: 0,
-    truck: trucks[0].file, trucks, setup: undefined, demo: true,
-  });
+    track: pick.track, mode: pick.track.raceType, laps: pick.track.defaultLaps, difficulty: 1, opponents: pick.opponents, weather: 0,
+    truck: pick.truck, trucks, setup: undefined, demo: true,
+  }, replace ? { replace: true } : undefined);
 }
 
 /**
@@ -89,7 +92,8 @@ export async function goRace(context) {
   const watched = watching;
   if (watched) {
     const ct = context.t ?? createStrings();
-    if (!await showConfirm(ct, ct(SPECTATOR_WARNING))) return undefined;
+    // `context.confirm` stands in for the dialog where there is no DOM (tests).
+    if (!await (context.confirm ?? showConfirm)(ct, ct(SPECTATOR_WARNING))) return undefined;
     return context.router.go("race", {
       track, mode: config.mode, laps: config.laps, difficulty: config.difficulty, opponents: watched.slice(1), weather: config.weather,
       gameMode, freeRoam: false, truck: watched[0], trucks, setup: undefined, spectator: true,

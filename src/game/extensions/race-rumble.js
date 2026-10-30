@@ -50,6 +50,8 @@ export const ROLLED_UP = 0.3, CHEER_GAP_S = 6;
 export const RNR_EXTENSION = Object.freeze({
   id: "race-rumble",
   name: msg("Race & Rumble"),
+  // Loose Wheels (Options, Game) rides on it too.
+  looseWheels: true,
   description: msg("Racers and Blockers. Classic: teams of a racer and a blocker, the first racer home wins it for its team. Timed block: two sides, the Racers must get one of theirs home before the time runs out."),
   length: Object.freeze({ key: "laps", label: msg("Laps"), default: DEFAULT_RNR_LAPS, min: 1, max: 99 }),
   settings: Object.freeze([

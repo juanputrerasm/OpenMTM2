@@ -1,0 +1,33 @@
+OpenMTM2 v0.6.4 (test build)
+============================
+
+This is a test build. Things may still change before the next release; please report what you find.
+
+FREESTYLE
+- Tricks are now judged by what MTM2's trucks can actually do. Wheelies and nose wheelies count from 10 degrees,
+  need 20 at their steepest and 3/4 of a second. Sky wheelies need 50 degrees.
+- Donuts: one full turn in the same direction within 4.5 seconds. Hold the throttle and a turn key. Up to 5 turns
+  score in a row.
+- Flips are named by the way the truck turned (front flips off a ramp were called back flips).
+- New "Trick physics" setting, on by default: in the air the throttle lifts the nose and the brake drops it, and the
+  truck keeps spinning longer, so back flips are possible. The truck also spins more easily for donuts.
+  Turn it off for the original handling.
+- Tip: land nose up and hold the brake to keep a wheelie going.
+
+NEW
+- Save race / Load race: MTM2's saved games, from the pause menu and Options, Game.
+- Wheels damage (Options, Game, needs Crash damage): wheels wear and come off in every race; X calls the pit crew.
+  Works in online rooms too, by the room owner's setting.
+- Leave and watch: leave any race with others to watch; your truck races on under the autopilot, its result does
+  not count.
+- Community Patch 3 options (Options, Advanced, Game): AI Speed (70 to 130%) and CP3's voice commentary.
+- Course map (Tab): place numbers, truck names or driver names; your own label in red.
+- Monster Demo: a random race on a different track each time.
+
+IMPROVED
+- Instant replay: full sound (engines, landings, splashes, checkpoints and laps follow the camera), a "Free mouse
+  look" checkbox (off by default), and "Save" / "Save to classic MTM2" buttons.
+- Chase cameras stay inside tunnels.
+- Tracks with missing checkpoint sounds play the stock ones.
+- Options, Advanced is sorted by game; new "Commentary truck names".
+- Sharper watermark text on high-resolution screens.

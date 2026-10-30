@@ -2,13 +2,18 @@
   Speaking a phrase (MONSTER_EXE_ANALYSIS.md 12, "Commentary (Trucksfx.c)", 0x421600): its clips are read and joined
   end to end into one sound, as the game builds one buffer, and played once on the commentary bus at 0.7, the rest of
   the mix ducked under it. Driver names come from each truck's own name clips. A clip the install lacks is left out,
-  so a phrase still comes out; a phrase whose clips are all missing is not said.
+  so a phrase still comes out; a phrase whose clips are all missing is not said. With `whole` (CP3's announcer, whose
+  drag calls need CP3's own Sound.POD) a phrase missing any clip is not said at all.
 */
-import { COMMENTARY_GAIN, nameClip, parseSpec } from "../game/commentary.js";
+import { COMMENTARY_GAIN, NUMBER_CLIPS, nameClip, parseSpec } from "../game/commentary.js";
 
-/** The clip names of a phrase `{ script, args }` for `drivers` (`{ waves }` each, in entrant order). */
-export function phraseClips({ script, args }, drivers) {
-  return parseSpec(script).map((token) => (token.kind === "wav" ? token.name : nameClip(drivers[args[token.arg - 1] - 1]?.waves, token.variant)));
+/** The clip names of a phrase `{ script, args, numbers }` for `drivers` (`{ waves }` each, in entrant order). */
+export function phraseClips({ script, args, numbers = null }, drivers) {
+  return parseSpec(script).map((token) => {
+    if (token.kind === "wav") return token.name;
+    if (token.kind === "number") return NUMBER_CLIPS[numbers?.[token.arg]] ?? null;
+    return nameClip(drivers[args[token.arg - 1] - 1]?.waves, token.variant);
+  });
 }
 
 /**
@@ -35,9 +40,9 @@ export function joinClips(buffers, make) {
 
 /**
  * @param {ReturnType<import("./audio-engine.js").createAudio>} audio
- * @param {{ drivers: { name: string, waves: string[] }[], gain?: number }} options
+ * @param {{ drivers: { name: string, waves: string[] }[], gain?: number, whole?: boolean }} options
  */
-export function createCommentaryAudio(audio, { drivers, gain = COMMENTARY_GAIN }) {
+export function createCommentaryAudio(audio, { drivers, gain = COMMENTARY_GAIN, whole = false }) {
   let disposed = false, current = null, speaking = false;
   return {
     /** Whether a phrase is being said (the game's 0x464450): the queue keeps quiet meanwhile. */
@@ -47,9 +52,11 @@ export function createCommentaryAudio(audio, { drivers, gain = COMMENTARY_GAIN }
       if (disposed || speaking || !audio.context) return;
       speaking = true;
       try {
-        const names = phraseClips(phrase, drivers).filter(Boolean);
+        const clips = phraseClips(phrase, drivers);
+        if (whole && clips.some((name) => !name)) return;
+        const names = clips.filter(Boolean);
         const decoded = await Promise.all(names.map((name) => audio.sample(name).then((d) => d?.buffer ?? null).catch(() => null)));
-        if (disposed) return;
+        if (disposed || (whole && decoded.some((b) => !b))) return;
         const joined = joinClips(decoded, (channels, length, rate) => audio.context.createBuffer(channels, length, rate));
         if (!joined) return;
         audio.setDucking?.(true);

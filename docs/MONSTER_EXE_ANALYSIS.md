@@ -1054,12 +1054,14 @@ player's. Offsets confirmed in this build (the replay and SIT field names in bra
 | +0x1074 | drive type, 4 = four-wheel drive |
 | +0x1078..+0x1090 | helicopter timer, angles and position |
 | +0x10ac | TRK file name |
+| +0x10c0 | truck name (the TRK's line after the version), shown on the course map, the Summit Rumble standings and in the text commentary |
 | +0x1130 | TRK `Instrument Cluster` name (default `richford`) |
 | +0x1140, +0x1150 | TRK `Wave File` entries (default `default.wav`) |
 | +0x1734..+0x1740 | the TRK's original axle z positions, before the 11.6 ft wheelbase clamp |
 | +0x1760, +0x1764 | last impact force, `damageCode` |
 | +0x176c | a per-truck flag scaling engine torque by 0.9 |
 | +0x1770 | vehicle number |
+| +0x1774 | driver name (`%s (%s)` prints the truck's name, then this) |
 
 **The SIT writer's record is not the live truck.** `0x6ee908` is the separate "Your Truck (Not
 used anymore)" block that the SIT writer prints first; it never moves. The live player truck is
@@ -1380,7 +1382,9 @@ race HUD is two boxes at the top left, labels left and values right-aligned, tim
   Before either has passed a checkpoint it reads `00:00.00`. The port keeps each truck's
   crossing times (`src/game/timing.js`), which gives the same number.
 
-- **Course map** (Map key; `0x64077c` is 0 off, 1 on, 2 on with names; drawn by `0x4e2410`, hidden
+- **Course map** (Map key, the menu's `&Overlay Map`, its key set in the key dialog (`0x640838`);
+  `0x64077c` is 0 off, 1 on with place numbers, 2 on with names and places; each press adds one
+  and wraps past 2 back to 0, so the key cycles off, numbers, names; drawn by `0x4e2410`, hidden
   in views 0 and 1, the cockpit ones): an overlay on the 3D window. The loop is built once at
   load (`0x4e1e90`) from the course's type 1 segments: each one's start x and z, then its end x
   and z (x 64 as integers, at most 512 points), in order and closed, so a corner between two
@@ -1390,8 +1394,11 @@ race HUD is two boxes at the top left, labels left and values right-aligned, tim
   translated by minus the player's x and z, turned by minus its yaw (`+0x1024`, 65536 per turn)
   and drawn at a fixed depth, so the truck points up. Two retail screenshots put the player's marker at about 75% of the width and 52% of the height, which is where the port draws it.
   Each truck (`0x4e1b30`) is a five-pixel plus whose grey pulses through 16 palette steps, with
-  its place number 3 px below (`%s (%d)`, name and place, in mode 2), colour 1 for the player and
-  7 for the rest, drawn only when 6 to 7 px inside the window. The port's pixels per foot
+  its place number 3 px below (`%s (%d)`, name and place, in mode 2), colour 1 (dark red,
+  128, 0, 0 in the stock palettes) for the player's own truck only, whichever truck the camera
+  follows, and 7 for the rest, drawn only when 6 to 7 px inside the window. The name is the
+  truck's (`+0x10c0`, the TRK's second line), not the driver's. In a Summit Rumble mode 1 writes
+  no text and mode 2 the name alone, with no place. The port's pixels per foot
   (0.09 at 480 lines) is measured against a game screenshot, not read from the projection.
 - **Chase gauges**: the dial centres in the 640 x 480 screenshot are about (105, 390) for the
   speedometer and (533, 390) for the tachometer, numbers 72 px out, the needle's tip about 50 px
@@ -1519,7 +1526,7 @@ frames (`game/replay.js`) and reads and writes the file with OpenPhotex.
   more often would still play at the right speed, but MTM2's ring would then cover less time. Since neither reads past
   `demoRecordCount`, the port keeps the game's 4 Hz records as they are and writes its own extra samples after them
   (OpenPhotex `writeMtmReplay`, "OpenMTM2 samples"): a 16 Hz recording that both games load as their own 4 Hz one.
-  The port blends through the frames on a curve (Catmull-Rom) rather than straight lines, and its "Save for MTM2"
+  The port blends through the frames on a curve (Catmull-Rom) rather than straight lines, and its "Save to classic MTM2"
   keeps the newest 2240 records.
 
 ---
@@ -1809,6 +1816,10 @@ stereo separation, `UseRedBook` and `UseModMusic`.
       number of looped ambients
       wavName, vol, weatherMask                          repeated
 
+  Every stock script names `airhorn.wav` for the checkpoint and `check2.wav` for the lap but
+  one, which has `scream4.wav` for the checkpoint. The port's rule for an add-on track (not
+  the game's, which was not traced for a missing file): a script it lacks, or a WAV a script
+  names that the install does not have, gives the stock `airhorn.wav` and `check2.wav`.
   One-shots fire at random intervals between the two timers (seconds) when the current
   weather's bit is set in the mask. This is separate from the announcer. For example, The
   Heights selects `SOUND005.TXT`, whose daytime entries are birds and eagles and whose dark
@@ -2289,7 +2300,7 @@ texture cache statistics, sector and polygon counts, screenshots as PCX (`vel%s.
 | `player.pro` | 0x4ca6d0 (list), ProjNet.cpp 0x4da480 (one driver); read by 0x4ca1d0, 0x4dae90 | the drivers, text (below) |
 | `MTM2 High Scores` | HighScor.cpp 0x460560; read by 0x460317 | the Hall of Fame, enciphered text (below) |
 | `highscor.mtr` | 0x4c7540, 0x4c7150 | dead code: never called (section 6.6) |
-| saved games | RACE.CPP 0x41a557/0x41aea2 | text, header `MonsterTruckMadness 2.00`, version-checked |
+| saved games (`*.mtm`) | RACE.CPP 0x41ae80/0x41aea2; read by 0x41a557 | a race in progress, text (below) |
 | `*.sit` | Simobj.c 0x553230 | the debug "Save situation" writes a full SIT of the live state, `temp.sit` too |
 | registry | Metalapp.cpp | `InstalledPath`, `ProductID`, `DriverX` |
 
@@ -2315,6 +2326,36 @@ keep the defaults of `0x4da110` for the rest):
 **Hypothesis** for the four integers: the Garage setup, as the race takes a driver's setup (`0x4198a0` passes
 tire cut, suspension and transfer in that order; 600 is the transfer slider's lowest setting, section 8.5), then
 one more setting (1 by default). The seven text lines and the list are not used by any code read so far.
+
+**Saved games** (`*.mtm`, "Saved Game Files", `CRace::saveGame` 0x41ae80 and `CRace::loadGame` 0x41a557; the help
+file's "Saving a Race for Later Play"). A race in progress, not a season. Text, one value per line (`%s` or `%d`):
+`MonsterTruckMadness 2.00` (any other first line: "Invalid saved game version string"); the player's truck, a truck
+catalogue name (the TRK's file name, the folder cut off, matched ignoring case, `CRace + 0xa544`); the race, an index into
+the track catalogue (`+0xa548`, the order the SITs were found in the mounted PODs, section 3); the laps (`+0xa54c`, a
+Summit Rumble's minutes); the number of trucks (`+0xa0f8`) and for each its catalogue name (`+0x50` of its 0x88-byte
+race entry at `+0xa0fc`) and Garage setup, tire cut, suspension and transfer (`+0x5c`, `+0x60`, `+0x64`, handed to
+0x4c11e0, 0x4c1210 and 0x4c1300 when the race is set up, section 8.5); the weather (`0x657878`). Then the "Save
+situation" writer (0x553230) appends the whole SIT of the live race, which the loader hands to the SIT loader
+(0x551f90) when the race is resumed (0x418c20 checks the loaded flag `+0xa540`):
+
+- the header as the level's, with `$racetime, raceStartTime, dragDebugTimer` the race clock (`0x6f61d8`, from 0 at
+  the start of the countdown), the moment of GO (`0x6f5f98`) and the drag timer;
+- `*** Vehicles ***`: each live truck (`0xa98490 + i * 0x17ac`) by 0x4c0360: `truckFile` and its name (`+0x10ac`), or
+  `body` and a number; `ipos` (`+0xfe0`), `bvel` (`+0xff8`), `theta,phi,psi` (`+0x101c`), `p,q,r` (`+0x1034`); each
+  axle's angle and steering angle and its tires' on-ground flags; `xm.gear` (`+0x58c`); `ap.autopilot,ap.cnumber`;
+  `ap.speed_control,ap.course_control,ap.lasterror` (`+0x8a8`, `+0x8ac`, `+0x8d4`); `!ap.courseToFollow`;
+  `@damageCode` (`+0x1764`, unsigned, a line no level's own SIT has); the helicopter (`+0x1078..+0x1090`);
+  `^segments,laps,staged,bonusLaps,finishedRace,nextcheckpoint`, which print `+0x8f0` (the course segments passed,
+  which orders the trucks), `+0x8f4` (laps), `+0x8fc` (the checkpoints passed, counted to 90 by 0x485af0, under the
+  label "staged"), `+0x900`, `+0x904` (finished) and `+0xfa8` (the next checkpoint); `totalracetime,fastestLap,
+  dragTimer` (`+0xfa4`, `+0xfa0`, `+0x90c`); then 20 laps of `***Lap time***` (`+0xf50`, a Rumble's score in the first)
+  and 20 `*****Checkpoint times*****` (`+0x910`, each the time from the checkpoint before, as 0x485af0 keeps them);
+- the ramps, boxes, top-crush cars, course, stadium and backdrop as the level holds them now.
+
+The port saves and loads this file (pause menu, Save race; Options, Game, Load race). It writes its own catalogue's
+place of the track among the Monster Truck Madness 2 tracks as the race's index, and on loading it finds the track by
+the SIT's level line, which names the track, before the index. It keeps each checkpoint time of the lap being run only,
+and puts the level's objects back where they stand in the level's own SIT.
 
 **`MTM2 High Scores`** (the name is string 134, in the game folder; HighScor.cpp). The file is the Hall of Fame
 as text, enciphered in 8-byte blocks (`0x522210`, `0x522290`, `0x522370`): a TEA-like cipher with a 128-bit key

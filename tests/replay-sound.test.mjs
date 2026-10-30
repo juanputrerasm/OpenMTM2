@@ -21,3 +21,26 @@ test("replay sound: each truck's frame follows its engine smoothly and starts af
   sound.reset([truck]);
   assert.ok(Math.abs(sound.frame([truck], 0)[0].rpm - replayRpm(20, 4, 1, 2.75)) < 1e-9);
 });
+
+test("replay sound: the engine follows the body-forward speed, not the fall, and free-revs with every wheel in the air", () => {
+  const sound = createReplaySound([2.75]);
+  const falling = { speed: 60, forward: 10, gear: 4, throttle: 1 };
+  sound.reset([falling]);
+  assert.ok(Math.abs(sound.frame([falling], 0)[0].rpm - replayRpm(10, 4, 1, 2.75)) < 1e-9);
+  const air = { tires: [0, 1, 2, 3].map(() => ({ onGround: false, surface: 200 })) };
+  const frame = sound.frame([falling], 10, 0, [air])[0];
+  assert.equal(frame.airborne, 4);
+  assert.ok(Math.abs(frame.rpm - replayRpm(0, 0, 1, 2.75)) < 1);
+});
+
+test("replay sound: the frame carries the brakes, the tires, the water and a hard landing from what the picture shows", () => {
+  const sound = createReplaySound([2.75]);
+  const tires = [0, 1, 2, 3].map(() => ({ onGround: true, surface: 1100 }));
+  const [frame] = sound.frame([{ speed: 20, forward: 20, gear: 4, throttle: 0, brake: 0.8 }], 0.016, 0, [{ tires, vy: -12, inWater: true, clearance: 3, impact: 1200 }]);
+  assert.equal(frame.brake, 0.8);
+  assert.equal(frame.airborne, 0);
+  assert.equal(frame.tires, tires);
+  assert.equal(frame.inWater, true);
+  assert.equal(frame.vy, -12);
+  assert.equal(frame.impact, 1200);
+});

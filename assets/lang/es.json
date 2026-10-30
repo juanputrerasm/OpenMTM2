@@ -1653,7 +1653,7 @@
  },
  {
   "tag": "MTM2 Truck reflections",
-  "text": "Reflejos en los camiones de MTM2"
+  "text": "Reflejos de MTM2"
  },
  {
   "tag": "MTM2's: the clouds mirrored on the trucks' bodies, or the sky in Rain, Dusk and Night; none in fog or Pitch Black. From the next race",
@@ -1793,7 +1793,7 @@
  },
  {
   "tag": "App",
-  "text": "Aplicación"
+  "text": "App"
  },
  {
   "tag": "Data",
@@ -1825,7 +1825,7 @@
  },
  {
   "tag": "Reload POD.INI",
-  "text": "Volver a cargar POD.INI"
+  "text": "Recargar POD.INI"
  },
  {
   "tag": "Pick the Monster Truck Madness 2 folder again, or another one: its POD.INI is read and every archive it lists is copied again, changed or not, and mounted in the file's order",
@@ -4729,11 +4729,11 @@
  },
  {
   "tag": "Everybody ready to rassle?",
-  "text": "¿Todos listos para la lucha?"
+  "text": "¿Todos listos para luchar?"
  },
  {
   "tag": "Let's get ready to rassle.",
-  "text": "Prepárense para la lucha."
+  "text": "Prepárense para luchar."
  },
  {
   "tag": "This is where we separate the men from the boys.",
@@ -4741,7 +4741,7 @@
  },
  {
   "tag": "Now don't go biting anyone's ear off out there.",
-  "text": "Y no le arranquen la oreja a nadie de un mordisco allá afuera."
+  "text": "Y ahora no salgan a sacarle la oreja a mordiscos a nadie."
  },
  {
   "tag": "Who wants it more?",
@@ -4757,7 +4757,7 @@
  },
  {
   "tag": "<<1>> takes the monster crown.",
-  "text": "<<1>> se lleva la corona monstruo."
+  "text": "<<1>> se lleva la corona monster."
  },
  {
   "tag": "<<1>> is in the winner's circle this time.",
@@ -4769,7 +4769,7 @@
  },
  {
   "tag": "<<1>> takes one home.",
-  "text": "<<1>> se lleva una a casa."
+  "text": "<<1>> se lleva a casa."
  },
  {
   "tag": "<<1>> can take a cruise down victory lane.",
@@ -4837,11 +4837,11 @@
  },
  {
   "tag": "You can bet the pack is going to try and hold <<1>> back.",
-  "text": "Pueden apostar a que el pelotón tratará de frenar a <<1>>."
+  "text": "Pueden apostar a que van a intentar frenar a <<1>>."
  },
  {
   "tag": "<<1>> is taking the outside edge.",
-  "text": "<<1>> se va por el borde exterior."
+  "text": "<<1>> va por por fuera."
  },
  {
   "tag": "<<1>> is taking the long way home.",
@@ -4897,7 +4897,7 @@
  },
  {
   "tag": "Hey, that's coming out of somebody's paycheck.",
-  "text": "Oye, eso lo va a pagar alguien de su sueldo."
+  "text": "Oye, eso se del sueldo de alguien."
  },
  {
   "tag": "Oh, the humanity.",
@@ -4905,7 +4905,7 @@
  },
  {
   "tag": "That's gonna leave a mark!",
-  "text": "¡Eso va a dejar marca!"
+  "text": "¡Eso va a dejar una cicatriz!"
  },
  {
   "tag": "Cowabunga!",
@@ -4929,11 +4929,11 @@
  },
  {
   "tag": "<<1>> has gone in the drink.",
-  "text": "<<1>> se fue al agua."
+  "text": "<<1>> cayó a la bebida."
  },
  {
   "tag": "<<1>> is doing it in the drink.",
-  "text": "<<1>> lo está haciendo en el agua."
+  "text": "<<1>> lo está haciendo en la bebida."
  },
  {
   "tag": "<<1>> wants to sail the seven seas.",
@@ -4945,7 +4945,7 @@
  },
  {
   "tag": "What's next, a triple axel from the double axle?",
-  "text": "¿Y ahora qué, un triple axel del doble eje?"
+  "text": "¿Y qué será despues, un triple eje del doble eje?"
  },
  {
   "tag": "Chains will not, I repeat, will not be required for this event.",
@@ -4961,7 +4961,7 @@
  },
  {
   "tag": "<<1>> is flying to the finish line.",
-  "text": "<<1>> vuela hacia la meta."
+  "text": "<<1>> esta volando hacia la meta."
  },
  {
   "tag": "<<1>>'s got four big wheels but ain't using any of 'em!",
@@ -4973,7 +4973,7 @@
  },
  {
   "tag": "<<1>> is reaching for the stars.",
-  "text": "<<1>> se estira hacia las estrellas."
+  "text": "<<1>> quiere llegar hacia las estrellas."
  },
  {
   "tag": "Roll baby roll.",
@@ -4985,7 +4985,7 @@
  },
  {
   "tag": "<<1>> has crashed, leaving an incredible path of destruction behind it.",
-  "text": "<<1>> se estrelló, dejando un increíble rastro de destrucción."
+  "text": "<<1>> se estrelló, dejando una increíble huella de destrucción."
  },
  {
   "tag": "<<1>> is hanging ten.",
@@ -5001,11 +5001,11 @@
  },
  {
   "tag": "<<1>> has gone belly side up, so the whirly bird's gonna fix 'em up.",
-  "text": "<<1>> quedó panza arriba, así que el helicóptero lo va a arreglar."
+  "text": "<<1>> quedó panza arriba, así que la ave metálica lo va a arreglar."
  },
  {
   "tag": "Now for a ride of a different sort.",
-  "text": "Y ahora, un paseo de otra clase."
+  "text": "Y ahora, otro tipo de paseo."
  },
  {
   "tag": "Our old buddy <<1>> needs a helping hand.",
@@ -5013,11 +5013,11 @@
  },
  {
   "tag": "The whirly bird's comin' in.",
-  "text": "Ahí viene el helicóptero."
+  "text": "Ahí viene la ave metálica."
  },
  {
   "tag": "They're calling in the whirly bird for the big flip.",
-  "text": "Llaman al helicóptero para la gran vuelta."
+  "text": "Estan llamando a la ave metálica para el gran giro."
  },
  {
   "tag": "<<1>> is on the hook.",
@@ -5025,11 +5025,11 @@
  },
  {
   "tag": "Now listen.  What part of the word \"checkpoint\" do you not understand?",
-  "text": "A ver.  ¿Qué parte de la palabra \"control\" no entiendes?"
+  "text": "A ver. ¿Qué parte de la palabra \"checkpoint\" no entiendes?"
  },
  {
   "tag": "<<1>> has just missed a checkpoint. Turn around buddy.",
-  "text": "<<1>> se saltó un control. Date la vuelta, amigo."
+  "text": "<<1>> se saltó un checkpoint. Da la vuelta, amigo."
  },
  {
   "tag": "<<1>> is driving in the stealth mode.",
@@ -5037,7 +5037,7 @@
  },
  {
   "tag": "Watch those tail lights.",
-  "text": "Mira esas luces traseras."
+  "text": "Cuidado con esas luces traseras."
  },
  {
   "tag": "Voice commentary",
@@ -5093,7 +5093,7 @@
  },
  {
   "tag": "Monster Truck Madness 2, Version <<1>> (community patch)",
-  "text": "Monster Truck Madness 2, versión <<1>> (parche de la comunidad)"
+  "text": "Monster Truck Madness 2, versión <<1>> (community patch)"
  },
  {
   "tag": "Monster Truck Madness 2, Version <<1>> (beta)",
@@ -5144,6 +5144,10 @@
   "text": "Duración de la exhibición"
  },
  {
+  "tag": "Trick physics (throttle and brake tilt the truck in the air)",
+  "text": "Física de acrobacias (el acelerador y el freno inclinan el camión en el aire)"
+ },
+ {
   "tag": "Time used",
   "text": "Tiempo usado"
  },
@@ -5181,19 +5185,19 @@
  },
  {
   "tag": "Wheelie!",
-  "text": "¡Caballito!"
+  "text": "¡Wheelie!"
  },
  {
   "tag": "Sky wheelie!",
-  "text": "¡Caballito vertical!"
+  "text": "¡Wheelie vertical!"
  },
  {
   "tag": "Slap wheelie!",
-  "text": "¡Caballito al caer!"
+  "text": "¡Wheelie al caer!"
  },
  {
   "tag": "Nose wheelie!",
-  "text": "¡Caballito de nariz!"
+  "text": "¡Wheelie de nariz!"
  },
  {
   "tag": "Moonwalk!",
@@ -5253,7 +5257,7 @@
  },
  {
   "tag": "Freestyle! Use all your time: big air, wheelies, donuts and saves.",
-  "text": "¡Estilo libre! Usa todo tu tiempo: saltos, caballitos, donas y salvadas."
+  "text": "¡Estilo libre! Usa todo tu tiempo: saltos, wheelies, donas y salvadas."
  },
  {
   "tag": "10 seconds left!",
@@ -6178,5 +6182,613 @@
  {
   "tag": "Reload",
   "text": "Recargar"
+ },
+ {
+  "tag": "Those trucks are lighting the fires and smoking the tires.",
+  "text": "Esos camiones están encendiendo los motores y quemando las llantas."
+ },
+ {
+  "tag": "Those trucks are lighting the fires and smoking the tires. Let's go.",
+  "text": "Esos camiones están encendiendo los motores y quemando las llantas. ¡Vamos!"
+ },
+ {
+  "tag": "Here comes the big boys.",
+  "text": "Ahí vienen los grandotes."
+ },
+ {
+  "tag": "Just because you have a truck, doesn't mean you can drive. Let's see what you got.",
+  "text": "Tener un camión no significa que sepas manejar. A ver qué tienes."
+ },
+ {
+  "tag": "Hey buddy, ready to get muddy?",
+  "text": "Oye amigo, ¿listo para embarrarte?"
+ },
+ {
+  "tag": "Ah, how do I love these trucks. Let me count the ways.",
+  "text": "Ah, cuánto amo estos camiones. Déjenme contar las razones."
+ },
+ {
+  "tag": "Now is the time to make some tracks.",
+  "text": "Llegó la hora de dejar huellas."
+ },
+ {
+  "tag": "Who's it gonna be at the back of this pack?",
+  "text": "¿Quién va a quedar al final de este grupo?"
+ },
+ {
+  "tag": "They're gonna give it the old college try, although frankly, I don't think these drivers went to college.",
+  "text": "Lo van a intentar con todo, aunque, la verdad, no creo que estos pilotos hayan ido a la universidad."
+ },
+ {
+  "tag": "They'll be tearing down the grandstands when they see this.",
+  "text": "Van a derribar las tribunas cuando vean esto."
+ },
+ {
+  "tag": "These trucks are out to prove something.",
+  "text": "Estos camiones quieren demostrar algo."
+ },
+ {
+  "tag": "This is one tough race.",
+  "text": "Esta es una carrera dura."
+ },
+ {
+  "tag": "Train tracks, trucks and trestles, it doesn't get much better than this.",
+  "text": "Vías de tren, camiones y puentes: no hay nada mejor que esto."
+ },
+ {
+  "tag": "Let's get inside the squared circle.",
+  "text": "Subamos al cuadrilátero."
+ },
+ {
+  "tag": "Prepare yourself, this ain't no funhouse.",
+  "text": "Prepárate, esto no es una casa de la risa."
+ },
+ {
+  "tag": "This is the part of town that yo' mamma always warned you about.",
+  "text": "Este es el barrio del que tu mamá siempre te advirtió."
+ },
+ {
+  "tag": "There can only be one.",
+  "text": "Solo puede quedar uno."
+ },
+ {
+  "tag": "In Snake Canyon country, the secret to success is to slither past all those other suckers.",
+  "text": "En el Cañón de la Serpiente, el secreto del éxito es deslizarse junto a todos esos ingenuos."
+ },
+ {
+  "tag": "Which one of you reptiles is going to be king of Snake Canyon?",
+  "text": "¿Cuál de ustedes, reptiles, será el rey del Cañón de la Serpiente?"
+ },
+ {
+  "tag": "Hey, who turned out all the lights?",
+  "text": "Oigan, ¿quién apagó las luces?"
+ },
+ {
+  "tag": "These trucks are doing it on the dark side.",
+  "text": "Estos camiones corren en el lado oscuro."
+ },
+ {
+  "tag": "Looks like Frosty is in for one wild ride!",
+  "text": "¡Parece que el muñeco de nieve va a dar un paseo salvaje!"
+ },
+ {
+  "tag": "Trucketh in a winter wonderland.",
+  "text": "Camiones en un paraíso invernal."
+ },
+ {
+  "tag": "I cannot see a thing.",
+  "text": "No veo nada."
+ },
+ {
+  "tag": "What's up ahead? Danged if I know.",
+  "text": "¿Qué hay adelante? Que me cuelguen si lo sé."
+ },
+ {
+  "tag": "This stuff is thicker than molasses in January.",
+  "text": "Esto está más espeso que la melaza en enero."
+ },
+ {
+  "tag": "It's as clear as mud out there.",
+  "text": "Allá afuera está claro como el barro."
+ },
+ {
+  "tag": "Looks like we all got blindfolds on. I can't see a thing!",
+  "text": "Parece que todos llevamos los ojos vendados. ¡No veo nada!"
+ },
+ {
+  "tag": "There's no day like payday.",
+  "text": "No hay día como el día de pago."
+ },
+ {
+  "tag": "Abandon all hope, here comes <<1>>.",
+  "text": "Abandonen toda esperanza, ahí viene <<1>>."
+ },
+ {
+  "tag": "My oh my, <<1>> is making the move.",
+  "text": "Vaya, vaya, <<1>> está haciendo su jugada."
+ },
+ {
+  "tag": "Hell has no fury like a Monster Truck scorned.",
+  "text": "No hay furia peor que la de un Monster Truck despechado."
+ },
+ {
+  "tag": "<<1>> is a truck with a mission.",
+  "text": "<<1>> es un camión con una misión."
+ },
+ {
+  "tag": "<<1>> has turned the tables.",
+  "text": "<<1>> le dio la vuelta a la tortilla."
+ },
+ {
+  "tag": "The worm has turned.",
+  "text": "Las cosas han cambiado."
+ },
+ {
+  "tag": "Looks like <<1>> made a deal with the local witchdoctor.",
+  "text": "Parece que <<1>> hizo un trato con el brujo del pueblo."
+ },
+ {
+  "tag": "Drive, you magnificent Monster Truck. Drive.",
+  "text": "Maneja, magnífico Monster Truck. Maneja."
+ },
+ {
+  "tag": "This one is off the Richter scale.",
+  "text": "Este se sale de la escala de Richter."
+ },
+ {
+  "tag": "Knocks one out of the park.",
+  "text": "¡Un jonrón!"
+ },
+ {
+  "tag": "Maybe down for the count.",
+  "text": "Quizá quedó fuera de combate."
+ },
+ {
+  "tag": "Just opened a big ol' can of whoop ass on those other trucks.",
+  "text": "Acaba de darles una paliza tremenda a esos otros camiones."
+ },
+ {
+  "tag": "Just opened a big ol' can of whoop ass on the competition.",
+  "text": "Acaba de darle una paliza tremenda a la competencia."
+ },
+ {
+  "tag": "Demolition Derby time!",
+  "text": "¡Hora del derby de demolición!"
+ },
+ {
+  "tag": "That boy ain't right.",
+  "text": "A ese muchacho le falta un tornillo."
+ },
+ {
+  "tag": "What the heck was that?",
+  "text": "¿Qué diablos fue eso?"
+ },
+ {
+  "tag": "<<1>> will not budge.",
+  "text": "<<1>> no se mueve ni un centímetro."
+ },
+ {
+  "tag": "<<1>> takes a direct hit.",
+  "text": "<<1>> recibe un impacto directo."
+ },
+ {
+  "tag": "Those wrestle trucks are hard to beat.",
+  "text": "A esos camiones luchadores es difícil ganarles."
+ },
+ {
+  "tag": "Sic 'em.",
+  "text": "¡A por ellos!"
+ },
+ {
+  "tag": "Clash of the titans.",
+  "text": "Choque de titanes."
+ },
+ {
+  "tag": "That'll make your blood start flowin'.",
+  "text": "Eso te hace hervir la sangre."
+ },
+ {
+  "tag": "<<2>> is having the other truck for lunch.",
+  "text": "<<2>> se está almorzando al otro camión."
+ },
+ {
+  "tag": "What about the pairs competition?",
+  "text": "¿Y la competencia de parejas?"
+ },
+ {
+  "tag": "Looks like that truck had one too many.",
+  "text": "Parece que ese camión tomó una de más."
+ },
+ {
+  "tag": "The big trucks cometh.",
+  "text": "Llegan los camiones grandes."
+ },
+ {
+  "tag": "The <<1>> cometh.",
+  "text": "Llega <<1>>."
+ },
+ {
+  "tag": "Spoken like a true champion.",
+  "text": "Dicho como un verdadero campeón."
+ },
+ {
+  "tag": "I have never seen anything like that before.",
+  "text": "Nunca había visto algo así."
+ },
+ {
+  "tag": "Un-freaking-believable.",
+  "text": "In-cre-íble."
+ },
+ {
+  "tag": "I've heard of stopping to smell the roses, but this is ridiculous.",
+  "text": "He oído de detenerse a oler las rosas, pero esto es ridículo."
+ },
+ {
+  "tag": "<<1>> has gone over to say hello to the neighbors, which means the truck's out of the competition.",
+  "text": "<<1>> se fue a saludar a los vecinos, lo que significa que está fuera de la competencia."
+ },
+ {
+  "tag": "Who would've thunk it?",
+  "text": "¿Quién lo hubiera pensado?"
+ },
+ {
+  "tag": "When going your way, it's still going your way.",
+  "text": "Cuando las cosas te salen bien, te siguen saliendo bien."
+ },
+ {
+  "tag": "Unbelievable!",
+  "text": "¡Increíble!"
+ },
+ {
+  "tag": "Keep on truckin'.",
+  "text": "Sigue rodando."
+ },
+ {
+  "tag": "Don't forget to hit your checkpoints.",
+  "text": "No olviden pasar por los puntos de control."
+ },
+ {
+  "tag": "And now for the blimp side view.",
+  "text": "Y ahora, la vista desde el dirigible."
+ },
+ {
+  "tag": "One more lap to go.",
+  "text": "Queda una vuelta."
+ },
+ {
+  "tag": "<<1>> specialty: road sign pancakes.",
+  "text": "La especialidad de <<1>>: señales de tránsito aplastadas."
+ },
+ {
+  "tag": "Signs of monster truckin' times.",
+  "text": "Señales de tiempos de monsters."
+ },
+ {
+  "tag": "If that were alive, it'd be roadkill now.",
+  "text": "Si eso estuviera vivo, ahora sería un atropello."
+ },
+ {
+  "tag": "<<1>> is looking for a detour.",
+  "text": "<<1>> está buscando un desvío."
+ },
+ {
+  "tag": "That ain't no love train comin' down the tracks. Watch out!",
+  "text": "Ese que viene por la vía no es el tren del amor. ¡Cuidado!"
+ },
+ {
+  "tag": "The score as it stands right now... Big Giant Train: 1, Monster Truck: 0",
+  "text": "El marcador por ahora... Tren Gigante: 1, Monster Truck: 0"
+ },
+ {
+  "tag": "If you wanna ride that train, you gotta buy a ticket.",
+  "text": "Si quieres subirte a ese tren, tienes que comprar boleto."
+ },
+ {
+  "tag": "<<1>> appears to be glued to the top of that thing.",
+  "text": "<<1>> parece pegado a la cima de esa cosa."
+ },
+ {
+  "tag": "<<1>> is standing its ground.",
+  "text": "<<1>> se mantiene firme."
+ },
+ {
+  "tag": "<<1>> won't budge. How long can he stay up there?",
+  "text": "<<1>> no se mueve. ¿Cuánto tiempo aguantará allá arriba?"
+ },
+ {
+  "tag": "The points continue to pour on.",
+  "text": "Los puntos siguen lloviendo."
+ },
+ {
+  "tag": "The points are piling up for <<1>>.",
+  "text": "Los puntos se acumulan para <<1>>."
+ },
+ {
+  "tag": "And the clock continues to tick away.",
+  "text": "Y el reloj sigue corriendo."
+ },
+ {
+  "tag": "<<1>> has left the building.",
+  "text": "<<1>> abandonó el edificio."
+ },
+ {
+  "tag": "<<1>> has taken a leave of absence.",
+  "text": "<<1>> se tomó una licencia."
+ },
+ {
+  "tag": "<<1>> has fallen off the summit.",
+  "text": "<<1>> se cayó de la cima."
+ },
+ {
+  "tag": "Look out below!",
+  "text": "¡Cuidado abajo!"
+ },
+ {
+  "tag": "Maybe down for the count. No, he's on his feet again!",
+  "text": "Quizá quedó fuera de combate. ¡No, ya está de pie otra vez!"
+ },
+ {
+  "tag": "<<1>> steps out of the ring.",
+  "text": "<<1>> sale del ring."
+ },
+ {
+  "tag": "<<1>> has taken over the summit.",
+  "text": "<<1>> se adueñó de la cima."
+ },
+ {
+  "tag": "Now <<1>> is on top.",
+  "text": "Ahora <<1>> está arriba."
+ },
+ {
+  "tag": "<<1>> takes the top.",
+  "text": "<<1>> toma la cima."
+ },
+ {
+  "tag": "<<1>> is dominating the summit.",
+  "text": "<<1>> domina la cima."
+ },
+ {
+  "tag": "<<1>> is kicking up mud and taking names.",
+  "text": "<<1>> levanta barro y no perdona a nadie."
+ },
+ {
+  "tag": "Un-freaking-stoppable.",
+  "text": "Im-pa-rable."
+ },
+ {
+  "tag": "Who says it's lonely at the top?",
+  "text": "¿Quién dijo que en la cima se está solo?"
+ },
+ {
+  "tag": "Yeehaw!",
+  "text": "¡Yija!"
+ },
+ {
+  "tag": "<<1>> has <<2>> seconds to prestage.",
+  "text": "<<1>> tiene <<2>> segundos para el pre-stage."
+ },
+ {
+  "tag": "<<1>> has <<2>> seconds to stage.",
+  "text": "<<1>> tiene <<2>> segundos para el stage."
+ },
+ {
+  "tag": "<<1>> is prestaged.",
+  "text": "<<1>> está en pre-stage."
+ },
+ {
+  "tag": "<<1>> is staged.",
+  "text": "<<1>> está en stage."
+ },
+ {
+  "tag": "<<1>> has red lighted.",
+  "text": "<<1>> salió con luz roja."
+ },
+ {
+  "tag": "<<1>> has the jump on <<2>>.",
+  "text": "<<1>> le saca ventaja a <<2>> en la salida."
+ },
+ {
+  "tag": "<<1>> has been disqualified for crossing the center line.",
+  "text": "<<1>> fue descalificado por cruzar la línea central."
+ },
+ {
+  "tag": "<<1>> has been disqualified for crossing the outside edge.",
+  "text": "<<1>> fue descalificado por cruzar el borde exterior."
+ },
+ {
+  "tag": "<<1>> has been disqualified for reversing on the track.",
+  "text": "<<1>> fue descalificado por retroceder en la pista."
+ },
+ {
+  "tag": "<<1>> has been disqualified for exceeding the time limit.",
+  "text": "<<1>> fue descalificado por superar el tiempo límite."
+ },
+ {
+  "tag": "<<1>> has won the heat.",
+  "text": "<<1>> ganó la manga."
+ },
+ {
+  "tag": "Wheel off! X for the pit crew",
+  "text": "¡Se salió una rueda! X para el pit crew"
+ },
+ {
+  "tag": "Wheel off! X for the pit crew, or it is back on in <<1>> s",
+  "text": "¡Se salió una rueda! X para el pit crew, o se reparará solo en <<1>> s"
+ },
+ {
+  "tag": "Axle gone! X for the pit crew",
+  "text": "¡Se perdió un eje! X para el pit crew"
+ },
+ {
+  "tag": "Pit crew: wheels back on in <<1>> s",
+  "text": "Pit crew: ruedas listas en <<1>> s"
+ },
+ {
+  "tag": "Wheels back on",
+  "text": "Ruedas en su sitio"
+ },
+ {
+  "tag": "Nothing to fix",
+  "text": "Nada que reparar"
+ },
+ {
+  "tag": "Community Patch 3's AI Speed: how fast the computer trucks drive, from 70 to 130 percent; 100 is the standard. A tournament keeps the value it started with",
+  "text": "La velocidad de la IA del Community Patch 3: qué tan rápido manejan los camiones de la computadora, de 70 a 130 por ciento; 100 es lo estándar. Un torneo conserva el valor con que empezó"
+ },
+ {
+  "tag": "AI Speed",
+  "text": "Velocidad de la IA"
+ },
+ {
+  "tag": "<<1>>% (locked)",
+  "text": "<<1>>% (bloqueado)"
+ },
+ {
+  "tag": "Wheels back on after",
+  "text": "Ruedas de vuelta tras"
+ },
+ {
+  "tag": "5 seconds",
+  "text": "5 segundos"
+ },
+ {
+  "tag": "8 seconds",
+  "text": "8 segundos"
+ },
+ {
+  "tag": "12 seconds",
+  "text": "12 segundos"
+ },
+ {
+  "tag": "Never (X only)",
+  "text": "Nunca (solo X)"
+ },
+ {
+  "tag": "CP3 voice commentary",
+  "text": "Comentarios de voz de CP3"
+ },
+ {
+  "tag": "Community Patch 3's announcer: many more lines, calls for the final lap, the weather, road signs, trains, the Summit Rumble and drag passes, and shorter pauses between lines. The drag calls need Community Patch 3's Sound.POD. From the next race",
+  "text": "El comentarista del Community Patch 3: muchas más frases, anuncios de la última vuelta, el clima, las señales, los trenes, el Summit Rumble y las pasadas de drag, y pausas más cortas entre frases. Los anuncios de drag necesitan el Sound.POD del Community Patch 3. Desde la próxima carrera"
+ },
+ {
+  "tag": "pit",
+  "text": "boxes"
+ },
+ {
+  "tag": "Wheels damage",
+  "text": "Daño de ruedas"
+ },
+ {
+  "tag": "Hard hits, bad landings and rolls wear the wheels and dent the body; a worn wheel or a violent crash knocks one off, a huge one a whole axle. The truck limps on until they come back on, or press X for the pit crew (two seconds standing still; it fixes the body too). The timing board's Wheels line shows what is left before a wheel comes off, and N shows every truck's. Needs Crash damage. Not in Combat (it has its own), online or under MTM1 physics. From the next race",
+  "text": "Los golpes fuertes, los malos aterrizajes y los vuelcos desgastan las ruedas y abollan la carrocería; una rueda gastada o un choque violento la arranca, y uno enorme se lleva un eje entero. El camión sigue cojeando hasta que vuelven a su sitio, o pulsa X para el equipo de boxes (dos segundos detenido; también arregla la carrocería). La línea Ruedas del tablero muestra lo que queda antes de perder una rueda, y N muestra la de cada camión. Necesita el daño por choques. No en Combate (tiene las suyas), en línea ni con la física de MTM1. Desde la próxima carrera"
+ },
+ {
+  "tag": "Save keeps the whole replay as a .rpl file with OpenMTM2's extra detail, which Community Patch 3 plays as well. Save to classic MTM2 keeps only the last 2240 records, as much as Monster Truck Madness 2 itself plays back. Options, Instant Replay opens a saved one, the game's included.",
+  "text": "Guardar conserva la repetición completa como archivo .rpl con el detalle adicional de OpenMTM2, que Community Patch 3 también reproduce. Guardar para MTM2 clásico conserva solo los últimos 2240 registros, lo que el propio Monster Truck Madness 2 reproduce. Opciones, Repetición instantánea abre una guardada, incluidas las del juego."
+ },
+ {
+  "tag": "Free mouse look, off at first, lets the mouse turn the outside cameras; the wheel zooms either way.",
+  "text": "Mirada libre con el ratón, desactivada al principio, permite girar las cámaras exteriores con el ratón; la rueda hace zoom en cualquier caso."
+ },
+ {
+  "tag": "The saved race's track is not installed.",
+  "text": "La pista de la carrera guardada no está instalada."
+ },
+ {
+  "tag": "The saved race's truck is not installed.",
+  "text": "El camión de la carrera guardada no está instalado."
+ },
+ {
+  "tag": "Hard hits, bad landings and rolls wear the wheels and dent the body; a worn wheel or a violent crash knocks one off, a huge one a whole axle. The truck limps on until they come back on, or press X for the pit crew (two seconds standing still; it fixes the body too). The timing board's Wheels line shows what is left before a wheel comes off, and N shows every truck's. Needs Crash damage. Not in Combat (it has its own), a classic network game or under MTM1 physics. Online rooms race by the owner's setting. From the next race",
+  "text": "Los golpes fuertes, los malos aterrizajes y los vuelcos desgastan las ruedas y abollan la carrocería; una rueda gastada o un choque violento arranca una, uno enorme un eje entero. El camión sigue cojeando hasta que vuelven a su sitio, o pulsa X para el equipo de boxes (dos segundos quieto; también arregla la carrocería). La línea Ruedas del marcador muestra lo que queda antes de perder una rueda, y N muestra la de cada camión. Necesita Daños por choque. No en Combate (tiene las suyas), en una partida de red clásica ni con la física de MTM1. Las salas en línea corren con el ajuste del anfitrión. Desde la próxima carrera"
+ },
+ {
+  "tag": "The race could not be loaded: <<1>>",
+  "text": "No se pudo cargar la carrera: <<1>>"
+ },
+ {
+  "tag": "Saved race",
+  "text": "Carrera guardada"
+ },
+ {
+  "tag": "Load race...",
+  "text": "Cargar carrera..."
+ },
+ {
+  "tag": "Start a race saved with Save race in the pause menu, or by Monster Truck Madness 2, where it was left",
+  "text": "Empieza una carrera guardada con Guardar carrera en el menú de pausa, o por Monster Truck Madness 2, donde se dejó"
+ },
+ {
+  "tag": "MTM1",
+  "text": "MTM1"
+ },
+ {
+  "tag": "MTM2",
+  "text": "MTM2"
+ },
+ {
+  "tag": "CPR",
+  "text": "CPR"
+ },
+ {
+  "tag": "EVO",
+  "text": "EVO"
+ },
+ {
+  "tag": "Commentary truck names",
+  "text": "Nombres de camión en los comentarios"
+ },
+ {
+  "tag": "The text commentary names the trucks, as the game's does, in place of their drivers. From the next race",
+  "text": "Los comentarios en texto nombran los camiones, como hace el juego, en lugar de sus pilotos. Desde la próxima carrera"
+ },
+ {
+  "tag": "Leave and watch",
+  "text": "Abandonar y mirar"
+ },
+ {
+  "tag": "This race cannot be saved.",
+  "text": "Esta carrera no se puede guardar."
+ },
+ {
+  "tag": "Race saved",
+  "text": "Carrera guardada"
+ },
+ {
+  "tag": "The race could not be saved: <<1>>",
+  "text": "No se pudo guardar la carrera: <<1>>"
+ },
+ {
+  "tag": "Save race",
+  "text": "Guardar carrera"
+ },
+ {
+  "tag": "The mouse looks round on the outside cameras",
+  "text": "El ratón mira alrededor en las cámaras exteriores"
+ },
+ {
+  "tag": "Free mouse look",
+  "text": "Mirada libre con el ratón"
+ },
+ {
+  "tag": "Save the whole replay as a .rpl file with OpenMTM2's extra detail: OpenMTM2 and Community Patch 3 play it all back; Monster Truck Madness 2 itself cannot load one this long",
+  "text": "Guarda la repetición completa como archivo .rpl con el detalle adicional de OpenMTM2: OpenMTM2 y Community Patch 3 la reproducen entera; el propio Monster Truck Madness 2 no puede cargar una tan larga"
+ },
+ {
+  "tag": "Save to classic MTM2",
+  "text": "Guardar para MTM2 clásico"
+ },
+ {
+  "tag": "Save the last 2240 records as a .rpl file, as much as Monster Truck Madness 2 itself plays back",
+  "text": "Guarda los últimos 2240 registros como archivo .rpl, lo que el propio Monster Truck Madness 2 reproduce"
+ },
+ {
+  "tag": "<<1>> (autopilot)",
+  "text": "<<1>> (piloto automático)"
+ },
+ {
+  "tag": "Save race keeps the race as it is in a .mtm file, the Monster Truck Madness 2 saved game; Options, Game, Load race starts it again where it was left. Leave and watch hands your truck to the autopilot and lets you watch the race to its end, with no points for it.",
+  "text": "Guardar carrera conserva la carrera tal como está en un archivo .mtm, la partida guardada de Monster Truck Madness 2; Opciones, Juego, Cargar carrera la reanuda donde se dejó. Abandonar y mirar deja tu camión al piloto automático y te permite ver la carrera hasta el final, sin puntos."
  }
 ]

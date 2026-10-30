@@ -10,6 +10,10 @@ import { RNR_EXTENSION } from "./race-rumble.js";
 import { COMBAT_EXTENSION } from "./combat.js";
 import { FREESTYLE_EXTENSION } from "./freestyle.js";
 import { msg } from "../strings.js";
+import { DEFAULT_REPAIR_S } from "./loose-wheels.js";
+
+/** Wheels damage's (Loose Wheels') choices, messages and damage figure, for Options and the race screen. */
+export { LOOSE_WHEEL_TEXT, REPAIR_CHOICES, damagePercent, damageText } from "./loose-wheels.js";
 
 /** Shipped extensions. A new extension is registered in this one place. */
 export const EXTENSIONS = Object.freeze([HOCKEY_EXTENSION, SOCCER_EXTENSION, TAG_EXTENSION, CNR_EXTENSION, RNR_EXTENSION, COMBAT_EXTENSION, FREESTYLE_EXTENSION]);
@@ -150,4 +154,18 @@ export function entrantTeamPicks(settings, extensionOrId, entrants) {
     if (picker.roles && Number.isInteger(pick.role) && pick.role >= 0 && pick.role < picker.roles.length) out.role = pick.role;
     return Object.keys(out).length ? out : null;
   });
+}
+
+/**
+ * Loose Wheels (game/extensions/loose-wheels.js), the mutator Options, Game switches on: the simulation's payload for a
+ * race, or null. Not under MTM1 physics (no crash damage) or another game's model (no stubs), and in a mode only when
+ * the mode asks for it (`looseWheels` in its manifest; Combat has its own wheels). `online` (a classic session, whose
+ * packets cannot carry wheels) turns it off; in a room the race screen passes the room owner's rule as `settings`.
+ */
+export function looseWheelsFor(settings, { extension = null, physics = "mtm2", online = false } = {}) {
+  // Wheels damage is a part of crash damage: off with it.
+  if (!settings?.looseWheels || settings.crashDamage === false || online || physics !== "mtm2") return null;
+  if (extension && !extension.looseWheels) return null;
+  const repairS = Number(settings.looseWheelsRepairS);
+  return { mode: "loose-wheels", repairS: Number.isFinite(repairS) && repairS >= 0 ? repairS : DEFAULT_REPAIR_S };
 }

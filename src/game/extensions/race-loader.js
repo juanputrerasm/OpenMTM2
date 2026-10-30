@@ -538,11 +538,12 @@ const COMBAT = {
 
 const scoreOf = (x) => (Number(x) || 0).toFixed(1);
 const FREESTYLE = {
-  prepare: (extension, { length }) => ({
+  prepare: (extension, { length, settings }) => ({
     id: extension.id,
     dress: { mode: extension.id },
     start: (_index, fallback) => fallback,
-    simulation: { mode: extension.id, minutes: length },
+    // Trick physics is on unless the player turned it off (freestyle.js `freestyleRules`).
+    simulation: { mode: extension.id, minutes: length, trickPhysics: settings?.trickPhysics !== false },
   }),
   // No checkpoints to find: the whole track is the arena.
   finderTarget: () => null,

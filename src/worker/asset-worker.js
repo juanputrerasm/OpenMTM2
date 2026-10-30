@@ -275,6 +275,12 @@ const handlers = {
   },
 
   /** A track's description (`WORLD\\<name>`, the SIT's "Track Description .TXT file") as text, or null. */
+  /** A track's SIT as text (`path`, the catalog's), for a saved race (game/saved-race.js); null when it is not mounted. */
+  async trackSit({ path }) {
+    const bytes = await (await mounted()).read(String(path).toUpperCase());
+    return bytes ? new TextDecoder("latin1").decode(bytes) : null;
+  },
+
   async trackText({ name }) {
     if (!/^[A-Za-z0-9_.-]+$/.test(String(name))) throw new Error(`Bad text name "${name}"`);
     const bytes = await (await mounted()).read(`WORLD\\${name.toUpperCase()}`);

@@ -12,6 +12,7 @@
     { kind: "horn", vehicle }                    { kind: "yeehaw", vehicle }
     { kind: "mode", data }                       an extension's state from the room owner (rooms only)
     { kind: "modeTruck", vehicle, data }         an extension's state for the trucks one machine drives (rooms only)
+    { kind: "wheels", vehicle, lost, axles, wear, repairs, pits }   a truck's Wheels damage (rooms only)
 
   Vehicle numbers are the network's (the game's 1-based slots); local indexes are the race
   screen's trucks, the local player always 0. `receive` turns events into commands for the sim
@@ -21,6 +22,8 @@
 
 /** How often the room owner sends an extension's state when nothing happened (an event goes at once). */
 export const MODE_HZ = 5;
+/** How often a truck's wheel wear is sent when only the wear changed (a lost wheel or a repair goes at once). */
+export const WHEEL_WEAR_HZ = 1;
 
 /**
  * @param {{ entrants: { vehicle: number, owned: boolean }[], rateHz: number, policy?: string,
@@ -44,6 +47,8 @@ export function createNetRace({ entrants, rateHz, mode = null }) {
   const lastPass = entrants.map(() => 0);
   const gone = new Set();
   let nextMode = -Infinity, modeMark = null, nextOwn = -Infinity, ownMark = null;
+  // Wheels damage: what was last sent per truck, and when the wear may go next.
+  const sentWheels = entrants.map(() => null), nextWear = entrants.map(() => -Infinity);
 
   const command = (name, value) => pending.push({ name, value });
 
@@ -79,6 +84,11 @@ export function createNetRace({ entrants, rateHz, mode = null }) {
         const state = mode?.fromWire(e.data, (v) => localOf.get(v), entrants.length);
         if (!state) return false;
         command("mode", state);
+        return true;
+      }
+      case "wheels": {
+        const { vehicle, kind, ...wheels } = e;
+        command("wheelsOwn", [{ ...wheels, truck: local }]);
         return true;
       }
       case "modeTruck": {
@@ -139,6 +149,18 @@ export function createNetRace({ entrants, rateHz, mode = null }) {
         ownMark = s.mark;
         out.push({ kind: "modeTruck", vehicle: vehicleOf[0], data: mode.ownToWire(s, (i) => vehicleOf[i] ?? 0) });
       }
+    }
+    // Wheels damage: each owned truck's wheels, at once on a lost wheel or a repair, the wear alone at WHEEL_WEAR_HZ.
+    for (const w of reply?.wheelsOwn ?? []) {
+      const i = w.truck;
+      if (!owned[i] || gone.has(i)) continue;
+      const mark = `${w.lost}:${w.axles}:${w.repairs}:${w.pits}`, wear = (w.wear ?? []).join(",");
+      const last = sentWheels[i];
+      if (last && last.mark === mark && (last.wear === wear || now < nextWear[i])) continue;
+      if (!last && !w.lost && !w.axles && !w.repairs && (w.wear ?? []).every((v) => v >= 1)) { sentWheels[i] = { mark, wear }; continue; }
+      sentWheels[i] = { mark, wear };
+      nextWear[i] = now + 1000 / WHEEL_WEAR_HZ;
+      out.push({ kind: "wheels", vehicle: vehicleOf[i], lost: w.lost, axles: w.axles, wear: w.wear, repairs: w.repairs, pits: w.pits });
     }
     entrants.forEach((_, i) => {
       if (!owned[i]) return;

@@ -5,7 +5,10 @@
   pause menu) is judged on the time it used.
 */
 import * as S from "../../vendor/openphotex/sim/mtm2/index.js";
-import { createFreestyle, freestyleEnd, freestyleScore, freestyleStep } from "./freestyle.js";
+import { createFreestyle, freestyleEnd, freestyleRules, freestyleScore, freestyleStep } from "./freestyle.js";
+
+/** The physics rules of a run (freestyle.js `freestyleRules`): Trick physics unless the player turned it off. */
+export const freestyleSimRules = freestyleRules;
 
 /** What the judge needs from a truck this step (freestyle.js `freestyleStep`); `hit` is the object met, if any. */
 export function freestyleSample(truck, hit) {

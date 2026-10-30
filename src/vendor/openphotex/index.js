@@ -56,7 +56,8 @@ export { EVO_CELL_SIZE, EVO_HEIGHT_DIVISOR, EVO_WATER_HEIGHT_DIVISOR, EVO_GRID_S
 export { parseEvoAiLine, matchEvoAiLineName, lapRuns } from "./evo/ai-line.js";
 export { sampleForPalette, medianCutPalette, colourCube, encodeRawTexture, quantizeToPalette } from "./texture/encode.js";
 export { MTM2_PALETTE_WHITE_INDEX, MTM2_PALETTE_FIRST_AUTHORED, MTM2_PALETTE_AUTHORED_COUNT, mtm2LevelPalette, buildFogMap, } from "./mtm/level-palette.js";
-export { writeMtm2Sit, writeMtm2Lvl, writeTexList, writeTty, writeEmptyList, emptyGroundBoxGrids, buildMtm2Lte, writeMtm2Trk, } from "./mtm/write.js";
+export { writeMtm2Sit, writeMtm2Lvl, writeTexList, writeTty, writeEmptyList, emptyGroundBoxGrids, buildMtm2Lte, writeMtm2Trk, sitTruckLines, replaceSitVehicles, } from "./mtm/write.js";
+export { MTM2_SAVED_GAME_HEADER, parseMtm2SavedGame, writeMtm2SavedGame } from "./mtm/saved-game.js";
 export { parseTxv, txvValue, writeTxv } from "./mtm/txv.js";
 export { parseFlyTagged, flyTag, flyTags, parseFlyAngle } from "./fly/tagged.js";
 export { FLY_TILE_DEGREES, FLY_TILE_COLUMNS, FLY_EQUATOR_ROW, FLY_TILE_CELLS, FLY_QUADRANT_CELLS, flyRowLatitude, flyColumnLongitude, flyTileBounds, flyTileAt, parseFlyFolderName, flyFolderName, parseFlyTextureName, } from "./fly/globe.js";
@@ -87,6 +88,6 @@ export * as cprSim from "./sim/cpr/index.js";
 export { CPR_DEFAULT_SETUP, cloneCprSetup, parseCprGarage, writeCprGarage } from "./cpr/garage.js";
 export { PodFormatError } from "./errors.js";
 /** The library version, as published in package.json. */
-export const VERSION = "1.5.0";
+export const VERSION = "1.5.1";
 export { parseMtmPlayerPro, writeMtmPlayerPro, newMtmDriver, PLAYER_PRO_VERSION } from "./mtm/player-pro.js";
 export { parseMtmHighScores, writeMtmHighScores, decipherHighScores, encipherHighScores, HIGH_SCORES_FILE } from "./mtm/high-scores.js";

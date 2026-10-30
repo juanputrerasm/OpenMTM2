@@ -134,8 +134,11 @@ export function createChaseCamera() {
      * (`turnedPitch`). `clearFt` keeps the camera that far over the ground ("Camera clearance"), easing it back down
      * once the ground falls away; 0 is the game's rule, which lets it touch the ground. `look` (`{ yaw, pitch }`, radians;
      * game/camera-look.js) turns the camera round the truck at once, past the heading's easing: the mouse's look.
+     * `solid(x, y, z)`, when given, says a point is inside a ground box (game/ground-boxes.js `createBoxSolid`): the
+     * camera is pulled in to stay out of them as out of the ground, so in a tunnel built of ground boxes it stays under
+     * the roof and between the walls (an OpenMTM2 addition; the game's camera knows only the terrain).
      */
-    update(mode, pos, yaw, height, dt, { turn = 0, scale = 1, speedFt = 0, pitchBy = 0, clearFt = 0, look = null } = {}) {
+    update(mode, pos, yaw, height, dt, { turn = 0, scale = 1, speedFt = 0, pitchBy = 0, clearFt = 0, look = null, solid = null } = {}) {
       const m = cameraMode(mode);
       if (!m?.dist) throw new RangeError(`camera mode ${mode} is not a chase view`);
       // Choosing a view arms a two second timer (0x52b780); nothing else is blended: the distance, pitch
@@ -199,7 +202,7 @@ export function createChaseCamera() {
       let t = dist;
       for (let i = 1; i <= 32; i++) {
         const c = at((dist * i) / 32, tilt);
-        if (c[1] < height(c[0], c[2])) { t = (dist * (i - 1)) / 32; break; }
+        if (c[1] < height(c[0], c[2]) || (solid && solid(c[0], c[1], c[2]))) { t = (dist * (i - 1)) / 32; break; }
       }
       return zoom === null ? { position: at(t, tilt), target: [...pos] } : { position: at(t, tilt), target: [...pos], zoom };
     },

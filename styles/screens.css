@@ -293,6 +293,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 .race-caption[hidden] { display: none; }
 .replay-controls { position: absolute; z-index: 5; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; background: rgba(8, 10, 8, 0.78); color: #e8e8e8; font: 600 13px system-ui, sans-serif; }
 .replay-controls button, .replay-controls select { font: inherit; padding: 3px 8px; }
+.replay-toggle { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; }
+.replay-toggle input { margin: 0; }
 .replay-scrub { flex: 1 1 200px; min-width: 120px; }
 .replay-time, .replay-speed { min-width: 4.5em; font-variant-numeric: tabular-nums; }
 .replay-view .race-caption { inset: 0 0 auto 0; height: calc(100% - 44px); }
