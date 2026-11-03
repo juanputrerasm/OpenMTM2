@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { KIND, burstCount, burstStrength, createTireGates, particleKind, particleScale, stepGates } from "../src/game/evo-particles.js";
-import { FALL_END, createFall, stepFall } from "../src/game/falling-trees.js";
+import { LEAN_MAX, createLean, ease, stepLean, touchLean } from "../src/game/falling-trees.js";
 
 test("the kind a surface throws: Cement none, Gravel, Grass one time in 7, Sand, Mud, Snow, else dirt", () => {
   assert.equal(particleKind(1), null);
@@ -40,16 +40,22 @@ test("the gates: wheelspin past 3 rad/s with some wheelspin, any sliding; each r
   assert.deepEqual(stepGates(gates, 0.2, { spin: 10, slip: 0, vLat: 0 }, () => 0.5), { spin: false, slide: false });
 });
 
-test("a knocked tree turns about its base away from the truck and stops nearly flat", () => {
-  const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 100, 0, -200, 1];
-  const fall = createFall("t1", identity, [100, 0, 200], [10, 0]);
+test("a touched tree leans away from the truck by the game's rule and springs back upright (0x5461e0)", () => {
+  const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const lean = createLean("t1", identity, [100, 0, 200]);
+  // At 44 ft/s or more the lean heads for 10 degrees, at 7 of the rest a second.
+  for (let i = 0; i < 120; i++) { touchLean(lean, [60, 0]); stepLean(lean, 1 / 60); }
+  assert.ok(Math.abs(lean.angle - LEAN_MAX) < 0.01);
+  assert.equal(LEAN_MAX.toFixed(4), "0.1745");
+  // Half that speed, half the lean.
+  const slow = createLean("t2", identity, [0, 0, 0]);
+  for (let i = 0; i < 240; i++) { touchLean(slow, [22, 0]); stepLean(slow, 1 / 60); }
+  assert.ok(Math.abs(slow.angle - LEAN_MAX / 2) < 0.01);
+  // Let go, it rights itself at 3 a second and is done under a degree.
   let m = null;
-  for (let i = 0; i < 300 && !fall.done; i++) m = stepFall(fall, 1 / 60) ?? m;
-  assert.equal(fall.done, true);
-  assert.ok(Math.abs(fall.angle - FALL_END) < 1e-12);
-  // The model's up axis (column 1) now points mostly along +x, the truck's way.
-  assert.ok(m[4] > 0.99 && Math.abs(m[5] - Math.cos(FALL_END)) < 1e-9);
-  // The base stays put.
-  assert.deepEqual([m[12], m[13], m[14]].map((v) => Math.round(v * 1e6) / 1e6), [100, 0, -200]);
-  assert.equal(stepFall(fall, 1 / 60), null);
+  for (let i = 0; i < 600 && !lean.done; i++) m = stepLean(lean, 1 / 60) ?? m;
+  assert.ok(lean.done);
+  assert.deepEqual(m, identity, "back exactly as it stood");
+  assert.equal(stepLean(lean, 1 / 60), null);
+  assert.equal(ease(1, 7, 0, 1), 1, "a step of a whole rate or more lands on the target");
 });

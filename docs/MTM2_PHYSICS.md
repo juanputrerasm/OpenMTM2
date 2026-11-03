@@ -81,9 +81,18 @@ The surface at a point is the `.TTY` value of the texture under it (OpenPhotex r
 
 - Inside a **ground box** (section 2.5), the ground box's top texture is used.
 - **At or below the water level** (terrain height `<=` level, integer height units) the surface
-  is 1300 (deep water), or 800 (ice) in Snow. There is no "level has water" guard: on a level
-  without water the level is 0, so ground at exactly 0 ft reads deep water. Ground boxes skip
-  this rule.
+  is 1300 (deep water), or 800 (ice) in Snow. Ground boxes skip this rule.
+- **Ground at exactly 0** (height 0 in the game's units, after Snow raises it to the level) is
+  neither its texture nor water: **Default (0)**, grip 1.0, no sinking, air density, with water
+  over it or not. `0x502210` returns 3 there (1 inside a ground box, 0 on open ground), and
+  `0x503060` then skips both the `.CLR` read and the water test and returns `table[slot & 0xfff]`
+  (`0x981c60`), the slot a local it never set (`[esp+0xc]` at `0x5030a1`). Its only caller,
+  `0x4de180`, has just called `__ftol` three times, which leaves the FPU control word with
+  truncation forced (`cw | 0x0C00`) in that slot; so the index is at least 0xC00, and the read
+  lands at `0x984C60` to `0x985C5C`, past the table (texture-count entries, at most 1027) in
+  memory nothing references, which is 0. Every surface user (grip, sinking, the cut factor, the
+  drag density, effects) goes through `0x4de180`. So a river whose bed is at 0 ft under a level of
+  1 ft (TD's River Run) drags nothing, and on a level without water, ground at 0 is plain ground.
 - **Texture to type** (`0x5028f0`): each `.TTY` line `NAME,value` is matched (`strcmp`) against
   the `.TEX` names and attached to the first texture of that name; per texture the last matching
   entry wins, a texture without one gets 0 (Default), and a level with an empty `.TTY` gets 200
@@ -1117,6 +1126,14 @@ x) and height (`+0x6c`, y), the mass (`+0x70`, slugs as the SIT writes it), the 
   vertex bounds (`0x450ae0`; minimum and maximum x, y and z over its vertices, at the scale the
   model is drawn with, `v * 256 / magnify` in 1/256 ft), so width = the x extent, height = the y
   extent, length = the z extent, in feet.
+- **No least size:** a flat model (all its vertices in one plane) gives a box of no thickness on that axis, its two
+  faces in one plane. The wheel test (14.14 step 3) meets both at the same `t`; the later one tried wins the tie, and
+  of the z faces that is the back (`-z`, plane `+0x114`, tried after the front's `+0xcc`). With theta about pi/2 the
+  box's `+z` points down, so the back face is the plate's top (inward normal down in the truck frame): it carries a
+  wheel whether the hub is over the plate or under it (the line is taken both ways), its depth then the distance up to
+  the plate. A stack of such plates within a truck's reach lifts it to the highest: the add-on tracks' lifts (DDR
+  Rumble's `MAGELEV1`, ten feet apart; Smile's rumble; Time Machine). A box of any thickness shows a wheel under it its
+  underside, which carries nothing.
 - **Types 8 and 9** (camera-facing): length and width both become the larger of the two, then
   both are halved.
 - The box is **centred on its position**: half extents are half the sizes, and the bounding

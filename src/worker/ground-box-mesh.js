@@ -45,12 +45,14 @@ const NORMALS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0,
  * The game's ground boxes for a level, or null when it has none. `atlas` is the terrain's
  * (buildTerrainAtlas), whose tiles are the texture slots the faces name.
  */
-export function buildGroundBoxMesh({ ra0, ra1, cl0 }, atlas, lte = null, heights = null, cells = null, { stepFt = STEP_FT, heightsFt = null, drawn = null } = {}) {
+export function buildGroundBoxMesh({ ra0, ra1, cl0 }, atlas, lte = null, heights = null, cells = null, { stepFt = STEP_FT, heightsFt = null, drawn = null, tileInset = 2 } = {}) {
   if (!ra0 || !ra1) return null;
   // `stepFt`, `heightsFt`: a level whose height step is not MTM's 2 ft (Hellbender's 1.5), its ground given in feet.
   const STEP = stepFt;
   // Ground boxes are drawn with their terrain cell, so a stadium's footprint limits them too.
   // `drawn(box)`: false for a box the game never draws (track-build.js `mtm1EdgeBoxDrawn`).
+  // `tileInset`: the terrain's tile crop (terrain-mesh.js `tileCropTexels`), so the boxes' faces follow the same overlap
+  // choice as the ground (0 on an MTM1 track with "No overlap on MTM1 tracks").
   const boxes = decodeGroundBoxes(ra0, ra1, cl0, 256).filter((b) => (!cells
     || (b.x >= cells.col0 && b.x < cells.col1 && b.y >= cells.row0 && b.y < cells.row1)) && (!drawn || drawn(b)));
   if (!boxes.length) return null;
@@ -105,7 +107,7 @@ export function buildGroundBoxMesh({ ra0, ra1, cl0 }, atlas, lte = null, heights
       const slot = box.faceTexture[FACE_TO_CL0[face]];
       const at = Math.max(0, Math.min(slot, atlas.rects.length - 1));
       const rect = atlas.rects[at];
-      const inset = tileCropTexels(atlas, at);
+      const inset = tileCropTexels(atlas, at, tileInset);
       const u0 = (rect[0] + inset) / atlas.width, u1 = (rect[0] + rect[2] - inset) / atlas.width;
       const t0 = (rect[1] + inset) / atlas.height, t1 = (rect[1] + rect[3] - inset) / atlas.height;
       const cu = [u0, u1, u1, u0], cv = [t1, t1, t0, t0];

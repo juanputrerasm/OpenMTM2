@@ -1,0 +1,31 @@
+OpenMTM2 v0.6.5 (test build)
+============================
+
+This is a test build. Things may still change before the next release; please report what you find.
+
+NEW
+- Touch controls: race on a phone or tablet. A thumb stick on the left steers, gas and brake on the right, with
+  buttons for gears, camera, map, pause and more. Options, Keys, Touch controls: Auto shows them on a touchscreen
+  with no keyboard or gamepad.
+- Field of view slider (60 to 120 degrees, 90 is the game's). The chase cameras now use MTM2's own lens.
+- Community Patch 3 options: commentary from the centre speaker, the computer trucks' horn and yee-haw, a chase-view
+  mirror, the racing line and the drag split screen (the last three off by default).
+
+FIXED
+- Stacked flat models lift a truck to the top, as in MTM2 (DDR Rumble, Smile's rumble, Time Machine).
+- Ground at exactly 0 ft is not water: no water drag there, as in MTM2 (TD's River Run).
+- TD's River Run: the ground is drawn again with CP3 terrain detail on, and the track no longer stutters.
+- The chase camera no longer drops under a 4x4 Evolution truck on a ground-box bridge.
+- The FPS counter reads the real frame rate (it read much too high when frames were uneven).
+- Frame rate limit: frames come evenly spaced, in replays too.
+- Loading screens cover the race's overlays.
+- No overlap on MTM1 tracks also applies to ground boxes.
+
+IMPROVED
+- Camera tilt keys work at the game's rate and are remembered for the next races; "Reverse camera tilt" swaps them.
+  The Z-mode zoom is remembered too.
+- Truck art made for Community Patch 3 is shiny in the enhanced look, and its glass is see-through.
+- 4x4 Evolution trucks: see-through glass, bump-mapped bodywork and tires, and working lamps (headlights with beams,
+  tail and brake lamps, reversing lamps), as the game draws them.
+- 4x4 Evolution tracks: grass is lit like the ground under it, and trees a truck touches lean away and spring back.
+- Terrain overlap moved to Options, Advanced, OMTM2.

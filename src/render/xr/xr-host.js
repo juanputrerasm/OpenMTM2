@@ -28,6 +28,7 @@ import { vrSettings } from "../../game/vr/settings.js";
 import { screenSampled } from "../../game/aa.js";
 import { createIdleStage } from "./idle-stage.js";
 import { createGpuPacer } from "../gpu-pacer.js";
+import { createFrameLimiter, limitIntervalMs } from "../frame-limit.js";
 import { createVrMenu } from "./vr-panel.js";
 import { installAtmosphere } from "../atmosphere.js";
 import { reportError } from "../../shared/error-report.js";
@@ -205,10 +206,17 @@ export function createXrHost(context) {
     own frames and must be given every one.
   */
   const pacer = createGpuPacer(renderer.getContext());
+  /*
+    The frame rate limit (render/frame-limit.js) is kept here, for every screen the host draws: the window's frames only,
+    since a headset paces its own. Frames are given due times a whole interval apart, so they come evenly spaced.
+  */
+  const limiter = createFrameLimiter();
+  const limitMs = () => (loop && !xr.isPresenting ? limitIntervalMs(context.settings) : 0);
   const frameOf = (frame) => {
     const now = performance.now();
     const paced = loop && !xr.isPresenting;
-    if (paced && pacer.behind(now)) return;
+    if (paced && !limiter.take(now, limitMs())) return;
+    if (paced && pacer.behind(now)) { limiter.reset(); return; }
     const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
     last = now;
     if (xr.isPresenting) readHead(frame);
@@ -230,15 +238,17 @@ export function createXrHost(context) {
   */
   const vsyncOff = () => context.settings.vsync === false && !xr.isPresenting;
   let timer = 0;
+  // With a limit, the timer sleeps until the next frame is due instead of waking every few milliseconds to find it is not.
+  const nextDelay = () => (limitMs() > 0 ? Math.max(0, Math.floor(limiter.wait(performance.now())) - 1) : 0);
   const spin = () => {
     timer = 0;
     if (!vsyncOff()) return;
     frameOf(null);
-    timer = setTimeout(spin, 0);
+    timer = setTimeout(spin, nextDelay());
   };
   const tick = (_time, frame) => {
     if (!vsyncOff()) frameOf(frame);
-    else if (!timer) timer = setTimeout(spin, 0);
+    else if (!timer) timer = setTimeout(spin, nextDelay());
   };
   renderer.setAnimationLoop(tick);
 

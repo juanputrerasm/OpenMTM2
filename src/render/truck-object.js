@@ -11,15 +11,19 @@ import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
 import { smoothNormals } from "../shared/smooth-normals.js";
 import { BAR_HALF_WIDTH_FT, SHOCK_HALF_WIDTH_FT, ribbonCorners, ribbonNormal, suspensionParts } from "../game/suspension.js";
 import { EVO_BAR_HALF_FT, EVO_SHOCK_HALF_FT, evoSuspensionParts, stripCorners } from "../game/evo-suspension.js";
-import { BRAKE_ON, beamShows, blinkOn, freshKnock, knockLamp, lampHeading, lampLevel, lampTone, lensGlow, lightIntensity, throwsBeam } from "../game/truck-lights.js";
-import { createModelLibrary, dataTexture } from "./track-scene.js";
+import { BRAKE_ON, EVO_LAMP_PASSES, beamShows, blinkOn, evoLampFacing, evoLampLevel, evoLampLights, freshKnock, knockLamp, lampHeading, lampLevel, lampTone, lensGlow, lightIntensity, throwsBeam } from "../game/truck-lights.js";
+import { TRUCK_GLASS_ORDER, createModelLibrary, dataTexture } from "./track-scene.js";
 import { BEAM_AXIS, BEAM_INTENSITY, SHAFT_INTENSITY, aimShaft, beamGeometry, beamMaterial, shaftGeometry, shaftMaterial } from "./light-beam.js";
 import { GLOSS } from "./gloss.js";
 import { classicFogDims, fogDims } from "./atmosphere.js";
 
 function meshesOf(library, model) {
   const group = new THREE.Group();
-  for (const { geometry, material } of library.get(model?.name) ?? []) group.add(new THREE.Mesh(geometry, material));
+  for (const { geometry, material, renderOrder } of library.get(model?.name) ?? []) {
+    const mesh = new THREE.Mesh(geometry, material);
+    if (renderOrder) mesh.renderOrder = renderOrder;
+    group.add(mesh);
+  }
   return group;
 }
 
@@ -115,6 +119,9 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
   // six-sided cone of light that fades along its length. Both add light to what is behind them.
   const lamps = createLamps(truck, look, richLamps);
   root.add(lamps.group);
+  // A 4x4 Evolution truck's lens groups glow as 4x42.exe draws them (game/truck-lights.js `evoLampLights`).
+  const evoGlow = createEvoLampGlow(truck, bodyGroup);
+  if (evoGlow) root.add(evoGlow.group);
 
   /*
     The body as it stands now, dents and all, for whoever needs a place on it: the lamps, which a dent carries with
@@ -294,11 +301,13 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
         root.worldToLocal(eye.copy(camera.position));
         viewerLocal = [eye.x, eye.y, -eye.z];
       }
-      lamps.update({
+      const lampState = {
         lamps: env.lamps ?? 0, night: !!env.night, cockpit: !!env.cockpit,
         braking: (pose.brakeRear ?? 0) > BRAKE_ON, reverse: pose.gear === 2,
         air: env.air ?? (env.night ? 1 : 0), daylight: env.daylight ?? (env.night ? 0.25 : 1),
-      }, env.clockMs ?? 0, viewerLocal, camera?.position ?? null);
+      };
+      lamps.update(lampState, env.clockMs ?? 0, viewerLocal, camera?.position ?? null);
+      evoGlow?.update(lampState, env.clockMs ?? 0, viewerLocal);
       if (!suspension && !evoSuspension) return;
       const axleNow = [0, 1].map((k) => ({ z: tires[k * 2].hub[2], travel: pose.axles[k].travel, articulation: pose.axles[k].articulation }));
       const parts = suspension
@@ -496,6 +505,48 @@ function createRichLamps(truck) {
             if (eyeWorld) aimShaft(beam, eyeWorld);
           }
         }
+      }
+    },
+  };
+}
+
+/*
+  A 4x4 Evolution truck's lamp glow (EVO2_EXE_ANALYSIS.md 6.6, `0x5f8a40`): each lens group of the body drawn again in
+  its own texture, added to the picture, in white at its light's brightness: the lamp's level times how squarely it
+  faces the viewer, the fog's clear share by the material. The head, fog and brake lamps are drawn twice, so twice as
+  bright. Null for a truck with no lens group paired with a light.
+*/
+function createEvoLampGlow(truck, bodyGroup) {
+  const paired = evoLampLights(truck.lights ?? []);
+  const group = new THREE.Group();
+  group.name = "evo-lamp-glow";
+  const items = [];
+  (truck.parts.body?.meshes ?? []).forEach((mesh, index) => {
+    const light = mesh.lamp && paired[mesh.lamp];
+    const base = bodyGroup.children[index];
+    if (!light || !base) return;
+    const material = classicFogDims(new THREE.MeshBasicMaterial({
+      map: base.material.map ?? null, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+      depthWrite: false, toneMapped: false, side: base.material.side,
+    }));
+    material.color.setScalar(EVO_LAMP_PASSES[mesh.lamp]);
+    const glow = new THREE.Mesh(base.geometry, material);
+    // Over its lens, which is drawn among the glass (render/track-scene.js `TRUCK_GLASS_ORDER`).
+    glow.renderOrder = TRUCK_GLASS_ORDER + 1;
+    glow.visible = false;
+    group.add(glow);
+    items.push({ glow, light });
+  });
+  if (!items.length) return null;
+  return {
+    group,
+    /** `state` as the lamps take it, `viewer` the camera in the body's game axes. */
+    update(state, clockMs, viewer) {
+      for (const { glow, light } of items) {
+        const level = blinkOn(light, clockMs) ? evoLampLevel(light, state) : 0;
+        const brightness = level > 0 ? level * evoLampFacing(light, viewer) : 0;
+        glow.visible = brightness > 1 / 255;
+        glow.material.opacity = brightness;
       }
     },
   };

@@ -75,3 +75,10 @@ test("the FPS tracker keeps a capped window of samples and resets it", () => {
   assert.equal(tracker.samples().length, 0);
   assert.equal(Math.round(tracker.fps), 60);
 });
+
+test("uneven frames read at their true rate: the frame time is smoothed, not the rate", () => {
+  const tracker = createFpsTracker();
+  for (let i = 0; i < 400; i++) tracker.update(i % 2 ? 0.035 : 0.005);
+  assert.ok(Math.abs(tracker.fps - 50) < 2, `read ${tracker.fps}`);
+  assert.ok(Math.abs(tracker.average - 50) < 0.5);
+});

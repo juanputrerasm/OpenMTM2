@@ -5,6 +5,7 @@
   (worker/sim-worker.js soundOf); the rules are in game/sound-model.js. The player's truck is heard
   unpositioned, the others where they are.
 */
+import { airCall, airCallSwitches } from "../game/air-calls.js";
 import {
   BRIDGE_SURFACES, YEEHAW_GAIN, bridgeVoice, cornerSample, engineVoices, gearSound, hornSample, impactSound, skidRate, skidSurface,
   spinAction, spinSample, splashGain, tireSliding, variantPicker, wadeGain, UNDERWATER_PITCH,
@@ -20,7 +21,7 @@ const AUDIBLE_FT = 900;
 /** How long a hull impact's level lingers as the bar the next knock must clear (it falls to a third in this time). */
 const IMPACT_FADE_S = 2;
 
-export function createTruckAudio(audio, { count, player = 0, random = Math.random, kookyHorn = false, mtm1Sounds = false, onHit = () => {} }) {
+export function createTruckAudio(audio, { count, player = 0, random = Math.random, kookyHorn = false, mtm1Sounds = false, onHit = () => {}, settings = () => ({}) }) {
   const pick = (n) => 1 + Math.floor(random() * n);
   const trucks = Array.from({ length: count }, () => ({
     engine: null, heli: null, gear: null, impactBusy: false, cooldown: 0, started: false,
@@ -197,12 +198,11 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
         if (i !== player) t.bridges[b].voice?.setPosition(pos);
       });
 
-      // Well up in the air with all four wheels off the ground, a truck may honk or whoop.
-      t.airTime = s.airborne === 4 && !s.heli && s.clearance > 16 ? (t.airTime ?? 0) + dt : 0;
-      // Only the computer trucks: the player's horn and YeeHaw are the player's own keys.
-      if (i !== player && near && t.airTime > 0.4 && t.cooldown === 0 && random() < dt * 0.5) {
-        if (random() < 0.5) horn(i, pos); else yeehaw(i, pos);
-        t.cooldown = 6;
+      // Well up in the air with all four wheels off the ground, a computer truck may honk or whoop (game/air-calls.js);
+      // the player's horn and YeeHaw are the player's own keys.
+      if (i !== player && near && s.airborne === 4 && !s.heli) {
+        const call = airCall(s.clearance, i, dt, airCallSwitches(settings()), random);
+        if (call === "horn") horn(i, pos); else if (call === "yeehaw") yeehaw(i, pos);
       }
 
       // The helicopter (`huey.wav`, gain 1.4) hums from where it hangs; the pterodactyl that comes on every third call

@@ -4,6 +4,69 @@ What was built, milestone by milestone and stage by stage, as the plan recorded 
 current state and everything still open are in [PLAN.md](PLAN.md); a "Not done", "Left" or "Pending" line below is
 as it stood when it was written, and the plan's open items list is the one kept up to date.
 
+## v0.6.5 (test build; player notes in releases/v0.6.5.txt)
+
+- **Touch controls** (the port's own): a race can be driven on a phone or tablet with no keyboard, mouse or gamepad.
+  A thumb stick steers (it starts where the thumb comes down on the left), gas and brake pedals sit on the right, with
+  Shift Up and Down for manual gears, and a row of buttons gives Helicopter, Camera, Crash Damage, Map, Dashboard, Timing
+  display and Pause. The stick and pedals are a joystick, as a gamepad's (`game/input/touch.js`), so the stick curve and
+  Steering response apply; each button presses the player's bound key, as the gamepad's race buttons do
+  (`ui/touch-controls.js`). Options, Keys, Touch controls: Auto (the default) shows them on a device with only a
+  touchscreen, hiding them while a gamepad is connected or a key is pressed; On and Off force them.
+- **TD's River Run choppy at a "high" frame rate** (a player's report): the track's 3,759 boxes nothing meets (type 7,
+  its trees and props) were drawn over all nine copies of the world, never culled: 9.8 million triangles a frame, against
+  Farm Road 29's 70 thousand. A box the simulation never meets never moves, so it is now drawn as 4x4 Evolution's trees
+  are, by chunks at the copy nearest the camera, once each and culled, in the picture and the shadows.
+- **The FPS counter and GOLD mode's FRAME** read one over the smoothed frame time; they smoothed the rate, which reads
+  uneven frames far too high (River Run showed 92 while it ran at 50, frames of 5 and 35 ms in turn).
+- **Flat-model lifts** (a player's report: DDR Rumble, Smile's rumble, Time Machine): stacked flat models lift a truck
+  to the top, as in MTM2. The game keeps a flat model's box with no thickness (`0x5495e0`), and the wheel test then
+  takes the plate's top for a wheel under it too (`MTM2_PHYSICS.md` 14.15). The port had given every flat model half
+  a foot of thickness, which showed a wheel the underside, a ceiling; now only a box with a mass is made solid (the
+  NaN guard F.S.R.'s pushable camper sides needed).
+- **CP3 terrain detail no longer costs the ground two textures** (TD's River Run drew no ground): the painted mask is
+  read at the ground's vertices, and without the track's own `_DTL` the pattern is the shared detail noise. With
+  water, puddles and the ground's grain the ground's shader had gone past the sixteen textures a card may allow one.
+- **4x4 Evolution trucks' glass, bump maps and lamps** (a player's report; EVO2_EXE_ANALYSIS.md 6.6): as 4x42.exe
+  draws them, a group the model marks transparent (the glass, the lamp lenses) is blended by its texture's alpha, where
+  the port cut it out at half, its opaque texels (a roof modelled with the windows) also drawn solid so that water and
+  dust stay behind them; each part's `_BUMP.TIF` is its normal map; and the TRK's lights are the truck's lamps,
+  with the game's own glow on the lens groups (head, fog, tail, brake and reversing lamps by the game's rules: tail
+  lamps at half, full under the brakes) and the headlights' beams and light on the ground as MTM2's trucks have them.
+- **Chase camera on a ground-box bridge** (a player's report, Evolution trucks): the camera keeps a foot clear of ground
+  boxes, and a truck whose middle stood within that foot of the deck it drove on (an Evolution truck's does) had the
+  camera pulled in to its middle, under the body. A box now counts once the line from the truck has been clear of them.
+- **OpenPhotex 1.5.2**: MTM2 ground at exactly 0 ft is Default before the water test (the Water entry below).
+- **Terrain overlap** moved to Options, Advanced, OMTM2, beside the other ground options.
+- **Field of view slider** shows its value as "90 degrees", so the slider keeps its width.
+- **Loading screens** cover the timing board, gauges and the rest of the race's overlays (the loading screen and
+  "Determining times for remaining trucks" showed them).
+- **No overlap on MTM1 tracks** applies to the ground boxes' faces too, and a TV level's boxes follow the terrain.
+- **Frame rate limit** kept by the frame host for every screen, the replay's too: frames are given due times a whole
+  interval apart, so they come evenly spaced (60 on a 75 Hz display is 60, not 37.5), and with V-sync off the timer
+  sleeps until the next one is due. Options shows one list, Off or a rate.
+- **Cameras:** the external views use the game's lens, 90 degrees across a 4:3 screen at zoom 0x10000 like the cockpit
+  (MONSTER_EXE_ANALYSIS.md, "The lens"; the port drew them on a guessed 60 degree base, closer in than the game); a
+  Field of view slider (60 to 120, 90 the game's). The Camera up and down keys tilt at the game's rate and never under
+  the level (as 0x52b110 holds it), each view's tilt kept for the next races; "Reverse camera tilt" swaps the keys.
+  With the Z-mode cameras option the zoom is kept for the next races, goes on smoothly while Shift - or + is held, and
+  a gamepad's D-pad left and right zoom; the right stick tilts. "Click to look" looks round only while a mouse button
+  is held.
+- **Evolution:** the grass is lit as the ground under it (the sun and its shadows in the enhanced look, the shade map in
+  the classic one). A tree a truck touches leans away from it by the game's rule and springs back (`0x5461e0`), where
+  the port felled it.
+- **Truck faces as Community Patch 3 draws them** (CP3_EXE_ANALYSIS.md 6): Gouraud faces (0x29) with CP3 art (a
+  texture that has its normal map) are shiny in the enhanced look, at CP3's share of the light, the normal map's alpha masking the shine (opaque flat, clear shiny), the Glossy paint too; a material
+  that both cuts out and blends (glass) is drawn see-through with CP3's Fresnel, not opaque.
+- **Community Patch 3 options:** Commentary from Center (a surround output's centre speaker), the computer trucks' horn
+  and yee-haw in the air by the game's rule with CP3's Opponents Horn, Opponents Yee-Haw and Reduce switches, the
+  chase-view mirror, the racing line and the drag split screen (the last three off by default).
+- **Water:** the depth under the water level is added only on deep water (type 13). **Ground at exactly 0 ft is not
+  water** (a player's report, TD's River Run, confirmed in MTM2 with CP3): the game sets it apart and reads its surface
+  past the end of its type table, which is 0, Default (`MTM2_PHYSICS.md` 2.3): full grip, no sinking, no water drag,
+  with water over it or not. The port read it as deep water. Terminal Velocity, Fury3 and Hellbender levels stay Dirt
+  everywhere.
+
 ## v0.6.4 (test build; player notes in releases/v0.6.4.txt)
 
 - **Freestyle tricks fitted to MTM2's physics** (docs/EXTENSIONS.md, "Tricks on MTM2's physics"): a wheelie or nose

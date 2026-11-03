@@ -42,6 +42,14 @@ The asset worker hands the simulation input straight to the sim worker through a
 `MessageChannel`. GitHub Pages cannot send the COOP/COEP headers that `SharedArrayBuffer` needs,
 so nothing relies on it.
 
+## Input
+
+The race samples every source on the main thread each frame (`ui/screens/race.js` `sampleInput`): the keyboard
+(`game/input/keyboard.js`), a gamepad (`game/input/gamepad.js`), the headset's controllers (`game/vr/controls.js`) and
+the touch overlay (`ui/touch-controls.js`, rules in `game/input/touch.js`). A gamepad, the controllers and the touch
+stick all give the simulation the same joystick input; the gamepad's race buttons (`ui/gamepad-nav.js`) and the touch
+overlay's buttons press the player's bound keys, so every key's action lives in one place.
+
 ## Errors
 
 No failure is left to the browser's console alone. Everything goes through `reportError`

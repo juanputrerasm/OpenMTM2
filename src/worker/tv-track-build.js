@@ -269,7 +269,7 @@ export async function buildTvTrackRender(vfs, lvlPath, { truckFiles = [], tileOv
   const ra0Own = await boxFile(".RA0", 1), ra1Own = await boxFile(".RA1", 1), cl0Own = await boxFile(".CL0", CL0_BYTES);
   const ra0 = ra0Own && ra1Own ? tileGrid(ra0Own, side, Uint8Array) : null, ra1 = ra0 ? tileGrid(ra1Own, side, Uint8Array) : null;
   const cl0 = ra0 && cl0Own ? tileRecords(cl0Own, side, CL0_BYTES) : null;
-  const groundBoxes = ra0 ? buildGroundBoxMesh({ ra0, ra1, cl0 }, atlas, null, heights, null, { stepFt: scales.heightFt, heightsFt }) : null;
+  const groundBoxes = ra0 ? buildGroundBoxMesh({ ra0, ra1, cl0 }, atlas, null, heights, null, { stepFt: scales.heightFt, heightsFt, tileInset: tileOverlap === false ? 0 : 2 }) : null;
   const groundAt = (() => {
     const terrain = heightsFt ? mtm2Sim.createTerrainFt(heightsFt, null) : mtm2Sim.createTerrain(heights, null);
     return (x, z) => mtm2Sim.terrainHeightAt(terrain, x, z);
@@ -368,9 +368,10 @@ export async function buildTvTrackRender(vfs, lvlPath, { truckFiles = [], tileOv
     sky, skyReachable: true,
     startLightColours: null,
     sim: {
-      // No surface table is read for these games: one tile slot, Dirt.
-      clr: new Uint16Array(GRID * GRID), textureValues: Int32Array.of(DIRT),
-      // There is no water: without this, MTM2's rule would read ground at 0 ft as deep water.
+      // No surface table is read for these games: one tile slot, Dirt, and `dirtEverywhere` keeps MTM2's level rules off
+      // the ground (worker/sim-worker.js): its ground at exactly 0 ft is Default and its ground under the level water.
+      clr: new Uint16Array(GRID * GRID), textureValues: Int32Array.of(DIRT), dirtEverywhere: true,
+      // There is no water.
       waterLevelFt: -1e6,
       ra0, ra1, groundBoxStepFt: scales.heightFt,
       boxes: [], ramps: [], course: [], proCourse: null, sonicTrack: false,

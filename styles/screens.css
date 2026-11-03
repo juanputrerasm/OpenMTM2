@@ -74,7 +74,7 @@ table.results tr.player td { color: var(--accent); font-weight: 600; }
 /* The race (M7). */
 .race-view { position: fixed; inset: 0; background: #000; overflow: hidden; }
 .race-canvas { width: 100%; height: 100%; display: block; }
-.race-loading { position: absolute; inset: 0; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+.race-loading { position: absolute; z-index: 5; inset: 0; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
 .race-loading-art { max-width: 100%; max-height: 100%; width: auto; height: 100%; object-fit: contain; image-rendering: pixelated; }
 .race-loading-text { position: absolute; bottom: 16px; margin: 0; color: #fff; font: 600 16px/1.4 system-ui, sans-serif; text-shadow: 0 1px 2px #000; }
 /* The drag race's Christmas tree (ui/drag-tree.js): two lanes of seven lamps, labels between. */
@@ -288,6 +288,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 /* The finder is its own small canvas in device pixels, placed by render/cockpit.js. */
 .race-finder { position: absolute; z-index: 3; pointer-events: none; }
 .race-mirror { position: absolute; z-index: 2; pointer-events: none; }
+.race-chase-mirror { position: absolute; z-index: 2; pointer-events: none; box-sizing: border-box; border: 2px solid #1b1b1b; outline: 1px solid #8a8a8a; }
+.race-chase-mirror[hidden] { display: none; }
 /* The 640 x 480 caption canvas keeps its shape, at the bottom of the view: the letters are the game's size against the height. */
 .race-caption { position: absolute; z-index: 4; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: center bottom; pointer-events: none; image-rendering: pixelated; }
 .race-caption[hidden] { display: none; }
@@ -392,7 +394,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 .opt-control { display: flex; justify-content: flex-end; align-items: center; min-width: 0; }
 .opt-control select { width: 100%; height: 26px; }
 .opt-slider { display: flex; align-items: center; gap: 8px; width: 100%; }
-.opt-slider input { flex: 1; min-width: 0; }
+.opt-slider input { flex: 1; min-width: 80px; }
 .opt-value { min-width: 58px; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
 .opt-switch { width: 18px; height: 18px; }
 .opt-fixed { color: var(--muted, #aab); }
@@ -731,3 +733,21 @@ body.pad-nav [role=option]:focus:not(.selected) td { background: rgba(242, 193, 
 .manual-modes { margin: 0 0 8px; }
 .manual-modes dt { color: #f2c14e; margin-top: 6px; }
 .manual-modes dd { margin: 2px 0 0 12px; }
+
+/* The race's touch controls (ui/touch-controls.js): only the controls take touches, the rest of the screen is the race's. */
+.touch-controls { position: absolute; z-index: 6; inset: 0; pointer-events: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.touch-controls[hidden] { display: none; }
+.touch-controls button { pointer-events: auto; touch-action: none; margin: 0; padding: 0; border: 2px solid rgba(255, 255, 255, 0.55); background: rgba(0, 0, 0, 0.35); color: #fff; font: 700 clamp(14px, 4.5vmin, 26px)/1 system-ui, sans-serif; opacity: 0.75; }
+.touch-controls button.pressed { background: rgba(242, 193, 78, 0.55); opacity: 1; }
+.touch-stick { position: absolute; left: 0; bottom: 0; width: 45%; height: 65%; pointer-events: auto; touch-action: none; }
+.touch-stick-base { position: absolute; left: calc(env(safe-area-inset-left) + 20vmin); top: calc(100% - env(safe-area-inset-bottom) - 20vmin); width: 28vmin; height: 28vmin; transform: translate(-50%, -50%); border: 2px solid rgba(255, 255, 255, 0.5); border-radius: 50%; background: rgba(0, 0, 0, 0.25); opacity: 0.6; pointer-events: none; }
+.touch-stick-base.active { opacity: 0.9; }
+.touch-knob { position: absolute; left: 50%; top: 50%; width: 12vmin; height: 12vmin; transform: translate(-50%, -50%); border-radius: 50%; background: rgba(255, 255, 255, 0.55); }
+.touch-pedals { position: absolute; right: calc(env(safe-area-inset-right) + 3vmin); bottom: calc(env(safe-area-inset-bottom) + 4vmin); display: flex; align-items: flex-end; gap: 3vmin; }
+.touch-pedals .touch-pedal { width: 17vmin; border-radius: 14px; }
+.touch-pedals .touch-gas { height: 32vmin; }
+.touch-pedals .touch-brake { height: 22vmin; }
+.touch-shifts { display: flex; flex-direction: column; gap: 2vmin; }
+.touch-shifts .touch-shift { width: 12vmin; height: 12vmin; border-radius: 50%; }
+.touch-actions { position: absolute; top: calc(env(safe-area-inset-top) + 44px); right: calc(env(safe-area-inset-right) + 8px); display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 60%; }
+.touch-actions .touch-action { width: clamp(38px, 10vmin, 56px); height: clamp(38px, 10vmin, 56px); border-radius: 10px; }

@@ -267,9 +267,15 @@ function finiteSegment(seg) {
 export const MIN_BOX_FT = 0.5;
 
 /**
- * A model's bounds made solid (an addition): a flat model (a sign, a decal, F.S.R.'s camper sides) has no extent on one
- * axis, and two such boxes that overlap give the box pair test a contact of no direction, whose NaNs then spread to
- * every truck and object that meets them. Each axis gets at least `MIN_BOX_FT`, about the model's middle.
+ * A model's bounds made solid (an addition, for a box that moves only): F.S.R.'s camper sides are flat models with a
+ * mass (pushable), and two that overlap give the box against box test (OpenPhotex `collideBoxes`, which only a box with
+ * a mass runs) a contact of no direction, whose NaNs then spread to every truck and object that meets them. Each axis
+ * gets at least `MIN_BOX_FT`, about the model's middle.
+ *
+ * A box without a mass keeps the model's bounds as the game does (`0x5495e0` sets no least size): a flat model is a
+ * box of no thickness, its two faces in one plane, and the wheel test then takes its top for a wheel on either side of
+ * it (MTM2_PHYSICS.md 14.14). Stacked flat models are the add-on tracks' lifts (DDR Rumble's `MAGELEV1`, Smile's
+ * rumble, Time Machine); made solid, they were a ceiling.
  */
 export function solidBounds(bounds) {
   if (!bounds?.min || !bounds?.max) return bounds ?? null;
@@ -328,7 +334,9 @@ export function createSession(init) {
   const terrain = init.heightsFt
     ? S.createTerrainFt(new Float32Array(init.heightsFt), init.waterLevelFt ?? null, init.fineFt ? new Float32Array(init.fineFt) : null)
     : S.createTerrain(new Uint8Array(init.heights), init.waterLevelFt ?? null);
-  const surfaces = init.clr && init.textureValues
+  // `dirtEverywhere` (a Terminal Velocity, Fury3 or Hellbender level): no surface map, so the ground is Dirt everywhere
+  // (OpenPhotex `createTerrainGround`), with no MTM2 level rule over it.
+  const surfaces = !init.dirtEverywhere && init.clr && init.textureValues
     ? S.createSurfaceMap(new Uint16Array(init.clr), new Int32Array(init.textureValues))
     : null;
   let weather = init.weather ?? 0;
@@ -358,7 +366,7 @@ export function createSession(init) {
     // A box turned every way (4x4 Evolution's tilted collision boxes and rock faces, worker/evo-track-build.js): its
     // matrix as given, row-major with the box's axes as columns; it reaches as far as its whole diagonal.
     if (w.matrix) { box.matrix.set(w.matrix); box.radius = Math.hypot(...box.half); }
-    // A 4x4 Evolution tree (worker/evo-track-build.js): knocked over, not solid.
+    // A 4x4 Evolution tree (worker/evo-track-build.js): leaned when touched, not solid.
     if (w.tree) box.tree = w.tree;
     const reach = w.matrix ? Math.hypot(w.size[0], w.size[1], w.size[2]) * 0.5 : Math.hypot(w.size[0], w.size[2]) * 0.5;
     for (let cx = Math.floor((w.pos[0] - reach) / WALL_CELL_FT); cx <= Math.floor((w.pos[0] + reach) / WALL_CELL_FT); cx++) {
@@ -433,7 +441,7 @@ export function createSession(init) {
   const movingObjects = [];
   const movingBoxes = new Set();
   for (const b of init.boxes ?? []) {
-    const box = S.createLevelBox(b, solidBounds(b.bounds));
+    const box = S.createLevelBox(b, b.mass >= 1 ? solidBounds(b.bounds) : b.bounds);
     if (box) {
       box.sitIndex = b.sitIndex;
       // A 4x4 Evolution object's model stands off its box's centre: its origin, in the box's frame (worker/evo-track-build.js).
@@ -797,14 +805,13 @@ export function createSession(init) {
 
   // Top-crush cars (14.27): the truck is held up by the body and the cab, and flattens the cab.
   /**
-   * 4x4 Evolution's trees (docs/EVO2_EXE_ANALYSIS.md 2.5): a tree inside a truck's hull footprint is knocked over and no
-   * longer met. The game makes it a falling object with the truck's velocity; how the truck feels it is not traced, so here
-   * it does not. `fallen` collects them for the drawing.
+   * 4x4 Evolution's trees (docs/EVO2_EXE_ANALYSIS.md 2.5): a tree inside a truck's hull footprint is touched, every step
+   * it stays there, with the truck's velocity; the drawing leans it (game/falling-trees.js). The game then runs its
+   * truck-against-object response, whose figures for a tree are not traced, so here the truck does not feel it.
+   * `fallen` collects the touches for the drawing, one a tree a reply.
    */
-  const knocked = new Set();
   let fallen = [];
   function knockTree(t, box) {
-    if (knocked.has(box.tree)) return;
     const s = t.state, m = s.matrix;
     const dx = box.pos[0] - s.pos[0], dy = box.pos[1] - s.pos[1], dz = box.pos[2] - s.pos[2];
     const x = m[0] * dx + m[3] * dy + m[6] * dz, z = m[2] * dx + m[5] * dy + m[8] * dz;
@@ -814,9 +821,10 @@ export function createSession(init) {
     })();
     const f = t.footprint;
     if (x < f.x0 || x > f.x1 || z < f.z0 || z > f.z1 || Math.abs(dy) > box.half[1] + 10) return;
-    knocked.add(box.tree);
     const v = [m[0] * s.bvel[0] + m[1] * s.bvel[1] + m[2] * s.bvel[2], m[6] * s.bvel[0] + m[7] * s.bvel[1] + m[8] * s.bvel[2]];
-    fallen.push({ id: box.tree, pos: [box.pos[0], box.pos[1] - box.half[1], box.pos[2]], dir: v, speed: Math.hypot(v[0], v[1]) });
+    const hit = { id: box.tree, pos: [box.pos[0], box.pos[1] - box.half[1], box.pos[2]], dir: v, speed: Math.hypot(v[0], v[1]) };
+    const at = fallen.findIndex((h) => h.id === box.tree);
+    if (at < 0) fallen.push(hit); else if (hit.speed > fallen[at].speed) fallen[at] = hit;
   }
   const crushCars = (init.topCrush ?? []).map((car) => S.createTopCrush(car, car.bodyBounds ?? null, car.cabBounds ?? null));
   const crushCtx = { groundNormal: (x, z) => ground.normal(x, z, [0, 0, 0]), dt: STEP, edges: S.createEdgeState() };
@@ -1844,7 +1852,7 @@ export function createSession(init) {
       wheels: mutator?.view() ?? null,
       // How far each top-crush car's cab is flattened: 0 intact, 1 as flat as it goes (its roof 0.25 ft over the body).
       crush: crushCars.map(crushShare),
-      // 4x4 Evolution trees knocked over since the last reply: `{ id, pos, dir, speed }`, game feet.
+      // 4x4 Evolution trees touched since the last reply: `{ id, pos, dir, speed }`, game feet.
       fallen: fallen.length ? (() => { const out = fallen; fallen = []; return out; })() : null,
       gold: { reversed: !!apCtx.reversed, apLevel: player.apLevel, slew: gold.slew, weather },
       // The track script's Message() lines since the last reply (4x4 Evolution 2).

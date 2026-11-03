@@ -43,6 +43,29 @@ export function createAudio(assets, volumes = {}) {
     return out;
   };
   limiter.connect(ctx.destination);
+  /*
+    Community Patch 3's "Commentary from Center" (`[Sound] centreCommentary`, on by default): on a surround output the
+    announcer comes from the centre speaker. A mono signal mixed into a 5.1 output goes to its centre channel (Web Audio's
+    "speakers" up-mix), so the voice is folded to mono and sent there, at the master's level, beside the stereo mix,
+    which keeps to the front left and right. A stereo output keeps it as before: unpositioned, so centred anyway.
+  */
+  const centre = ctx.createGain();
+  centre.channelCount = 1; centre.channelCountMode = "explicit"; centre.channelInterpretation = "speakers";
+  let centred = false;
+  function routeCommentary(on) {
+    const want = !!on && (ctx.destination.maxChannelCount ?? 2) >= 6;
+    if (want === centred) return;
+    try { commentary.disconnect(); } catch { /* not connected */ }
+    if (want) {
+      try { ctx.destination.channelCount = 6; ctx.destination.channelInterpretation = "speakers"; } catch { /* left as it is */ }
+      commentary.connect(centre);
+      centre.connect(ctx.destination);
+    } else {
+      try { centre.disconnect(); } catch { /* not connected */ }
+      commentary.connect(master);
+    }
+    centred = want;
+  }
   const buffers = new Map();
   let active = 0;
   let ducked = false, currentVolumes = {};
@@ -102,6 +125,8 @@ export function createAudio(assets, volumes = {}) {
     currentVolumes = v;
     const level = (x, fallback) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : fallback);
     master.gain.value = v.muted ? 0 : level(v.master, 1) * (underwater ? UNDERWATER_MASTER : 1);
+    centre.gain.value = master.gain.value;
+    routeCommentary(v.centreCommentary !== false);
     const effectsLevel = level(v.effects, 1), musicLevel = level(v.music, 0.6);
     // Paused: every sound stops but the music (`setEffectsPaused`).
     effects.gain.value = effectsPaused ? 0 : effectsLevel * EFFECTS_TRIM * (ducked ? 0.35 : 1);

@@ -44,17 +44,17 @@ has the feature.
 |---|---|---|---|
 | AI Speed | `[Game] aiSpeed` | Scales computer trucks' speed and torque (section 5) | Added with this doc |
 | Commentary pacing | `[Sound] commentarySilence` | Scales the announcer's pauses (section 4.1) | Added (CP3 voice commentary) |
-| Centre commentary | `[Sound] centreCommentary`, "Commentary from Center" | Plays the announcer on the centre channel. **Hypothesis**: not traced | No |
-| AI mode and caution | `aiMode`, `aiCornerMargin`, `aiTerrainCaution` | Computer driving style settings next to `aiSpeed`. Not traced yet | No |
-| Computer horn and yee-haw | `aiYeeHaw`, `aiHorn`, `aiSfxReduce` ("Opponents Yee-Haw", "Opponents Horn", "Reduce Yee-Haw/Horn Freq.") | Switches for the computer trucks' horn and yee-haw sounds, and a lower rate | No |
+| Centre commentary | `[Sound] centreCommentary`, "Commentary from Center" | Plays the announcer on the centre channel, **default on**; `lfeLevel` (0 to 200) beside it. How the DLL routes it is not traced | Yes (section 7) |
+| AI mode and caution | `[Control] aiMode`, `aiCornerMargin`, `aiTerrainCaution` | A second computer-driving routine (section 8), default off; margin 50 to 120 and caution 25 to 200 percent, both default 100 | No |
+| Computer horn and yee-haw | `aiYeeHaw`, `aiHorn`, `aiSfxReduce` ("Opponents Yee-Haw", "Opponents Horn", "Reduce Yee-Haw/Horn Freq.") | Switches for the computer trucks' horn and yee-haw high in the air, and a lower rate (section 7) | Yes |
 | Off-centre collisions | `offCentreCollision` | Not traced yet | No |
-| Tournament driver form | "on form", "off day", "PERFECT", "DISASTER", "confident", "error prone"... | In tournaments, each computer driver gets a form factor that multiplies its target speed on top of AI Speed (section 5) | No |
+| Tournament driver form | "on form", "off day", "PERFECT", "DISASTER", "confident", "error prone"... | In tournaments each computer driver has a personality and a form for the race that multiplies its target speed on top of AI Speed (sections 5, 9) | No |
 | Tournament fields | `FORMAT=`, `SCORING=`, `SONIC=`, `AISPEED=`, `FIELD=`, `ROUNDS=` | Tournament saves carry their own format, scoring table, sonic trucks and AI Speed | AI Speed only |
-| Mirrors | `cockpitMirror*`, `chaseMirror*`, `mirrorShrink`, `keyMirror` | A rear-view mirror in the cockpit, placed and sized by the INI, and one in the chase views | Cockpit: the game's own; chase: no |
-| Racing line | `raceLine`, `keyRaceLine` | Draws the course line | No |
+| Mirrors | `cockpitMirror*`, `chaseMirror*`, `mirrorShrink`, `keyMirror` | A rear-view mirror in the cockpit, placed and sized by the INI, and one in the chase views (section 7) | Cockpit: the game's own; chase: yes, off by default |
+| Racing line | `raceLine`, `keyRaceLine` | Draws the course line, default off (section 7) | Yes, off by default |
 | Look camera and sticky views | `keyLookCamera`, `stickyView`, `stickyViewP`, `stickyViewH` | A free-look key and a view that keeps its pitch and heading | No |
 | Info overlay | `showInfoOverlay` | An on-screen information panel. Not traced | No |
-| Drag split screen | `dragSplitScreen`, `keySplitScreen` | Shows both drag lanes at once | No |
+| Drag split screen | `dragSplitScreen`, `keySplitScreen` | Shows both drag lanes at once, default off (section 7) | Yes, off by default |
 | Demo mode | "Demo Mode (60sec idle)" | Starts the demo after 60 s idle on the menus | No |
 | Track flyby menu | `menuFlyby`, "Track Flyby Menu" | A flyby behind the menus | No |
 | Replay browser | "Saved Replays", `.rpl` | Lists and plays saved replays | Yes |
@@ -172,3 +172,59 @@ winner's life rises from 1 s to 8 s.
 - **Torque.** When `aiSpeed` is not 100, the engine torque of each computer truck this machine
   drives is multiplied by `aiSpeed / 100`, next to the Professional sonic-truck torque bonus
   (x1.1) for computer trucks. Trucks driven by another machine are not scaled.
+
+## 6. Shiny faces, the shine mask and glass
+
+CP3 draws models through a separate renderer DLL (`trid3d9.dll`, `trid3d11.dll`, `trivk.dll`), whose shader source is
+in the DLL as text. What it says about faces, read from `trid3d11.dll` (31 August build) and `trid3d9.dll`:
+
+- **Shiny faces are the Gouraud ones.** A face is "shiny" (the shaders' `specEnable`, "isGouraud/shiny") when it is a
+  Gouraud facet: face type **0x29** (MRGL_ZGFACETTMAP). The exe's batcher (`FUN_140162490`) keys each batch by texture
+  and by three flags: cut out (0x11), lit by the face type (0x18, 0x22, 0x29), and 0x29 in a model that has an ILIST.
+  Flat textured faces (0x18 ZFACETTMAP and the others) are never shiny: no highlight and no reflection, "so a flat
+  face does not flicker as one mirror".
+- **A shiny face's light:** plain Lambert with the ambient floor, no 1.5x gain (the flat faces get one, which pins a
+  45 degree face to full light), plus a highlight `s^32`, `s` the cosine between the view and the sun's mirror
+  direction, times `ks`. `ks` is `[Graphics] sunSpecular` as a percent, **default 60**; `normalSpecular` (default 10)
+  and `normalSpecPower` (default 8) are the normal map's own highlight. No highlight in Pitch Black.
+- **Truck Reflections** (the probe cube) are drawn on shiny faces only.
+- **The shine mask:** with a normal map (`<stem>_N`), its **alpha channel masks the shine** of a shiny face: alpha 1
+  takes the highlight away and leaves no reflection (flat), alpha 0 keeps both (shiny). So a texture can carry chrome
+  and flat paint side by side ("clear is shiny, opaque is flat"). A face that is not shiny is never made shiny by it.
+- **Glass (MRGL_MATERIAL with BLEND):** the material blends at its `baseAlpha`, opened toward opaque at a glancing
+  angle by its Fresnel term, `fres = (fresnelBias + (1 - fresnelBias) (1 - n.v)^5) x fresnelStrength`; the
+  reflection is weighted by the same `fres`. A material that also has ALPHATEST first drops the transparent texels at
+  its alpha reference, then blends the rest: the two flags are not exclusive (the port once let the cutout win, which
+  drew such glass opaque). `specPower` replaces the 32 of the highlight; TINT multiplies the texture before lighting.
+
+## 7. Smaller options (`FUN_14018bbb0` reads them)
+
+| Option | Default | What the code does |
+|---|---|---|
+| `[Sound] centreCommentary` | 1 | The announcer on the centre channel of a surround output. OpenMTM2: a 5.1 or wider output gets the voice folded to mono and sent to the centre speaker; stereo is unchanged (the voice was never panned). |
+| `[Game] aiHorn`, `aiYeeHaw`, `aiSfxReduce` | 1, 1, 0 | `FUN_140214740`, per truck per frame, the retail rule (`0x41e030`) with switches: all four wheels off the ground and the truck not being reset, `h = 0.25 x` (the four wheels' heights over the ground) less the truck's `+0x1cc`; over 10 ft, a computer truck (not one a player or the network drives) sounds off when `rand() % N < 1.5 h`, `N` 5000, or with Reduce `((slot x 7 + 3) % 5) x 5000 + 30000`. Both on: horn or yee-haw at random; one off: always the other; both off: nothing. |
+| `[Game] chaseMirror`, `chaseMirrorPct`, `chaseMirrorAspect`, `chaseMirrorDragPct`, `mirrorShrink` | 1, 25 (5 to 60), 30 (0 to 100), 16 (0 to 60), 0 | `FUN_140107820`: in an external view, with the mirror on (`mirrorOn`, which `keyMirror` flips), a window `pct` of the screen's width (`dragPct` in a drag race with one player, when above 0), `aspect` of that high (below 1: a quarter of the width, or the mirror art's own shape), centred, its top a 32nd of the screen down. OpenMTM2: Options, Cameras, "Chase mirror", off by default; the look back from the cab with the cockpit mirror's lens. |
+| `[Game] raceLine` | 0 | `FUN_1401463b0`: in a Circuit or a Rally, the course's straights (every other course entry, those of type 1), each cut into `1 + length / 24` pieces (at most 64), drawn as lines 0.35 ft over the ground, for straights whose start, middle or end is within 900 ft (on the larger of x and z) of the player's truck. The colour is not traced. |
+| `[Game] dragSplitScreen` | 0 | `FUN_14013d880`: on, in a drag race with more than one truck and both lanes filled. The frame (`FUN_14015b3c0` twice) draws the first lane's truck in the left half and the second's in the right, the second camera taking the first's mode, pitch and heading; `keySplitScreen` flips the option. |
+
+## 8. AI mode (not ported)
+
+`FUN_1401a54d0` chooses CP3's second driving routine (`FUN_1401a5510`) for a computer truck when `aiMode` is not 0,
+the truck is on its autopilot (`+0x894`), the race is not a drag race and two more flags (network and replay,
+**hypothesis**) are clear. Its target speed comes from a look-ahead (`FUN_1401a4d80`): seven ground samples along the
+course at fixed distances ahead (`FUN_1401a5260`), from which the routine takes the largest second difference (the
+sharpest crest or dip) and the climbs and drops between samples. `aiTerrainCaution` (percent) scales the speed this
+allows, `aiCornerMargin` (percent) the room it leaves in a corner. `aiMode` above 1 has a further branch. The constants
+and the use of each sum are still to be read; the port's own fixes for computer trucks on rough ground
+(`MTM2_PHYSICS.md` 14.22 and the changelog's "smarter computer trucks") were made without this routine and are to be
+compared with it once it is.
+
+## 9. Tournaments (not ported)
+
+A tournament save carries `NAME=`, `DESCR=`, `FORMAT=`, `SCORING=`, `SONIC=`, `AISPEED=`, `FIELD=` and `ROUNDS=`
+(`FUN_1401425a0`). Each computer driver has a personality (`FUN_140141070`: 0 normal, 1 confident, 2 overconfident,
+3 calm, 4 reserved, 5 hesitant, 6 error prone, 7 choker) and, each race, a form from -2 to 2 (`FUN_14013ffa0`:
+DISASTER, off day, normal, on form, PERFECT); a tournament setting `FUN_14013ee00` scales how strong the form is
+(normal, strong, exaggerated, disastrous). Rounds are named "Final", "Semi-final", "Quarter-final" and "Round of N"
+(`FUN_14013d930`). The form's multipliers, how a personality moves the form, and the formats and scoring tables are
+still to be read.

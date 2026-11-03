@@ -22,7 +22,7 @@ The short answers:
 - **Vegetation is fully data-driven and mostly decoded.** Trees live in a 16 x 16 grid of
   512 ft sectors, up to 100 per sector. The per-tree `value` byte the readers call "unknown" is
   the tree's **yaw in 1/256 turns**, and the model slot is the tree's index in its sector `& 3`.
-  Trees **are knocked over** when a truck hits them (section 2.5). Grass is procedural: the
+  Trees **lean and spring back** when a truck hits them (section 2.5). Grass is procedural: the
   `.TEX` file's second number per texture is a **vegetation density class** (None, Sparse,
   Medium, Dense) that sets both the grass density and the tree spacing. A track without a
   `.VEG` (every Evo 1 track) gets procedurally generated trees from that class.
@@ -163,19 +163,33 @@ Grass is not stored anywhere; it is drawn per terrain cell from a fixed random p
   `0.5 * (vegiColorMin + vegiColorMax)` for its light level, `0x468910`), and what `LVL
   vegTexture` adds.
 
-### 2.5 Trees fall when hit (`0x545db0`, `0x5460d0`)
+### 2.5 Trees lean when hit (`0x545db0`, `0x5461e0`)
 
 Trees are collision objects found by the truck-object broadphase (the type test `0x41c3b0`,
 called from the truck-against-object code `0x535ce0`). When a truck overlaps one:
 
-- If the tree is standing (state 0xFF), a **falling-tree object** is made (at most 128 at once,
+- If the tree is standing (state 0xFF), a **tree object** is made (at most 128 at once,
   "Too many tree objects"): the tree's position, its model slot, its yaw (`value * pi / 128`),
-  and the **truck's velocity**. The tree's state byte stores the object's index, so the
-  standing copy stops drawing.
-- If it is already falling, the hit sets its velocity to the truck's again.
-- `0x5460d0` (from the update `0x546180`) frees an object and compacts the list.
-- **Not traced:** the fall's motion in `0x546180`, whether the tree slows the truck, and whether
-  a fallen tree ever stands up again.
+  the **truck's velocity**, a life of 0x50000 and state 1. The tree's state byte stores the
+  object's index, so the standing copy stops drawing.
+- If it already has one, the hit sets its state to 1 again and its velocity to the truck's: every
+  frame of contact keeps it at state 1.
+- **The motion is a lean, not a fall** (`0x5461e0`, each frame from `0x546180`). The lean angle
+  (`+0x44`) is eased by `0x54d2d0` (`now + (target - now) x rate x dt`, or the target once
+  `rate x dt` reaches 1). In state 1 the target is `0.174533 (10 degrees) x min(|v| / 44, 1) x
+  (1 - min(k / 3, 1))` at rate 7 (`0x679780`, `0x67978c`, `0x679790`, `0x679784`), `v` the stored
+  truck velocity in ft/s and `k` a figure of the tree's collision object (`+0x58`, from the object's
+  `+0x50` chain; **not traced**); the state then becomes 2. In state 2 the target is 0 at rate 3
+  (`0x679788`). The tree is turned by that angle about its base, the axis across the velocity's
+  direction relative to the tree's yaw (`+0x28`, `+0x30`). In state 2 under 1 degree the object is
+  freed (`0x5460d0`) and the tree stands in the grid again.
+- After the tree call the same routine (`0x535ce0`) carries on into the general truck-against-
+  object response, so the truck is pushed by the tree as by any collision object. **Not traced:**
+  the tree object's figures in that response (its mass), so how much a tree slows a truck.
+
+OpenMTM2: `game/falling-trees.js` leans the drawn tree by these rules (k taken as 0); the truck
+does not feel the tree (the response's figures above are missing). The port's first version
+felled the trees, which the game never does.
 
 ---
 
@@ -565,6 +579,56 @@ inside. A box laid on each face (a slab a foot thick, the face's rectangle) was 
 triangle's rectangle is twice its area, and what of it stood past the rock's outline was a wall in
 the air beside the cliffs (Vulture Canyon has 11,067 such faces, up to 342 boxes in a 64 ft cell).
 
+### 6.6 Truck materials, glass and lamps
+
+Read for a player's report (RuDeE: Evo trucks drawn with no lights, no transparency and no bump
+maps). All three were true of OpenMTM2, which now draws them by these rules
+(`worker/foreign-truck-build.js` `evoTruckMaterials` and `evoLights`, `game/truck-lights.js`
+`evoLampLights`, `render/truck-object.js` `createEvoLampGlow`).
+
+- **The material** (`SMaterial::load`, `0x5ad8d0`, `"%f,%f,%f,%d,%d,"` then the texture name):
+  three floats at +0, +4, +8 (the colour scale, specular and shininess: `1,1,64` on paint, `1,0,0`
+  on the underbody), the transparent flag at +0xC, the reflective flag at +0x10, the texture at
+  +0x24, and in the Evo 2 `v1` form the bump texture at +0x6C. Every stock Evo 2 truck uses the
+  `v1` form, with `<model>_BUMP.TIF` (a tangent-space normal map, OpenPhotex `docs/EVO.md`).
+- **Transparent groups are blended** (`CSimpleModel::render`, `0x5ae3a0`): the flag sets the
+  alpha state (`0xaa8430`), which turns on the renderer DLL's blend flags (`0x122`, `0x49fba0`),
+  so the texture's own alpha is the opacity. The Blazer's (`BlazerZR2.TIF`) is about 50% under
+  `GLASSE`/`GLASSI` and lower under the lamp lenses. The port drew such a group as a cut-out at
+  0.5, so the glass was patchy or solid and the lenses vanished; a truck's are now blended. A
+  transparent group is not only glass: the Dodge Ram's `GLASSE` holds the roof and pillars too, in
+  opaque art. Its texels at least 0.98 opaque are drawn again as a solid that writes depth, so water
+  and dust drawn after the truck stay behind the roof; the blended texels leave depth alone and are
+  drawn after the water and the dust, so that what is behind a window is tinted by it.
+- **Bump** (same function): a group with a bump texture is drawn in two passes, the bump
+  texture in stage 1 with renderer mode 1 then mode 2 (or one pass in mode 7), while lighting is on
+  (`0xaa84fc`) and `0xab3068` is clear. The passes themselves are in the renderer DLL (`dx8.dll`,
+  `tridx8tl.dll`), not traced. The port uses the bump texture as the group's normal map. Over the
+  stock maps the change of red down the picture follows the change of green across it
+  (correlation 0.6 to 0.73), so green is the slope down the picture: V's direction here, and the
+  opposite of Community Patch 3's maps, which the port flips.
+- **Lamp groups** (`0x5d3ad0`): `LIGHTBC`, `BL`, `BR`, `FL`, `FR`, `HL`, `HR`, `RL`, `RR` are
+  kept at vehicle +0x1458 to +0x1478, each moved 0.02 ft sideways and 0.04 ft out of the body
+  (`0x5d6f50`). Each is paired with a `.TRK` light by type and side: type 0 with `HL`/`HR` and
+  `FL`/`FR`, type 1 with `BL`/`BR` (or `BC` at the middle), type 5 with `RL`/`RR`.
+- **Lamps glow** (`0x5f8a40`, after the body): each lamp group is drawn again, blended in renderer
+  mode 1, in white at its light's brightness this frame (light +0x78, set by `0x44cc50` in
+  `envlgt.cpp`). The brightness is 0 while the light is off. When it is on, it is the cosine
+  between the light's direction and the view, at least 0.7 for types 1 and 5, times the fog's
+  clear share.
+- **When a light is on** (`0x44cc50`): type 0 or 3 at headlight state 2 (vehicle +0x19A4), type 2 at
+  state 1 or more, other types at state 2. Type 5 (reverse) is on in a gear whose ratio is negative.
+  Type 1 off the middle is a tail light at half, and full while braking (+0x5B0 past 0.05 for the
+  player, 0.99 for a computer truck). At the middle it is on only while braking. Nothing is drawn
+  unless `headlightFlag` (`4x42.ini`, `0x672f10`) is set. `0x44dfe0` works a light out only for a
+  truck with +0x2514 set (by `0x5ed0d0` for a truck the level's vehicle list holds, `0x439c00`
+  returning 1) or for a light with a cone, which it also casts. The lamp switch starts at 2 when
+  the level lights its lamps (`0x67db88` +0xC) and the headlight key toggles 0 and 2: MTM2's.
+- **In the port** the lights go through MTM2's lamps (`game/truck-lights.js`: the same types and
+  switch), which draw the headlights' cones and their light on the ground. The lens groups' glow is
+  Evolution's own: `evoLampLevel` and `evoLampFacing` above, the glow twice as bright for the
+  groups drawn twice, the fog's clear share by the material.
+
 ### 6.7 Object paths and track scripts
 
 What moves PEAK's F-15s (one low over the course, three high in formation), ALASKA's helicopters,
@@ -720,8 +784,7 @@ MTM2's vehicle model.
 - **Missions** (`MISSIONS\*.MSN`, `SCRIPTS\*.SC`): the script language has conditions such as
   `objectsIntersect`, `vehicleIn4WDHigh` and `waterLevelInRange` (`0x4528a0`). That is enough to
   start on El Norte and Obs Park missions, which load as free roam today.
-- **Truck lights:** every Evo `.TRK` lists light cones (`coneTexture`, `coneLength`), which
-  `truck-lights.js` could draw at night.
+- **Truck lights, glass and bump maps:** drawn by the game's rules (section 6.6).
 
 ---
 

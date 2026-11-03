@@ -4,7 +4,8 @@
   moving the mouse; the zoom stays, for each view on its own, until the view is chosen again with the wheel, and is
   kept for the next games (`settings.cameraZoom`, by view).
   Options, Advanced, Cameras: "Free look" off leaves the mouse's movement alone (the wheel still zooms), "Reverse free
-  look" turns it the other way on both axes, and "Hold free look" keeps a look where it was left, with no easing back.
+  look" turns it the other way on both axes, "Hold free look" keeps a look where it was left, with no easing back, and
+  "Click to look" (`drag`) looks only while a mouse button is held on the picture.
   Pure: the screen feeds it the mouse and the keys and reads `yaw`, `pitch`, `zoom` and `back` each frame.
 */
 
@@ -19,10 +20,13 @@ export const ZOOM_STEP = 1.1, ZOOM_MIN = 0.35, ZOOM_MAX = 4;
 /** The key held to look back. */
 export const LOOK_BACK_KEY = "Backspace";
 
-/** The look's options from the settings: `freeLook` (default on), `freeLookInvert` and `freeLookHold` (default off). */
+/** The look's options from the settings: `freeLook` (default on), `freeLookInvert`, `freeLookHold` and `freeLookDrag` (default off). */
 export function lookOptions(settings = {}) {
-  return { enabled: settings.freeLook !== false, invert: settings.freeLookInvert === true, hold: settings.freeLookHold === true };
+  return { enabled: settings.freeLook !== false, invert: settings.freeLookInvert === true, hold: settings.freeLookHold === true, drag: settings.freeLookDrag === true };
 }
+
+/** Whether a pointer movement looks round: always, or with "Click to look" only while a button is held (`buttons` of the event). */
+export const looksWith = (options, buttons) => !options.drag || (buttons ?? 0) !== 0;
 
 /** The zooms kept from the last games (`settings.cameraZoom`, `{ [view]: factor }`), each held to the range. */
 export function storedZooms(stored) {

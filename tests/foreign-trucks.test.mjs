@@ -117,3 +117,21 @@ test("a CPR car and an Evolution truck of each game build, with art, and the sim
 test("a vehicle whose game is not mounted is not built", async () => {
   assert.equal(await buildTruckRender(createVfs([]), "EVO1:CBLS24.TRK", null), null);
 });
+
+test("an Evolution 2 truck's glass blends, its bump maps are normal maps, and its lamps are the TRK's (EVO2_EXE_ANALYSIS.md 6.6)", { skip }, async () => {
+  const vfs = createVfs(ARCHIVES.map(([game, dir, file]) => mount(game, dir, file)));
+  const truck = await buildTruckRender(vfs, "EVO2:CBLS24.TRK", null);
+  const body = truck.parts.body.meshes;
+  const glass = body.find((m) => m.groupName === "Glasse");
+  assert.ok(glass.blended && !glass.cutout, "the glass is blended, not cut out");
+  assert.ok(!body.find((m) => m.groupName === "Body").blended, "the paint is not blended");
+  assert.ok(truck.textures.BLAZERZR2_N?.rgba?.length, "the body's bump map is its normal map");
+  assert.ok(body.every((m) => m.normalScaleY === 1), "an Evolution bump map is not flipped");
+  assert.ok(truck.parts.tireLeft.meshes.some((m) => m.normalScaleY === 1), "the tires' bump maps too");
+  assert.deepEqual(body.filter((m) => m.lamp).map((m) => m.lamp).sort(), ["BC", "BL", "BR", "HL", "HR", "RL", "RR"]);
+  assert.equal(truck.lights.length, 7);
+  assert.deepEqual(truck.lights.map((l) => l.type), [0, 0, 1, 1, 1, 5, 5]);
+  assert.equal(truck.lights[0].coneTexture, "LGTCNEW1.RAW");
+  assert.ok(truck.lightTextures["LGTCNEW1.RAW"]?.rgba?.length, "the headlights' cone texture is decoded");
+  assert.equal(truck.lights[2].source, "", "NULL.RAW is no lens bitmap");
+});

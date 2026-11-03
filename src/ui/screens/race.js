@@ -18,7 +18,7 @@
 import { createMtm1Particles } from "../../render/mtm1-particles.js";
 import { createEvoParticles } from "../../render/evo-particles.js";
 import { createEvoLifeScene } from "../../render/evo-life.js";
-import { createFall, stepFall } from "../../game/falling-trees.js";
+import { createLean, stepLean, touchLean } from "../../game/falling-trees.js";
 import { createTruckReflections } from "../../render/truck-reflection.js";
 import { createWaterMirror } from "../../render/water-mirror.js";
 import { dustLevel, sparkLevel, treadShare, wheelShare } from "../../game/tire-effects.js";
@@ -35,7 +35,7 @@ import { keepNetCommands, netConsoleCommands } from "../net-console.js";
 import { latencyMs } from "../../net/legacy-session.js";
 import { PHYSICS_MODELS, physicsModel, resolvePhysics, saveSettings, tileOverlapOf } from "../../app/settings.js";
 import { createFlyController } from "../fly-controller.js";
-import { LOOK_BACK_KEY, createCameraLook, lookOptions, turnedTarget } from "../../game/camera-look.js";
+import { LOOK_BACK_KEY, createCameraLook, lookOptions, looksWith, turnedTarget } from "../../game/camera-look.js";
 import { WorkerClient } from "../../shared/worker-client.js";
 import { addDebugInfo, feet, onReport, reportError } from "../../shared/error-report.js";
 import { currentDriver, getProfiles } from "../../app/profile-store.js";
@@ -44,7 +44,7 @@ import { mergeBindings } from "../../game/input/bindings.js";
 import { SunFlare, sunBlocked } from "../../render/sun-flare.js";
 import { enableSunShadows } from "../../render/sun-shadows.js";
 import * as mtm2Sim from "../../vendor/openphotex/sim/mtm2/index.js";
-import { COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, CAMERA_PITCH_MAX, CAMERA_PITCH_RATE, CAMERA_PITCH_MIN, CAMERA_TILT_RATE, INERTIA_MODE, cameraMode, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, createChaseCamera, fovFor, groundHeightFn, nextInList, nextMode, raceCamera, shortViews, zoomToFov } from "../../game/cameras.js";
+import { COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, CAMERA_PITCH_MAX, CAMERA_PITCH_RATE, CAMERA_PITCH_MIN, CAMERA_TILT_RATE, INERTIA_MODE, cameraMode, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, chaseMirrorRect, createChaseCamera, fovBase, fovFor, groundHeightFn, nextInList, nextMode, raceCamera, shortViews, zoomToFov } from "../../game/cameras.js";
 import { createBlimp, hasBlimp } from "../../game/blimp.js";
 import { soundRange, surfaceFamily } from "../../game/sound-model.js";
 import { createTireEffects } from "../../render/tire-effects.js";
@@ -63,8 +63,10 @@ import { createWorldAudio } from "../../audio/world-audio.js";
 import { createWeatherScene } from "../../render/weather-scene.js";
 import { WEATHER_LOOK, WEATHER_NAMES, isUnderwater, resolveWeather, waterOffsetFt } from "../../game/weather.js";
 import { beamAir, headlightPool, lampsAtStart, toggleLamps } from "../../game/truck-lights.js";
+import { createRaceLine } from "../../render/race-line.js";
 import { createGoldMode } from "../gold-mode.js";
 import { createGamepadInput } from "../../game/input/gamepad.js";
+import { createTouchControls } from "../touch-controls.js";
 import { createRumble } from "../../game/input/rumble.js";
 import { createRumbleReadout } from "../rumble-readout.js";
 import { createTextPanel, hudFontScale, loadFont } from "../../render/bitmap-text.js";
@@ -461,7 +463,7 @@ async function mountRace(container, context, params, owned = []) {
     grass: GRASS_RADII[grassLevel(context.settings)],
   });
   scene.add(world);
-  // 4x4 Evolution's knockable trees by id, and the falls under way.
+  // 4x4 Evolution's trees by id, and the leans under way (game/falling-trees.js).
   const treeObjects = new Map((build.objects ?? []).filter((o) => typeof o.sitIndex === "string" && o.sitIndex.startsWith("t")).map((o) => [o.sitIndex, o]));
   const falls = [];
   // The physics model (Options, Game; the console's `physics`): the 1996 game has no crash damage.
@@ -493,7 +495,7 @@ async function mountRace(container, context, params, owned = []) {
   // The jukebox plays on through the race in the track's music's place, and can be started or stopped from Options.
   const unwatchJukebox = context.jukebox?.subscribe(() => worldAudio.refreshMusic()) ?? (() => {});
   const truckAudio = createTruckAudio(audio, {
-    count: entrants.length, player: 0, kookyHorn: !!context.settings.kookyHorn, mtm1Sounds: !!context.settings.mtm1Sounds,
+    count: entrants.length, player: 0, kookyHorn: !!context.settings.kookyHorn, mtm1Sounds: !!context.settings.mtm1Sounds, settings: () => context.settings,
     // An object struck under water sounds lower (game/sound-model.js `underwaterMix`); Snow's water is ice.
     onHit: (sitIndex, force, pos) => worldAudio.hit(sitIndex, force, pos, {
       sourceUnder: weatherScene.weather !== 5 && waterLevelNow !== null && pos[1] < waterLevelNow,
@@ -644,6 +646,7 @@ async function mountRace(container, context, params, owned = []) {
     cprSkill: context.settings.cprSkill ?? "rookie",
     clr: build.sim.clr.buffer,
     textureValues: build.sim.textureValues.buffer,
+    dirtEverywhere: !!build.sim.dirtEverywhere,
     groundBoxStepFt: build.sim.groundBoxStepFt ?? null,
     ra0: build.sim.ra0?.buffer ?? null,
     ra1: build.sim.ra1?.buffer ?? null,
@@ -774,6 +777,15 @@ async function mountRace(container, context, params, owned = []) {
   };
   cleanups.push(stopRumble);
   cleanups.push(() => keys.dispose());
+  // The touch overlay (ui/touch-controls.js, the Touch controls option): shown while the player drives their own truck.
+  const touchMap = mergeBindings(context.settings.bindings);
+  const touch = createTouchControls(context, {
+    actionKey: (action) => touchMap[action]?.[0] ?? null,
+    autoShift: context.settings.autoShift !== false,
+    driving: () => !demo && !spectator && !host.presenting && padDriving(),
+  });
+  view.append(touch.element);
+  cleanups.push(() => touch.dispose());
   let gold = null, gameConsole = null;
   /** The controllers' joystick, and their presses since the simulation last took the input. */
   let hands = null;
@@ -784,7 +796,9 @@ async function mountRace(container, context, params, owned = []) {
     // A gamepad at rest leaves the driving to the controllers in the player's hands.
     const stick = pad.sample();
     const stickBusy = stick && (Math.abs(stick.x) > stick.deadZone || Math.abs(stick.y) > stick.deadZone || stick.shiftUp || stick.shiftDown);
-    const joystick = stickBusy || !hands ? stick : { ...hands, shiftUp: handPresses.shiftUp, shiftDown: handPresses.shiftDown };
+    // A gamepad in use comes first, then the touch stick and pedals while a finger is on them.
+    const touchStick = stickBusy ? null : touch.joystick();
+    const joystick = stickBusy || (!hands && !touchStick) ? stick : touchStick ?? { ...hands, shiftUp: handPresses.shiftUp, shiftDown: handPresses.shiftDown };
     const helicopter = held.helicopter || handPresses.helicopter;
     handPresses.shiftUp = handPresses.shiftDown = handPresses.helicopter = false;
     const action = modeAction;
@@ -1235,6 +1249,10 @@ async function mountRace(container, context, params, owned = []) {
   // The ground boxes the chase camera keeps out of (a tunnel's roof and walls).
   const boxSolid = createBoxSolid({ ra0: build.sim.ra0, ra1: build.sim.ra1 });
   const straights = raceCourse, centroid = courseCentroid(straights);
+  // Community Patch 3's racing line (Options, Cameras, "Racing line"; render/race-line.js): in a Circuit or a Rally.
+  const raceLine = context.settings.raceLine && !net && (track.raceType === "circuit" || track.raceType === "rally") && straights?.length
+    ? createRaceLine(straights, (x, z) => ground(x, z)) : null;
+  if (raceLine) { world.add(raceLine.object); cleanups.push(() => { raceLine.object.removeFromParent(); raceLine.dispose(); }); }
   // The blimp flies the course (game/blimp.js); the BlimpCam hangs over the course's centre (game/cameras.js).
   const blimp = build.blimp && hasBlimp({ detailLevel: context.settings.detailLevel ?? 2, raceType: track.raceType }) && straights.length
     ? createBlimp(straights, ground) : null;
@@ -1287,6 +1305,90 @@ async function mountRace(container, context, params, owned = []) {
     renderer.setRenderTarget(null);
   };
   cleanups.push(() => mirrorTarget?.dispose());
+  /*
+    Community Patch 3's chase-view mirror (CP3_EXE_ANALYSIS.md 3; Options, Cameras, "Chase mirror", off by default here):
+    a look back from the cab drawn over the top of the picture in the external views, `CHASE_MIRROR.pct` of the screen's
+    width (in a drag race `dragPct`), `aspect` of that high, centred, its top a 32nd of the screen down. Drawn straight
+    into the frame after it, through a scissor.
+  */
+  const chaseMirrorCamera = new THREE.PerspectiveCamera(40, 1, 0.5, drawDistance);
+  const chaseMirrorFrame = el("div", { class: "race-chase-mirror", hidden: true });
+  view.append(chaseMirrorFrame);
+  let chaseMirrorPose = null;
+  const chaseMirrorSize = new THREE.Vector2();
+  const renderChaseMirror = () => {
+    const on = !!context.settings.chaseMirror && !splitPose && !host.presenting && !replaying && !!cameraMode(viewMode)?.dist && !!chaseMirrorPose && !flyer?.enabled;
+    chaseMirrorFrame.hidden = !on;
+    if (!on) return;
+    const rect = chaseMirrorRect(renderer.getSize(chaseMirrorSize), dragRace);
+    Object.assign(chaseMirrorFrame.style, { left: `${rect.x}px`, top: `${rect.top}px`, width: `${rect.w}px`, height: `${rect.h}px` });
+    const p = chaseMirrorPose;
+    const body = new THREE.Matrix4().fromArray(toSceneMatrix(p.matrix, p.pos));
+    chaseMirrorCamera.position.set(COCKPIT_EYE[0], COCKPIT_EYE[1], -COCKPIT_EYE[2]).applyMatrix4(body);
+    chaseMirrorCamera.quaternion.setFromRotationMatrix(body).multiply(flipBack);
+    chaseMirrorCamera.aspect = rect.w / rect.h;
+    chaseMirrorCamera.far = camera.far;
+    chaseMirrorCamera.updateProjectionMatrix();
+    const y = chaseMirrorSize.y - rect.top - rect.h;
+    renderer.setScissorTest(true);
+    renderer.setScissor(rect.x, y, rect.w, rect.h);
+    renderer.setViewport(rect.x, y, rect.w, rect.h);
+    try {
+      renderer.render(scene, chaseMirrorCamera);
+      scenery.drawOver(chaseMirrorCamera);
+    } finally {
+      renderer.setScissorTest(false);
+      renderer.setViewport(0, 0, chaseMirrorSize.x, chaseMirrorSize.y);
+    }
+  };
+  /*
+    Community Patch 3's drag split screen (`[Game] dragSplitScreen`, `FUN_14013d880`, `FUN_14015b3c0`; Options, Cameras,
+    "Drag split screen", off by default): in a drag race with two trucks the picture is cut down the middle, the watched
+    truck on the left and the other lane's on the right, both in the same chase view. The main picture is drawn whole,
+    its lens shifted so that its left half is a complete view (it keeps its effects); the right half is then drawn over
+    it from a second chase camera.
+  */
+  const splitChase = createChaseCamera();
+  const splitCamera = new THREE.PerspectiveCamera(60, 1, camera.near, drawDistance);
+  const splitSize = new THREE.Vector2();
+  let splitPose = null;
+  const dragSplitOn = () => dragRace && !!context.settings.dragSplitScreen && !host.presenting && !replaying && !flyer?.enabled
+    && !!cameraMode(viewMode)?.dist && entrants.length > 1;
+  /** The other lane's truck for the split screen, placed with the watched one's view, or nothing. */
+  const placeSplit = (shown, dt) => {
+    const other = dragSplitOn() ? shown.findIndex((pose, i) => pose && i !== cameraTarget) : -1;
+    splitPose = other >= 0 ? shown[other] : null;
+    renderer.getSize(splitSize);
+    const w = Math.max(1, splitSize.x), h = Math.max(1, splitSize.y);
+    if (!splitPose) {
+      if (camera.view?.enabled) { camera.clearViewOffset(); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+      return;
+    }
+    const v = splitChase.update(viewMode, splitPose.pos, splitPose.euler[2], ground, dt, {
+      pitchBy, clearFt: context.settings.cameraClearance ? CAMERA_CLEAR_FT : 0, solid: boxSolid,
+    });
+    splitCamera.position.set(v.position[0], v.position[1], -v.position[2]);
+    splitCamera.lookAt(v.target[0], v.target[1], -v.target[2]);
+    camera.aspect = w / 2 / h;
+    camera.setViewOffset(w / 2, h, 0, 0, w, h);
+    camera.updateProjectionMatrix();
+    Object.assign(splitCamera, { aspect: w / 2 / h, fov: camera.fov, near: camera.near, far: camera.far });
+    splitCamera.updateProjectionMatrix();
+  };
+  const renderSplit = () => {
+    if (!splitPose || !dragSplitOn()) return;
+    const w = splitSize.x, h = splitSize.y, half = Math.floor(w / 2);
+    renderer.setScissorTest(true);
+    renderer.setScissor(half, 0, w - half, h);
+    renderer.setViewport(half, 0, w - half, h);
+    try {
+      renderer.render(scene, splitCamera);
+      scenery.drawOver(splitCamera);
+    } finally {
+      renderer.setScissorTest(false);
+      renderer.setViewport(0, 0, w, h);
+    }
+  };
   let waterClock = 0, shownPoses = null;
   /** Where the watched truck was last drawn, game feet: the picture's place in its own unbroken space. */
   let drawAnchor = null;
@@ -1299,7 +1401,7 @@ async function mountRace(container, context, params, owned = []) {
   // (ui/fly-controller.js, the fly-by's own).
   const flyer = spectator || canLeave ? createFlyController({
     canvas, settings: context.settings, save: () => saveSettings(context.settings), course: build.sim.course, courseOpen: !!build.sim.courseOpen,
-    groundAt: groundHeightFn(terrain), say: (text, seconds) => caption.show(text, seconds ?? 4), baseFov: fovFor(1), font: hudFont, t,
+    groundAt: groundHeightFn(terrain), say: (text, seconds) => caption.show(text, seconds ?? 4), baseFov: fovFor(1, fovBase(context.settings)), font: hudFont, t,
     blocked: () => paused || finishing || !!gameConsole?.open || !!replaying || !!context.optionsDialog?.isConnected,
   }) : null;
   if (flyer) { view.append(flyer.element); cleanups.push(() => flyer.dispose()); }
@@ -1369,8 +1471,23 @@ async function mountRace(container, context, params, owned = []) {
     // Z mode's - and + zoom; Shift with them zooms with the Z-mode cameras option.
     if (gold?.zooming || held.has("ShiftLeft") || held.has("ShiftRight")) return;
     const down = (codes) => codes.some((code) => held.has(code));
-    const way = (down(keyMap.cameraUp ?? []) ? 1 : 0) - (down(keyMap.cameraDown ?? []) ? 1 : 0);
-    if (way) pitchBy = Math.max(CAMERA_PITCH_MIN - base, Math.min(CAMERA_PITCH_MAX - base, pitchBy + way * CAMERA_TILT_RATE * dt));
+    // Camera up (keypad minus) raises the camera as the game's does; "Reverse camera tilt" (the port's own) swaps them.
+    let way = (down(keyMap.cameraUp ?? []) ? 1 : 0) - (down(keyMap.cameraDown ?? []) ? 1 : 0);
+    if (context.settings.cameraTiltSwap) way = -way;
+    // A gamepad's right stick, as far as it is pushed (game/input/gamepad.js `padCamera`).
+    if (!way && padDriving()) way = pad.camera().tilt;
+    if (!way) return;
+    pitchBy = Math.max(CAMERA_PITCH_MIN - base, Math.min(CAMERA_PITCH_MAX - base, pitchBy + way * CAMERA_TILT_RATE * dt));
+    // Kept for this view in the next races, as the wheel's zoom is (the game's sticky view keeps one view's pitch, 0x52b780).
+    context.settings.cameraTilt = { ...(context.settings.cameraTilt ?? {}), [viewMode]: Math.round(pitchBy) };
+    clearTimeout(zoomSave);
+    zoomSave = setTimeout(() => saveSettings(context.settings), 400);
+  };
+  /** The tilt kept for a view from the last races, held to the pitches it allows. */
+  const keptTilt = (mode) => {
+    const base = cameraMode(mode)?.pitch, kept = Number(context.settings.cameraTilt?.[mode]);
+    if (base === undefined || !Number.isFinite(kept)) return 0;
+    return Math.max(CAMERA_PITCH_MIN - base, Math.min(CAMERA_PITCH_MAX - base, kept));
   };
   /*
     The mouse on the external views (game/camera-look.js): moving it looks round, the wheel zooms, and the look eases
@@ -1389,7 +1506,7 @@ async function mountRace(container, context, params, owned = []) {
   cleanups.push(() => { if (zoomSave !== null) { clearTimeout(zoomSave); saveSettings(context.settings); } });
   const lookFree = () => !flyer?.enabled && !host.presenting && !paused && !context.optionsDialog?.isConnected;
   // The BlimpCam (3) and the RaceCam (4) frame the truck themselves: the mouse does not turn them (the wheel still zooms).
-  const onLookMove = (e) => { if (lookFree() && viewMode !== 0 && viewMode !== 3 && viewMode !== 4) mouseLook.move(e.movementX ?? 0, e.movementY ?? 0); };
+  const onLookMove = (e) => { if (lookFree() && viewMode !== 0 && viewMode !== 3 && viewMode !== 4 && looksWith(lookOptions(context.settings), e.buttons)) mouseLook.move(e.movementX ?? 0, e.movementY ?? 0); };
   const onLookWheel = (e) => { if (lookFree() && viewMode !== 0) { e.preventDefault(); mouseLook.wheel(viewMode, e.deltaY); } };
   canvas.addEventListener("pointermove", onLookMove);
   canvas.addEventListener("wheel", onLookWheel, { passive: false });
@@ -1397,13 +1514,14 @@ async function mountRace(container, context, params, owned = []) {
   const cockpitEye = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion() }, scratchScale = new THREE.Vector3();
   // Switching views changes the camera at once, as the game does: only a chase camera's heading takes time to catch up (game/cameras.js).
   const placeCamera = (p, dt) => {
+    chaseMirrorPose = p;
     if (viewMode !== lastView) {
       lastView = viewMode;
-      pitchBy = 0;
+      pitchBy = keptTilt(viewMode);
       headingBy = 0;
       mouseLook.reset();
       if (!cameraMode(viewMode).dist) chase.reset();
-      camera.fov = fovFor(viewMode);
+      camera.fov = fovFor(viewMode, fovBase(context.settings));
       camera.updateProjectionMatrix();
     }
     tiltCamera(dt);
@@ -1413,7 +1531,7 @@ async function mountRace(container, context, params, owned = []) {
     // The BlimpCam and RaceCam set their own zoom each frame, from their distance to the truck.
     const zoom = placeCameraNow(p, dt);
     if (zoom !== null) {
-      const fov = zoomToFov(zoom);
+      const fov = zoomToFov(zoom, fovBase(context.settings));
       if (Math.abs(camera.fov - fov) > 1e-3) { camera.fov = fov; camera.updateProjectionMatrix(); }
     }
   };
@@ -1739,9 +1857,7 @@ async function mountRace(container, context, params, owned = []) {
   }));
   /** One frame, from the window or from the headset (the host's loop): `now` as performance.now(). */
   const loop = (_dt, now) => {
-    // The frame rate limit (the window's frames only: a headset keeps to its own rate): a frame that comes too soon is
-    // left out (a millisecond of slack for the timer's jitter).
-    if (!host.presenting && context.settings.fpsLimit && now - drawnAt < 1000 / Math.max(10, context.settings.fpsLimitValue ?? 60) - 1) return;
+    // The frame rate limit is the host's (render/xr/xr-host.js): a frame that comes too soon never reaches this.
     const dt = Math.min(0.1, Math.max(0, (now - drawnAt) / 1000));
     drawnAt = now;
     // The FPS counter follows the Options at once (Save in the pause menu's dialog).
@@ -1800,13 +1916,18 @@ async function mountRace(container, context, params, owned = []) {
           if (netRace && !disposed) netTick(r, now);
           if (fpsCounter.visible) fpsCounter.noteSim(performance.now(), r.steps ?? 0, performance.now() - sentAt);
           if ((r.race || freeRoam) && r.time !== undefined) recorder.update(r.time, r.poses.map((p) => p.current), r.boxes ?? [], (i) => crash.code(i), r.crush ?? null);
-          // 4x4 Evolution trees a truck knocked over start to fall (game/falling-trees.js).
+          // 4x4 Evolution trees a truck touches lean away from it (game/falling-trees.js).
           for (const f of r.fallen ?? []) {
-            const object = treeObjects.get(f.id);
-            if (!object) continue;
-            // Drawn by itself while it falls (render/track-scene.js `addFallingTree`), its place in the forest left empty.
-            const drawnFall = setForestTree(world, f.id, null) ? addFallingTree(world, object.model, [f.pos[0], -f.pos[2]]) : null;
-            falls.push({ ...createFall(f.id, object.matrix, f.pos, f.dir), drawn: drawnFall });
+            let lean = falls.find((l) => l.id === f.id && !l.done);
+            if (!lean) {
+              const object = treeObjects.get(f.id);
+              if (!object) continue;
+              // Drawn by itself while it leans (render/track-scene.js `addFallingTree`), its place in the forest left empty.
+              const drawnLean = setForestTree(world, f.id, null) ? addFallingTree(world, object.model, [f.pos[0], -f.pos[2]]) : null;
+              lean = { ...createLean(f.id, object.matrix, f.pos), drawn: drawnLean };
+              falls.push(lean);
+            }
+            touchLean(lean, f.dir);
           }
           // A 4x4 Evolution 2 track script's Message() (worker/sim-worker.js), in the caption.
           for (const text of r.messages ?? []) flash(text, now, 4);
@@ -1930,6 +2051,7 @@ async function mountRace(container, context, params, owned = []) {
         flyer.step(paused ? 0 : dt);
         if (flyer.apply(camera, flyTarget)) camera.updateProjectionMatrix();
       } else placeCamera(shown[cameraTarget] ?? shown[0], dt);
+      if (!host.presenting) placeSplit(shown, dt);
       // Your own truck is not drawn from inside it.
       drawn[0].object.visible = viewMode !== 0 || host.presenting;
       const mine = latest.poses[0].current;
@@ -2039,12 +2161,12 @@ async function mountRace(container, context, params, owned = []) {
     if (falls.length) {
       const moves = [];
       for (const fall of falls) {
-        const matrix = stepFall(fall, paused ? 0 : dt);
+        const matrix = stepLean(fall, paused ? 0 : dt);
         if (!matrix) continue;
         if (!fall.drawn) moves.push({ sitIndex: fall.id, matrix });
         else if (!fall.done) poseFallingTree(fall.drawn, matrix);
         else {
-          // Down: the tree lies in the forest again, and its own drawing goes.
+          // Upright again: the tree stands in the forest again, and its own drawing goes.
           setForestTree(world, fall.id, matrix);
           removeFallingTree(world, fall.drawn);
         }
@@ -2081,6 +2203,9 @@ async function mountRace(container, context, params, owned = []) {
     if (!poolsWarmed) { poolsWarmed = true; weatherScene.warmPools(() => scenery.compile(camera)); }
     if (!host.presenting) renderMirror();
     flare?.render(renderer, camera);
+    renderSplit();
+    renderChaseMirror();
+    gold?.padZoom(padDriving() ? pad.camera().zoom : 0);
     gold?.afterRender(dt, build.title ?? track.name);
   };
   // MTM1's TREX code (game/cheats.js): the player's truck drawn as the dinosaur, its four frames looping, until the race ends.
@@ -2111,6 +2236,13 @@ async function mountRace(container, context, params, owned = []) {
     getWeather: () => weatherScene.weather,
     flash: (text) => flash(text, performance.now()),
     zCameras,
+    // The Z-mode cameras option's zoom, kept for the next races and saved once it rests.
+    savedZoom: context.settings.zModeZoom,
+    onZoom: (value) => {
+      context.settings.zModeZoom = value;
+      clearTimeout(zoomSave);
+      zoomSave = setTimeout(() => saveSettings(context.settings), 400);
+    },
     physicsLine: () => zPhysicsLine(latest?.poses[0]?.sound, physics),
     // Ctrl+L (Z mode): another track by its SIT's name, with the same trucks and settings.
     loadSit: async () => {

@@ -80,7 +80,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   wording: "",                // a .LOC from the install that rewords the game's text ("" is the standard wording)
   skin: "auto",               // "auto" (classic on retail and beta builds, modern on a community patch), "classic" or "modern"
   developer: false,           // list tracks and trucks with the developer views on the Start screen
-  sound: Object.freeze({ master: 1, effects: 1, music: 0.8, muted: false }),
+  sound: Object.freeze({ master: 1, effects: 1, music: 0.8, muted: false, centreCommentary: true }),
   commentary: true,           // MONSTER.INI commentaryFlag: the announcer's voice (game/commentary.js)
   textCommentary: false,      // MONSTER.INI textCommentaryFlag: the announcer's lines shown as text
   commentaryTruckNames: false, // the text commentary names the trucks (as the game does) in place of their drivers
@@ -100,6 +100,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   padRumbleStrength: 70,      // MONSTER.INI forceFeedbackStrength, 0 to 100 (the game's default 70)
   padRumbleLevel: 3,          // the Rumble effects: 1 hits only, 2 hits and ground, 3 hits, ground and engine (game/input/rumble.js)
   padPedals: "triggers",      // a gamepad's throttle and brake: "triggers", "stick" (the left stick's y) or "both" (game/input/gamepad.js)
+  touchControls: "auto",      // the race's touch overlay: "auto" (touch-only devices), "on" or "off" (game/input/touch.js)
   bindings: Object.freeze({}), // key code overrides by action, see game/input/bindings.js
   hdWeather: true,            // Community Patch 3's HD skies: the install's WeatherArt folder, else the port's copy (worker/weather-art.js)
   mtm1TrucksApart: true,      // MTM1 trucks that MTM2's shadow by file name listed too, as "Bigfoot (MTM1)" (worker/truck-build.js)
@@ -127,6 +128,17 @@ export const DEFAULT_SETTINGS = Object.freeze({
   freeLook: true,             // the mouse looks round the external cameras (game/camera-look.js); the wheel zooms either way
   freeLookInvert: false,      // the mouse's look turned the other way
   freeLookHold: false,        // a look stays where it is left, without easing back after two seconds
+  freeLookDrag: false,        // the mouse looks round only while a button is held on the picture
+  chaseFov: 90,               // the external views' field of view, degrees across a 4:3 screen; 90 is the game's lens (game/cameras.js `fovBase`)
+  cameraTiltSwap: false,
+  chaseMirror: false,         // Community Patch 3's mirror in the external views (on in CP3; off here unless chosen)
+  raceLine: false,            // Community Patch 3's racing line drawn on the ground (render/race-line.js)
+  dragSplitScreen: false,     // Community Patch 3's drag split screen: both lanes at once      // keypad plus raises the chase camera and minus lowers it (the game's keys do the opposite)
+  aiHorn: true,               // Community Patch 3: computer trucks high in the air may honk (game/air-calls.js)
+  aiYeeHaw: true,             // ... or whoop
+  aiSfxReduce: false,         // ... 6 to 10 times less often
+  cameraTilt: Object.freeze({}), // the Camera up and down keys' tilt of each chase view, kept for the next races
+  zModeZoom: 0x10000,         // the Z-mode cameras option's zoom, kept for the next races (ui/gold-mode.js)
   cameraZoom: Object.freeze({}), // the mouse wheel's zoom on each external view, kept for the next games (game/camera-look.js)
   autoStage: true,            // drag races: the player's truck stages itself (off: stage it by hand, or press the Auto Stage key)
   dustEffects: true,          // MONSTER.INI smokeEffectFlag: dust puffs behind the wheels on soft ground

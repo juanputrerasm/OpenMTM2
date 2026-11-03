@@ -16,6 +16,8 @@ import { smoothNormals } from "../shared/smooth-normals.js";
 const UV_SCALE = 0xff0000;
 const CUTOUT_FACE_TYPES = new Set([0x11, 0x33]);
 const FLAT_FACE_TYPE = 0x19;
+/** The Gouraud facet (MRGL_ZGFACETTMAP), which Community Patch 3 draws shiny (CP3_EXE_ANALYSIS.md 6). */
+const SHINY_FACE_TYPE = 0x29;
 
 /**
  * A fan's triangles as vertex-list positions. The z mirror into the scene reverses handedness,
@@ -68,12 +70,13 @@ export function decodeModel(bytes, name, unitScale = 1) {
     const flat = face.opcode === FLAT_FACE_TYPE || !textureName;
     // MRGL_TEXTURECYCLE: the faces' texture runs through these frames (render/track-scene.js animates it).
     const frames = !flat && face.textureFrames?.length > 1 ? face.textureFrames.map((n) => n.toUpperCase()) : null;
-    const key = `${flat ? `#${face.solidColor ?? 0}` : frames ? frames.join(",") : textureName}|${blended ? "b" : cutout ? "c" : "o"}|${face.material ?? "-"}|${face.material2 ?? "-"}`;
+    const shiny = !flat && face.opcode === SHINY_FACE_TYPE;
+    const key = `${flat ? `#${face.solidColor ?? 0}` : frames ? frames.join(",") : textureName}|${blended ? "b" : cutout ? "c" : "o"}|${face.material ?? "-"}|${face.material2 ?? "-"}|${shiny ? "s" : ""}`;
     let g = groups.get(key);
     if (!g) {
       g = {
         textureName: flat ? "" : textureName, textureFrames: frames, color: flat ? (face.solidColor ?? 0) >>> 0 : null,
-        cutout, blended, material: face.material === null || face.material === undefined ? null : bin.materials[face.material],
+        cutout, blended, shiny, material: face.material === null || face.material === undefined ? null : bin.materials[face.material],
         material2: face.material2 === null || face.material2 === undefined ? null : bin.materials2?.[face.material2] ?? null,
         positions: [], normals: [], uvs: [],
       };
@@ -99,7 +102,7 @@ export function decodeModel(bytes, name, unitScale = 1) {
   }
   smoothNormals([...groups.values()]);
   const meshes = [...groups.values()].filter((g) => g.positions.length).map((g) => ({
-    textureName: g.textureName, textureFrames: g.textureFrames, color: g.color, cutout: g.cutout, blended: g.blended,
+    textureName: g.textureName, textureFrames: g.textureFrames, color: g.color, cutout: g.cutout, blended: g.blended, shiny: g.shiny,
     emissive: !!(g.material && g.material.flags & MRGLMAT.EMISSIVE),
     // Community Patch 3 materials (MRGL_MATERIAL / MATERIAL2): the record itself, for the renderer to map (track-scene.js).
     material: g.material ? { ...g.material, tint: g.material.tint ? [...g.material.tint] : null } : null,

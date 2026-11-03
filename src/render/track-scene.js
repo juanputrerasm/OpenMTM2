@@ -38,6 +38,9 @@ import { WORLD_FT } from "../shared/scene-frame.js";
 import { bleedCutout } from "../game/cutouts.js";
 import { fadesToBackdrop, installAtmosphere, screenColor, veilBackdropShader, veilSky } from "./atmosphere.js";
 import { BACKDROP_HAZED } from "../game/atmosphere.js";
+import { addShaderHook } from "./shader-hooks.js";
+import { SHARED_NOISE_GLSL, detailNoise } from "./noise-textures.js";
+import { terrainMaskShares } from "../shared/terrain-mask.js";
 
 // The fog every material here is built with (render/atmosphere.js): three.js's own until "Volumetric weather" turns it on.
 installAtmosphere();
@@ -167,83 +170,59 @@ export function createGroundBoxes(boxes, map, look) {
   return inBlocks(mesh);
 }
 
-/** Detail strength where the mask is black (TERRAIN_DETAIL_MASK.md: `terrDetail` 10), the feet a detail pattern spans, and the mask's reach. */
-const TERRAIN_DETAIL = 0.1, TERRAIN_DETAIL_REP_FT = 64, TERRAIN_MASK_FT = 8192;
+/** Detail strength where the mask is black (`terrDetail` 10), and the feet a detail pattern spans. */
+const TERRAIN_DETAIL = 0.1, TERRAIN_DETAIL_REP_FT = 64;
 
 /**
- * The engine's generated detail map: a tiling normal map of fine noise with its cavities in blue (255 open), 256 px.
- */
-function generatedDetail() {
-  const n = 256, height = new Float32Array(n * n);
-  // Three octaves of value noise that wrap at the edges.
-  let seed = 12345;
-  const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
-  for (const [cells, weight] of [[16, 0.5], [32, 0.3], [64, 0.2]]) {
-    const grid = Float32Array.from({ length: cells * cells }, random);
-    const smooth = (t) => t * t * (3 - 2 * t);
-    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-      const fx = (x / n) * cells, fy = (y / n) * cells, x0 = Math.floor(fx), y0 = Math.floor(fy);
-      const tx = smooth(fx - x0), ty = smooth(fy - y0);
-      const at = (cx, cy) => grid[(cy % cells) * cells + (cx % cells)];
-      height[y * n + x] += weight * ((at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx) * (1 - ty) + (at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx) * ty);
-    }
-  }
-  const rgba = new Uint8ClampedArray(n * n * 4);
-  const h = (x, y) => height[((y + n) % n) * n + ((x + n) % n)];
-  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-    const dx = (h(x + 1, y) - h(x - 1, y)) * 6, dy = (h(x, y + 1) - h(x, y - 1)) * 6;
-    const o = (y * n + x) * 4;
-    rgba[o] = 128 - dx * 127;
-    rgba[o + 1] = 128 - dy * 127;
-    // The cavity: lower than its surroundings reads as occluded.
-    const around = (h(x + 3, y) + h(x - 3, y) + h(x, y + 3) + h(x, y - 3)) / 4;
-    rgba[o + 2] = 255 * Math.min(1, Math.max(0.35, 1 - (around - h(x, y)) * 5));
-    rgba[o + 3] = 255;
-  }
-  return { rgba, width: n, height: n };
-}
-
-/**
- * Community Patch 3's terrain detail (TERRAIN_DETAIL_MASK.md) on a lit terrain material: a detail normal tiling in world
- * space every TERRAIN_DETAIL_REP_FT, its blue channel occlusion at 0.6 of the strength, both scaled 1x to 5x by the
- * track's painted mask (a top-down picture of the level, in the level's own orientation).
+ * Community Patch 3's terrain detail on a lit terrain material: a detail normal tiling in world space every
+ * TERRAIN_DETAIL_REP_FT, its occlusion at 0.6 of the strength, both scaled 1x to 5x by the track's painted mask.
+ *
+ * The ground's shader is near the sixteen textures a graphics card may allow one (render/noise-textures.js): on a CP3
+ * track with water, puddles and the ground's grain, two textures more can take it over, and a shader that does not build
+ * draws no ground at all (River Run).
+ * So the mask comes in at the vertices (`detailShare`, `terrainMaskShares`), and without the track's own detail normal
+ * (`<level>_DTL`) the pattern is the shared detail noise, whose height and slopes are what the engine's generated map
+ * holds. Only a track's own `_DTL` takes a texture of its own.
  */
 function addTerrainDetail(material, detail, look) {
-  const linear = (image, repeat) => {
-    const t = dataTexture(image, look, repeat);
-    t.colorSpace = THREE.NoColorSpace;
-    t.minFilter = THREE.LinearMipmapLinearFilter;
-    t.magFilter = THREE.LinearFilter;
-    return t;
-  };
+  const own = detail.detail ?? null;
   const uniforms = {
-    detailMap: { value: linear(detail.detail ?? generatedDetail(), true) },
-    detailMask: { value: linear(detail.mask, true) },
-    detailParams: { value: new THREE.Vector3(TERRAIN_DETAIL, 1 / TERRAIN_DETAIL_REP_FT, 1 / TERRAIN_MASK_FT) },
+    ...(own ? { detailMap: { value: (() => {
+      const t = dataTexture(own, look, true);
+      t.colorSpace = THREE.NoColorSpace;
+      t.minFilter = THREE.LinearMipmapLinearFilter;
+      t.magFilter = THREE.LinearFilter;
+      return t;
+    })() } } : { mtmDetailNoise: { value: detailNoise() } }),
+    detailParams: { value: new THREE.Vector2(TERRAIN_DETAIL, 1 / TERRAIN_DETAIL_REP_FT) },
   };
   material.userData.detail = uniforms;
-  material.onBeforeCompile = (shader) => {
+  // Composed with the ground's other hooks (render/shader-hooks.js), early, so their lines and these stay beside each other.
+  addShaderHook(material, `terrain-detail:${own ? "own" : "noise"}`, 5, (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec2 vDetailXZ;")
-      .replace("#include <project_vertex>", "#include <project_vertex>\nvDetailXZ = (modelMatrix * vec4(transformed, 1.0)).xz;");
+      .replace("#include <common>", "#include <common>\nattribute float detailShare;\nvarying vec2 vDetailXZ;\nvarying float vDetailShare;")
+      .replace("#include <project_vertex>", "#include <project_vertex>\nvDetailXZ = (modelMatrix * vec4(transformed, 1.0)).xz;\nvDetailShare = detailShare;");
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>
         varying vec2 vDetailXZ;
-        uniform sampler2D detailMap;
-        uniform sampler2D detailMask;
-        uniform vec3 detailParams;`)
-      // The scene's z is the game's mirrored: the mask and the pattern are addressed in game feet.
+        varying float vDetailShare;
+        uniform vec2 detailParams;
+        ${own ? "uniform sampler2D detailMap;" : SHARED_NOISE_GLSL}`)
+      // The scene's z is the game's mirrored: the pattern is laid in game feet.
       .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
         vec2 detailFt = vec2(vDetailXZ.x, -vDetailXZ.y);
-        vec3 detailTexel = texture2D(detailMap, detailFt * detailParams.y).xyz;
-        float detailStrength = detailParams.x * (1.0 + 4.0 * texture2D(detailMask, detailFt * detailParams.z).r);
+        ${own
+    ? "vec3 detailTexel = texture2D(detailMap, detailFt * detailParams.y).xyz;"
+    // The noise's slopes (green, blue) lean the normal downhill; its hollows (red low) are the cavities.
+    : `vec4 detailNoise = texture2D(mtmDetailNoise, detailFt * detailParams.y);
+        vec3 detailTexel = vec3(1.0 - detailNoise.gb, mix(0.35, 1.0, smoothstep(0.15, 0.6, detailNoise.r)));`}
+        float detailStrength = detailParams.x * (1.0 + 4.0 * vDetailShare);
         vec2 detailTilt = (detailTexel.xy * 2.0 - 1.0) * detailStrength * 4.0;
         vec3 detailWorld = normalize(inverseTransformDirection(normal, viewMatrix) + vec3(detailTilt.x, 0.0, -detailTilt.y));
         normal = normalize((viewMatrix * vec4(detailWorld, 0.0)).xyz);
         diffuseColor.rgb *= mix(1.0, detailTexel.z, min(1.0, 0.6 * detailStrength * 2.0));`);
-  };
-  material.customProgramCacheKey = () => "terrain-detail";
+  });
 }
 
 /**
@@ -308,6 +287,9 @@ export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.at
     }
     if (terrain.detail?.mask) addTerrainDetail(material, terrain.detail, look);
   }
+  // The painted mask at each vertex, for the detail (`addTerrainDetail`).
+  const detailMask = material.userData.detail ? terrain.detail.mask : null;
+  const maskShares = (positions) => (detailMask ? { detailShare: new THREE.BufferAttribute(terrainMaskShares(positions, detailMask), 1, true) } : {});
   if (terrain.roadMask) addRoadMask(material, terrain.roadMask);
   const group = new THREE.Group();
   group.name = "terrainChunks";
@@ -320,6 +302,7 @@ export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.at
         uv: new THREE.BufferAttribute(lod.uvs, 2), color: new THREE.BufferAttribute(lod.colors, 3, true),
         // In a race in Snow: how deep the snow lies on each vertex once settled (render/ground-surface.js lifts the ground by it).
         ...(lod.snow ? { snowDepth: new THREE.BufferAttribute(lod.snow, 1, true) } : {}),
+        ...maskShares(lod.positions),
       };
       for (const chunk of lod.chunks) {
         const geometry = new THREE.BufferGeometry();
@@ -341,6 +324,7 @@ export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.at
     return group;
   }
   const shared = meshGeometry(terrain);
+  for (const [name, attribute] of Object.entries(maskShares(terrain.positions))) shared.setAttribute(name, attribute);
   // Two triangles a cell, or more where the cell is cut finer (4x4 Evolution 2's smoothed ground, worker/terrain-mesh.js).
   const per = terrain.indicesPerCell ?? 6;
   for (let chunkRow = 0; chunkRow < GRID / CHUNK_CELLS; chunkRow++) {
@@ -396,32 +380,80 @@ export function setReflectionSky(sky, look) {
 /** A texture name's stem: `ROCK.RAW`, `ROCK.PNG` and `ROCK` are one texture (Community Patch 3 resolves by stem). */
 export const textureStem = (name) => String(name ?? "").toUpperCase().replace(/^.*[\\/]/, "").replace(/\.[^.]*$/, "");
 
+/**
+ * A shiny face's highlight power and strength (CP3_EXE_ANALYSIS.md 6: `s^32`, `sunSpecular` 60 by default). CP3 adds
+ * 0.6 of the highlight to a light that tops out at 1; three.js's diffuse light tops out at 1 / pi of the sun's and its
+ * Blinn-Phong peak at 32 is about 1.35 of it, so the same share of the light is a specular of about 0.14 here.
+ */
+const CP3_SHINE = (0.6 / Math.PI) / 1.35, CP3_SHINE_POWER = 32;
+
+/**
+ * Community Patch 3's shine mask (CP3_EXE_ANALYSIS.md 6): a normal map's alpha takes the shine away where it is opaque
+ * and keeps it where it is clear. three.js scales a Phong highlight, an environment reflection and the port's gloss
+ * (render/gloss.js) by `specularStrength`, so the mask is that.
+ */
+function shineMask(material) {
+  return addShaderHook(material, "cp3-shine-mask", 10, (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace("#include <specularmap_fragment>",
+      "#define CP3_SHINE_MASK\nfloat specularStrength = 1.0 - texture2D( normalMap, vNormalMapUv ).a;");
+  });
+}
+
+/**
+ * Community Patch 3's glass (CP3_EXE_ANALYSIS.md 6): a blending material is `baseAlpha` face on and opens toward opaque
+ * at a glancing angle, by `fres = (bias + (1 - bias) (1 - n.v)^5) x strength`; the reflection is weighted by `fres`
+ * too. A strength of 0 is no Fresnel: plain `baseAlpha` and the reflection as it is.
+ */
+function fresnel(material, { bias, strength, blended }) {
+  const b = bias.toFixed(4), k = strength.toFixed(4);
+  return addShaderHook(material, `cp3-fresnel:${b}:${k}:${blended ? 1 : 0}`, 20, (shader) => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+float cp3Ndv = clamp( dot( normalize( normal ), normalize( vViewPosition ) ), 0.0, 1.0 );
+float cp3Fres = clamp( ( ${b} + ( 1.0 - ${b} ) * pow( 1.0 - cp3Ndv, 5.0 ) ) * ${k}, 0.0, 1.0 );
+${blended ? "diffuseColor.a = clamp( opacity + ( 1.0 - opacity ) * cp3Fres, 0.0, 1.0 );" : ""}`)
+      .replace("#include <envmap_fragment>", THREE.ShaderChunk.envmap_fragment.replaceAll("reflectivity", "( reflectivity * cp3Fres )"));
+  });
+}
+
 /*
   A model part's material. A legacy face takes Lambert shading, a cutout for face types 0x11 and 0x33, a blend where the
   record says so. A Community Patch 3 material (MRGL_MATERIAL) states its own: as JSTrackViewer maps it, LIT off draws
-  unshaded, ALPHATEST wins over BLEND (a cutout writes depth), TWOSIDED draws both sides, TINT colours the texture, ADDITIVE
-  adds, NOZWRITE leaves depth alone, and a lit material is Phong for its specular power and emissive.
+  unshaded, ALPHATEST cuts out (and with BLEND the texels left are then blended, as CP3 does), TWOSIDED draws both sides,
+  TINT colours the texture, ADDITIVE adds, NOZWRITE leaves depth alone, and a lit material is Phong for its specular
+  power and emissive.
+
+  In the enhanced look a Gouraud face (0x29) whose texture has a CP3 normal map is shiny, as Community Patch 3 draws it
+  (CP3_EXE_ANALYSIS.md 6): a highlight, masked by the normal map's alpha. The game's own art keeps its plain light.
 */
 function modelMaterial(mesh, map, normalMap, aoMap = null, look = "enhanced") {
   const record = mesh.material;
   const flags = record?.flags ?? 0;
   const F = { LIT: 0x0001, BLEND: 0x0004, ALPHATEST: 0x0008, ADDITIVE: 0x0010, TWOSIDED: 0x0080, NOZWRITE: 0x0100, EMISSIVE: 0x0200, TINT: 0x0400, ALPHAREF: 0x0800, TEXSOLID: 0x2000 };
   if (!record) {
-    const material = new THREE.MeshLambertMaterial({
+    // Shiny only with CP3 art (a texture that has its normal map): the game's own trucks keep their chalk-like light.
+    const shiny = !!mesh.shiny && look !== "classic" && !!normalMap;
+    const Material = shiny ? THREE.MeshPhongMaterial : THREE.MeshLambertMaterial;
+    const material = new Material({
       // Occlusion darkens the ambient light only, never the sun (AUTHORING_HD_ART.md 5b), which is how three.js applies it.
       map, normalMap, aoMap, color: map ? 0xffffff : new THREE.Color((mesh.color ?? 0x808080) & 0xffffff),
       // A 4x4 Evolution model's sheets are seen from both faces (worker/evo-models.js).
       transparent: mesh.blended, alphaTest: mesh.cutout ? 0.5 : 0, side: mesh.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
+      // A blended part (an Evolution truck's glass and lenses) leaves the depth to what is solid, as glass does.
+      depthWrite: !mesh.blended,
       // The classic look keeps the faceted shading; the enhanced one uses the model's smooth normals.
       flatShading: look === "classic",
+      ...(shiny ? { specular: new THREE.Color(CP3_SHINE, CP3_SHINE, CP3_SHINE), shininess: CP3_SHINE_POWER } : {}),
     });
-    if (normalMap) material.normalScale.set(1, -1);
+    // Community Patch 3's normal maps point green up the picture; a 4x4 Evolution bump map down it (`normalScaleY` 1).
+    if (normalMap) { material.normalScale.set(1, mesh.normalScaleY ?? -1); shineMask(material); }
     // Self-lit faces (lamps, signs) ignore the scene's lighting.
     if (mesh.emissive) { material.emissive = new THREE.Color(0xffffff); material.emissiveMap = map; }
     return material;
   }
   const alphaTested = !!(flags & (F.ALPHATEST | F.TEXSOLID));
-  const blended = !!(flags & F.BLEND) && !alphaTested;
+  // TEXSOLID's glass is a second pass (createModelLibrary); a plain ALPHATEST with BLEND blends what it keeps.
+  const blended = !!(flags & F.BLEND) && !(flags & F.TEXSOLID);
   const tint = flags & F.TINT && record.tint ? record.tint : [1, 1, 1];
   const clamp01 = (v) => Math.min(1, Math.max(0, v ?? 1));
   const props = {
@@ -429,28 +461,35 @@ function modelMaterial(mesh, map, normalMap, aoMap = null, look = "enhanced") {
     side: flags & F.TWOSIDED ? THREE.DoubleSide : THREE.FrontSide,
     transparent: blended, opacity: blended ? clamp01(record.baseAlpha) : 1,
     alphaTest: alphaTested ? (flags & F.ALPHAREF ? clamp01((record.alphaRef ?? 128) / 255) : 0.5) : 0,
-    depthWrite: alphaTested || !(flags & F.NOZWRITE),
+    depthWrite: (alphaTested && !blended) || !(flags & F.NOZWRITE),
     blending: flags & F.ADDITIVE ? THREE.AdditiveBlending : THREE.NormalBlending,
   };
   if (!(flags & F.LIT)) return new THREE.MeshBasicMaterial(props);
   const material = new THREE.MeshPhongMaterial({
     ...props, normalMap, aoMap, flatShading: look === "classic",
     shininess: Math.max(0, record.specPower ?? 0),
+    ...(look !== "classic" ? { specular: new THREE.Color(CP3_SHINE, CP3_SHINE, CP3_SHINE), shininess: record.specPower > 0.5 ? record.specPower : CP3_SHINE_POWER } : {}),
     emissive: flags & F.EMISSIVE ? new THREE.Color(0xffffff) : new THREE.Color(0x000000),
     emissiveIntensity: flags & F.EMISSIVE ? clamp01(record.emissive ?? 0) : 0,
   });
   // DirectX (green-down) normal maps, at the material's strength.
-  if (normalMap) material.normalScale.set(mesh.normalStrength ?? 1, -(mesh.normalStrength ?? 1));
-  // Reflection (optional): the sky, by the record's reflectivity. Its Fresnel bias and strength are folded into one
-  // amount, since this shading has no view-angle term.
-  const reflect = clamp01(record.reflectivity ?? 0) * clamp01((record.fresnelBias ?? 0) + 0.5 * (record.fresnelStrength ?? 1));
+  if (normalMap) { material.normalScale.set(mesh.normalStrength ?? 1, -(mesh.normalStrength ?? 1)); shineMask(material); }
+  // Reflection (optional): the sky, by the record's reflectivity, weighted by the Fresnel term where the record has one.
+  const reflect = clamp01(record.reflectivity ?? 0);
   if (reflectionMap && reflect > 0.01) {
     material.envMap = reflectionMap;
     material.combine = THREE.MixOperation;
     material.reflectivity = Math.min(0.8, reflect);
   }
+  const strength = Math.max(0, record.fresnelStrength ?? 0);
+  if (strength > 0 && look !== "classic") fresnel(material, { bias: clamp01(record.fresnelBias ?? 0), strength, blended });
   return material;
 }
+
+/** A texel at least this opaque is solid in a blended part's solid pass (`createModelLibrary`). */
+const SOLID_TEXEL = 0.98;
+/** When a blended part is drawn among the see-through things: after the water (2), the dust and spray (3). */
+export const TRUCK_GLASS_ORDER = 4;
 
 /**
  * One geometry and material set per model, shared by every object that uses it. `cleanEdges`
@@ -525,6 +564,20 @@ export function createModelLibrary(models, modelTextures, look, { cleanEdges = f
         }),
         frameCount: parts[meshIndex].frameCount,
       });
+    });
+    // A blended part of an Evolution truck (its GLASSE: the windows, and the roof and pillars in the same group, opaque in
+    // the art) has its solid texels drawn again as a solid, which writes depth: water and dust drawn after the truck then
+    // stay behind the roof, and only the see-through texels, which leave depth alone, let them show.
+    model.meshes.forEach((mesh, meshIndex) => {
+      if (!(mesh.blended && !mesh.material)) return;
+      const blendedPart = parts[meshIndex];
+      // The see-through texels after the water (2) and the dust and spray (3): what is behind the glass is there to be
+      // tinted by it, where drawn after it, it would cover it untinted.
+      blendedPart.renderOrder = TRUCK_GLASS_ORDER;
+      const solid = modelMaterial({ ...mesh, blended: false, cutout: false }, blendedPart.material.map, normalFor(mesh), normalFor(mesh, "_AO"), look);
+      solid.alphaTest = SOLID_TEXEL;
+      solid.userData.textureName = blendedPart.material.userData.textureName;
+      parts.push({ geometry: blendedPart.geometry.clone(), material: solid, frameCount: blendedPart.frameCount, frameSeconds: blendedPart.frameSeconds });
     });
     library.set(name, parts);
   }
@@ -1649,8 +1702,9 @@ export function createTruck(truck, look) {
   const group = new THREE.Group();
   group.name = truck.file;
   const add = (part, x, y, z) => {
-    for (const { geometry, material } of library.get(part.name) ?? []) {
+    for (const { geometry, material, renderOrder } of library.get(part.name) ?? []) {
       const mesh = new THREE.Mesh(geometry, material);
+      if (renderOrder) mesh.renderOrder = renderOrder;
       mesh.position.set(x, y, -z);
       group.add(mesh);
     }
@@ -1768,7 +1822,7 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
   const vertices = tile.getObjectByName("terrain")?.geometry.attributes.position;
   const ground = vertices ? new THREE.Box3().setFromBufferAttribute(vertices) : new THREE.Box3(new THREE.Vector3(0, 0, -WORLD_FT), new THREE.Vector3(WORLD_FT, 0, 0));
   // 4x4 Evolution's grass, around the camera (render/evo-grass.js).
-  const grass = grassRadius > 0 && build.grass ? createEvoGrass(build.grass, terrainOfBuild(build), grassRadius) : null;
+  const grass = grassRadius > 0 && build.grass ? createEvoGrass(build.grass, terrainOfBuild(build), grassRadius, look) : null;
   if (grass) world.add(grass.mesh);
   if (backdrops && showBackdrops && !build.stadium) drawBackdropFirst(world);
   const parts = {

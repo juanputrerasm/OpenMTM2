@@ -1,6 +1,8 @@
 /*
   A gamepad or wheel as the game's analog joystick (MONSTER_EXE_ANALYSIS.md section 7, mode 2):
   the left stick steers, RB / LB shift up and down, and the D-pad's down, held, is an Evolution truck's handbrake.
+  The camera (the port's own, `camera()`): the right stick's up and down tilt the chase camera as the Camera up and down
+  keys do, and the D-pad's left and right zoom as the Z-mode cameras option's Shift - and + do.
   The other buttons are the race's keys (ui/gamepad-nav.js).
   Browsers report every axis already centred to -1..1, so the game's calibration reduces to the
   dead zone, which the simulation applies.
@@ -17,8 +19,23 @@
   Uses the first connected pad in the standard mapping, else the first connected pad; `sample()`
   returns null when there is none, and the keyboard then drives alone.
 */
-const TRIGGER_LEFT = 6, TRIGGER_RIGHT = 7, BUMPER_LEFT = 4, BUMPER_RIGHT = 5, DPAD_DOWN = 13;
+const TRIGGER_LEFT = 6, TRIGGER_RIGHT = 7, BUMPER_LEFT = 4, BUMPER_RIGHT = 5, DPAD_DOWN = 13, DPAD_LEFT = 14, DPAD_RIGHT = 15;
+const RIGHT_STICK_Y = 3;
 const DEAD_ZONE = 0.12;
+/** The right stick's dead zone for the camera's tilt: larger, so a thumb resting on it does not drift the camera. */
+const TILT_DEAD_ZONE = 0.25;
+
+/**
+ * A pad's camera input: `tilt` -1..1 (the right stick pushed up is +1, tilting up as the Camera up key does), `zoom`
+ * -1 (D-pad left, out), +1 (right, in) or 0. A pad without the standard mapping has none.
+ */
+export function padCamera(pad) {
+  if (!pad || pad.mapping !== "standard") return { tilt: 0, zoom: 0 };
+  const y = pad.axes[RIGHT_STICK_Y] ?? 0;
+  const tilt = Math.abs(y) < TILT_DEAD_ZONE ? 0 : -Math.sign(y) * (Math.abs(y) - TILT_DEAD_ZONE) / (1 - TILT_DEAD_ZONE);
+  const zoom = (pad.buttons[DPAD_RIGHT]?.pressed ? 1 : 0) - (pad.buttons[DPAD_LEFT]?.pressed ? 1 : 0);
+  return { tilt, zoom };
+}
 
 /** The Gamepad pedals choices, the first the default. */
 export const PAD_PEDALS = Object.freeze(["triggers", "stick", "both"]);
@@ -69,6 +86,8 @@ export function createGamepadInput(nav = navigator, pedals = () => PAD_PEDALS[0]
   const padNow = () => choosePad(nav.getGamepads ? [...nav.getGamepads()] : []);
   const pressed = (pad, i) => !!pad.buttons[i]?.pressed;
   return {
+    /** The pad's camera input this frame (`padCamera`). */
+    camera() { return padCamera(padNow()); },
     /** The joystick input for the simulation, or null with no pad. */
     sample() {
       const pad = choosePad(nav.getGamepads ? [...nav.getGamepads()] : []);

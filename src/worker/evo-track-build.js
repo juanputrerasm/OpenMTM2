@@ -614,6 +614,8 @@ export async function buildEvoTrackRender(vfs, sitPath, sitBytes, { truckFiles =
     bias: Float32Array.from([0, 1, 2, 3], (k) => grassSizes[k]?.bias ?? 0),
     vegClass: vegClassOfCell,
     waterLevelFt,
+    // The shade map, so a tuft in the painted shade is as dark as the ground under it (null where the sun's shadows are drawn).
+    rtd: rtd ?? null,
   } : null;
 
   // Checkpoints, in file order, however many.

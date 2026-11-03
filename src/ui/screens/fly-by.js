@@ -371,9 +371,8 @@ export default async function mount(container, context, params) {
 
   const target = new THREE.Vector3(), forwardVector = new THREE.Vector3();
   let last = performance.now();
-  /** One frame from the app's renderer (V-sync as Options has it); the frame rate limit leaves out frames that come too soon. */
+  /** One frame from the app's renderer (V-sync and the frame rate limit as Options has them, render/xr/xr-host.js). */
   const loop = (_dt, now) => {
-    if (context.settings.fpsLimit && now - last < 1000 / Math.max(10, context.settings.fpsLimitValue ?? 60) - 1) return;
     const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
     last = now;
     const cells = Math.max(16, Math.min(256, context.settings.drawCells ?? 128));

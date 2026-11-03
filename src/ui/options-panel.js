@@ -13,6 +13,7 @@ import { locName, msg } from "../game/strings.js";
 import { chatSettings, setMuted } from "../game/chat.js";
 import { ACTIONS, DEFAULT_BINDINGS, codeLabel, conflictFor, mergeBindings } from "../game/input/bindings.js";
 import { PAD_PEDALS, testRumble } from "../game/input/gamepad.js";
+import { TOUCH_MODES } from "../game/input/touch.js";
 
 /** The Rumble effects slider's steps (game/input/rumble.js RUMBLE_LEVELS). */
 const RUMBLE_LEVEL_NAMES = [msg("Hits"), msg("Hits + ground"), msg("All")];
@@ -22,8 +23,9 @@ import { GRAPHICS_HINT, GRAPHICS_NOTES, GRAPHICS_PRESETS, applyGraphics, detectG
 import { graphicsHardware } from "../app/graphics-hardware.js";
 import { VISUAL_OPTIONS } from "../game/visuals.js";
 import { CPU_NAMES, CPU_NAME_MAX, cpuNames } from "../game/race-setup.js";
-import { SHORT_VIEW_CHOICES, shortViews } from "../game/cameras.js";
+import { FOV_ACROSS_MAX, FOV_ACROSS_MIN, GAME_FOV_ACROSS_DEG, SHORT_VIEW_CHOICES, shortViews } from "../game/cameras.js";
 import { EXTENSIONS, REPAIR_CHOICES, setExtensionSetting, settingsForExtension } from "../game/extensions/loader.js";
+import { FPS_LIMITS } from "../render/frame-limit.js";
 import { AI_SPEED, aiSpeedPercent, effectiveAiSpeed } from "../game/ai-speed.js";
 
 /*
@@ -221,7 +223,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
   showScenery();
 
   const locFiles = await context.assets.call("locFiles").catch(() => []);
-  const wording = row(msg("Localization"), el("select", { "aria-label": t("Wording"), "data-opt": "Wording" },
+  const wording = row(msg("LOC file"), el("select", { "aria-label": t("Wording"), "data-opt": "Wording" },
     el("option", { value: "", selected: !settings.wording }, t("Standard")),
     ...locFiles.map(({ path }) => el("option", { value: path, selected: path === settings.wording }, locName(path)))));
   const kind = { retail: msg("retail"), beta: msg("beta"), patch: msg("community patch"), unknown: msg("build not read") }[buildKind(context.exeVersion)];
@@ -596,8 +598,6 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       // crash damage: it can be switched on only with Crash damage on.
       wheelsDamageRow(),
       choose(msg("Wheels back on after"), "looseWheelsRepairS", [msg("5 seconds"), msg("8 seconds"), msg("12 seconds"), msg("Never (X only)")], [...REPAIR_CHOICES]),
-      row(msg("Terrain overlap"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.terrainOverlap !== false, "aria-label": t("Terrain overlap"), "data-opt": "Terrain overlap", onchange: (event) => { settings.terrainOverlap = event.target.checked; save(); } }),
-        msg("The ground tiles overlap by two pixels, as Monster Truck Madness 2 draws them. Off, they meet edge to edge, as MTM1 draws them. Some HD texture packs need it on. From the next race")),
       toggle(msg("Drag auto stage"), "autoStage", msg("Drag races: the truck drives itself to the staging beams. Off, you stage it yourself; the Auto Stage key (T) then does it for one pass")),
       choose(msg("Speed"), "units", ["MPH", "KPH"], ["mph", "kph"]),
       row(msg("Computer opponents"), el("select", { "aria-label": t("Computer opponents"), "data-opt": "Computer opponents", onchange: (event) => {
@@ -609,11 +609,12 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       msg("How many computer trucks race by default; the Races screen picks which")),
       // The game's videos (game/videos.js): off and greyed while the install has none.
       introVideosSwitch, resultVideosSwitch,
-      // Monster Truck Madness 2's saved race (the pause menu's Save race, or the game's own .mtm).
-      row(msg("Saved race"), button(msg("Load race..."), () => loadRace()), msg("Start a race saved with Save race in the pause menu, or by Monster Truck Madness 2, where it was left")),
       menus,
       // Fullscreen, where the browser can do it and the game is not installed (ui/display-mode.js), at the page's foot.
-      ...(() => { const button = fullscreenButton(t, "opt-fullscreen-button"); return button ? [el("div", { class: "opt-actions opt-fullscreen" }, button)] : []; })(),
+      // Load race (a saved race: the pause menu's Save race, or Monster Truck Madness 2's own .mtm) beside Fullscreen.
+      el("div", { class: "opt-actions opt-fullscreen" },
+        button(msg("Load race..."), () => loadRace(), null, msg("Start a race saved with Save race in the pause menu, or by Monster Truck Madness 2, where it was left")),
+        ...[fullscreenButton(t, "opt-fullscreen-button")].filter(Boolean)),
     ]],
     [msg("Display"), [
       row(msg("Smooth textures"), el("input", {
@@ -628,11 +629,19 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       }, ...AA_MODES.map((mode) => el("option", { value: mode.id, selected: mode.id === aaChoice(settings.aa) }, t(mode.label)))), AA_HINT),
       // In terrain cells (32 ft each), as the game counts its view; 128 is the standard.
       slider(msg("Draw distance"), { min: 16, max: 256, step: 16, value: Math.min(256, settings.drawCells ?? 128), format: (v) => t("<<1>> cells", v), set: (v) => { settings.drawCells = v; save(); } }),
+      slider(msg("Field of view"), {
+        min: FOV_ACROSS_MIN, max: FOV_ACROSS_MAX, step: 5, value: Number(settings.chaseFov) || GAME_FOV_ACROSS_DEG,
+        format: (v) => t("<<1>> degrees", v),
+        set: (v) => { settings.chaseFov = v; save(); },
+        title: msg("How wide the external cameras see, in degrees across a 4:3 screen; 90 is Monster Truck Madness 2's lens. The cockpit keeps the game's"),
+      }),
       toggle(msg("V-sync"), "vsync", msg("Draw with the display's refresh. Off draws as fast as the browser allows; a browser still shows no more frames than the display has")),
-      row(msg("Frame rate limit"), el("span", { class: "opt-slider" },
-        el("input", { type: "checkbox", class: "opt-switch", checked: !!settings.fpsLimit, "aria-label": t("Frame rate limit"), "data-opt": "Frame rate limit", onchange: (event) => { settings.fpsLimit = event.target.checked; save(); } }),
-        el("select", { "aria-label": t("Frame rate limit value"), "data-opt": "Frame rate limit value", onchange: (event) => { settings.fpsLimitValue = Number(event.target.value); save(); } },
-          ...[24, 30, 45, 60, 75, 90, 120, 144, 240].map((n) => el("option", { value: n, selected: n === (settings.fpsLimitValue ?? 60) }, `${n} FPS`)))),
+      // One list: picking a rate switches the limit on, so a rate is never shown chosen while the limit is off.
+      row(msg("Frame rate limit"), el("select", {
+        "aria-label": t("Frame rate limit"), "data-opt": "Frame rate limit",
+        onchange: (event) => { const n = Number(event.target.value); settings.fpsLimit = n > 0; if (n > 0) settings.fpsLimitValue = n; save(); },
+      }, el("option", { value: 0, selected: !settings.fpsLimit }, t("Off")),
+        ...FPS_LIMITS.map((n) => el("option", { value: n, selected: !!settings.fpsLimit && n === (settings.fpsLimitValue ?? 60) }, `${n} FPS`))),
       msg("Hold the race to this many frames a second")),
       toggle(msg("FPS counter"), "fpsCounter", msg("Show the frames per second in the corner of a race or replay (the FPS counter key switches it)")),
       toggle(msg("Backdrops"), "backdrops"),
@@ -676,12 +685,25 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       // The game's two commentary switches (MONSTER.INI commentaryFlag and textCommentaryFlag).
       toggle(msg("Voice commentary"), "commentary", msg("The announcer talks about your truck and the one the camera follows. From the next race")),
       toggle(msg("Text commentary"), "textCommentary", msg("The announcer's lines are shown on screen. From the next race")),
+      // Community Patch 3's (CP3_EXE_ANALYSIS.md 3): the announcer on a surround system's centre speaker.
+      row(msg("Commentary from Center"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.sound.centreCommentary !== false, "aria-label": t("Commentary from Center"), onchange: (event) => {
+        settings.sound = { ...settings.sound, centreCommentary: event.target.checked };
+        save();
+      } }), msg("With a 5.1 or 7.1 output, the announcer comes from the centre speaker, as Community Patch 3 has it. A stereo output hears it in the middle either way")),
+      // Community Patch 3's opponent sound switches (game/air-calls.js).
+      toggle(msg("Opponents Horn"), "aiHorn", msg("Computer trucks high in the air may honk")),
+      toggle(msg("Opponents Yee-Haw"), "aiYeeHaw", msg("Computer trucks high in the air may whoop")),
+      toggle(msg("Reduce Yee-Haw/Horn Freq."), "aiSfxReduce", msg("Computer trucks honk and whoop in the air 6 to 10 times less often, each at its own rate")),
     ]],
     [msg("Keys"), [note, keyRows, el("div", { class: "opt-actions" }, button(msg("Reset keys"), () => {
       Object.assign(bindings, mergeBindings({})); settings.bindings = {}; save(); note.textContent = t("Keys reset."); showKeys();
     })), choose(msg("Fly-by controls"), "flyControls", FLY_SCHEMES.map((id) => FLY_SCHEME_NAMES[id]), [...FLY_SCHEMES]),
       // The left stick as the pedals too makes a thumb that drifts while steering press them (game/input/gamepad.js).
       choose(msg("Gamepad pedals"), "padPedals", [msg("Triggers"), msg("Left stick"), msg("Triggers and left stick")], [...PAD_PEDALS]),
+      // The race's touch overlay (ui/touch-controls.js): Auto on a phone or tablet with no mouse, keyboard or gamepad.
+      Object.assign(choose(msg("Touch controls"), "touchControls", [msg("Auto"), msg("On"), msg("Off")], [...TOUCH_MODES]), {
+        title: t(msg("On-screen stick, pedals and buttons for racing on a phone or tablet. Auto shows them on a device with only a touchscreen, and hides them while a gamepad is connected or a key is pressed")),
+      }),
       // The game's steering response (MONSTER.INI [Control]): a stick's curve is x ^ (1 + 2r), the keys' x ^ (1 + r / 4), r a tenth of it.
       slider(msg("Steering response"), {
         min: 0, max: 10, step: 1, value: settings.steeringResponse ?? 10, format: (v) => String(v),
@@ -731,23 +753,30 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       toggle(msg("MTM2 Water reflections"), "waterReflections", msg("MTM2's: the world mirrored in the game's water (\"Reflective water\" has its own). From the next race")),
       toggle(msg("MTM2 Truck reflections"), "truckReflections", msg("MTM2's: the clouds mirrored on the trucks' bodies, or the sky in Rain, Dusk and Night; none in fog or Pitch Black. From the next race")),
       toggle(msg("MTM2 classic dust"), "greyDust", msg("Wheels' dust and collisions' smoke in the game's own grey puff colour, as MTM2 draws them, in place of the port's earth-coloured dust and dark smoke. From the next race")),
-      toggle(msg("Ground box grain"), "groundBoxGrain", msg("With Ground detail on: its grain on the ground boxes too, the walls, buildings and signs built of them. Off, they keep their textures plain. From the next race")),
       row(msg("Opponent frame rate"), el("select", { "aria-label": t("Opponent frame rate"), "data-opt": "Opponent frame rate", onchange: (event) => { settings.opponentFps = Number(event.target.value); save(); } },
         ...[15, 20, 24, 30, 45, 60].map((n) => el("option", { value: n, selected: n === (settings.opponentFps ?? 30) }, `${n} FPS`))),
       msg("The frame rate the computer trucks drive as if the game ran at: they steer by the frame, so it changes how they handle. 30 is the standard")),
       toggle(msg("Sonic trucks"), "sonicTrucks", msg("Professional only: the computer trucks drive as on a Sonic track, on every track")),
       toggle(msg("Full Autopilot"), "fullAutopilot", msg("The truck drives itself")),
-      row(msg("Computer drivers"), button(msg("Names..."), () => editDriverNames()), "The names of the computer drivers"),
       toggle(msg("Show hidden tracks"), "showHiddenTracks"),
       toggle(msg("Kooky horn"), "kookyHorn", msg("Three horns instead of one")),
       copyVideosRow,
-      toggle(msg("Commentary truck names"), "commentaryTruckNames", msg("The text commentary names the trucks, as the game's does, in place of their drivers. From the next race")),
+      el("h3", {}, t("CP3")),
       toggle(msg("CP3 voice commentary"), "cp3Commentary", msg("Community Patch 3's announcer: many more lines, calls for the final lap, the weather, road signs, trains, the Summit Rumble and drag passes, and shorter pauses between lines. The drag calls need Community Patch 3's Sound.POD. From the next race")),
       aiSpeedRow(),
       toggle(msg("CP3 Terrain detail"), "terrainDetail", msg("Community Patch 3 tracks: detail normals where the track paints a mask, and HD ground normal maps (Enhanced look)")),
       row(msg("CP3 HD weather"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.hdWeather !== false, "aria-label": t("CP3 HD weather"), "data-opt": "CP3 HD weather", onchange: (event) => { settings.hdWeather = event.target.checked; save(); } }),
         msg("Community Patch 3's HD skies for Rain, Dusk and Night and the older levels' clouds: the pictures in the game folder's WeatherArt folder, or the port's own copy of the community's set. Off: the game's own sky art")),
       toggle(msg("CP3 Reflections"), "reflections", msg("Community Patch 3 materials: the sky reflected in glass and paint (Enhanced look)")),
+      toggle(msg("Chase mirror"), "chaseMirror", msg("Community Patch 3's rear-view mirror over the top of the external views: a look back from the cab")),
+      toggle(msg("Racing line"), "raceLine", msg("Community Patch 3's racing line: the course the computer trucks follow, drawn on the ground ahead in a race")),
+      toggle(msg("Drag split screen"), "dragSplitScreen", msg("Community Patch 3's drag split screen: in a drag race against a truck, both lanes at once, side by side, in the same chase view")),
+      el("h3", {}, t("OMTM2")),
+      row(msg("Terrain overlap"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.terrainOverlap !== false, "aria-label": t("Terrain overlap"), "data-opt": "Terrain overlap", onchange: (event) => { settings.terrainOverlap = event.target.checked; save(); } }),
+        msg("The ground tiles overlap by two pixels, as Monster Truck Madness 2 draws them. Off, they meet edge to edge, as MTM1 draws them. Some HD texture packs need it on. From the next race")),
+      row(msg("Computer drivers"), button(msg("Names..."), () => editDriverNames()), "The names of the computer drivers"),
+      toggle(msg("Commentary truck names"), "commentaryTruckNames", msg("The text commentary names the trucks, as the game's does, in place of their drivers. From the next race")),
+      toggle(msg("Ground box grain"), "groundBoxGrain", msg("With Ground detail on: its grain on the ground boxes too, the walls, buildings and signs built of them. Off, they keep their textures plain. From the next race")),
       el("h3", {}, t("CPR")),
       // CART Precision Racing's Skill Level (docs/CPR_PHYSICS.md 14.3; game/cpr-driver.js `cprAids`).
       row(msg("CPR skill level"), el("select", { "aria-label": t("CPR skill level"), "data-opt": "CPR skill level", onchange: (event) => { settings.cprSkill = event.target.value; save(); } },
@@ -770,11 +799,13 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         button(msg("Views..."), () => editShortViews())),
       msg("The Camera key (V) steps through the views in the list only: the cockpit, Chase Near and Chase Far unless changed")),
       toggle(msg("Camera clearance"), "cameraClearance", msg("The chase camera keeps a few feet over the ground, easing back down after a crest. Off, it may touch the ground, as in the game")),
-      toggle(msg("Z-mode cameras"), "zModeCameras", msg("Zoom with Shift and - or +, orbit with Insert and Delete, and the Inertia view, in any race without GOLD mode")),
+      toggle(msg("Z-mode cameras"), "zModeCameras", msg("Zoom with Shift and - or + (hold them to zoom on smoothly; a gamepad's D-pad left and right), orbit with Insert and Delete, and the Inertia view, in any race without GOLD mode. The zoom is kept for the next races")),
+      toggle(msg("Reverse camera tilt"), "cameraTiltSwap", msg("Keypad plus raises the chase camera and keypad minus lowers it; the game's keys do the opposite. A gamepad's right stick tilts it either way")),
       toggle(msg("Free look"), "freeLook", msg("On the external cameras the mouse looks round, easing back after two seconds; the wheel zooms either way")),
+      toggle(msg("Click to look"), "freeLookDrag", msg("With Free look: the mouse looks round only while a button is held on the picture, so moving it off the screen does not turn the camera")),
       toggle(msg("Reverse free look"), "freeLookInvert", msg("The mouse's look turns the other way, up and down and left and right")),
       toggle(msg("Hold free look"), "freeLookHold", msg("A look stays where the mouse leaves it, without easing back")),
-      el("h3", {}, t("App")),
+      el("h3", {}, t("Localization")),
       language, wording, offlineRow,
     ]],
     [msg("Data"), [
@@ -863,6 +894,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       "Physics": () => physicsModel(settings.physics).id, "Smooth textures": () => settings.look === "enhanced",
       "Enhanced graphics": () => graphicsChoice(settings.graphics), "Terrain overlap": () => settings.terrainOverlap !== false,
       "Crash damage": () => settings.crashDamage !== false, "Wheels damage": () => !!settings.looseWheels && settings.crashDamage !== false,
+      "Frame rate limit": () => (settings.fpsLimit ? settings.fpsLimitValue ?? 60 : 0),
       "CP3 HD weather": () => settings.hdWeather !== false, "Dust": () => dustLevel(settings), "Sparks": () => sparkLevel(settings), "Evo grass": () => grassLevel(settings),
     };
     // A slider's figure beside it, in its own words.

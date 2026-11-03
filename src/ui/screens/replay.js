@@ -12,7 +12,7 @@ import { mergeBindings } from "../../game/input/bindings.js";
 import { DENT_STEPS, FRAME_SECONDS, RATES, createPlayback, damageZones, levelPath, ringReplay } from "../../game/replay.js";
 import { parseMtmReplay, writeMtmReplay } from "../../vendor/openphotex/mtm/replay.js";
 import * as mtm2Sim from "../../vendor/openphotex/sim/mtm2/index.js";
-import { COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, createChaseCamera, fovFor, groundHeightFn, nextMode, raceCamera, zoomToFov } from "../../game/cameras.js";
+import { COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, createChaseCamera, fovBase, fovFor, groundHeightFn, nextMode, raceCamera, zoomToFov } from "../../game/cameras.js";
 import { createWeatherScene } from "../../render/weather-scene.js";
 import { WEATHER_LOOK, isUnderwater, waterOffsetFt } from "../../game/weather.js";
 import { beamAir, lampsAtStart } from "../../game/truck-lights.js";
@@ -41,11 +41,12 @@ import { createFpsCounter } from "../fps-counter.js";
 import { saveSettings, tileOverlapOf } from "../../app/settings.js";
 import { liftWatermark } from "../watermark.js";
 import { createFlyController } from "../fly-controller.js";
-import { LOOK_BACK_KEY, createCameraLook, lookOptions, turnedTarget } from "../../game/camera-look.js";
+import { LOOK_BACK_KEY, createCameraLook, lookOptions, looksWith, turnedTarget } from "../../game/camera-look.js";
 import { enableSunShadows } from "../../render/sun-shadows.js";
 import { createExtensionScene } from "../../render/extensions/loader.js";
 import { GRASS_RADII, grassLevel } from "../../render/evo-grass.js";
 import { createGpuPacer } from "../../render/gpu-pacer.js";
+import { createFrameLimiter, limitIntervalMs } from "../../render/frame-limit.js";
 import { createAudio } from "../../audio/audio-engine.js";
 import { createTruckAudio } from "../../audio/truck-audio.js";
 import { createWorldAudio } from "../../audio/world-audio.js";
@@ -105,6 +106,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
   // A frame waits for the graphics card as the race's do (render/gpu-pacer.js).
   const pacer = createGpuPacer(renderer.getContext());
+  const limiter = createFrameLimiter();
   const scene = new THREE.Scene();
   const drawDistance = Math.max(16, Math.min(256, context.settings.drawCells ?? 128)) * TERRAIN_CELL_FT;
   const camera = new THREE.PerspectiveCamera(60, 1, 0.5, drawDistance);
@@ -158,7 +160,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   // Every truck is heard from where it is, the watched one too: the camera, not truck 0, is the ear (a free camera
   // flies away from them all).
   const truckAudio = createTruckAudio(audio, {
-    count: replay.vehicles.length, player: -1, kookyHorn: !!context.settings.kookyHorn, mtm1Sounds: !!context.settings.mtm1Sounds,
+    count: replay.vehicles.length, player: -1, kookyHorn: !!context.settings.kookyHorn, mtm1Sounds: !!context.settings.mtm1Sounds, settings: () => context.settings,
   });
   const replaySound = createReplaySound(drawn.map((d) => d?.tireRadius ?? 2.75));
   // The checkpoint and lap sounds, found from the film (game/replay-gates.js); a Summit Rumble has none.
@@ -238,8 +240,9 @@ export default async function mount(container, context, { replay, namesMode: sta
   cleanups.push(() => tireFx?.dispose());
   window.__openmtm2Replay = { scene, camera, renderer, tireFx };
   cleanups.push(() => { delete window.__openmtm2Replay; });
-  const surfaces = build.sim?.clr && build.sim?.textureValues ? mtm2Sim.createSurfaceMap(new Uint16Array(build.sim.clr), new Int32Array(build.sim.textureValues)) : null;
-  const madeOf = surfaces ? mtm2Sim.createTerrainGround(terrain, surfaces, replay.weather ?? 0, build.waterLevelFt ?? null) : null;
+  const surfaces = !build.sim?.dirtEverywhere && build.sim?.clr && build.sim?.textureValues ? mtm2Sim.createSurfaceMap(new Uint16Array(build.sim.clr), new Int32Array(build.sim.textureValues)) : null;
+  // A level with no surface table (`dirtEverywhere`) is Dirt everywhere, as the race's simulation has it.
+  const madeOf = surfaces || build.sim?.dirtEverywhere ? mtm2Sim.createTerrainGround(terrain, surfaces, replay.weather ?? 0, build.waterLevelFt ?? null) : null;
   const effectFlags = () => ({ dust: dustLevel(context.settings), tracks: context.settings.tireTracks !== false, sparks: sparkLevel(context.settings), splash: context.settings.waterSplash !== false });
   const contacts = drawn.map(() => new Map());
   /** What a truck at game (x, y, z) stands on: a bridge's deck, the ground, or in Snow the ice over the level's water. */
@@ -394,7 +397,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   const mouseLook = createCameraLook(() => lookOptions(context.settings));
   const flyer = createFlyController({
     canvas, settings: context.settings, save: () => saveSettings(context.settings), course: build.sim.course ?? [], courseOpen: !!build.sim.courseOpen,
-    groundAt: bareGround, say, baseFov: fovFor(1), font: messageFont, t,
+    groundAt: bareGround, say, baseFov: fovFor(1, fovBase(context.settings)), font: messageFont, t,
   });
   view.append(flyer.element);
   cleanups.push(() => flyer.dispose());
@@ -414,7 +417,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   };
   const onWheel = (e) => { if (!flyer.enabled && viewMode !== 0) { e.preventDefault(); mouseLook.wheel(viewMode, e.deltaY); } };
   // The RaceCam (4) frames the truck itself: the mouse does not turn it.
-  const onLookMove = (e) => { if (context.settings.replayFreeLook && !flyer.enabled && viewMode !== 0 && viewMode !== 4) mouseLook.move(e.movementX ?? 0, e.movementY ?? 0); };
+  const onLookMove = (e) => { if (context.settings.replayFreeLook && !flyer.enabled && viewMode !== 0 && viewMode !== 4 && looksWith(lookOptions(context.settings), e.buttons)) mouseLook.move(e.movementX ?? 0, e.movementY ?? 0); };
   canvas.addEventListener("wheel", onWheel, { passive: false });
   canvas.addEventListener("pointermove", onLookMove);
   cleanups.push(() => { canvas.removeEventListener("wheel", onWheel); canvas.removeEventListener("pointermove", onLookMove); });
@@ -442,7 +445,7 @@ export default async function mount(container, context, { replay, namesMode: sta
       lastView = viewMode;
       chase.reset();
       mouseLook.reset();
-      camera.fov = fovFor(viewMode);
+      camera.fov = fovFor(viewMode, fovBase(context.settings));
       camera.updateProjectionMatrix();
     }
     mouseLook.setBack(held.has(LOOK_BACK_KEY));
@@ -467,7 +470,7 @@ export default async function mount(container, context, { replay, namesMode: sta
       clearFt: context.settings.cameraClearance ? CAMERA_CLEAR_FT : 0, solid: boxSolid,
     });
     if (special) {
-      const fov = zoomToFov(special.zoom);
+      const fov = zoomToFov(special.zoom, fovBase(context.settings));
       if (Math.abs(camera.fov - fov) > 1e-3) { camera.fov = fov; camera.updateProjectionMatrix(); }
     }
     camera.position.set(result.position[0], result.position[1], -result.position[2]);
@@ -476,8 +479,10 @@ export default async function mount(container, context, { replay, namesMode: sta
 
   const loop = (now) => {
     frameId = requestAnimationFrame(loop);
-    // The graphics card two frames behind: this one is skipped, and the next takes its time.
-    if (pacer.behind(now)) return;
+    // The frame rate limit (Options, Display; render/frame-limit.js), then the graphics card two frames behind: this one
+    // is skipped, and the next takes its time.
+    if (!limiter.take(now, limitIntervalMs(context.settings))) return;
+    if (pacer.behind(now)) { limiter.reset(); return; }
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     if (fpsCounter.visible !== !!context.settings.fpsCounter) fpsCounter.setVisible(!!context.settings.fpsCounter);

@@ -273,3 +273,76 @@ export const startLampsLit = (counting) => ({ red: counting ? 1 : 0, green: coun
 export const startLampCount = (lengthFt) => Math.max(1, Math.round(lengthFt / START_LAMPS.pitchFt));
 /** How bright a lit start lamp's glow is against the screen's white, in a weather as light as `daylight`. */
 export const startLampGlow = (lit, daylight = 1) => lit * START_LAMPS.glow * (1 - 0.55 * Math.min(1, Math.max(0, daylight)));
+
+/*
+  4x4 Evolution's lamp groups (EVO2_EXE_ANALYSIS.md 6.6). An Evolution truck's body model has a group per lamp lens
+  (LIGHTHL, LIGHTBL and the rest). At load 4x42.exe moves each a little off the body (`0x5d6f50`) and pairs it with a
+  TRK light by the light's type and side. After the body it draws each group again, added to the picture, in white at
+  the light's brightness this frame (`0x5f8a40`). That brightness (`0x44cc50`) is the lamp's level times how squarely
+  it faces the viewer; the fog's clear share is applied by the material (render/atmosphere.js `classicFogDims`).
+*/
+
+/** How far 4x42.exe moves each lamp group off the body, game axes (feet): sideways out and forward or back. */
+export const EVO_LAMP_NUDGE = Object.freeze({
+  BC: [0, 0, -0.04], BL: [-0.02, 0, -0.04], BR: [0.02, 0, -0.04], FL: [0, 0, 0.02], FR: [0, 0, 0.02],
+  HL: [-0.02, 0, 0.04], HR: [0.02, 0, 0.04], RL: [-0.02, 0, -0.04], RR: [0.02, 0, -0.04],
+});
+
+/** How many times `0x5f8a40` draws each group's glow: twice for the head, fog and brake lamps, once for the rest. */
+export const EVO_LAMP_PASSES = Object.freeze({ BC: 1, BL: 2, BR: 2, FL: 2, FR: 2, HL: 2, HR: 2, RL: 1, RR: 1 });
+
+/** A body group's lamp ("HL" for LIGHTHL), or null for a group that is not one. */
+export function evoLampGroup(groupName) {
+  const match = /^LIGHT(BC|BL|BR|FL|FR|HL|HR|RL|RR)$/i.exec(String(groupName ?? ""));
+  return match ? match[1].toUpperCase() : null;
+}
+
+/**
+ * Each lamp group's light, as `0x5d6f50` pairs them: a headlight (type 0) with HL and FL left of the middle, HR and
+ * FR right of it; a brake lamp (type 1) more than 0.1 ft off the middle with BL or BR, else BC; a reversing lamp
+ * (type 5) with RL or RR. A later light of the same place takes it. `{ HL: light, ... }`.
+ */
+export function evoLampLights(lights = []) {
+  const paired = {};
+  for (const light of lights) {
+    const x = light.pos[0];
+    if (light.type === 1) {
+      if (x <= -0.1 || x > 0.1) paired[x >= 0 ? "BR" : "BL"] = light;
+      else paired.BC = light;
+    } else if (light.type === 0) {
+      if (x >= 0) { paired.HR = light; paired.FR = light; } else { paired.HL = light; paired.FL = light; }
+    } else if (light.type === 5) {
+      paired[x >= 0 ? "RR" : "RL"] = light;
+    }
+  }
+  return paired;
+}
+
+/**
+ * A lamp's level, 0 to 1, by `0x44cc50`. With the lamp switch as MTM2's (`lamps`, 0 or 2): a headlight (types 0
+ * and 3) at 2, type 2 at 1 or more, a reversing lamp (5) in reverse, a lamp of another type at 2. A brake lamp (1) off
+ * the middle runs at half and is full under the brakes; on the middle it shines only under the brakes. None from the
+ * truck's own cockpit.
+ */
+export function evoLampLevel(light, { lamps, braking, reverse, cockpit, night }) {
+  if (light.type < 0) return night ? 1 : 0;
+  if (cockpit) return 0;
+  switch (light.type) {
+    case 0:
+    case 3: return lamps === 2 ? 1 : 0;
+    case 1: return braking ? 1 : light.pos[0] !== 0 ? 0.5 : 0;
+    case 2: return lamps >= 1 ? 1 : 0;
+    case 5: return reverse ? 1 : 0;
+    default: return lamps >= 2 ? 1 : 0;
+  }
+}
+
+/**
+ * How squarely a lamp faces the viewer (`viewer` in body game axes), by `0x44cc50`: the share of the way to the viewer
+ * that lies along the lamp's heading, not below 0. A brake or reversing lamp shows at least 0.7 of itself.
+ */
+export function evoLampFacing(light, viewer) {
+  const dx = viewer[0] - light.pos[0], dy = viewer[1] - light.pos[1], dz = viewer[2] - light.pos[2];
+  const facing = Math.max(0, (dx * Math.sin(light.heading) + dz * Math.cos(light.heading)) / (Math.hypot(dx, dy, dz) || 1));
+  return (light.type === 1 || light.type === 5) && facing < 0.7 ? 0.7 : facing;
+}

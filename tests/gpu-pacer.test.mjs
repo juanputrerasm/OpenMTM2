@@ -116,7 +116,9 @@ test("the window's frames are paced and a headset's never are", () => {
   assert.match(host, /const pacer = createGpuPacer\(renderer\.getContext\(\)\);/);
   assert.match(host, /const paced = loop && !xr\.isPresenting;/);
   // A frame held back returns before the frame's time is taken, so the next one is given all of it.
-  assert.match(host, /if \(paced && pacer\.behind\(now\)\) return;\n\s*const dt = /);
+  assert.match(host, /if \(paced && pacer\.behind\(now\)\) \{ limiter\.reset\(\); return; \}\n\s*const dt = /);
+  // The frame rate limit is the host's, before the pacing (render/frame-limit.js).
+  assert.match(host, /if \(paced && !limiter\.take\(now, limitMs\(\)\)\) return;/);
   assert.match(host, /if \(paced\) pacer\.drawn\(now\);/);
   assert.match(host, /session = xr\.getSession\(\);\n\s*pacer\.reset\(\);/);
 });
@@ -124,7 +126,7 @@ test("the window's frames are paced and a headset's never are", () => {
 test("the replay screen's own renderer is paced the same way, and has samples only where its scene is drawn onto them", () => {
   const replay = readFileSync(new URL("../src/ui/screens/replay.js", import.meta.url), "utf8");
   assert.match(replay, /const pacer = createGpuPacer\(renderer\.getContext\(\)\);/);
-  assert.match(replay, /frameId = requestAnimationFrame\(loop\);\n(\s*\/\/.*\n)*\s*if \(pacer\.behind\(now\)\) return;\n\s*const dt = /);
+  assert.match(replay, /frameId = requestAnimationFrame\(loop\);\n(\s*\/\/.*\n)*\s*if \(!limiter\.take\(now, limitIntervalMs\(context\.settings\)\)\) return;\n\s*if \(pacer\.behind\(now\)\) \{ limiter\.reset\(\); return; \}\n\s*const dt = /);
   assert.match(replay, /scenery\.draw\(camera\);\n\s*pacer\.drawn\(now\);/);
   assert.match(replay, /new THREE\.WebGLRenderer\(\{ canvas, antialias: screenSampled\(context\.settings\) \}\)/);
 });

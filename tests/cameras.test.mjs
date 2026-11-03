@@ -45,8 +45,20 @@ test("the camera is tilted up, then pulled in, to stay over a hill behind the tr
 });
 
 test("zoom narrows the Big views' field of view and keeps Far at the base", () => {
-  near(fovFor(2), 60, 1e-9);
+  // The game's lens: 90 degrees across a 4:3 screen at zoom 0x10000, so Far sees what the cockpit does.
+  near(fovFor(2), 73.7397952917, 1e-6);
+  near(fovFor(2), fovFor(0), 1e-9);
   assert.ok(fovFor(8) < fovFor(1) && fovFor(1) < fovFor(2));
+  // Chase Near (0xc000) sees 73.7 degrees across a 4:3 screen.
+  near(2 * Math.atan(Math.tan((fovFor(1) * Math.PI) / 360) / 0.75) * 180 / Math.PI, 73.7397952917, 1e-6);
+});
+
+test("the Field of view option widens or narrows the external views, and 90 across is the game's", async () => {
+  const { GAME_FOV_DEG, fovBase } = await import("../src/game/cameras.js");
+  near(fovBase({}), GAME_FOV_DEG, 1e-12);
+  near(fovBase({ chaseFov: 90 }), GAME_FOV_DEG, 1e-12);
+  assert.ok(fovBase({ chaseFov: 100 }) > GAME_FOV_DEG && fovBase({ chaseFov: 70 }) < GAME_FOV_DEG);
+  near(fovBase({ chaseFov: 500 }), fovBase({ chaseFov: 120 }), 1e-12);
 });
 
 test("the course's centre is the average of its straights' midpoints", () => {
@@ -59,7 +71,7 @@ test("the zoom follows the horizontal distance and is held between 0x1000 and 0x
   near(distanceZoom(100), 65536 / 6.25 / 65536);
   assert.equal(distanceZoom(1000), 0x1000 / 65536);
   assert.equal(distanceZoom(5), 0x8000 / 65536);
-  assert.ok(zoomToFov(0.16) < 12 && zoomToFov(0.5) < zoomToFov(1));
+  assert.ok(zoomToFov(0.16) < 14 && zoomToFov(0.5) < zoomToFov(1));
 });
 
 test("BlimpCam hangs 100 ft from the truck toward a point 1000 ft over the course's centre", () => {
@@ -124,10 +136,11 @@ test("the chase camera tilts by the player's keys within the game's pitches, and
   // A quarter of the frame time a frame: 90 degrees a second; 0 to 0x3fff.
   assert.equal(CAMERA_PITCH_RATE, 0x4000);
   assert.equal(turnedPitch(2, 0x400), 0xc00);
-  assert.equal(turnedPitch(2, -0x2000), -0x1800, "under the level, where the ground allows");
+  assert.equal(turnedPitch(2, -0x2000), 0, "never under the level (0x52b110 lifts it to 0)");
+  assert.equal(CAMERA_PITCH_MIN, 0);
   assert.equal(turnedPitch(2, -0x8000), CAMERA_PITCH_MIN);
   assert.equal(turnedPitch(2, 0x8000), CAMERA_PITCH_MAX);
-  assert.equal(CAMERA_TILT_RATE, 2 * CAMERA_PITCH_RATE, "the port's tilt is twice the game's, both ways");
+  assert.equal(CAMERA_TILT_RATE, CAMERA_PITCH_RATE, "the game's tilt rate, both ways");
   const flat = () => 0;
   const level = createChaseCamera().update(2, [0, 5, 0], 0, flat, 0.016).position;
   const up = createChaseCamera().update(2, [0, 5, 0], 0, flat, 0.016, { pitchBy: 0x800 }).position;
@@ -156,13 +169,6 @@ test("where the clearance cannot be had, the camera stays as the game places it,
   const clear = createChaseCamera().update(1, [0, 5, 0], 0, pit, 0.016, { clearFt: CAMERA_CLEAR_FT }).position;
   assert.deepEqual(clear, game);
   assert.ok(clear[2] < 0, "behind the truck (heading 0 is +z)");
-});
-
-test("tilted under the level over flat ground, the camera stands low but over the ground; tilted over a slope it is lifted only as far as it must", async () => {
-  const { CAMERA_PITCH_MIN } = await import("../src/game/cameras.js");
-  const flat = () => 0;
-  const low = createChaseCamera().update(2, [0, 5, 0], 0, flat, 0.016, { pitchBy: CAMERA_PITCH_MIN - 0x800 }).position;
-  assert.ok(low[1] >= 0 && low[1] < 5, `${low[1]} ft up`);
 });
 
 test("a chase camera with the clearance follows a tilt down at once, not at the settling rate", async () => {
@@ -199,7 +205,7 @@ test("the mouse look: it turns the camera at once, eases back after two seconds,
 
 test("free look's options: off leaves the mouse alone, reversed turns it the other way, held stays put", async () => {
   const { createCameraLook, lookOptions, LOOK_RETURN_S } = await import("../src/game/camera-look.js");
-  assert.deepEqual(lookOptions({}), { enabled: true, invert: false, hold: false });
+  assert.deepEqual(lookOptions({}), { enabled: true, invert: false, hold: false, drag: false });
   const off = createCameraLook(() => lookOptions({ freeLook: false }));
   off.move(100, 0);
   assert.equal(off.yaw, 0);
@@ -215,4 +221,20 @@ test("free look's options: off leaves the mouse alone, reversed turns it the oth
   const yaw = held.yaw;
   for (let t = 0; t < LOOK_RETURN_S + 3; t += 0.1) held.step(0.1);
   assert.equal(held.yaw, yaw);
+});
+
+test("a truck on a ground-box deck keeps its chase camera; a box the line runs into after the clear still pulls it in", async () => {
+  const { createBoxSolid } = await import("../src/game/ground-boxes.js");
+  // A bridge deck 20 ft up over the whole world (every cell a box from 0 to 20 ft), terrain at 0.
+  const ra0 = new Uint8Array(65536).fill(0), ra1 = new Uint8Array(65536).fill(10);
+  const solid = createBoxSolid({ ra0, ra1 });
+  const flat = () => 0;
+  const full = Math.hypot(...createChaseCamera().update(2, [0, 21, 0], 0, flat, 0.016).position.map((v, k) => v - [0, 21, 0][k]));
+  // An Evolution truck's middle under a foot over the deck: within the camera's margin of it.
+  const on = createChaseCamera().update(2, [0, 20.8, 0], 0, flat, 0.016, { solid }).position;
+  assert.ok(Math.abs(Math.hypot(on[0], on[1] - 20.8, on[2]) - full) < 1e-6, `the camera stays out at ${on}`);
+  // A wall 20 ft behind the truck, taller than the camera, with the truck clear of every box.
+  const wall = (x, y, z) => z < -20 && z > -40 && y < 100;
+  const blocked = createChaseCamera().update(2, [0, 5, 0], 0, flat, 0.016, { solid: wall }).position;
+  assert.ok(blocked[2] >= -20, `the wall pulls it in (${blocked})`);
 });

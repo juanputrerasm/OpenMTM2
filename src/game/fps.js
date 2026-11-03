@@ -1,14 +1,16 @@
 /*
   The frame rate tracker behind the FPS counter. Pure, so it runs under Node.
 
-  Each drawn frame calls `update` with its length in seconds; the rate follows the
-  same smoothing the GOLD mode FRAME display uses, so the two agree. The tracker
+  Each drawn frame calls `update` with its length in seconds; the rate is one over the
+  smoothed frame time, as the GOLD mode FRAME display reads it, so the two agree. The
+  time is smoothed, not the rate: frames of 5 and 35 ms in turn are 50 a second, and
+  smoothing their rates (200 and 29) read 114. The tracker
   also keeps the recent frame times so the debug view can show an average, the
   1% low and percentile frame times plus a graph.
 */
 
 export function createFpsTracker({ initial = 60, smoothing = 0.1, history = 300 } = {}) {
-  let fps = initial;
+  let frameS = 1 / initial;
   const frames = [];
   const limit = Math.max(10, Math.floor(history));
   const sortedMs = () => frames.map((dt) => dt * 1000).sort((a, b) => a - b);
@@ -19,19 +21,19 @@ export function createFpsTracker({ initial = 60, smoothing = 0.1, history = 300 
     return sorted[rank];
   };
   return {
-    get fps() { return fps; },
+    get fps() { return 1 / frameS; },
     /** How many frame times are kept for the average, lows and graph. */
     get count() { return frames.length; },
     /** The mean rate over the kept window: frames divided by their total time. */
     get average() {
-      if (!frames.length) return fps;
+      if (!frames.length) return 1 / frameS;
       let total = 0;
       for (const dt of frames) total += dt;
-      return total > 0 ? frames.length / total : fps;
+      return total > 0 ? frames.length / total : 1 / frameS;
     },
     /** The mean frame time over the kept window, milliseconds. */
     get avgMs() {
-      if (!frames.length) return 1000 / Math.max(1e-6, fps);
+      if (!frames.length) return frameS * 1000;
       let total = 0;
       for (const dt of frames) total += dt;
       return (total / frames.length) * 1000;
@@ -61,13 +63,13 @@ export function createFpsTracker({ initial = 60, smoothing = 0.1, history = 300 
     /** The kept frame times in seconds, oldest first, for the graph. */
     samples() { return [...frames]; },
     update(dt) {
-      if (!(dt > 0)) return fps;
-      fps += (1 / dt - fps) * smoothing;
+      if (!(dt > 0)) return 1 / frameS;
+      frameS += (dt - frameS) * smoothing;
       frames.push(dt);
       while (frames.length > limit) frames.shift();
-      return fps;
+      return 1 / frameS;
     },
-    reset() { fps = initial; frames.length = 0; },
+    reset() { frameS = 1 / initial; frames.length = 0; },
   };
 }
 

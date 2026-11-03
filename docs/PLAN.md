@@ -85,9 +85,13 @@ behaviour the port adds is named as an addition, never passed off as the game's.
   the detail texture and wakes; the handbrake, gears past third and transfer case keys; Evolution garage settings;
   CPR's lamps, cockpits and dents. Terminal Velocity, Fury3 and Hellbender objectives need their executables
   read.
-- **Community Patch 3:** a view-angle Fresnel term, `.TXV` track version records. From the survey
-  (`CP3_EXE_ANALYSIS.md` 3): trace and port `aiMode`, `aiCornerMargin`, `aiTerrainCaution`, the computer trucks' horn
-  and yee-haw switches, tournament driver form, `centreCommentary` and `commentarySilence` as a setting.
+- **Community Patch 3:** `.TXV` track version records. From the survey (`CP3_EXE_ANALYSIS.md` 8 and 9): read the
+  constants of the second driving routine (`aiMode`, `aiCornerMargin`, `aiTerrainCaution`) and port it, then compare
+  it with the port's own fixes for computer trucks on rough ground; the tournament driver personalities and form
+  (multipliers), formats, scoring tables and the save's fields; `commentarySilence` as a setting; the mirror and
+  racing line keys (`keyMirror`, `keyRaceLine`, `keySplitScreen`); the racing line's colour.
+- **Evolution trees:** how hard a tree pushes a truck (its figures in the truck-against-object response,
+  `EVO2_EXE_ANALYSIS.md` 2.5) and the tree object's `k`.
 - **Wheels damage:** online play (each machine sends its trucks' wheels, a room protocol addition), replays, and the
   `popAt` and `axleAt` figures tuned in play.
 - **The wrapping world:** precision after hundreds of worlds in one direction; box against box, a Summit zone or a

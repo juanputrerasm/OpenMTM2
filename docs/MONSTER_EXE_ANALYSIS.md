@@ -1302,6 +1302,16 @@ to the turn and distances in 1/256 ft:
 | 8 Chase Big Rear | 0x1555 | 0xa00 (14.06 deg) | 0 | 0x6000 |
 | 9 Chase Big Front | 0x1555 | 0x800 | 0x8000 | 0x6000 |
 
+**The lens.** Every view, the cockpit included, has one projection. The point transform (`0x526820`) clips a point
+to |x| < z and |y| < z in the camera's frame and draws it at `x / z` times half the 3D window's width
+(`0x55dad0` sets the window and its centre); the camera's y is first scaled for the window's shape (by
+`(half height / half width) x (width x 3) / (height x 4)`, 0.75 at 640 x 480), so pixels are square. At a zoom
+of 0x10000 the view is therefore **90 degrees across a 4:3 screen, 73.7 degrees up its 480 lines**, and the zoom
+scales the view plane (0xc000: 73.7 degrees across). The cockpit (mode 0) and Chase Far both set zoom 0x10000
+(`0x52b780`), so they see as wide; the full cockpit only shortens its 3D window to three fifths of the height
+(`0x55f700`, `boomZoom` 0xf000). The port once drew the external views on a base of 60 degrees up the screen
+(a guess), which looked closer in than the game.
+
 The camera heading follows the truck's yaw plus the offset by 4 per second of the remaining
 difference. The camera sits at the truck's position (x, y, z) minus `sin(h) cos(p) d`, plus
 `sin(p) d`, minus `cos(h) cos(p) d`, `d` the distance. To keep it over the ground the pitch is
@@ -1325,8 +1335,8 @@ Monster Manual, `MONSTER.HLP`, says `-` and `=` give a wide-angle view in any ex
 them only in those modes. The manual's other camera keys agree with the code: keypad plus points the camera up,
 keypad minus down, Insert and Delete left and right, and in the cockpit plus looks back and minus shows the mirror);
 View Next steps the mode 0 to 9 (Shift reverses). BlimpCam (3, `0x52c280`) and RaceCam (4, `0x52ba90`) place the camera by their own rules and set its zoom from the
-horizontal distance `h` to the truck: `65536 / (h x 0.0625)` held to 0x1000..0x8000, a telephoto (about 4 to 10
-degrees of view at the base of 60 degrees):
+horizontal distance `h` to the truck: `65536 / (h x 0.0625)` held to 0x1000..0x8000, a telephoto (about 7 to 53
+degrees across a 4:3 screen, with the lens below):
 - **BlimpCam**: the target point is 1000 ft above the course's centre (`0x730728`, the average of the
   straights' midpoints). The camera is the point 100 ft from the truck on the line toward it, looking back at the
   truck, its pitch held within 0x3000 (67.5 degrees).

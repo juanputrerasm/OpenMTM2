@@ -15,7 +15,12 @@
     recentred and scaled to their axle's track, and drawn at the axles; a truck with an axle-bar texture (AMT.TRK) has
     the game's bars and shocks too.
 
-  No lamps, no cockpit and no crash dents: those are read from MTM2's own files, which these vehicles do not have.
+    An Evolution truck's materials and lamps are drawn as 4x42.exe draws them (EVO2_EXE_ANALYSIS.md 6.6,
+    `evoTruckMaterials` and `evoLights`): its glass and lenses blended, its bump maps as normal maps, and its TRK's
+    lights through the lamps MTM2's trucks use, with the lens groups' glow.
+
+  No cockpit and no crash dents: those are read from MTM2's own files, which these vehicles do not have. A CPR car has
+  no lamps.
   The physics is MTM2's (docs/CHANGELOG.md Stage 3.1): the manifest gives the wheel positions and the hull points, the
   wheel models their size (`tire`), and everything else is the monster truck's.
 */
@@ -30,6 +35,7 @@ import { loadArtTexture } from "./art-texture.js";
 import { decodeSmfModel, loadEvoModelTextures, loadEvoTexture } from "./evo-models.js";
 import { decodeModel } from "./models.js";
 import { AMT_SUSPENSION, EVO_BAR_AXLE_SPAN } from "../game/evo-suspension.js";
+import { EVO_LAMP_NUDGE, evoLampGroup } from "../game/truck-lights.js";
 import { createPaletteResolver } from "./palette-resolver.js";
 import { CPR_DEFAULT_SETUP } from "../vendor/openphotex/cpr/garage.js";
 import { CPR_CAR } from "../vendor/openphotex/sim/cpr/rules.js";
@@ -175,6 +181,8 @@ async function evoTruck(view, file, game) {
     parts.axleRear = takeAxle(body, /^AXLERL?$/i, span(anchors[2], anchors[3]), `${body.name}#AXLER`);
   }
   const textures = await loadEvoModelTextures(view, parts);
+  await evoTruckMaterials(view, parts, textures);
+  const { lights, lightTextures } = await evoLights(view, manifest);
   let evoSuspension = null;
   if (bars && tireFt && anchors[0]) {
     for (const name of [bars.shockTexture, bars.barTexture]) {
@@ -192,10 +200,65 @@ async function evoTruck(view, file, game) {
   return {
     name: manifest.truckName, parts, textures, anchors,
     scrapePoints: (manifest.scrapePoints ?? []).map(xyz),
-    tire: tireFt, game, evoSuspension,
+    tire: tireFt, game, evoSuspension, lights, lightTextures,
     // The vehicle's own figures for the 4x4 Evolution physics (OpenPhotex evoSim; docs/EVO2_PHYSICS.md 2).
     evoSpec: fitted.spec,
   };
+}
+
+/*
+  4x42.exe's truck materials (EVO2_EXE_ANALYSIS.md 6.6):
+  - a group whose material is transparent is blended by its texture's alpha (`0x5ae3a0`), not cut out: the glass
+    is about half see-through and the lenses more;
+  - a group's bump texture (`<model>_BUMP.TIF`) is its normal map, under the name the renderer looks one up by
+    (`<texture stem>_N`). Its green points down the picture, which is the way V runs here, so it is not flipped
+    as Community Patch 3's are (`normalScaleY`);
+  - a lamp group (LIGHTHL and the rest) is moved off the body as `0x5d6f50` moves it, and named for its glow.
+*/
+async function evoTruckMaterials(view, parts, textures) {
+  for (const model of Object.values(parts)) {
+    for (const mesh of model?.meshes ?? []) {
+      if (mesh.transparent && textures[mesh.textureName]?.hasAlpha) { mesh.blended = true; mesh.cutout = false; }
+      if (mesh.bumpTextureName && mesh.textureName) {
+        const key = `${stemOf(mesh.textureName)}_N`;
+        if (!(key in textures)) {
+          const image = await loadEvoTexture(view, mesh.bumpTextureName);
+          if (image) textures[key] = image;
+        }
+        if (textures[key]) mesh.normalScaleY = 1;
+      }
+    }
+  }
+  for (const mesh of parts.body?.meshes ?? []) {
+    const lamp = evoLampGroup(mesh.groupName);
+    if (!lamp) continue;
+    mesh.lamp = lamp;
+    // In the scene's frame, whose z is the game's mirrored (worker/evo-models.js).
+    const [dx, dy, dz] = EVO_LAMP_NUDGE[lamp];
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      mesh.positions[i] += dx; mesh.positions[i + 1] += dy; mesh.positions[i + 2] -= dz;
+    }
+  }
+}
+
+/** The TRK's lights in the shape MTM2's lamps take (worker/truck-build.js), with their cones' textures. */
+async function evoLights(view, manifest) {
+  const named = (name) => {
+    const title = name ? podPathTitle(name).toUpperCase() : "";
+    return title && !/^NULL(\.|$)/.test(title) ? title : "";
+  };
+  const lights = (manifest.lights ?? []).map((l) => ({
+    type: l.type ?? 0, pos: [l.pos?.x ?? 0, l.pos?.y ?? 0, l.pos?.z ?? 0], radius: l.bitmapRadius ?? 0,
+    heading: l.heading ?? 0, pitch: l.pitch ?? 0, spin: l.spinSpeed ?? 0,
+    coneLength: l.coneLength ?? 0, coneBase: l.coneBaseRadius ?? 0, coneRim: l.coneRimRadius ?? 0,
+    coneTexture: named(l.coneTexture), source: named(l.sourceBitmap), msOn: l.msOn ?? 0, msOff: l.msOff ?? 0,
+  }));
+  const lightTextures = {};
+  for (const name of new Set(lights.flatMap((l) => [l.source, l.coneLength > 0 ? l.coneTexture : ""]).filter(Boolean))) {
+    const image = await loadEvoTexture(view, name);
+    if (image) lightTextures[name] = image;
+  }
+  return { lights, lightTextures };
 }
 
 async function cprCar(view, file) {
@@ -313,7 +376,7 @@ export function cprWheelPlaces(parts, manifestAnchors) {
 
 /**
  * A vehicle of another game for drawing, or null when its files are not mounted: `{ file, name, game, parts, anchors,
- * scrapePoints, textures, tire, suspension: null, evoSuspension, lights: [], lightTextures: {} }`, `file` its `<GAME>:<file>` name.
+ * scrapePoints, textures, tire, suspension: null, evoSuspension, lights, lightTextures }` (a CPR car's lights empty), `file` its `<GAME>:<file>` name.
  */
 export async function buildForeignTruckRender(vfs, id) {
   const named = parseForeignTruckId(id);
@@ -321,5 +384,5 @@ export async function buildForeignTruckRender(vfs, id) {
   if (!view) return null;
   const built = named.game === "CPR" ? await cprCar(view, named.file) : await evoTruck(view, named.file, named.game);
   if (!built || built.anchors.some((a) => !a)) return null;
-  return { ...built, file: foreignTruckId(named.game, named.file), suspension: null, lights: [], lightTextures: {} };
+  return { ...built, file: foreignTruckId(named.game, named.file), suspension: null, lights: built.lights ?? [], lightTextures: built.lightTextures ?? {} };
 }

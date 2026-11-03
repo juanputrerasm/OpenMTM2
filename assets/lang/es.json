@@ -1388,10 +1388,6 @@
   "text": "Límite de cuadros por segundo"
  },
  {
-  "tag": "Frame rate limit value",
-  "text": "Valor del límite de cuadros por segundo"
- },
- {
   "tag": "Hold the race to this many frames a second",
   "text": "Limita la carrera a esta cantidad de cuadros por segundo"
  },
@@ -1786,14 +1782,6 @@
  {
   "tag": "Z-mode cameras",
   "text": "Cámaras del modo Z"
- },
- {
-  "tag": "Zoom with Shift and - or +, orbit with Insert and Delete, and the Inertia view, in any race without GOLD mode",
-  "text": "Acercar con Shift y - o +, orbitar con Insert y Supr, y la vista Inercia, en cualquier carrera sin el modo GOLD"
- },
- {
-  "tag": "App",
-  "text": "App"
  },
  {
   "tag": "Data",
@@ -6708,10 +6696,6 @@
   "text": "No se pudo cargar la carrera: <<1>>"
  },
  {
-  "tag": "Saved race",
-  "text": "Carrera guardada"
- },
- {
   "tag": "Load race...",
   "text": "Cargar carrera..."
  },
@@ -6790,5 +6774,113 @@
  {
   "tag": "Save race keeps the race as it is in a .mtm file, the Monster Truck Madness 2 saved game; Options, Game, Load race starts it again where it was left. Leave and watch hands your truck to the autopilot and lets you watch the race to its end, with no points for it.",
   "text": "Guardar carrera conserva la carrera tal como está en un archivo .mtm, la partida guardada de Monster Truck Madness 2; Opciones, Juego, Cargar carrera la reanuda donde se dejó. Abandonar y mirar deja tu camión al piloto automático y te permite ver la carrera hasta el final, sin puntos."
+ },
+ {
+  "tag": "Commentary from Center",
+  "text": "Comentarios desde el centro"
+ },
+ {
+  "tag": "With a 5.1 or 7.1 output, the announcer comes from the centre speaker, as Community Patch 3 has it. A stereo output hears it in the middle either way",
+  "text": "Con una salida 5.1 o 7.1, el locutor se oye por el altavoz central, como en Community Patch 3. En estéreo se oye en el medio de todas formas"
+ },
+ {
+  "tag": "Opponents Horn",
+  "text": "Bocina de los rivales"
+ },
+ {
+  "tag": "Computer trucks high in the air may honk",
+  "text": "Los camiones de la computadora pueden tocar la bocina en lo alto del aire"
+ },
+ {
+  "tag": "Opponents Yee-Haw",
+  "text": "Yee-Haw de los rivales"
+ },
+ {
+  "tag": "Computer trucks high in the air may whoop",
+  "text": "Los camiones de la computadora pueden gritar en lo alto del aire"
+ },
+ {
+  "tag": "Reduce Yee-Haw/Horn Freq.",
+  "text": "Reducir frecuencia de Yee-Haw/bocina"
+ },
+ {
+  "tag": "Computer trucks honk and whoop in the air 6 to 10 times less often, each at its own rate",
+  "text": "Los camiones de la computadora tocan la bocina y gritan en el aire de 6 a 10 veces menos, cada uno a su ritmo"
+ },
+ {
+  "tag": "Zoom with Shift and - or + (hold them to zoom on smoothly; a gamepad's D-pad left and right), orbit with Insert and Delete, and the Inertia view, in any race without GOLD mode. The zoom is kept for the next races",
+  "text": "Acercar con Shift y - o + (manténlas para un zoom suave; en el mando, la cruceta izquierda y derecha), orbitar con Insert y Supr, y la vista Inercia, en cualquier carrera sin el modo GOLD. El zoom se conserva para las próximas carreras"
+ },
+ {
+  "tag": "Field of view",
+  "text": "Campo de visión"
+ },
+ {
+  "tag": "<<1>> degrees",
+  "text": "<<1>> grados"
+ },
+ {
+  "tag": "How wide the external cameras see, in degrees across a 4:3 screen; 90 is Monster Truck Madness 2's lens. The cockpit keeps the game's",
+  "text": "Cuánto abarcan las cámaras externas, en grados a lo ancho de una pantalla 4:3; 90 es la lente de Monster Truck Madness 2. La cabina conserva la del juego"
+ },
+ {
+  "tag": "Chase mirror",
+  "text": "Espejo en persecución"
+ },
+ {
+  "tag": "Community Patch 3's rear-view mirror over the top of the external views: a look back from the cab",
+  "text": "El espejo retrovisor de Community Patch 3 en la parte superior de las vistas externas: una mirada hacia atrás desde la cabina"
+ },
+ {
+  "tag": "Racing line",
+  "text": "Línea de carrera"
+ },
+ {
+  "tag": "Community Patch 3's racing line: the course the computer trucks follow, drawn on the ground ahead in a race",
+  "text": "La línea de carrera de Community Patch 3: el recorrido que siguen los camiones de la computadora, dibujado en el suelo durante una carrera"
+ },
+ {
+  "tag": "Drag split screen",
+  "text": "Pantalla dividida en drag"
+ },
+ {
+  "tag": "Community Patch 3's drag split screen: in a drag race against a truck, both lanes at once, side by side, in the same chase view",
+  "text": "La pantalla dividida de Community Patch 3: en una carrera de drag contra un camión, ambos carriles a la vez, lado a lado, con la misma vista de persecución"
+ },
+ {
+  "tag": "Reverse camera tilt",
+  "text": "Invertir inclinación de la cámara"
+ },
+ {
+  "tag": "Keypad plus raises the chase camera and keypad minus lowers it; the game's keys do the opposite. A gamepad's right stick tilts it either way",
+  "text": "El + del teclado numérico sube la cámara de persecución y el - la baja; las teclas del juego hacen lo contrario. El stick derecho del mando la inclina de todas formas"
+ },
+ {
+  "tag": "Click to look",
+  "text": "Clic para mirar"
+ },
+ {
+  "tag": "With Free look: the mouse looks round only while a button is held on the picture, so moving it off the screen does not turn the camera",
+  "text": "Con Vista libre: el ratón mira alrededor solo mientras se mantiene un botón sobre la imagen, así moverlo fuera de la pantalla no gira la cámara"
+ },
+ {
+  "tag": "LOC file",
+  "text": "Archivo LOC"
+ },
+ {
+  "tag": "CP3",
+  "text": "CP3"
+ },
+ {
+  "tag": "OMTM2",
+  "text": "OMTM2"
+ },
+ {
+  "tag": "Touch controls",
+  "text": "Controles táctiles"
+ },
+ {
+  "tag": "On-screen stick, pedals and buttons for racing on a phone or tablet. Auto shows them on a device with only a touchscreen, and hides them while a gamepad is connected or a key is pressed",
+  "text": "Palanca, pedales y botones en pantalla para correr en un teléfono o una tableta. Automático los muestra en un dispositivo que solo tiene pantalla táctil y los oculta mientras haya un mando conectado o se pulse una tecla"
  }
 ]

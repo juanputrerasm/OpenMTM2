@@ -241,3 +241,33 @@ test("a truck's pool is its own lamps': from its headlights' middle, along their
     { rich: true, headlights: false, daylight: 0, strength: 2.4, cameraX: 0, cameraZ: 0 });
   assert.equal(slots[0].intensity, 0);
 });
+
+test("4x4 Evolution's lamp groups: paired with the TRK's lights, lit and facing by 0x44cc50 (EVO2_EXE_ANALYSIS.md 6.6)", async () => {
+  const { evoLampGroup, evoLampLights, evoLampLevel, evoLampFacing } = await import("../src/game/truck-lights.js");
+  assert.equal(evoLampGroup("LightHL"), "HL");
+  assert.equal(evoLampGroup("LIGHTBC"), "BC");
+  assert.equal(evoLampGroup("Lights"), null);
+  const head = (x) => ({ type: 0, pos: [x, 1.7, 6.9], heading: 0 });
+  const brake = (x) => ({ type: 1, pos: [x, 2, -6.7], heading: Math.PI });
+  const rev = (x) => ({ type: 5, pos: [x, 2, -6.7], heading: Math.PI });
+  const lights = [head(-1.8), head(1.8), brake(-2.1), brake(2.1), brake(0), rev(-2.1), rev(2.1)];
+  const p = evoLampLights(lights);
+  assert.equal(p.HL, lights[0]); assert.equal(p.FL, lights[0]); assert.equal(p.HR, lights[1]); assert.equal(p.FR, lights[1]);
+  assert.equal(p.BL, lights[2]); assert.equal(p.BR, lights[3]); assert.equal(p.BC, lights[4]);
+  assert.equal(p.RL, lights[5]); assert.equal(p.RR, lights[6]);
+  // A brake lamp within 0.1 ft of the middle is the centre one.
+  assert.equal(evoLampLights([brake(0.05)]).BC.pos[0], 0.05);
+  const state = { lamps: 0, braking: false, reverse: false, cockpit: false, night: false };
+  assert.equal(evoLampLevel(head(1), state), 0);
+  assert.equal(evoLampLevel(head(1), { ...state, lamps: 2 }), 1);
+  assert.equal(evoLampLevel(brake(2), state), 0.5, "a tail lamp runs at half");
+  assert.equal(evoLampLevel(brake(2), { ...state, braking: true }), 1);
+  assert.equal(evoLampLevel(brake(0), state), 0, "the centre lamp is a brake lamp only");
+  assert.equal(evoLampLevel(rev(2), { ...state, reverse: true }), 1);
+  assert.equal(evoLampLevel(head(1), { ...state, lamps: 2, cockpit: true }), 0);
+  // Facing: full straight ahead of a headlight, nothing behind it; a rear lamp never under 0.7.
+  assert.ok(Math.abs(evoLampFacing(head(0), [0, 1.7, 100]) - 1) < 1e-9);
+  assert.equal(evoLampFacing(head(0), [0, 1.7, -100]), 0);
+  assert.equal(evoLampFacing(brake(0), [100, 2, -6.7]), 0.7);
+  assert.ok(evoLampFacing(brake(0), [0, 2, -100]) > 0.99);
+});

@@ -55,6 +55,7 @@ export default async function mount(container, context, { track, truckFile }) {
     road: build.sim.road ?? null, walls: build.sim.walls ?? null, faces: build.sim.faces ?? null,
     clr: build.sim.clr.buffer,
     textureValues: build.sim.textureValues.buffer,
+    dirtEverywhere: !!build.sim.dirtEverywhere,
     ra0: build.sim.ra0?.buffer ?? null,
     ra1: build.sim.ra1?.buffer ?? null,
     boxes: build.sim.boxes,

@@ -80,10 +80,31 @@ export function modeForShortcut(e) {
   return n === 0 ? 9 : n - 1;
 }
 
+/**
+ * The game's lens. Every view has the same projection (MONSTER_EXE_ANALYSIS.md, "Chase camera geometry", the lens): at a
+ * zoom of 0x10000 its frustum is |x| < z and |y| < z (0x526820's clip test), drawn over half the window's width
+ * (`0x55dad0`), so 90 degrees across a 4:3 screen and 73.7 up its 480 lines. The cockpit and Chase Far both have zoom
+ * 0x10000; the zoom scales the view plane, so Chase Near (0xc000) sees 73.7 degrees across.
+ */
+export const GAME_FOV_DEG = (2 * Math.atan(0.75) * 180) / Math.PI;
+/** The horizontal field of view at zoom 0x10000 on a 4:3 screen, degrees: the game's, and the Field of view option's range. */
+export const GAME_FOV_ACROSS_DEG = 90, FOV_ACROSS_MIN = 60, FOV_ACROSS_MAX = 120;
+
+/**
+ * The vertical base field of view of the external views (degrees, at zoom 0x10000) for the Field of view option
+ * (`settings.chaseFov`, degrees across a 4:3 screen; the port's own, 90 the game's). The cockpit keeps the game's.
+ */
+export function fovBase(settings) {
+  const across = Number(settings?.chaseFov);
+  if (!Number.isFinite(across) || across === GAME_FOV_ACROSS_DEG) return GAME_FOV_DEG;
+  const a = Math.max(FOV_ACROSS_MIN, Math.min(FOV_ACROSS_MAX, across));
+  return (2 * Math.atan(Math.tan((a * Math.PI) / 360) * 0.75) * 180) / Math.PI;
+}
+
 /** The vertical field of view of a mode, degrees; the game's zoom factor scales the view plane. */
-export const fovFor = (mode, baseDegrees = 60) => {
+export const fovFor = (mode, baseDegrees = GAME_FOV_DEG) => {
   // The cockpit's 3D window is 90 degrees across 640 pixels: 73.7 degrees over the 480 of the screen.
-  if (mode === 0) return 73.74;
+  if (mode === 0) return GAME_FOV_DEG;
   const zoom = (cameraMode(mode)?.zoom ?? 0x10000) / 0x10000;
   return (2 * Math.atan(Math.tan((baseDegrees * Math.PI) / 360) * zoom) * 180) / Math.PI;
 };
@@ -95,11 +116,11 @@ export const fovFor = (mode, baseDegrees = 60) => {
  */
 export const CAMERA_PITCH_RATE = 0x4000, CAMERA_PITCH_MAX = 0x3fff;
 /**
- * The port's tilt (not the game's): twice the game's rate, the same up and down, and below the level down to
- * CAMERA_PITCH_MIN (45 degrees under it), where the ground lets the camera go; the camera is tilted back up only as far
- * as it must to stay over the ground (`createChaseCamera`).
+ * The Camera up and down keys tilt at the game's rate and are held to the game's pitches: never below the level, where
+ * the placement lifts the pitch back to 0 (`0x52b110`), so a camera following a truck in the air never looks up at it
+ * from beneath. (The port once tilted twice as fast and 45 degrees under the level; players found both hard to aim.)
  */
-export const CAMERA_TILT_RATE = 0x8000, CAMERA_PITCH_MIN = -0x2000;
+export const CAMERA_TILT_RATE = CAMERA_PITCH_RATE, CAMERA_PITCH_MIN = 0;
 /** The pitch a mode is turned to by `pitchBy` (game angle units), held to CAMERA_PITCH_MIN..CAMERA_PITCH_MAX. */
 export const turnedPitch = (mode, pitchBy) => Math.max(CAMERA_PITCH_MIN, Math.min(CAMERA_PITCH_MAX, (cameraMode(mode)?.pitch ?? 0) + pitchBy));
 /**
@@ -199,10 +220,16 @@ export function createChaseCamera() {
       lastPitch = pitch;
       // Then the largest of 32 steps along the ray that is still over it (the game's rule: the clearance only tilts the
       // camera, since near the truck nothing is that far over the ground).
-      let t = dist;
+      // A ground box counts once the line has been out of every box: a truck standing on a bridge's deck is within the
+      // camera's margin of it (an Evolution truck's middle is about a foot over its deck), and the line leaving the deck
+      // is not one running into a wall.
+      let t = dist, clearOfBoxes = !(solid && solid(pos[0], pos[1], pos[2]));
       for (let i = 1; i <= 32; i++) {
         const c = at((dist * i) / 32, tilt);
-        if (c[1] < height(c[0], c[2]) || (solid && solid(c[0], c[1], c[2]))) { t = (dist * (i - 1)) / 32; break; }
+        if (c[1] < height(c[0], c[2])) { t = (dist * (i - 1)) / 32; break; }
+        if (!solid) continue;
+        if (!solid(c[0], c[1], c[2])) clearOfBoxes = true;
+        else if (clearOfBoxes) { t = (dist * (i - 1)) / 32; break; }
       }
       return zoom === null ? { position: at(t, tilt), target: [...pos] } : { position: at(t, tilt), target: [...pos], zoom };
     },
@@ -216,7 +243,7 @@ export const COCKPIT_EYE = Object.freeze([0, 4, 1]);
 export const groundHeightFn = (terrain) => (x, z) => terrainHeightAt(terrain, x, z);
 
 /** The field of view that goes with the game's zoom factor (16.16, 0x1000 to 0x8000) in the two special views. */
-export const zoomToFov = (zoom, baseDegrees = 60) => (2 * Math.atan(Math.tan((baseDegrees * Math.PI) / 360) * zoom) * 180) / Math.PI;
+export const zoomToFov = (zoom, baseDegrees = GAME_FOV_DEG) => (2 * Math.atan(Math.tan((baseDegrees * Math.PI) / 360) * zoom) * 180) / Math.PI;
 /** The special views' zoom from their horizontal distance to the truck: 65536 / (distance x 0.0625), held to 0x1000..0x8000, as a factor. */
 export const distanceZoom = (horizontalFt) => Math.max(0x1000, Math.min(0x8000, 65536 / Math.max(horizontalFt * 0.0625, 1e-9))) / 65536;
 
@@ -291,4 +318,17 @@ export function raceCamera(straights, truckPos, segment, height, viewCells = 32)
   const horizontal = Math.hypot(v[0], v[2]), limit = (viewCells - 2) * 32;
   if (horizontal > limit) { const s = limit / horizontal; spot = [truckPos[0] + v[0] * s, truckPos[1] + v[1] * s, truckPos[2] + v[2] * s]; }
   return lookFrom(spot, truckPos, (0x37ff / 65536) * Math.PI * 2);
+}
+
+/**
+ * Community Patch 3's chase-view mirror (`[Game] chaseMirrorPct`, `chaseMirrorAspect`, `chaseMirrorDragPct`; defaults 25,
+ * 30 and 16, held to 5..60, 0..100 and 0..60): its width a percentage of the screen's (the drag one in a drag race, when
+ * set), its height that percentage of its width, centred, its top a 32nd of the screen down. In screen pixels.
+ */
+export const CHASE_MIRROR = Object.freeze({ pct: 25, aspect: 30, dragPct: 16 });
+export function chaseMirrorRect(size, drag = false, figures = CHASE_MIRROR) {
+  const pct = drag && figures.dragPct > 0 ? figures.dragPct : figures.pct;
+  const w = Math.round((pct * size.x) / 100);
+  const h = figures.aspect >= 1 ? Math.round((w * figures.aspect) / 100) : Math.round((pct * size.x) / 400);
+  return { x: Math.round((size.x - w) / 2), top: Math.floor(size.y / 32), w, h };
 }

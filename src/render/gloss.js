@@ -13,6 +13,9 @@
      scaled by the direct light the surface got against what it would get in the open, so a
      truck in a cliff's shadow has none.
 
+  A texture whose normal map carries Community Patch 3's shine mask (its alpha: opaque is flat) shines only where the
+  mask is clear.
+
   Nothing in a shadow mirrors anything: a surface turned to the sun mirrors as far as the sun
   reaches it (a wheel arch, the underside, a truck under a cliff, none), one turned from it the
   sky it faces, less the further it faces down, and the running gear only where the sun is on it.
@@ -65,7 +68,13 @@ const shine = (amount) => /* glsl */ `
   // away, the open sky it faces${amount < 1 ? " (none for the running gear, which sits under the body)" : ""}.
   float glossOpenSky = ${amount < 1 ? "0.0" : "0.5 * pow( clamp( glossUp.y * 0.5 + 0.5, 0.0, 1.0 ), 2.0 )"};
   float glossLit = glossFacing > 1e-3 ? glossReached : glossOpenSky;
-  outgoingLight += ${amount.toFixed(3)} * uGlossSun.w * ( ( ${FACE_ON.toFixed(3)} + ${(GLANCING - FACE_ON).toFixed(3)} * glossGlance ) * glossSky * glossLit + ${amount.toFixed(3)} * glossGlint );
+  // Community Patch 3's shine mask, where a normal map carries one (render/track-scene.js, shineMask): 1 elsewhere.
+  #ifdef CP3_SHINE_MASK
+  float glossMask = specularStrength;
+  #else
+  float glossMask = 1.0;
+  #endif
+  outgoingLight += glossMask * ${amount.toFixed(3)} * uGlossSun.w * ( ( ${FACE_ON.toFixed(3)} + ${(GLANCING - FACE_ON).toFixed(3)} * glossGlance ) * glossSky * glossLit + ${amount.toFixed(3)} * glossGlint );
 }
 `;
 

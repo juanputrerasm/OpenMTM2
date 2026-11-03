@@ -349,7 +349,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   // console's `overlap`) says which for this race, whatever the track; unsaid, a track draws as its own game did.
   const tileInset = (tileOverlap ?? sit.origin !== "MTM1") ? 2 : 0;
   const groundBoxes = cpr ? null : buildGroundBoxMesh(level.groundBoxes, atlas, level.lte, level.heights, cells,
-    { drawn: sit.origin === "MTM1" && !cells ? mtm1EdgeBoxDrawn() : null });
+    { drawn: sit.origin === "MTM1" && !cells ? mtm1EdgeBoxDrawn() : null, tileInset });
   const road = cpr ? await buildCprRoadLayer(vfs, level) : null;
   // The ground of a CPR track as the simulation has it: the terrain, and the road layer over it.
   const cprTerrain = cpr ? mtm2Sim.createTerrainGround(mtm2Sim.createTerrainFt(level.heightsFt), null, 0, null) : null;
@@ -405,12 +405,17 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     if (!(name in models)) await loadModel(name);
     if (!models[name] || !box.positionFt) continue;
     const m = mtm2Sim.eulerToMatrix(box.theta, box.phi, box.psi, new Array(9));
+    // CPR's trees (type 3) are flat cards that face the camera, as JSTrackViewer draws them.
+    const billboard = box.type === 8 || box.type === 9 || (cpr && box.type === CPR_TREE_TYPE);
     objects.push({
-      model: name, type: box.type, sitIndex, matrix: toSceneMatrix(m, box.positionFt),
-      // CPR's trees (type 3) are flat cards that face the camera, as JSTrackViewer draws them.
-      billboard: box.type === 8 || box.type === 9 || (cpr && box.type === CPR_TREE_TYPE),
+      model: name, type: box.type, sitIndex, matrix: toSceneMatrix(m, box.positionFt), billboard,
       // A top-crush car's cab: its frames are intact and flattened, shown by how far it is crushed, not played in time.
       ...(box.crushRole === "cab" ? { crushCar: box.crushGroup } : {}),
+      // A box nothing meets (type 6 or 7, MTM2_PHYSICS.md 14.15) never moves: drawn by chunks around the camera, as 4x4
+      // Evolution's trees are (render/track-scene.js `createForest`), once each and culled. Over every copy of the world
+      // (`placeObjects`) they were drawn nine times and never culled: an Evo 2 conversion's 3,759 trees and props (TD's
+      // River Run) were 9.8 million triangles a frame.
+      ...(!billboard && !box.crushRole && !mtm2Sim.levelBoxCollides(box, detailLevel) ? { forest: true } : {}),
     });
   }
 

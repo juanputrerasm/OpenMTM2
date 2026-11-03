@@ -86,6 +86,9 @@ export function decodeSmfModel(bytes, name) {
     if (textureName) textureNames.add(textureName);
     meshes.push({
       groupName: group.name ?? "", textureName, textureFrames: null, color: textureName ? null : 0x808080,
+      // The material's own transparent flag and, in Evo 2's `v1` form, its bump texture: a truck uses both
+      // (worker/foreign-truck-build.js `evoTruckMaterials`; EVO2_EXE_ANALYSIS.md 6.6).
+      transparent: !!group.material?.transparent, bumpTextureName: smfTextureReference(group.material?.bumpTextureName),
       // Settled once the art is decoded (`markCutouts`): whether it has an opacity plane.
       // A solid group modelled with a back of its own (faces back to back in one plane: a board, a banner) is drawn
       // one-sided, as the game culls it; drawn from both sides its two faces would fight in the one plane. Cut-outs

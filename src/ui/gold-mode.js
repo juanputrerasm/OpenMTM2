@@ -18,7 +18,9 @@
   Browsers keep Ctrl+T, Ctrl+W and Ctrl+L, so Alt works in place of Ctrl for every key.
 
   The Z-mode cameras option (Options, Advanced; not the game's) gives the zoom and Ctrl+L in any race, with no GOLD
-  and no slew mode, without the overlay.
+  and no slew mode, without the overlay. With it the zoom is the port's own in three more ways: held down, - and +
+  (with Shift) go on zooming smoothly after the game's first step; a gamepad's D-pad left and right zoom out and in;
+  and the zoom is kept for the next races (`settings.zModeZoom`).
 */
 import * as THREE from "three";
 import { createCollisionOverlay } from "../render/collision-overlay.js";
@@ -28,10 +30,8 @@ import { nextWeather, weatherName } from "../game/weather.js";
 import { createStrings, msg } from "../game/strings.js";
 
 const AUTOPILOT_NAMES = [msg("off"), msg("auto throttle"), msg("full autopilot")];
-/** Z mode's zoom (MONSTER_EXE_ANALYSIS.md 11): the camera's 16.16 zoom value moves by 0x1000 within 0x1000..0x20000. */
-export const ZOOM_ONE = 0x10000, ZOOM_STEP = 0x1000, ZOOM_MIN = 0x1000, ZOOM_MAX = 0x20000;
-/** How much nearer a zoom value brings the view: 16 at 0x1000, a half at 0x20000. */
-export const zoomFactor = (value) => ZOOM_ONE / value;
+export { ZOOM_ONE, ZOOM_STEP, ZOOM_MIN, ZOOM_MAX, zoomFactor, heldZoom, keptZoom } from "../game/z-zoom.js";
+import { ZOOM_ONE, ZOOM_STEP, ZOOM_MIN, ZOOM_MAX, ZOOM_HOLD_S, zoomFactor, heldZoom, keptZoom } from "../game/z-zoom.js";
 const OVERLAY_NAMES = { off: msg("off"), wireframe: msg("wireframe"), solid: msg("solid") };
 
 /**
@@ -84,20 +84,29 @@ export function createGoldMode(env) {
   };
   /** Whether the Z-mode keys act: in Z mode, or always with the option. */
   const zKeys = () => state.zMode || !!env.zCameras?.();
-  let typed = "", shots = 0, fps = 60;
+  let typed = "", shots = 0, frameS = 1 / 60;
   const down = new Set();
 
   const command = async (name) => sim.call("command", { name });
-  const setZoom = (value) => {
+  const setZoom = (value, { keep = true } = {}) => {
     state.zoomValue = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, value));
     state.zoom = zoomFactor(state.zoomValue);
     camera.zoom = state.zoom;
     camera.updateProjectionMatrix();
+    // The option's zoom is kept for the next races; Z mode's own is not.
+    if (keep && env.zCameras?.()) env.onZoom?.(state.zoomValue);
   };
+  // The zoom kept from the last race, with the option.
+  if (env.zCameras?.() && keptZoom(env.savedZoom) !== null) setZoom(env.savedZoom, { keep: false });
+  /** The zoom held: -1 out, +1 in, 0 none; and for how long. The pad's D-pad (`padZoom`) is read each frame. */
+  let holdWay = 0, heldFor = 0, padWay = 0, padFor = 0;
+  const isZoomOut = (code) => code === "Minus" || code === "NumpadSubtract";
+  const isZoomIn = (code) => code === "Equal" || code === "NumpadAdd";
 
   function onKeyDown(e) {
     down.add(e.code);
-    if (e.repeat) return false;
+    // A held zoom key's repeats are the hold's (`stepHold`), not more steps.
+    if (e.repeat) return holdWay !== 0 && (isZoomOut(e.code) || isZoomIn(e.code));
     if (!e.ctrlKey && !e.altKey) {
       typed = typeKey(typed, e.code);
       const code = cheatTyped(typed);
@@ -114,8 +123,8 @@ export function createGoldMode(env) {
       const zoomKey = !chord && (state.zMode || e.shiftKey);
       // The game's steps: - widens by 0x1000, = narrows by 0x1000 (0x52cd90).
       const shown = () => flash(t("Zoom <<1>>x", Math.round(state.zoom * 100) / 100));
-      if (zoomKey && (e.code === "Minus" || e.code === "NumpadSubtract")) { setZoom(state.zoomValue + ZOOM_STEP); shown(); return true; }
-      if (zoomKey && (e.code === "Equal" || e.code === "NumpadAdd")) { setZoom(state.zoomValue - ZOOM_STEP); shown(); return true; }
+      if (zoomKey && isZoomOut(e.code)) { setZoom(state.zoomValue + ZOOM_STEP); holdWay = -1; heldFor = 0; shown(); return true; }
+      if (zoomKey && isZoomIn(e.code)) { setZoom(state.zoomValue - ZOOM_STEP); holdWay = 1; heldFor = 0; shown(); return true; }
       if (chord && e.code === "KeyL" && env.loadSit) { e.preventDefault(); env.loadSit(); return true; }
     }
     // X in Z mode: every computer truck's autopilot off, or on again (0x585da0); X alone is Crash Damage.
@@ -156,7 +165,27 @@ export function createGoldMode(env) {
     }
     return false;
   }
-  const onKeyUp = (e) => down.delete(e.code);
+  const onKeyUp = (e) => {
+    down.delete(e.code);
+    if ((holdWay < 0 && isZoomOut(e.code)) || (holdWay > 0 && isZoomIn(e.code)) || e.code.startsWith("Shift")) holdWay = 0;
+  };
+  /** The hold's zoom, per frame: a key held past ZOOM_HOLD_S, or the D-pad, zooms on smoothly. */
+  const stepHold = (dt) => {
+    if (!(dt > 0)) return;
+    const shiftHeld = down.has("ShiftLeft") || down.has("ShiftRight");
+    if (holdWay && !(zKeys() && (state.zMode || shiftHeld))) holdWay = 0;
+    let way = 0;
+    if (holdWay) { heldFor += dt; if (heldFor > ZOOM_HOLD_S) way = holdWay; }
+    if (padWay && zKeys()) {
+      // The D-pad's first touch is one of the game's steps, as a key's; held, it goes on as a key does.
+      if (padFor === 0) setZoom(state.zoomValue - padWay * ZOOM_STEP);
+      padFor += dt;
+      if (padFor > ZOOM_HOLD_S) way = padWay;
+    } else padFor = 0;
+    if (!way) return;
+    setZoom(heldZoom(state.zoomValue, way, dt));
+    flash(t("Zoom <<1>>x", Math.round(state.zoom * 100) / 100));
+  };
   win.addEventListener("keydown", onKeyDown);
   win.addEventListener("keyup", onKeyUp);
 
@@ -172,8 +201,10 @@ export function createGoldMode(env) {
 
   /** Per frame, after the world is drawn. */
   function afterRender(dt, levelName) {
-    if (dt > 0) fps += (1 / dt - fps) * 0.1;
-    if (state.fps) fpsPanel.set([`fps : ${fps.toFixed(1)}`]);
+    stepHold(dt);
+    // The frame time smoothed, not the rate (game/fps.js): uneven frames read at their true rate.
+    if (dt > 0) frameS += (dt - frameS) * 0.1;
+    if (state.fps) fpsPanel.set([`fps : ${(1 / frameS).toFixed(1)}`]);
     if (state.dance) drawScope();
     if (state.zMode) {
       // MTM1's Z mode adds a physics line under the overlay (0x44a1b0); `env.physicsLine` gives what the page knows of it.
@@ -198,6 +229,8 @@ export function createGoldMode(env) {
     state, slewInput, afterRender,
     /** Whether - and + are Z mode's zoom just now, and not the camera's tilt. */
     get zooming() { return state.zMode; },
+    /** The gamepad's zoom this frame: -1 (D-pad left, out), +1 (right, in) or 0. */
+    padZoom(way) { padWay = Math.sign(way || 0); },
     /** The sim polling needs the slew keys only while slewing. */
     get slewing() { return state.slew; },
     /** Whether GOLD mode takes this key itself (0, and 4 in slew mode, are its screenshot), so a number key picks no view. */

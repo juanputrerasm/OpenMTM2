@@ -12,12 +12,17 @@
   of cells around the camera, as many each way as the Evo grass slider asks (`GRASS_RADII`; Near
   is the port's first guess at the game's), the tufts shrinking away over the outer fifth.
 
+  The tufts are lit as the ground under them is (the port's own; the game's grass is not traced for it): in the
+  enhanced look by the sun and the sky, as flat ground facing up, with the sun's shadows falling on them; in the classic
+  look by the level's painted shade map (.RTD), the light the ground takes there.
+
   The tufts are written only when the camera moves into another cell: each quad's four corners
   hold its centre, and the vertex shader turns the quad to the camera and presses it under the
   trucks (`PRESSERS` of them, as uniforms), so a frame uploads nothing.
 */
 import * as THREE from "three";
 import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
+import { EVO_SHADE_LIGHT, evoShadeAt } from "../vendor/openphotex/evo/vegetation.js";
 import { msg } from "../game/strings.js";
 
 const CELL_FT = 32;
@@ -52,12 +57,16 @@ function grassTexture({ rgba, width, height }) {
 const VERTEX_PARS = /* glsl */ `
 attribute vec2 grassCorner;
 attribute vec2 grassTuft;
+// the light of the ground under the tuft (the shade map), 1 in the open
+attribute float grassShade;
+varying float vGrassShade;
 // each truck that presses the grass: scene x, z and its reach; a reach of 0 is no truck
 uniform vec3 grassPressers[${PRESSERS}];
 // how far the grass reaches from the camera, scene feet: the tufts shrink away over the outer fifth
 uniform float grassFar;
 `;
 const BEGIN_VERTEX = /* glsl */ `
+vGrassShade = grassShade;
 vec3 transformed = position;
 for ( int i = 0; i < ${PRESSERS}; i ++ ) {
   vec3 presser = grassPressers[ i ];
@@ -76,13 +85,18 @@ transformed += ( grassRight * grassCorner.x + grassUp * grassCorner.y ) * grassT
  * @param grass the build's `grass` (worker/evo-track-build.js)
  * @param terrain the main thread's terrain (shared/build-terrain.js `terrainOfBuild`)
  * @param radius cells each way around the camera (`GRASS_RADII`)
+ * @param look "classic" (unlit, the shade map's light) or "enhanced" (lit by the scene's lights, and shadowed)
  */
-export function createEvoGrass(grass, terrain, radius = GRASS_RADII[DEFAULT_GRASS_LEVEL]) {
+export function createEvoGrass(grass, terrain, radius = GRASS_RADII[DEFAULT_GRASS_LEVEL], look = "classic") {
   const CAPACITY = (2 * radius + 1) ** 2 * 32;
   const positions = new Float32Array(CAPACITY * 4 * 3);
   const uvs = new Float32Array(CAPACITY * 4 * 2);
   const tufts = new Float32Array(CAPACITY * 4 * 2);
   const corners = new Float32Array(CAPACITY * 4 * 2);
+  const shades = new Float32Array(CAPACITY * 4).fill(1);
+  // Every tuft faces up for the light, as the flat ground it stands on: its quad turns to the camera, its shading does not.
+  const normals = new Float32Array(CAPACITY * 4 * 3);
+  for (let v = 0; v < CAPACITY * 4; v++) normals[v * 3 + 1] = 1;
   const indices = new Uint32Array(CAPACITY * 6);
   for (let q = 0; q < CAPACITY; q++) {
     indices.set([q * 4, q * 4 + 1, q * 4 + 2, q * 4, q * 4 + 2, q * 4 + 3], q * 6);
@@ -93,22 +107,31 @@ export function createEvoGrass(grass, terrain, radius = GRASS_RADII[DEFAULT_GRAS
   geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
   geometry.setAttribute("grassTuft", new THREE.BufferAttribute(tufts, 2));
   geometry.setAttribute("grassCorner", new THREE.BufferAttribute(corners, 2));
+  geometry.setAttribute("grassShade", new THREE.BufferAttribute(shades, 1));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.setDrawRange(0, 0);
   const pressers = { value: Array.from({ length: PRESSERS }, () => new THREE.Vector3()) };
   const far = { value: radius * CELL_FT };
-  const material = new THREE.MeshBasicMaterial({ map: grassTexture(grass.texture), alphaTest: 0.5, side: THREE.DoubleSide, fog: true });
+  const lit = look !== "classic";
+  const Material = lit ? THREE.MeshLambertMaterial : THREE.MeshBasicMaterial;
+  const material = new Material({ map: grassTexture(grass.texture), alphaTest: 0.5, side: THREE.DoubleSide, fog: true });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.grassPressers = pressers;
     shader.uniforms.grassFar = far;
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", `#include <common>\n${VERTEX_PARS}`)
       .replace("#include <begin_vertex>", BEGIN_VERTEX);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying float vGrassShade;")
+      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= vGrassShade;");
   };
-  material.customProgramCacheKey = () => "evo-grass";
+  material.customProgramCacheKey = () => `evo-grass-${lit ? "lit" : "flat"}`;
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = "evoGrass";
   mesh.frustumCulled = false;
+  // The sun's shadows fall on it (the enhanced look); it casts none, as a ground's cover.
+  mesh.receiveShadow = lit;
   const height = (x, z) => mtm2Sim.terrainHeightAt(terrain, x, z);
   return { mesh, grass, height, pressers, radius, capacity: CAPACITY, cell: null };
 }
@@ -117,7 +140,7 @@ export function createEvoGrass(grass, terrain, radius = GRASS_RADII[DEFAULT_GRAS
 function refill(state, cx, cz) {
   const { grass, height, mesh, radius: RADIUS_CELLS, capacity: CAPACITY } = state;
   const attributes = mesh.geometry.attributes;
-  const pos = attributes.position.array, uv = attributes.uv.array, tuft = attributes.grassTuft.array;
+  const pos = attributes.position.array, uv = attributes.uv.array, tuft = attributes.grassTuft.array, shade = attributes.grassShade.array;
   let n = 0;
   for (let dz = -RADIUS_CELLS; dz <= RADIUS_CELLS; dz++) {
     for (let dx = -RADIUS_CELLS; dx <= RADIUS_CELLS; dx++) {
@@ -135,11 +158,14 @@ function refill(state, cx, cz) {
         // Pressed, the tuft's centre is at ground + bias * size * 0.25.
         const drop = ground + bias * size * 0.25 - y;
         const u0 = (slot & 1 ? 0.5 : 0), v0 = (slot & 2 ? 0.5 : 0);
+        // The light of the ground there (worker/evo-track-build.js shades the terrain by the same map).
+        const light = grass.rtd && evoShadeAt(grass.rtd, x, z) ? EVO_SHADE_LIGHT : 1;
         for (let k = 0; k < 4; k++) {
           const p = (n * 4 + k) * 3, q = (n * 4 + k) * 2;
           // The scene mirrors z.
           pos[p] = x; pos[p + 1] = y; pos[p + 2] = -z;
           tuft[q] = size; tuft[q + 1] = drop;
+          shade[n * 4 + k] = light;
         }
         // Rows of the art run from the top (the texture is not flipped): v grows downward.
         uv.set([u0 + UV_LO, v0 + UV_HI, u0 + UV_HI, v0 + UV_HI, u0 + UV_HI, v0 + UV_LO, u0 + UV_LO, v0 + UV_LO], n * 8);
@@ -147,7 +173,7 @@ function refill(state, cx, cz) {
       }
     }
   }
-  for (const name of ["position", "uv", "grassTuft"]) {
+  for (const name of ["position", "uv", "grassTuft", "grassShade"]) {
     attributes[name].clearUpdateRanges();
     attributes[name].addUpdateRange(0, n * 4 * attributes[name].itemSize);
     attributes[name].needsUpdate = true;
