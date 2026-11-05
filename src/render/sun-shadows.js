@@ -351,7 +351,9 @@ export class SunShadows {
     const own = Object.prototype.hasOwnProperty.call(material, "onBeforeCompile") ? material.onBeforeCompile : null;
     // What tells this material's own shader from another's: the key it gives itself, or else its hook's text. Two
     // materials may share a hook's text and differ in what the hook was made with (render/ground-surface.js).
-    const ownKey = own ? material.customProgramCacheKey() : "";
+    // Read when three.js asks, not now: a hook's lines can change later (render/ground-detail.js gives up tile stacks),
+    // and a key kept from now would hand the material its old program back.
+    const ownKey = own ? material.customProgramCacheKey.bind(material) : () => "";
     this._csm.setupMaterial(material);
     const depths = this._depths;
     if (!own && !depths) return;
@@ -364,8 +366,8 @@ export class SunShadows {
       if (depths) shader.uniforms.mtmShadowDepth = { value: depths };
     };
     if (own) {
-      const key = `${ownKey}|${csmHook.toString()}`;
-      material.customProgramCacheKey = () => key;
+      const csmKey = csmHook.toString();
+      material.customProgramCacheKey = () => `${ownKey()}|${csmKey}`;
     }
     material.needsUpdate = true;
   }

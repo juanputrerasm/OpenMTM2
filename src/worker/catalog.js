@@ -133,9 +133,12 @@ async function cprTracks(vfs, problems) {
   return tracks;
 }
 
-/** A header's bitmap name as the UI archive is asked for it: no folder, no extension, upper case; null when it is no plain name. */
+/**
+ * A header's bitmap name as the UI archive is asked for it: no folder, no extension, upper case; null when it is no plain
+ * name. A name given as the HD file (`.PNG`, `.TGA`) has the same stem: the picture is looked for by it (worker/track-picture.js).
+ */
 export function bmpStem(name) {
-  const stem = String(name ?? "").replace(/^.*[\\/]/, "").replace(/\.bmp$/i, "").toUpperCase();
+  const stem = String(name ?? "").replace(/^.*[\\/]/, "").replace(/\.(bmp|png|tga)$/i, "").toUpperCase();
   return /^[A-Z0-9_-]+$/.test(stem) ? stem : null;
 }
 

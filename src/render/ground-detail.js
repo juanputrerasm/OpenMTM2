@@ -21,6 +21,7 @@ import { CLIFF_NORMAL, GRAIN, PATCHES, grainShare } from "../game/ground-detail.
 import { WEATHER_LOOK } from "../game/weather.js";
 import { SHARED_NOISE_GLSL, sharedNoiseUniforms } from "./noise-textures.js";
 import { addShaderHook } from "./shader-hooks.js";
+import { TILE_STACK_BUDGET, inSlotOrder, mergeTileStacks } from "../worker/terrain-mesh.js";
 
 const glsl = (n) => n.toFixed(5);
 /** How many mip levels further down a tile's texels have run together into its colour: a 64 texel tile is 8 across there. */
@@ -62,7 +63,7 @@ uniform vec2 uDetTile;
 // 1 the full detail, 0 the light one (a headset)
 uniform float uDetFull;
 #ifdef DET_TILES
-  uniform highp sampler2DArray uDetTiles;
+${stacksGlsl("uDet", "detTile")}
 #endif
 // One face of the grain, seen \`weight\` of the whole: its noise at \`at\`, lit by the sun along \`sun\`. A face seen so little
 // that its grain could not change a shade (\`weight\` under ${glsl(FACE_UNSEEN)}) gives its mean without being read: on level ground
@@ -93,7 +94,7 @@ const MAP = /* glsl */ `
     // from a cell into the next: taken from the square it would jump at every cell's edge.
     vec2 detLocal = ( detPx - detCell * uDetAtlas.z - uDetAtlas.w ) / uDetTile.x;
     vec2 detAcross = dFdx( vMapUv * uDetAtlas.xy ) / uDetTile.x, detDown = dFdy( vMapUv * uDetAtlas.xy ) / uDetTile.x;
-    vec4 sampledDiffuseColor = textureGrad( uDetTiles, vec3( detLocal, detSlot ), detAcross, detDown );
+    vec4 sampledDiffuseColor = detTile( detLocal, detSlot, detAcross, detDown );
   #else
     vec4 sampledDiffuseColor = texture2D( map, vSlotUv );
   #endif
@@ -112,9 +113,14 @@ const MAP = /* glsl */ `
     // Far off a tile's own picture is what shows it repeating, cell after cell: there too it gives its colour.
     // Its colour is the tile read that many levels further down than the distance asks, so it never reads finer than the screen can show.
     // (Level ground near by takes none of it, and does not read it.)
-    float detFlatShare = max( detCliff * 0.7, detFar * ${glsl(PATCHES.farFlat)} );
+    // A ground box's wall is not a cliff: its tile is laid on it square, a building's front, and keeps its picture.
+    #ifdef DET_WALLS
+      float detFlatShare = detFar * ${glsl(PATCHES.farFlat)};
+    #else
+      float detFlatShare = max( detCliff * 0.7, detFar * ${glsl(PATCHES.farFlat)} );
+    #endif
     if ( detFlatShare > 0.0 ) {
-      vec3 detFlat = textureGrad( uDetTiles, vec3( detLocal, detSlot ), detAcross * ${glsl(2 ** FLAT_LEVELS)}, detDown * ${glsl(2 ** FLAT_LEVELS)} ).rgb;
+      vec3 detFlat = detTile( detLocal, detSlot, detAcross * ${glsl(2 ** FLAT_LEVELS)}, detDown * ${glsl(2 ** FLAT_LEVELS)} ).rgb;
       sampledDiffuseColor.rgb = mix( sampledDiffuseColor.rgb, detFlat, detFlatShare );
     }
   #endif
@@ -142,34 +148,151 @@ const MAP = /* glsl */ `
 #endif
 `;
 
+/*
+  The tiles are read from up to MAX_STACKS stacks, one for each tile width (worker/terrain-mesh.js `planTileStacks`), so
+  a 1024 px building front and a 64 px patch of grass each keep their own size. `<prefix>Place` says, a texel a slot,
+  which stack a slot is in (red) and its layer there (green, then blue for the high byte). One stack has no table: its
+  layers are in slot order (`stackTextures`), and the ground's shader, near the sixteen textures a graphics card may
+  give one, spends one texture on its tiles as it always did.
+*/
+const MAX_STACKS = 4;
+function stacksGlsl(prefix, name) {
+  const count = `${prefix.toUpperCase()}_STACKS`;
+  return `  #if ${count} > 1
+    uniform highp sampler2D ${prefix}Place;
+  #endif
+${[0, 1, 2, 3].map((i) => `  #if ${count} > ${i}\n    uniform highp sampler2DArray ${prefix}Tiles${i};\n  #endif`).join("\n")}
+  vec4 ${name}( vec2 local, float slot, vec2 across, vec2 down ) {
+    #if ${count} > 1
+      vec4 place = floor( texelFetch( ${prefix}Place, ivec2( int( slot + 0.5 ), 0 ), 0 ) * 255.0 + 0.5 );
+      vec3 at = vec3( local, place.g + place.b * 256.0 );
+${[3, 2, 1].map((i) => `      #if ${count} > ${i}\n        if ( place.r > ${i - 0.5} ) return textureGrad( ${prefix}Tiles${i}, at, across, down );\n      #endif`).join("\n")}
+    #else
+      vec3 at = vec3( local, slot );
+    #endif
+    return textureGrad( ${prefix}Tiles0, at, across, down );
+  }`;
+}
+
 /**
- * The atlas's tiles as a stack, one layer a slot, or null where the graphics card cannot hold
- * that many layers (the ground then keeps its atlas, with the grain over it).
+ * The tiles' layers as plain data, `{ stacks, place }` as worker/terrain-mesh.js `buildTileStacks` gives them: the
+ * worker's own (`atlas.stacks`, the HD tiles at their own size), or one stack copied from the atlas. null without a layout.
  */
-function tileStack(atlas, renderer, look) {
-  const { rgba, width, tileSide: side, padding = 0, slots } = atlas;
+function stackLayers(atlas) {
+  const { rgba, width, tileSide: side, padding = 0, slots, stacks: own = null } = atlas;
   if (!side || !slots) return null;
-  const gl = renderer.getContext();
-  if (!gl.getParameter || slots > gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS) || side > gl.getParameter(gl.MAX_TEXTURE_SIZE)) return null;
+  if (own?.stacks) return { stacks: own.stacks, place: own.place };
   const pitch = side + padding * 2, cols = Math.round(width / pitch);
   const data = new Uint8Array(side * side * 4 * slots);
+  const place = new Uint8Array(slots * 4);
   for (let slot = 0; slot < slots; slot++) {
+    place.set([0, slot & 255, slot >> 8, 0], slot * 4);
     const ox = (slot % cols) * pitch + padding, oy = Math.floor(slot / cols) * pitch + padding;
     for (let y = 0; y < side; y++) {
       const from = ((oy + y) * width + ox) * 4;
       data.set(rgba.subarray(from, from + side * 4), (slot * side + y) * side * 4);
     }
   }
-  const stack = new THREE.DataArrayTexture(data, side, side, slots);
-  stack.format = THREE.RGBAFormat;
-  stack.colorSpace = THREE.SRGBColorSpace;
-  // The classic look keeps its square texels close up; either look is filtered down for the distance.
-  stack.magFilter = look === "classic" ? THREE.NearestFilter : THREE.LinearFilter;
-  stack.minFilter = THREE.LinearMipmapLinearFilter;
-  stack.generateMipmaps = true;
-  stack.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy());
-  stack.needsUpdate = true;
-  return stack;
+  return { stacks: [{ data, side, slots }], place };
+}
+
+/** The layers (`stackLayers`) as textures, `{ textures, place }`, or null where the graphics card cannot hold them. */
+function stackTextures({ stacks: layers, place }, slots, renderer, look) {
+  const gl = renderer.getContext();
+  const maxLayers = gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS), maxSide = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+  if (layers.length > MAX_STACKS || slots > maxSide || layers.some((stack) => stack.slots > maxLayers || stack.side > maxSide)) return null;
+  // One stack is read without the table: its layers go in slot order (two widths made one leave them in another).
+  if (layers.length === 1) layers = [inSlotOrder(layers[0], place)];
+  const textures = layers.map(({ data, side: layerSide, slots: count }) => {
+    const stack = new THREE.DataArrayTexture(data, layerSide, layerSide, count);
+    stack.format = THREE.RGBAFormat;
+    stack.colorSpace = THREE.SRGBColorSpace;
+    // The classic look keeps its square texels close up; either look is filtered down for the distance.
+    stack.magFilter = look === "classic" ? THREE.NearestFilter : THREE.LinearFilter;
+    stack.minFilter = THREE.LinearMipmapLinearFilter;
+    stack.generateMipmaps = true;
+    stack.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy());
+    stack.needsUpdate = true;
+    return stack;
+  });
+  let placeTexture = null;
+  if (textures.length > 1) {
+    placeTexture = new THREE.DataTexture(place, slots, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
+    placeTexture.magFilter = placeTexture.minFilter = THREE.NearestFilter;
+    placeTexture.generateMipmaps = false;
+    placeTexture.needsUpdate = true;
+  }
+  return {
+    textures, place: placeTexture,
+    /** The stacks' uniforms under `prefix`, and the define that says how many there are. */
+    uniforms: (prefix) => Object.fromEntries([
+      ...(placeTexture ? [[`${prefix}Place`, { value: placeTexture }]] : []), ...textures.map((t, i) => [`${prefix}Tiles${i}`, { value: t }]),
+    ]),
+    define: (prefix) => `#define ${prefix.toUpperCase()}_STACKS ${textures.length}\n`,
+    dispose() { for (const t of textures) t.dispose(); placeTexture?.dispose(); },
+  };
+}
+
+
+/*
+  The ground's shader is near the sixteen textures a graphics card may give one (render/noise-textures.js), and each stack
+  is one more. What else the ground's shader reads (the weather, the water's bed, the tracks, the fog, the shadows) is
+  only known once three.js has built it, so the stacks are checked there: a program that did not link draws no ground
+  at all, and the stacks give up a texture (two widths made one, worker/terrain-mesh.js `mergeTileStacks`) and the
+  ground is built again, down to one stack and then to the atlas.
+*/
+function createTileSource(atlas, renderer, look) {
+  const gl = renderer.getContext();
+  if (!gl.getParameter) return null;
+  const slots = atlas.slots;
+  let layers = stackLayers(atlas);
+  let stack = layers ? stackTextures(layers, slots, renderer, look) : null;
+  const materials = new Set(), seen = new WeakSet();
+  function giveUp() {
+    const before = stack.textures.length;
+    const merged = before > 1 ? mergeTileStacks(layers, { smooth: look !== "classic", budgetBytes: TILE_STACK_BUDGET }) : null;
+    stack.dispose();
+    layers = merged;
+    stack = merged ? stackTextures(merged, slots, renderer, look) : null;
+    console.warn(`The ground's shader did not build with ${before} tile stack(s), too many textures for this graphics card: built again with ${stack ? `${stack.textures.length}` : "the atlas"}.`);
+    for (const material of materials) material.needsUpdate = true;
+  }
+  return {
+    /** The stacks as they are now (`stackTextures`), or null: the atlas. */
+    get stack() { return stack; },
+    /** A material that reads the stacks, to be checked. */
+    watch(material) { materials.add(material); },
+    /**
+     * Whether a program three.js built for the watched materials since the last call failed to link: the stacks then
+     * give up a texture and their materials are built again. True when that happened.
+     */
+    check() {
+      if (!stack) return false;
+      let failed = false;
+      for (const material of materials) {
+        for (const program of renderer.properties.get(material).programs?.values() ?? []) {
+          if (seen.has(program) || (program.isReady && !program.isReady())) continue;
+          seen.add(program);
+          if (!gl.getProgramParameter(program.program, gl.LINK_STATUS)) failed = true;
+        }
+      }
+      if (failed) giveUp();
+      return failed;
+    },
+    dispose() { stack?.dispose(); stack = null; materials.clear(); },
+  };
+}
+
+/** Whether a material draws ground boxes (render/track-scene.js `createGroundBoxes`), whose walls are not cliffs. */
+const isBoxes = (material) => !!material?.userData?.groundBoxes;
+
+/** What a shader needs to find a point's tile in `atlas`: the atlas's size, a slot's pitch and the padding; the tile's side and slots a row. */
+function atlasUniforms(atlas) {
+  const pitch = (atlas.tileSide ?? 64) + (atlas.padding ?? 0) * 2;
+  return {
+    layout: new THREE.Vector4(atlas.width, atlas.height, pitch, atlas.padding ?? 0),
+    tile: new THREE.Vector2(atlas.tileSide ?? 64, Math.max(1, Math.round(atlas.width / pitch))),
+  };
 }
 
 /**
@@ -181,31 +304,43 @@ function tileStack(atlas, renderer, look) {
  *   sun, whose position is the way to it.
  */
 export function createGroundDetail({ world, atlas, textureValues = null, renderer, sun, look = "enhanced", boxes = true }) {
-  const stack = tileStack(atlas, renderer, look);
-  const slots = Math.max(1, atlas.slots ?? 1), pitch = (atlas.tileSide ?? 64) + (atlas.padding ?? 0) * 2;
-  const shares = new Uint8Array(slots);
-  for (let slot = 0; slot < slots; slot++) shares[slot] = Math.round(grainShare(textureValues?.[slot] ?? 0) * 255);
-  const shareTexture = new THREE.DataTexture(shares, slots, 1, THREE.RedFormat, THREE.UnsignedByteType);
-  shareTexture.magFilter = shareTexture.minFilter = THREE.NearestFilter;
-  shareTexture.generateMipmaps = false;
-  shareTexture.needsUpdate = true;
-  const uniforms = {
-    ...sharedNoiseUniforms(), uDetShare: { value: shareTexture }, uDetTiles: { value: stack },
+  const common = {
+    ...sharedNoiseUniforms(),
     uDetSun: { value: new THREE.Vector4(0, 1, 0, 1) },
-    uDetAtlas: { value: new THREE.Vector4(atlas.width, atlas.height, pitch, atlas.padding ?? 0) },
-    uDetTile: { value: new THREE.Vector2(atlas.tileSide ?? 64, Math.max(1, Math.round(atlas.width / pitch))) },
     uDetFull: { value: 1 },
   };
-  const defines = stack ? "#define DET_TILES\n" : "";
+  // The ground's tiles, which its boxes share, and what the shader needs to read them.
+  let source = null, fixed = null, plain = null;
+  function prepare() {
+    if (fixed) return;
+    source = createTileSource(atlas, renderer, look);
+    const slots = Math.max(1, atlas.slots ?? 1);
+    const shares = new Uint8Array(slots);
+    for (let slot = 0; slot < slots; slot++) shares[slot] = Math.round(grainShare(textureValues?.[slot] ?? 0) * 255);
+    const shareTexture = new THREE.DataTexture(shares, slots, 1, THREE.RedFormat, THREE.UnsignedByteType);
+    shareTexture.magFilter = shareTexture.minFilter = THREE.NearestFilter;
+    shareTexture.generateMipmaps = false;
+    shareTexture.needsUpdate = true;
+    const { layout, tile } = atlasUniforms(atlas);
+    fixed = { shareTexture, uniforms: { uDetShare: { value: shareTexture }, uDetAtlas: { value: layout }, uDetTile: { value: tile } } };
+    plain = source?.stack ? plainTiles(source, atlas) : null;
+  }
   const dressed = new Set();
 
-  /** Give a ground material the detail. */
+  /** Give a ground material the detail; a ground box's, with "Ground box grain" off, only its tiles. */
   function dress(material) {
     if (!material?.map || dressed.has(material)) return material;
     dressed.add(material);
+    prepare();
+    if (isBoxes(material) && !boxes) return plain ? plain(material) : material;
+    source?.watch(material);
+    const walls = isBoxes(material);
+    const stack = () => source?.stack ?? null;
     // After the hooks that add lines beside three.js's read of the map: this one replaces it.
-    return addShaderHook(material, `ground-detail:${stack ? "tiles" : "atlas"}`, 20, (shader) => {
-      Object.assign(shader.uniforms, uniforms);
+    return addShaderHook(material, () => `ground-detail:${stack() ? `tiles${stack().textures.length}` : "atlas"}${walls ? ":walls" : ""}`, 20, (shader) => {
+      const now = stack();
+      const defines = `${now ? `#define DET_TILES\n${now.define("uDet")}` : ""}${walls ? "#define DET_WALLS\n" : ""}`;
+      Object.assign(shader.uniforms, common, fixed.uniforms, now?.uniforms("uDet"));
       shader.vertexShader = shader.vertexShader
         .replace("#include <common>", `#include <common>\n${VERTEX_PARS}`)
         .replace("#include <project_vertex>", `#include <project_vertex>\n${VERTEX}`);
@@ -215,24 +350,27 @@ export function createGroundDetail({ world, atlas, textureValues = null, rendere
     });
   }
   // `boxes` false ("Ground box grain" off): the ground boxes (walls, buildings, signs) keep their own textures plain.
-  world.traverse((object) => { if ((object.name === "terrain" || (boxes && object.name === "groundBoxes")) && object.material) dress(object.material); });
+  world.traverse((object) => { if ((object.name === "terrain" || object.name === "groundBoxes") && object.material) dress(object.material); });
 
   return {
     /** Dress one more material as the terrain's is (the lit twin of the classic look's, render/weather-scene.js). */
     dress,
+    /** After a frame or a build of the scene's shaders: whether the ground's had to be built again (`createTileSource`). */
+    check: () => source?.check() ?? false,
     /**
      * Once a frame: `weather` decides how much of the light is the sun's, which is what shows
      * the grain's slopes; `lite` (a headset) reads the grain from above only.
      */
     update({ weather = 0, lite = false } = {}) {
-      const way = uniforms.uDetSun.value;
+      const way = common.uDetSun.value;
       way.set(sun.position.x, sun.position.y, sun.position.z, 0).normalize();
       way.w = 2.2 * (WEATHER_LOOK[weather]?.sun ?? 1);
-      uniforms.uDetFull.value = lite ? 0 : 1;
+      common.uDetFull.value = lite ? 0 : 1;
     },
     dispose() {
-      stack?.dispose();
-      shareTexture.dispose();
+      source?.dispose();
+      fixed?.shareTexture.dispose();
+      source = fixed = plain = null;
       dressed.clear();
     },
   };
@@ -241,7 +379,7 @@ export function createGroundDetail({ world, atlas, textureValues = null, rendere
 /* The tiles alone, for the ground without "Ground detail": the stack's read in place of the atlas's, nothing over it. */
 const TILES_PARS = /* glsl */ `
 ${SLOT_UV_PARS}
-uniform highp sampler2DArray uGndTiles;
+${stacksGlsl("uGnd", "gndTile")}
 // the atlas's width and height in texels, a slot's pitch, the padding round a tile
 uniform vec4 uGndAtlas;
 // a tile's side in texels, slots a row
@@ -252,44 +390,56 @@ const TILES_MAP = /* glsl */ `
   vec2 gndPx = vSlotUv * uGndAtlas.xy;
   vec2 gndCell = floor( gndPx / uGndAtlas.z );
   vec2 gndLocal = ( gndPx - gndCell * uGndAtlas.z - uGndAtlas.w ) / uGndTile.x;
-  vec4 sampledDiffuseColor = textureGrad( uGndTiles, vec3( gndLocal, gndCell.y * uGndTile.y + gndCell.x ),
+  vec4 sampledDiffuseColor = gndTile( gndLocal, gndCell.y * uGndTile.y + gndCell.x,
     dFdx( vMapUv * uGndAtlas.xy ) / uGndTile.x, dFdy( vMapUv * uGndAtlas.xy ) / uGndTile.x );
   diffuseColor *= sampledDiffuseColor;
 #endif
 `;
 
 /**
- * Mipmapped ground for every picture (docs/VISUALS.md, "Ground"): the atlas cannot be shrunk for the distance without
- * its tiles' neighbours running in, so its tiles are read from a stack, each filtered down by itself, and far ground
- * stops shimmering. What "Ground detail" does with the grain left out; null where the atlas has no layout (a level of
- * another game) or the graphics card cannot hold the stack, and the ground keeps its atlas.
+ * The plain tiles hook for a tile source's stacks (`createTileSource`): `(material) => material`, the stacks' read in
+ * place of the atlas's. Once the source has given its stacks up, the material reads its atlas as three.js does.
  */
-export function createGroundTiles({ world, atlas, renderer, look = "classic" }) {
-  const stack = tileStack(atlas, renderer, look);
-  if (!stack) return null;
-  const pitch = atlas.tileSide + (atlas.padding ?? 0) * 2;
-  const uniforms = {
-    uGndTiles: { value: stack },
-    uGndAtlas: { value: new THREE.Vector4(atlas.width, atlas.height, pitch, atlas.padding ?? 0) },
-    uGndTile: { value: new THREE.Vector2(atlas.tileSide, Math.max(1, Math.round(atlas.width / pitch))) },
-  };
-  const dressed = new Set();
-  function dress(material) {
-    if (!material?.map || dressed.has(material)) return material;
-    dressed.add(material);
-    return addShaderHook(material, "ground-tiles", 20, (shader) => {
-      Object.assign(shader.uniforms, uniforms);
+function plainTiles(source, tiles) {
+  const { layout, tile } = atlasUniforms(tiles);
+  const fixed = { uGndAtlas: { value: layout }, uGndTile: { value: tile } };
+  return (material) => {
+    source.watch(material);
+    return addShaderHook(material, () => (source.stack ? `ground-tiles${source.stack.textures.length}` : "ground-tiles:atlas"), 20, (shader) => {
+      const stack = source.stack;
+      if (!stack) return;
+      Object.assign(shader.uniforms, fixed, stack.uniforms("uGnd"));
       shader.vertexShader = shader.vertexShader
         .replace("#include <common>", `#include <common>\n${SLOT_UV_PARS}`)
         .replace("#include <project_vertex>", `#include <project_vertex>\n${SLOT_UV}`);
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>\n${TILES_PARS}`)
+        .replace("#include <common>", `#include <common>\n${stack.define("uGnd")}${TILES_PARS}`)
         .replace("#include <map_fragment>", TILES_MAP);
     });
+  };
+}
+
+/**
+ * Mipmapped ground for every picture (docs/VISUALS.md, "Ground"): the atlas cannot be shrunk for the distance without
+ * its tiles' neighbours running in, so its tiles are read from a stack, each filtered down by itself, and far ground
+ * stops shimmering. What "Ground detail" does with the grain left out; null where the atlas has no layout (a level of
+ * another game) or the graphics card cannot hold the stacks, and the ground keeps its atlas.
+ */
+export function createGroundTiles({ world, atlas, renderer, look = "classic" }) {
+  const source = createTileSource(atlas, renderer, look);
+  if (!source?.stack) { source?.dispose(); return null; }
+  const plain = plainTiles(source, atlas);
+  const dressed = new Set();
+  function dress(material) {
+    if (!material?.map || dressed.has(material)) return material;
+    dressed.add(material);
+    return plain(material);
   }
   world.traverse((object) => { if ((object.name === "terrain" || object.name === "groundBoxes") && object.material) dress(object.material); });
   return {
     dress,
-    dispose() { stack.dispose(); dressed.clear(); },
+    /** After a frame or a build of the scene's shaders: whether the ground's had to be built again (`createTileSource`). */
+    check: () => source.check(),
+    dispose() { source.dispose(); dressed.clear(); },
   };
 }

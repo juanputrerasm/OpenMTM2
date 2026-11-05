@@ -263,6 +263,26 @@ and stops shimmering. Close up the game's look keeps its square texels. A level 
 layout (another game's) keeps its atlas. The game's own water sheet, repeated 256 times over
 the level, is mipmapped too (`src/render/water-effects.js`).
 
+**HD tiles at their own size.** The atlas holds every tile at the widest tile's size, with
+Community Patch 3's HD tiles shrunk to 256 px so it stays within 8192 texels. The stacks do not
+come from the atlas when a track has wider art: the worker builds them from the tiles themselves,
+one stack for each tile width (at most four; the narrowest go up to the next), up to 1024 px a
+layer, the widest halved until all of them take 512 MB at most (before their smaller copies). A
+table of one texel a slot says which stack and layer a slot is in, and the ground and the ground
+boxes read their tile from that stack. A slot that no cell and no box face names is left out. A box's wall is not a cliff to the detail: it keeps its own
+picture where a cliff takes the tile's colour.
+
+**Fewer stacks where the card has no room.** Each stack is one more texture for the ground's
+shader, which is near the sixteen a graphics card may give one; what else it reads (the weather,
+the water's bed, the tracks, the fog, the shadows) is only known once three.js has built it. So
+the renderer checks each program built for the ground: one that did not link (it would draw no
+ground at all) makes the stacks give up a texture and the ground is built again. Two neighbouring
+widths become one, the pair that grows least joined at the wider side (the narrower tiles scaled
+up), or past 512 MB the two widest at the widest side that fits (`mergeTileStacks`); after one
+stack, the atlas. One stack is read without the table (its layers in slot order), one texture
+less. The race does this while its shaders are built behind the loading screen; elsewhere it
+happens after the first frame.
+
 **Grain.** A field of clods and grit of the port's own (`detailNoise`,
 `src/render/noise-textures.js`) is laid over the tiles at two scales. Each makes the ground
 lighter and darker by its height, and by how its slopes face the sun, as much as the weather's
@@ -2140,7 +2160,7 @@ the default. Off, FXAA, SMAA and TAA take its place when chosen and were not mea
   cascade a truck's shadow cannot reach skips that truck. Without Natural light the maps are
   drawn in full, as before.
 - **Ground detail.** The stack is the atlas again in memory, with its smaller copies a third
-  more. Up to fourteen texture reads a point of ground, eight in a headset; on level ground
+  more; on a track with HD ground art, its tiles at their own size, up to 512 MB with theirs. Up to fourteen texture reads a point of ground, eight in a headset; on level ground
   near by, seven.
 - **Paint.** A few lines in a truck's materials.
 - **Lens.** The scene's picture in half floats, and the glow's ten smaller pictures. The bright

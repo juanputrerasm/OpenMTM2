@@ -16,6 +16,7 @@ import { buildSky, buildTrackRender, transferablesOf } from "./track-build.js";
 import { lenientKlp } from "../game/sound-model.js";
 import { SOUND_EXTENSIONS, findSound, soundStem } from "./sound-file.js";
 import { buildTruckPreview } from "./preview-build.js";
+import { readTrackPicture } from "./track-picture.js";
 import { loadingScreen } from "./screen-art.js";
 import { truckEnvMap } from "./env-map.js";
 import { loadCockpit, cockpitArt } from "./cockpit-art.js";
@@ -32,6 +33,17 @@ import { FONT_SHEETS, parseBitmapFont } from "./bitmap-font.js";
 import { readUserData, removeUserData, writeUserData } from "./user-data.js";
 import { crcStart, crcUpdate } from "../net/vendor/mtmnet/track-crc.js";
 import { replyError, sendWorkerFaults } from "../shared/worker-faults.js";
+
+/** RGBA pixels as PNG bytes, through an OffscreenCanvas; null where the worker has none. */
+async function encodePng({ width, height, rgba }) {
+  if (typeof OffscreenCanvas === "undefined") return null;
+  const canvas = new OffscreenCanvas(width, height);
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  context.putImageData(new ImageData(new Uint8ClampedArray(rgba.buffer, rgba.byteOffset, rgba.byteLength), width, height), 0, 0);
+  const blob = await canvas.convertToBlob({ type: "image/png" });
+  return new Uint8Array(await blob.arrayBuffer());
+}
 
 /** A reply whose buffers move to the main thread instead of being copied. */
 const TRANSFER = Symbol("transfer");
@@ -229,6 +241,18 @@ const handlers = {
     if (!bytes) return null;
     const own = ownBytes(bytes);
     return withTransfer(own, [own.buffer]);
+  },
+
+  /**
+   * A track's picture for the Races screen (worker/track-picture.js): `{ bytes, type }` from the PNG, TGA or BMP with
+   * the stem its SIT names, in that order, or null. A TGA is sent as a PNG, which a browser can show.
+   */
+  async trackPicture({ name }) {
+    const vfs = await mounted();
+    const picture = await readTrackPicture((path) => vfs.read(path), name, { encode: encodePng });
+    if (!picture) return null;
+    const own = ownBytes(picture.bytes);
+    return withTransfer({ bytes: own, type: picture.type }, [own.buffer]);
   },
 
   /** A `UI\\*.TXT` (the About screen's LEGAL.TXT) as text with CRLF kept, or null. */

@@ -151,6 +151,12 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
   /** Each hull point's place on the body as it is, found when first asked for and again after the body changes. */
   const hullOnBody = new Map();
   const bodyChanged = () => { hullOnBody.clear(); lamps.fit?.(shiftAt); };
+  /*
+    Dents made together (`dents`): each only moves vertices, and the body's normals, bounds and lamps are put right once
+    at the end. Smoothing the whole body is the dear part, and one contact can dent a zone several times in a frame.
+  */
+  let batching = 0, bodyDented = false;
+  const dentedMeshes = new Set();
 
   const scratch = new Array(16);
   const m4 = new THREE.Matrix4();
@@ -173,15 +179,38 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
         if (!count) continue;
         moved += count;
         attribute.needsUpdate = true;
-        mesh.geometry.computeBoundingSphere();
+        if (batching) dentedMeshes.add(mesh);
+        else mesh.geometry.computeBoundingSphere();
       }
-      if (moved) { smoothBody(); bodyChanged(); }
+      if (moved) {
+        if (batching) bodyDented = true;
+        else { smoothBody(); bodyChanged(); }
+      }
       // The same damage call knocks the lamps near the zone's point askew (11b), whatever was dented.
       lamps.knock?.(point, direction, random);
       return moved;
     },
+    /**
+     * Run `fn`, whose `dent` calls are put right together when it returns: the same body as denting one by one, with
+     * the normals smoothed once (the lamps follow the panels as before). Returns what `fn` returns.
+     */
+    dents(fn) {
+      batching++;
+      try {
+        return fn();
+      } finally {
+        if (--batching === 0) {
+          for (const mesh of dentedMeshes) mesh.geometry.computeBoundingSphere();
+          dentedMeshes.clear();
+          if (bodyDented) { bodyDented = false; smoothBody(); bodyChanged(); }
+        }
+      }
+    },
     /** Put every vertex back: the damage is repaired. */
     repair() {
+      // Dents still waiting in a batch are undone with the rest.
+      bodyDented = false;
+      dentedMeshes.clear();
       for (const { mesh, original, originalNormals } of bodyMeshes) {
         const attribute = mesh.geometry.getAttribute("position");
         attribute.array.set(original);

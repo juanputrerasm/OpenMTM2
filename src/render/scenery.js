@@ -228,6 +228,17 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
       } finally {
         fogState?.end();
       }
+      // A ground shader that did not build (too many textures for the graphics card) is built again with fewer (render/ground-detail.js).
+      groundDetail?.check();
+      groundTiles?.check();
+    },
+    /**
+     * Whether the ground's shaders, as built so far, had to give up a texture and be built again: then the scene's
+     * shaders are to be built again before it is drawn (render/ground-detail.js).
+     */
+    fitGround() {
+      const detail = groundDetail?.check() ?? false, tiles = groundTiles?.check() ?? false;
+      return detail || tiles;
     },
     /**
      * After the scene was drawn with `view` somewhere other than through `draw` (the rear-view mirror): what is drawn

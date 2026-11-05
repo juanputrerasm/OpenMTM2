@@ -74,8 +74,8 @@ export function createCombatScene(scene) {
     if (puffs.length >= MOST_PUFFS) { const old = puffs.shift(); old.sprite.visible = false; root.remove(old.sprite); freeSprites.push(old.sprite); }
     const sprite = spriteOf();
     sprite.material.color.set(colour);
+    // Blending is drawing state, not part of the shader: no rebuild of the material for it.
     sprite.material.blending = flame ? THREE.AdditiveBlending : THREE.NormalBlending;
-    sprite.material.needsUpdate = true;
     puffs.push({ sprite, pos: [...pos], size, grow, rise, life, age: 0, opacity, drift: [(Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2] });
   };
 
@@ -90,7 +90,9 @@ export function createCombatScene(scene) {
   const diffGeometry = new THREE.SphereGeometry(0.9, 10, 8);
   const parts = [];
   const flashes = [];
-  const flashMaterial = () => new THREE.SpriteMaterial({ map: texture, color: 0xfff1c0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  // Flashes are pooled, as the puffs are: a new material each would be a new one for the renderer to set up.
+  const freeFlashes = [];
+  const flashSprite = () => freeFlashes.pop() ?? new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, color: 0xfff1c0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
 
   // ---- Loose wheels ----
   const loose = new Map();
@@ -113,7 +115,8 @@ export function createCombatScene(scene) {
   /** A wheel came off: a flash, a shock and a piece of axle bar, and a burst of debris. */
   const wheelOff = (pos, seed, truck) => {
     const rand = seeded(seed);
-    const sprite = new THREE.Sprite(flashMaterial());
+    const sprite = flashSprite();
+    sprite.material.opacity = 1;
     sprite.position.set(pos[0], pos[1], -pos[2]);
     root.add(sprite);
     flashes.push({ sprite, age: 0 });
@@ -147,7 +150,8 @@ export function createCombatScene(scene) {
   /** A wreck tore an axle off: the beam, its differential, its bars and shocks thrown, a flash and debris. */
   const axleOff = (pos, seed, truck) => {
     const rand = seeded(seed);
-    const sprite = new THREE.Sprite(flashMaterial());
+    const sprite = flashSprite();
+    sprite.material.opacity = 1;
     sprite.position.set(pos[0], pos[1], -pos[2]);
     root.add(sprite);
     flashes.push({ sprite, age: 0, big: true });
@@ -257,7 +261,8 @@ export function createCombatScene(scene) {
       let n = 0;
       for (let k = shards.length - 1; k >= 0; k--) {
         const shard = shards[k];
-        stepShard(shard, dt, floorAt(shard.pos[0], shard.pos[2], shard.pos[1]));
+        // A shard lying still needs no ground under it any more (`stepShard` only counts its life down).
+        stepShard(shard, dt, shard.still ? 0 : floorAt(shard.pos[0], shard.pos[2], shard.pos[1]));
         if (shard.life <= 0) { shards.splice(k, 1); continue; }
       }
       for (const shard of shards) {
@@ -277,7 +282,7 @@ export function createCombatScene(scene) {
       // Flying parts tumble and lie.
       for (let k = parts.length - 1; k >= 0; k--) {
         const part = parts[k];
-        stepShard(part, dt, floorAt(part.pos[0], part.pos[2], part.pos[1]) + 0.2);
+        stepShard(part, dt, part.still ? 0 : floorAt(part.pos[0], part.pos[2], part.pos[1]) + 0.2);
         if (part.life <= 0) { root.remove(part.mesh); parts.splice(k, 1); continue; }
         for (let a = 0; a < 3; a++) part.angle[a] += part.spin[a] * dt;
         part.mesh.position.set(part.pos[0], part.pos[1], -part.pos[2]);
@@ -290,7 +295,7 @@ export function createCombatScene(scene) {
         const s = (3 + f.age * 40) * (f.big ? 2 : 1);
         f.sprite.scale.set(s, s, 1);
         f.sprite.material.opacity = Math.max(0, 1 - f.age / 0.3);
-        if (f.age > 0.3) { root.remove(f.sprite); f.sprite.material.dispose(); flashes.splice(k, 1); }
+        if (f.age > 0.3) { root.remove(f.sprite); freeFlashes.push(f.sprite); flashes.splice(k, 1); }
       }
       for (let k = puffs.length - 1; k >= 0; k--) {
         const p = puffs[k];
@@ -311,6 +316,7 @@ export function createCombatScene(scene) {
       for (const p of puffs) p.sprite.material.dispose();
       for (const s of freeSprites) s.material.dispose();
       for (const f of flashes) f.sprite.material.dispose();
+      for (const f of freeFlashes) f.material.dispose();
       texture.dispose();
     },
   };

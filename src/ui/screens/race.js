@@ -710,6 +710,8 @@ async function mountRace(container, context, params, owned = []) {
   // shaders side by side where the browser can (three.js `compileAsync`); not one at a time inside the first frames.
   shadows?.setupMaterials();
   await warmScene(renderer, scene, camera);
+  // A ground shader over the graphics card's textures is built again with fewer, here rather than in the first frames.
+  for (let tries = 0; tries < 4 && !disposed && scenery.fitGround(); tries++) await warmScene(renderer, scene, camera);
   if (disposed) return { unmount };
   // A network race waits for every machine to have loaded (the `sync` barrier), then the host gives the start positions.
   let netRace = null, netHostEnded = false, netDecides = false;
@@ -749,7 +751,7 @@ async function mountRace(container, context, params, owned = []) {
     await sim.call("command", { name: "restoreRace", value: params.resume.saved });
     if (disposed) return { unmount };
     (params.resume.damage ?? []).forEach((code, i) => {
-      if (code && drawn[i]) crash.adopt(i, code, { dent: (zone, level) => drawn[i].dent(zone, level), repair: () => drawn[i].repair() });
+      if (code && drawn[i]) drawn[i].dents(() => crash.adopt(i, code, { dent: (zone, level) => drawn[i].dent(zone, level), repair: () => drawn[i].repair() }));
     });
   }
 
@@ -1774,7 +1776,7 @@ async function mountRace(container, context, params, owned = []) {
       if (fx.kind === "horn") truckAudio.horn(fx.truck, pos);
       else if (fx.kind === "yeehaw") truckAudio.yeehaw(fx.truck, pos);
       else if (fx.kind === "lights") lamps[fx.truck] = fx.lamps;
-      else if (fx.kind === "damage") crash.adopt(fx.truck, fx.code, { dent: (zone, level) => drawn[fx.truck].dent(zone, level), repair: () => drawn[fx.truck].repair() });
+      else if (fx.kind === "damage") drawn[fx.truck].dents(() => crash.adopt(fx.truck, fx.code, { dent: (zone, level) => drawn[fx.truck].dent(zone, level), repair: () => drawn[fx.truck].repair() }));
       else if (fx.kind === "gone") netChat?.left(entrants[fx.truck].name);
     }
   };
@@ -1807,7 +1809,7 @@ async function mountRace(container, context, params, owned = []) {
     for (const d of state.dents ?? []) {
       if (d.id <= dentsSeen) continue;
       dentsSeen = d.id;
-      if (!entrants[d.truck]?.remote && drawn[d.truck]) crash.contacts(d.truck, [d], (zone, level) => drawn[d.truck].dent(zone, level));
+      if (!entrants[d.truck]?.remote && drawn[d.truck]) drawn[d.truck].dents(() => crash.contacts(d.truck, [d], (zone, level) => drawn[d.truck].dent(zone, level)));
     }
     state.trucks.forEach((truck, i) => {
       if (pitsSeen[i] !== undefined && truck.pits > pitsSeen[i]) crash.repairOne(i, () => drawn[i]?.repair());
@@ -2014,7 +2016,8 @@ async function mountRace(container, context, params, owned = []) {
         latest.damageHandled = true;
         latest.poses.forEach((p, i) => {
           // A remote truck's damage is its owner's (packet 0x20); its contacts here only make sparks.
-          if (!entrants[i].remote) crash.contacts(i, p.damage, (zone, level) => drawn[i].dent(zone, level));
+          // A frame's dents together: the body is smoothed once, not once a dent (render/truck-object.js `dents`).
+          if (!entrants[i].remote) drawn[i].dents(() => crash.contacts(i, p.damage, (zone, level) => drawn[i].dent(zone, level)));
           if (p.touch) tireFx.touch(i, p.touch.pos, p.touch.steps, p.touch.force, p.current.speed ?? 0, effectFlags(), p.touch.hull !== false);
           for (const d of p.damage ?? []) tireFx.hit(i, drawn[i], d.zone, d.steps, d.force, p.current.speed ?? 0, effectFlags());
         });

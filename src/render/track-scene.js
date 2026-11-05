@@ -167,6 +167,8 @@ export function createGroundBoxes(boxes, map, look) {
   if (!boxes) return null;
   const mesh = new THREE.Mesh(meshGeometry(boxes), surfaceMaterial(map, look, boxes.hasLte));
   mesh.name = "groundBoxes";
+  // Its walls are buildings' fronts, not cliffs (render/ground-detail.js).
+  mesh.material.userData.groundBoxes = true;
   return inBlocks(mesh);
 }
 
@@ -257,8 +259,9 @@ function addRoadMask(material, mask) {
         if (all(greaterThanEqual(roadUv, vec2(0.0))) && all(lessThanEqual(roadUv, vec2(1.0)))
             && texture2D(roadMask, roadUv).r > 0.5) gl_FragDepth = 0.999999;`);
   };
-  const key = material.customProgramCacheKey?.() ?? "";
-  material.customProgramCacheKey = () => `${key}|road-mask`;
+  // Read when three.js asks: the ground's hooks can change their lines later (render/ground-detail.js).
+  const key = material.customProgramCacheKey?.bind(material) ?? (() => "");
+  material.customProgramCacheKey = () => `${key()}|road-mask`;
 }
 
 /*

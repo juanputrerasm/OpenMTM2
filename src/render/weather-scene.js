@@ -81,6 +81,7 @@ export function createWeatherScene(env) {
       const m = o.material;
       if (!lit.has(m)) {
         const twin = new THREE.MeshLambertMaterial({ map: m.map, vertexColors: m.vertexColors });
+        if (m.userData.groundBoxes) twin.userData.groundBoxes = true;
         const dressed = env.dressGround?.(twin) ?? groundSurface?.dress(twin) ?? twin;
         // With the track's backdrop drawn, the far ground fades into it as the unlit ground does (track-scene.js).
         lit.set(m, world.userData.fadesToBackdrop ? fadesToBackdrop(dressed) : dressed);

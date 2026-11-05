@@ -13,7 +13,8 @@
 /**
  * Add `fn(shader)` to what runs before `material`'s shader is compiled.
  * @param {object} material a three.js material
- * @param {string} key what tells this hook's lines from another's
+ * @param {string|(() => string)} key what tells this hook's lines from another's; a function for a hook whose lines
+ *   can change after it was added (render/ground-detail.js), whose material is then marked `needsUpdate`
  * @param {number} order where it runs among the material's hooks, lowest first
  * @param {(shader: object, renderer: object) => void} fn
  */
@@ -30,8 +31,7 @@ export function addShaderHook(material, key, order, fn) {
   hooks.push({ key, order, fn });
   hooks.sort((a, b) => a.order - b.order);
   material.onBeforeCompile = (shader, renderer) => { for (const hook of hooks) hook.fn(shader, renderer); };
-  const cacheKey = `mtm-hooks|${hooks.map((hook) => hook.key).join("|")}`;
-  material.customProgramCacheKey = () => cacheKey;
+  material.customProgramCacheKey = () => `mtm-hooks|${hooks.map((hook) => (typeof hook.key === "function" ? hook.key() : hook.key)).join("|")}`;
   material.needsUpdate = true;
   return material;
 }

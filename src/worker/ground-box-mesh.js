@@ -41,6 +41,13 @@ function faceVertices(x0, x1, y0, y1, z0, z1) {
 
 const NORMALS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
+/** The texture slots a level's ground boxes name on any face. */
+export function groundBoxSlots({ ra0, ra1, cl0 }) {
+  const slots = new Set();
+  if (ra0 && ra1) for (const box of decodeGroundBoxes(ra0, ra1, cl0, 256)) for (const slot of box.faceTexture) slots.add(slot);
+  return [...slots];
+}
+
 /**
  * The game's ground boxes for a level, or null when it has none. `atlas` is the terrain's
  * (buildTerrainAtlas), whose tiles are the texture slots the faces name.

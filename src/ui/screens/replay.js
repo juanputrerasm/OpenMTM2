@@ -285,10 +285,13 @@ export default async function mount(container, context, { replay, namesMode: sta
     const better = damageZones(applied[i]).some(([zone, level]) => level > mtm2Sim.zoneLevel(code, zone));
     if (better) { truck.repair(); applied[i] = 0; }
     if (worse || better) {
-      for (const [zone, level] of damageZones(code)) {
-        if (level <= mtm2Sim.zoneLevel(applied[i], zone)) continue;
-        for (let n = 0; n < DENT_STEPS; n++) truck.dent(zone, level);
-      }
+      // Smoothed once for them all (render/truck-object.js `dents`).
+      truck.dents(() => {
+        for (const [zone, level] of damageZones(code)) {
+          if (level <= mtm2Sim.zoneLevel(applied[i], zone)) continue;
+          for (let n = 0; n < DENT_STEPS; n++) truck.dent(zone, level);
+        }
+      });
     }
     applied[i] = code;
   }

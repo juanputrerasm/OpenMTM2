@@ -59,6 +59,18 @@ export function uiImageUrl(assets, name) {
 }
 
 /**
+ * The blob URL of a track's picture (worker/track-picture.js: the PNG, TGA or BMP with stem `name`), cached with the
+ * `UI\*.BMP` pictures; null when the archives have none of them.
+ */
+export function trackPictureUrl(assets, name) {
+  const key = `track:${name}`;
+  if (!images.has(key)) {
+    images.set(key, assets.call("trackPicture", { name }).then((picture) => (picture ? URL.createObjectURL(new Blob([picture.bytes], { type: picture.type })) : null)).catch(() => null));
+  }
+  return images.get(key);
+}
+
+/**
  * Forget every cached `UI\*.BMP` (the POD manager, after the mounted archives change: another
  * archive may now hold the file). Pictures already on screen stay put; the next screen reads again.
  */

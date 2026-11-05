@@ -280,6 +280,15 @@ test("the ground under a lost wheel is lowered to its stub; everywhere else it i
   assert.equal(ground.height(100 - 3, 206), 10, "the other wheels' ground is the ground");
   assert.equal(ground.height(105, 209), 10, "and so is the body's");
   assert.equal(ground.weather, 0, "the rest is the truck's ground's");
+  // The patch goes with the truck, its state changed in place as the simulation does.
+  state.pos[0] += 50;
+  assert.equal(ground.height(...probe), 10, "the old place is the ground again");
+  assert.equal(ground.height(probe[0] + 50, probe[1]), 10 - (3 - STUB_RADIUS_FT));
+  // And with the truck turned half round, the front right probe is on the other side behind.
+  state.matrix.splice(0, 9, -1, 0, 0, 0, 1, 0, 0, 0, -1);
+  assert.equal(ground.height(150 - 3, 194), 10 - (3 - STUB_RADIUS_FT));
+  lost[0] = false;
+  assert.equal(ground.height(150 - 3, 194), 10, "a wheel put back has its ground again");
 });
 
 test("debris: none for a scrape, more and the same each time for a harder hit; a shard falls and lies still", () => {

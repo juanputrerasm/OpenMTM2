@@ -16,7 +16,7 @@ import {
   storedTeamPicks, teamPickerFor, trackForExtension,
 } from "../../game/extensions/loader.js";
 import { playMenuSound } from "../../audio/menu-sounds.js";
-import { frame, uiImageUrl } from "../frame.js";
+import { frame, trackPictureUrl, uiImageUrl } from "../frame.js";
 import { msg } from "../../game/strings.js";
 
 const SUPPORTED = new Set(["circuit", "rally", "summit", "drag", "freeroam"]);
@@ -150,9 +150,10 @@ export default async function mount(container, context) {
   };
   const showPreview = async () => {
     const request = ++previewRequest;
-    // The picture the track's SIT names ("Track Logo .BMP file"), and no other.
+    // The picture the track's SIT names ("Track Logo .BMP file"), and no other: its HD PNG or TGA first, then the BMP
+    // (worker/track-picture.js).
     const name = trackPreviewBmp(track);
-    const url = name ? await uiImageUrl(context.assets, name) : null;
+    const url = name ? await trackPictureUrl(context.assets, name) : null;
     if (request !== previewRequest) return;
     preview.hidden = !url;
     info.hidden = !!url;

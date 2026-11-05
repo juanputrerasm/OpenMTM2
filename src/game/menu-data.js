@@ -58,8 +58,9 @@ export function raceLengthLabel(type) {
 }
 
 /**
- * A track's preview picture: the `UI\\<name>.BMP` its SIT names after "Track Logo .BMP file" (the catalog's `logoBmp`),
- * or null when it names none. Nothing is guessed from the track's file name: the SIT is what says it. (The SIT's
+ * A track's preview picture: the stem of the `UI\\<name>.BMP` its SIT names after "Track Logo .BMP file" (the catalog's
+ * `logoBmp`), or null when it names none. The Races screen shows the PNG or TGA of that stem before the BMP
+ * (worker/track-picture.js). Nothing is guessed from the track's file name: the SIT is what says it. (The SIT's
  * "Track Map .BMP file" is the small icon in MTM2, and in MTM1 the zoom map.)
  */
 export function trackPreviewBmp(track) {

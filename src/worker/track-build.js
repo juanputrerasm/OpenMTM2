@@ -19,14 +19,14 @@ import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
 import { buildEvoSky, buildEvoTrackRender } from "./evo-track-build.js";
 import { toSceneMatrix } from "../shared/scene-frame.js";
 import { loadLevel, loadTextureSource } from "./level-load.js";
-import { buildTerrainAtlas, buildTerrainMesh, decodeTerrainTextures } from "./terrain-mesh.js";
+import { TILE_STACK_BUDGET, buildTerrainAtlas, buildTerrainMesh, buildTileStacks, decodeTerrainTextures, slotsInUse } from "./terrain-mesh.js";
 import { buildReliefMesh } from "./relief-mesh.js";
 import { buildReliefData, createRelief } from "../game/terrain-relief.js";
 import { COVER_MIN_WIDTH_FT, GROUND_MAP_SIDE, buildCoverMap, buildGroundMap, buildPuddleMap, buildShelterMap } from "../game/ground-maps.js";
 import { createSnowCover } from "../game/snow-cover.js";
 import { decodeModel } from "./models.js";
 import { resolveKeyframeModel } from "./keyframes.js";
-import { buildGroundBoxMesh } from "./ground-box-mesh.js";
+import { buildGroundBoxMesh, groundBoxSlots } from "./ground-box-mesh.js";
 import { buildTvSky, buildTvTrackRender } from "./tv-track-build.js";
 import { buildTruckRender, buildTrucks, cachedTruckRender } from "./truck-build.js";
 import { loadVehicleModels } from "./vehicle-models.js";
@@ -39,8 +39,17 @@ function greyMask(image) {
   return { width: image.width, height: image.height, rgba };
 }
 
-/** The largest side an HD terrain tile keeps in the atlas. */
+/**
+ * The largest side an HD terrain tile keeps in the atlas. The atlas is the ground's texture where there is no stack (the
+ * classic picture, a graphics card without texture arrays) and how a point finds its slot; the detail is in the stacks.
+ */
 const TERRAIN_HD_SIDE = 256;
+/**
+ * The ground's tiles at their own size (render/ground-detail.js): one stack for each tile width, at most HD_STACK_SIDE
+ * a layer, the widest halved while all of them would take more than STACK_BUDGET bytes before mipmaps.
+ */
+const HD_STACK_SIDE = 1024;
+const STACK_BUDGET = TILE_STACK_BUDGET;
 import { createPaletteResolver } from "./palette-resolver.js";
 import { buildCprRoadLayer, cprLapCheckpointBoxes } from "./cpr-road.js";
 
@@ -310,14 +319,19 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
 
   const sources = await Promise.all(level.textureNames.map((n) => loadTextureSource(vfs, n, palettes, "terrain")));
   const legacy = decodeTerrainTextures(sources);
-  // CP3's HD ground art (ART\<stem>.PNG or .TGA) replaces a tile, scaled to TERRAIN_HD_SIDE so the atlas stays in reach.
-  const decodedTerrain = await Promise.all(level.textureNames.map(async (n, i) => {
+  // CP3's HD ground art (ART\<stem>.PNG or .TGA) replaces a tile: at its own size in the stacks, scaled to
+  // TERRAIN_HD_SIDE in the atlas so the atlas stays in reach.
+  const fullTerrain = await Promise.all(level.textureNames.map(async (n, i) => {
     const hd = await loadArtTexture(vfs, n, null, { hdOnly: true, kind: "terrain" });
     // The overlap crops two pixels of the legacy tile, so an HD tile remembers how wide that was.
-    return hd ? { ...shrinkImage(hd, TERRAIN_HD_SIDE), legacyWidth: legacy[i]?.width ?? 0 } : legacy[i];
+    return hd ? { ...hd, legacyWidth: legacy[i]?.width ?? 0 } : legacy[i];
   }));
+  const decodedTerrain = fullTerrain.map((image) => (image && image.width > TERRAIN_HD_SIDE ? { ...shrinkImage(image, TERRAIN_HD_SIDE), legacyWidth: image.legacyWidth } : image));
   // `smoothTiles` (the enhanced look's smooth textures): a small tile scaled up to the widest is blended, not blocky.
   const atlas = buildTerrainAtlas(decodedTerrain, 0, { smooth: smoothTiles });
+  // A slot no cell and no ground box names is left out of the stacks (it would draw as the narrowest stack's checker).
+  const inUse = slotsInUse(level.clr, cpr ? [] : groundBoxSlots(level.groundBoxes));
+  const terrainStacks = buildTileStacks(fullTerrain.map((image, slot) => (inUse.has(slot) ? image : null)), { minSide: atlas.tileSide, maxSide: HD_STACK_SIDE, budgetBytes: STACK_BUDGET, smooth: smoothTiles });
   // HD ground tiles may carry a normal map (`<stem>_N`, AUTHORING_HD_ART.md): a second atlas laid out as the first, flat
   // where a tile has none. Legacy 64 px tiles cannot carry one.
   const tileNormals = await Promise.all(level.textureNames.map(async (n, i) => {
@@ -661,7 +675,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     trackName: sit.trackName,
     // The atlas with its layout (worker/terrain-mesh.js `buildTerrainAtlas`): a tile of `tileSide` texels a slot, `padding` around each.
     terrain: {
-      ...mesh, atlas: { rgba: atlas.rgba, width: atlas.width, height: atlas.height, tileSide: atlas.tileSide, padding: atlas.padding, slots: atlas.rects.length },
+      ...mesh, atlas: { rgba: atlas.rgba, width: atlas.width, height: atlas.height, tileSide: atlas.tileSide, padding: atlas.padding, slots: atlas.rects.length, stacks: terrainStacks },
       normalAtlas: normalAtlas ? { rgba: normalAtlas.rgba, width: normalAtlas.width, height: normalAtlas.height } : null,
       detail: terrainDetail,
     },

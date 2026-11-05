@@ -79,13 +79,29 @@ export function createAudio(assets, volumes = {}) {
   const playLog = [], counts = new Map();
   let range = 1000;
   const listenerFeet = [0, 0, 0];
+  /*
+    Nothing is written to the graph's parameters while the context is not running: before the page's first click or key,
+    or when the browser suspends or interrupts it. No such write is used up then. Chrome keeps each one as an event at the
+    stopped clock, and a race writes every voice's place, pitch and level and the listener's every frame, so the lists
+    grow without end and every write takes longer than the last: a race on Cape Hatteras went from 165 to 57 frames a
+    second over seven minutes, and hitched on a slower machine. A voice keeps what it was last asked for meanwhile
+    (`held`), and it is written once the context runs again; the mixer and the listener write afresh on the next frame.
+  */
+  const running = () => ctx.state === "running";
+  const held = new Set();
+  ctx.addEventListener?.("statechange", () => {
+    if (!running()) return;
+    for (const sync of held) sync();
+    held.clear();
+  });
   const levelOf = (rec) => {
     if (!rec.position) return rec.base;
     const d = Math.hypot(rec.position[0] - listenerFeet[0], rec.position[1] - listenerFeet[1], rec.position[2] - listenerFeet[2]);
     return rec.base * attenuation(d, range);
   };
   function mix() {
-    const recs = [...live].filter((rec) => !rec.stopped);
+    if (!running()) return;
+    const recs =[...live].filter((rec) => !rec.stopped);
     const levels = recs.map(levelOf);
     const keep = cullVoices(levels, undefined, recs.map((rec) => rec.kept));
     const now = ctx.currentTime;
@@ -215,17 +231,28 @@ export function createAudio(assets, volumes = {}) {
     const done = new Promise((resolve) => { source.onended = () => { stopped = true; rec.stopped = true; live.delete(rec); active--; resolve(); }; });
     if (rec.mixed) live.add(rec);
     source.start(0, offset);
+    // What the voice was last asked for, written now while the context runs, else once it runs again (`held`).
+    let wantRate = rate;
+    const sync = () => {
+      if (stopped) return;
+      source.playbackRate.value = wantRate;
+      if (!mixing || !rec.mixed) volume.gain.value = levelOf(rec);
+      if (panner && rec.position) {
+        panner.positionX.value = rec.position[0]; panner.positionY.value = rec.position[1]; panner.positionZ.value = -rec.position[2];
+      }
+    };
+    const write = (now) => { if (running()) now(); else held.add(sync); };
     return {
       done,
       get stopped() { return stopped; },
-      setGain: (g) => { rec.base = g; if (!mixing || !rec.mixed) volume.gain.value = levelOf(rec); },
-      setRate: (r) => { source.playbackRate.value = r; },
+      setGain: (g) => { rec.base = g; if (!mixing || !rec.mixed) write(() => { volume.gain.value = levelOf(rec); }); },
+      setRate: (r) => { wantRate = r; write(() => { source.playbackRate.value = r; }); },
       setPosition: (p) => {
         if (!panner) return;
         rec.position = [p[0], p[1], p[2]];
-        panner.positionX.value = p[0]; panner.positionY.value = p[1]; panner.positionZ.value = -p[2];
+        write(() => { panner.positionX.value = p[0]; panner.positionY.value = p[1]; panner.positionZ.value = -p[2]; });
       },
-      stop: () => { if (!stopped) { try { source.stop(); } catch { /* already stopped */ } } stopped = true; rec.stopped = true; live.delete(rec); },
+      stop: () => { if (!stopped) { try { source.stop(); } catch { /* already stopped */ } } stopped = true; rec.stopped = true; live.delete(rec); held.delete(sync); },
     };
   }
 
@@ -279,7 +306,7 @@ export function createAudio(assets, volumes = {}) {
     listenerFeet[0] = position.x; listenerFeet[1] = position.y; listenerFeet[2] = -position.z;
     mix();
     const l = ctx.listener;
-    if (l.positionX) {
+    if (l.positionX && running()) {
       l.positionX.value = position.x; l.positionY.value = position.y; l.positionZ.value = position.z;
       l.forwardX.value = forward.x; l.forwardY.value = forward.y; l.forwardZ.value = forward.z;
       l.upX.value = up.x; l.upY.value = up.y; l.upZ.value = up.z;

@@ -228,3 +228,26 @@ DISASTER, off day, normal, on form, PERFECT); a tournament setting `FUN_14013ee0
 (normal, strong, exaggerated, disastrous). Rounds are named "Final", "Semi-final", "Quarter-final" and "Round of N"
 (`FUN_14013d930`). The form's multipliers, how a personality moves the form, and the formats and scoring tables are
 still to be read.
+
+## 10. Track pictures
+
+The Races screen's picture of a track, and the info photo beside it. Both are BMP only in this build.
+
+**The picture.** The classic menu (`FUN_140079d10`) and the new menus (`FUN_1401109d0`) look it up the same way. They
+take the name the SIT gives after "Track Logo .BMP file" (kept at offset 0x3a0d0 of the track's 400-byte record),
+exactly as written: no extension is changed or added. The opener (`FUN_1400259f0`, mode `"rb"`) tries the mounted
+PODs and then loose files, first under that name and then under `UI\<name>`. When neither opens, it shows
+`NoTrkPct.bmp`. The new menus' reader (`FUN_14010d5b0`) needs the `BM` signature and an 8, 24 or 32-bit image up
+to 8192 px a side; anything else fails, and the menu draws "(no track picture)". A PNG named in the SIT is opened
+and then rejected.
+
+**The info photo.** `FUN_1401399b0` takes the picture's name, drops its extension, and needs its last letter to be
+S or T (either case). It drops that letter and `FUN_140139450` adds `M.bmp`: `VALPO4S.BMP` gives `VALPO4M.bmp`. The
+photo is read the same way (`FUN_140110810`, then `FUN_14010d5b0`), so it is BMP only too. It is drawn in the
+`trkinfo.*` box with the track's text (`FUN_140139a80`: the description `.TXT` the SIT names, or `<track>.TXT`, in
+`WORLD\` or the root). OpenMTM2 has no info photo yet.
+
+**HD pictures.** Traxx packs a PNG or TGA with the same stem beside each BMP (`UI\VALPO4S.PNG`, `UI\VALPO4M.PNG`).
+Its notes say a later CP3 engine takes those first and falls back to the BMP (Traxx `TrackPOD.h`, "HD TRACK ART",
+2026-09-28, citing cursh2 `MenuDraw.cpp` `hdSiblingName`). This build has no such step. OpenMTM2 follows the later
+rule for the picture as an addition: the PNG, then the TGA, then the BMP (`worker/track-picture.js`).

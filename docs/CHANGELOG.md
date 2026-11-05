@@ -6,6 +6,58 @@ as it stood when it was written, and the plan's open items list is the one kept 
 
 ## v0.6.5 (test build; player notes in releases/v0.6.5.txt)
 
+- **HD track pictures** (a Valparaíso Racing 2026 POD made in JSTraxx showed no picture on the Races screen): Traxx
+  writes a track's HD picture as a PNG or TGA with the stem of the BMP its SIT names (`UI\VALPO4S.PNG` beside
+  `UI\VALPO4S.BMP`), and the port read only the BMP. The Races screen now shows the PNG, then the TGA (turned into a
+  PNG in the worker), then the BMP (`worker/track-picture.js`, `ui/frame.js` `trackPictureUrl`). Each must be what
+  its name says. This is the rule Traxx's notes give for a later CP3 engine; CP3 2.0.52 reads the BMP only
+  (`CP3_EXE_ANALYSIS.md` section 10). A SIT that names the picture as `.PNG` or `.TGA` is looked up by the same stem
+  (`worker/catalog.js` `bmpStem`).
+- **Combat runs lighter** (Combat races ran at fewer frames a second than standard ones): every dent smoothed the
+  whole body's normals again and moved the lamps, and one hull contact dents a zone up to six times a frame; Combat,
+  which always has crash damage on and has trucks ramming each other all race, did that dozens of times some frames.
+  A frame's dents are now made together and the body is smoothed once for them (`render/truck-object.js` `dents`; the
+  race, its network and loaded damage, and the replay use it). Combat's drawing no longer rebuilds a smoke puff's
+  material for its blending, reuses its flashes as it does its puffs, and asks the ground's height only for debris
+  still flying (`render/extensions/combat-scene.js`). The ground under a lost wheel works its places out again only
+  when the truck has moved, not at every one of the many questions a step asks of it, and without making new arrays
+  (`game/extensions/combat-ground.js`). Not measured in a race yet.
+- **No slowdown while the sound is held** (a player's report on Cape Hatteras, a 4x4 Evolution 2 add-on track: "somewhere
+  in the middle of the race... lots of hitching"): while the browser's audio context was not running (before the page
+  had a click or key, or when the browser suspends or interrupts it), every frame still wrote each truck's sound place,
+  pitch and level and the listener's. None of those writes is used up then; Chrome queues each, so every frame took
+  longer than the last: 165 frames a second at the start and 57 after seven minutes, measured on that track with eight
+  computer trucks. The audio engine now writes nothing while the context is held; each voice keeps what it was last
+  asked for and writes it once the context runs (`audio/audio-engine.js`, `tests/audio-engine.test.mjs`). The same race
+  now holds 165 frames a second throughout. The simulation, the drawing and a running context were measured on the
+  track too and do not slow down.
+- **HD ground and ground-box art at its own size** (Valparaíso Racing HD's 1024 px building fronts and 512 px roads were
+  drawn at 256): CP3's HD ground tiles were shrunk to 256 px for the one atlas the ground and the ground boxes share,
+  and the stack the renderer reads was cut from that atlas, every tile at one size. The worker now sends stacks built
+  from the tiles themselves, one for each tile width (up to four, `worker/terrain-mesh.js` `planTileStacks`,
+  `buildTileStacks`), so a 1024 px building front, a 512 px road and a 64 px patch of grass each keep their own size;
+  a small table says which stack and layer each slot is in, and the shader reads that stack
+  (`render/ground-detail.js`). Up to 1024 px a layer and 512 MB before mipmaps, the widest halved until they fit. The
+  atlas stays at 256 px, for the classic picture and a card without texture arrays. A track without HD art builds as
+  before.
+  A slot that no cell and no ground box face names (a picture a track keeps in its list for later) takes no room in
+  the stacks (`worker/terrain-mesh.js` `slotsInUse`).
+  Valparaíso Racing HD then drew no ground at all: its tiles come in three widths (256, 512, 1024), and three stacks
+  and their table took the ground's shader past the sixteen textures a graphics card may give one, so it did not link.
+  The renderer now checks each program built for the ground and, where one did not link, joins two stack widths and
+  builds the ground again, down to one stack and then the atlas (`render/ground-detail.js` `createTileSource`,
+  `worker/terrain-mesh.js` `mergeTileStacks`); the race does it behind the loading screen. Two widths are joined at
+  the widest side that keeps all the stacks within 512 MB. One stack needs no table: its layers are put in slot order
+  (`inSlotOrder`), so it costs the shader one texture, as the single stack did before.
+  The sun's shadow cascades (`render/sun-shadows.js`) and the CPR road mask (`render/track-scene.js` `addRoadMask`)
+  kept the ground material's program key as it was when they were added, so a ground built again was handed its old
+  program with the new textures: no ground and no ground boxes ("Two textures of different types use the same
+  sampler location"). Both now read the key when three.js asks for it.
+- **Ground boxes' walls keep their picture under Ground detail.** The detail gave any steep face 70% of its tile read
+  eight times coarser, which suits a cliff, whose tile is laid from above and smeared down it, but turned a building's
+  front into a blur. A ground box's wall now keeps its tile. With "Ground box grain" off the boxes read their tiles from
+  the stack (filtered for the distance), where before they kept the unfiltered atlas.
+
 - **Touch controls** (the port's own): a race can be driven on a phone or tablet with no keyboard, mouse or gamepad.
   A thumb stick steers (it starts where the thumb comes down on the left), gas and brake pedals sit on the right, with
   Shift Up and Down for manual gears, and a row of buttons gives Helicopter, Camera, Crash Damage, Map, Dashboard, Timing

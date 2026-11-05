@@ -101,6 +101,9 @@ test("a header's bitmap name is asked of the UI archive by its stem", () => {
   assert.equal(bmpStem("ui\\drag5m.BMP"), "DRAG5M");
   assert.equal(bmpStem(null), null);
   assert.equal(bmpStem("bad name!.bmp"), null);
+  // A name given as the HD file has the same stem (worker/track-picture.js).
+  assert.equal(bmpStem("UI\\valpo4s.png"), "VALPO4S");
+  assert.equal(bmpStem("valpo4s.TGA"), "VALPO4S");
 });
 
 test("stock and add-on tracks carry the preview and icon their SIT names", { skip: skipWithoutStock() }, async () => {

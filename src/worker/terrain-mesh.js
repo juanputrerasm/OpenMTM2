@@ -91,6 +91,158 @@ export function buildTerrainAtlas(decoded, forcedSide = 0, { smooth = false } = 
   return { rgba, width, height, rects, texelsPerPixel, tileSide: side, padding: ATLAS_PADDING };
 }
 
+/**
+ * Which stack each tile goes in (render/ground-detail.js): one stack for each tile width, so a 1024 px building front
+ * and a 64 px patch of grass each keep their own size. A tile's width is its own, rounded down to a power of two and
+ * at most `maxSide`; a missing tile goes with the narrowest. While all of them would take more than `budgetBytes`
+ * (before mipmaps) the widest are halved; while there are more than `maxStacks` widths the narrowest go up to the next.
+ * `{ sides, slotSide }`: the stacks' sides, narrowest first, and each slot's. null when nothing is wider than
+ * `minSide`: the stack is then copied from the atlas, as before.
+ */
+export function planTileStacks(images, { minSide = 0, maxSide = 1024, budgetBytes = 512 * 1024 * 1024, maxStacks = 4 } = {}) {
+  let widest = 0;
+  for (const image of images) if (image && image.width > widest) widest = image.width;
+  if (Math.min(maxSide, widest) <= minSide || !images.length) return null;
+  const own = images.map((image) => (image ? Math.min(maxSide, 2 ** Math.floor(Math.log2(Math.max(1, image.width)))) : 0));
+  const narrowest = Math.min(...own.filter((side) => side > 0));
+  const slotSide = own.map((side) => side || narrowest);
+  const bytes = () => slotSide.reduce((sum, side) => sum + side * side * 4, 0);
+  while (bytes() > budgetBytes) {
+    const top = Math.max(...slotSide);
+    if (top <= 1) break;
+    slotSide.forEach((side, slot) => { if (side === top) slotSide[slot] = top >> 1; });
+  }
+  let sides = [...new Set(slotSide)].sort((a, b) => a - b);
+  while (sides.length > maxStacks) {
+    const [low, next] = sides;
+    slotSide.forEach((side, slot) => { if (side === low) slotSide[slot] = next; });
+    sides = sides.slice(1);
+  }
+  return { sides, slotSide };
+}
+
+/**
+ * The texture slots a level draws: those its .CLR cells name and those its ground boxes' faces name (`boxSlots`). A slot
+ * named by neither (a picture kept in the list for later, or for a track's other version) needs no room in the stacks.
+ */
+export function slotsInUse(clr, boxSlots = []) {
+  const used = new Set(boxSlots);
+  for (let i = 0; i < clr.length; i++) used.add(clr[i] & 0x0fff);
+  return used;
+}
+
+/**
+ * The tiles as stacks at their own size (`planTileStacks`): `{ stacks, place }`, each stack `{ data, side, slots }`
+ * (buildTileStack) and `place` four bytes a slot: its stack, then its layer there, low byte first. null as the plan is.
+ */
+export function buildTileStacks(images, { smooth = false, ...limits } = {}) {
+  const plan = planTileStacks(images, limits);
+  if (!plan) return null;
+  const place = new Uint8Array(images.length * 4);
+  const stacks = plan.sides.map((side, index) => {
+    const members = [];
+    plan.slotSide.forEach((s, slot) => { if (s === side) members.push(slot); });
+    members.forEach((slot, layer) => place.set([index, layer & 255, layer >> 8, 0], slot * 4));
+    return buildTileStack(members.map((slot) => images[slot] ?? null), side, { smooth });
+  });
+  return { stacks, place };
+}
+
+/** How much the ground's tile stacks may take before mipmaps (worker/track-build.js, render/ground-detail.js). */
+export const TILE_STACK_BUDGET = 512 * 1024 * 1024;
+
+/**
+ * The stacks (`buildTileStacks`) with two neighbouring widths made one, for a graphics card that cannot give the ground's
+ * shader a texture for each stack (render/ground-detail.js). The pair that grows the least is joined at the wider side,
+ * its narrower tiles scaled up, while all of them stay within `budgetBytes`; past that the two widest are joined, at the
+ * widest side between theirs that keeps within it. `{ stacks, place }` as buildTileStacks gives them; null with fewer than two stacks.
+ */
+export function mergeTileStacks({ stacks, place }, { smooth = false, budgetBytes = TILE_STACK_BUDGET } = {}) {
+  if (!stacks || stacks.length < 2) return null;
+  const bytes = stacks.reduce((sum, s) => sum + s.side * s.side * 4 * s.slots, 0);
+  let pick = 0, growth = Infinity;
+  for (let i = 0; i + 1 < stacks.length; i++) {
+    const grow = stacks[i].slots * (stacks[i + 1].side ** 2 - stacks[i].side ** 2) * 4;
+    if (grow < growth) { growth = grow; pick = i; }
+  }
+  if (bytes + growth > budgetBytes) pick = stacks.length - 2;
+  const low = stacks[pick], high = stacks[pick + 1];
+  // The widest side between the two that keeps all of them within the budget.
+  const others = bytes - (low.side ** 2 * low.slots + high.side ** 2 * high.slots) * 4;
+  let side = high.side;
+  while (side > low.side && others + side * side * 4 * (low.slots + high.slots) > budgetBytes) side >>= 1;
+  const layersOf = (s) => Array.from({ length: s.slots }, (_, l) => ({
+    width: s.side, height: s.side, rgba: s.data.subarray(l * s.side * s.side * 4, (l + 1) * s.side * s.side * 4),
+  }));
+  const joined = buildTileStack([...layersOf(low), ...layersOf(high)], side, { smooth });
+  const moved = new Uint8Array(place.length);
+  for (let at = 0; at < place.length; at += 4) {
+    const stack = place[at], layer = place[at + 1] | (place[at + 2] << 8);
+    const [s, l] = stack < pick ? [stack, layer] : stack === pick ? [pick, layer] : stack === pick + 1 ? [pick, layer + low.slots] : [stack - 1, layer];
+    moved.set([s, l & 255, l >> 8, 0], at);
+  }
+  return { stacks: [...stacks.slice(0, pick), joined, ...stacks.slice(pick + 2)], place: moved };
+}
+
+/**
+ * One stack with its layers moved so that slot n is layer n, as its table (`place`) says where each is now; the stack
+ * itself where they already are. Every slot has a layer of its own (`buildTileStacks`); render/ground-detail.js reads one stack without the table.
+ */
+export function inSlotOrder(stack, place) {
+  const slots = place.length / 4, size = stack.side * stack.side * 4;
+  let ordered = slots === stack.slots;
+  for (let slot = 0; ordered && slot < slots; slot++) ordered = (place[slot * 4 + 1] | (place[slot * 4 + 2] << 8)) === slot;
+  if (ordered) return stack;
+  const data = new Uint8Array(size * slots);
+  for (let slot = 0; slot < slots; slot++) {
+    const layer = place[slot * 4 + 1] | (place[slot * 4 + 2] << 8);
+    data.set(stack.data.subarray(layer * size, (layer + 1) * size), slot * size);
+  }
+  return { data, side: stack.side, slots };
+}
+
+/**
+ * The tiles as a stack at `side` texels a layer, one layer a slot, from the images at their own size: an HD tile keeps
+ * its detail rather than the atlas's copy of it. A wider image is box-filtered down, a narrower one scaled up in
+ * blocks or, with `smooth`, blended; a missing slot is the atlas's grey checker. `{ data, side, slots }`.
+ */
+export function buildTileStack(images, side, { smooth = false } = {}) {
+  const slots = Math.max(1, images.length);
+  const data = new Uint8Array(side * side * 4 * slots);
+  for (let s = 0; s < slots; s++) {
+    const image = images[s] ?? null;
+    const base = s * side * side * 4;
+    if (!image) {
+      for (let y = 0; y < side; y++) for (let x = 0; x < side; x++) {
+        const d = base + (y * side + x) * 4, v = ((x >> 3) ^ (y >> 3)) & 1 ? 150 : 100;
+        data[d] = data[d + 1] = data[d + 2] = v; data[d + 3] = 255;
+      }
+      continue;
+    }
+    const step = image.width / side;
+    for (let y = 0; y < side; y++) for (let x = 0; x < side; x++) {
+      const d = base + (y * side + x) * 4;
+      if (step > 1) {
+        // Box filter: the mean of the image texels under this one.
+        const n = Math.max(1, Math.round(step)), x0 = Math.floor(x * step), y0 = Math.floor(y * step);
+        let r = 0, g = 0, b = 0;
+        for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+          const o = (Math.min(image.height - 1, y0 + j) * image.width + Math.min(image.width - 1, x0 + i)) * 4;
+          r += image.rgba[o]; g += image.rgba[o + 1]; b += image.rgba[o + 2];
+        }
+        data[d] = r / (n * n); data[d + 1] = g / (n * n); data[d + 2] = b / (n * n);
+      } else if (smooth && step < 1) {
+        sampleBilinear(image, (x + 0.5) * step - 0.5, (y + 0.5) * step - 0.5, data, d);
+      } else {
+        const o = (Math.min(image.height - 1, Math.floor(y * step)) * image.width + Math.min(image.width - 1, Math.floor(x * step))) * 4;
+        data[d] = image.rgba[o]; data[d + 1] = image.rgba[o + 1]; data[d + 2] = image.rgba[o + 2];
+      }
+      data[d + 3] = 255;
+    }
+  }
+  return { data, side, slots };
+}
+
 /** An image's colour at texel coordinates (x, y), blended from the four texels about it, clamped at its edges, into `out` at `at`. */
 function sampleBilinear(image, x, y, out, at) {
   const { width, height, rgba } = image;
