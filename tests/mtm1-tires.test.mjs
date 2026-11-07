@@ -6,12 +6,13 @@ import { parsePod, readPodEntry } from "../src/vendor/openphotex/index.js";
 import { createVfs } from "../src/worker/vfs.js";
 import { buildTruckRender } from "../src/worker/truck-build.js";
 import { createPaletteResolver } from "../src/worker/palette-resolver.js";
+import { skipLocal } from "./helpers/stock.mjs";
 
 const GAMES = process.env.OPENMTM2_GAMES ?? join(process.env.HOME ?? "", "games");
 const TRUCK_POD = join(GAMES, "mtm1", "TRUCK.POD");
 
 test("an MTM1 truck draws the one tire model its TRK names on every corner (POWERBIG: wheel13.bin)", {
-  skip: existsSync(TRUCK_POD) ? false : `no Monster Truck Madness 1 TRUCK.POD under ${GAMES}/mtm1`,
+  skip: skipLocal(GAMES) || (existsSync(TRUCK_POD) ? false : `no Monster Truck Madness 1 TRUCK.POD under ${GAMES}/mtm1`),
 }, async () => {
   const bytes = new Uint8Array(readFileSync(TRUCK_POD));
   const vfs = createVfs([{ name: "TRUCK.POD", archive: parsePod(bytes), readEntry: async (entry) => readPodEntry(bytes, entry) }]);
@@ -22,7 +23,7 @@ test("an MTM1 truck draws the one tire model its TRK names on every corner (POWE
 });
 
 test("with MTM1 trucks kept apart, MTM2's Bigfoot shadows MTM1's, which is listed and built as MTM1:BIGFOOT.TRK", {
-  skip: existsSync(TRUCK_POD) && existsSync(join(GAMES, "mtm2", "POD.INI")) ? false : "needs the MTM1 TRUCK.POD and an MTM2 install",
+  skip: skipLocal(GAMES) || (existsSync(TRUCK_POD) && existsSync(join(GAMES, "mtm2", "POD.INI")) ? false : "needs the MTM1 TRUCK.POD and an MTM2 install"),
 }, async () => {
   const { stockVfs } = await import("./helpers/stock.mjs");
   const { buildCatalog } = await import("../src/worker/catalog.js");
@@ -48,7 +49,7 @@ test("with MTM1 trucks kept apart, MTM2's Bigfoot shadows MTM1's, which is liste
 });
 
 test("MTM1 trucks are told by their manifests, also when MTM1's TRUCK.POD is listed in the MTM2 install's own POD.INI", {
-  skip: existsSync(TRUCK_POD) && existsSync(join(GAMES, "mtm2", "POD.INI")) ? false : "needs the MTM1 TRUCK.POD and an MTM2 install",
+  skip: skipLocal(GAMES) || (existsSync(TRUCK_POD) && existsSync(join(GAMES, "mtm2", "POD.INI")) ? false : "needs the MTM1 TRUCK.POD and an MTM2 install"),
 }, async () => {
   const { stockVfs } = await import("./helpers/stock.mjs");
   const { buildCatalog } = await import("../src/worker/catalog.js");

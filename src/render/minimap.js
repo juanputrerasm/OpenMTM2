@@ -8,6 +8,7 @@
   A Summit Rumble has no course to show: its map is the summit and the scoring zone (6.3) round the trucks.
 */
 import { drawText, textWidth } from "./bitmap-text.js";
+import { nameTransparency } from "./name-tag-style.js";
 import { MAP_OFF, mapLabel, mapLabelColor, mapMode, nextMapMode } from "../game/course-map-labels.js";
 
 /** Half the road's drawn width, feet (3072 in the map's 1/64 ft units). */
@@ -17,6 +18,15 @@ export const MAP_PIXELS_PER_FOOT = 0.09;
 /** Where the player sits on the screen, as fractions of its width and height: measured in two retail screenshots. */
 export const MAP_ORIGIN = Object.freeze([0.75, 0.52]);
 const MAX_POINTS = 512;
+/** The checkpoints' colours on the map: the rest, and the next one. */
+export const CHECKPOINT_COLOR = "rgba(90,170,255,.9)", NEXT_CHECKPOINT_COLOR = "#ffe040";
+/** The Map line thickness option (Advanced; the port's own): a multiple of the game's one pixel at 480 lines. */
+/** The map's line thickness, times the game's: 1x in the middle, thinner or thicker either side. */
+export const MAP_LINE_MIN = 0.25, MAP_LINE_MAX = 1.75;
+export const mapLineScale = (v) => { const n = Number(v); return Number.isFinite(n) ? Math.max(MAP_LINE_MIN, Math.min(MAP_LINE_MAX, n)) : 1; };
+/** How see-through the map is (Advanced, OMTM2; the port's): 0 (the game's, solid) to `MAP_TRANSPARENCY_MAX`. */
+export const MAP_TRANSPARENCY_MAX = 0.9;
+export const mapTransparency = (v) => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(MAP_TRANSPARENCY_MAX, n)) : 0; };
 
 /** The centre line, `[x, z]` feet: each straight's start then end, in course order. */
 export function courseLoop(course) {
@@ -79,7 +89,7 @@ export function boxCorners(box) {
  * `open`: a one-way course (a rally from A to B) is drawn with its start and its end closed off, not joined.
  * `areas`: a Summit Rumble's `{ zone, summit }` boxes (`{ pos, half }`, feet), drawn in place of the course.
  */
-export function createCourseMap(course, { font = null, open = false, areas = null, summit = false } = {}) {
+export function createCourseMap(course, { font = null, open = false, areas = null, summit = false, lineScale = 1 } = {}) {
   const canvas = document.createElement("canvas");
   canvas.className = "race-minimap";
   canvas.hidden = true;
@@ -90,7 +100,7 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
   const zoneMap = !!(areas?.zone || areas?.summit);
   const loop = zoneMap ? [] : courseLoop(course);
   const offsets = loop.length > 2 ? edgeOffsets(loop, MAP_HALF_WIDTH_FT, open) : [];
-  let mode = MAP_OFF, blink = 0;
+  let mode = MAP_OFF, blink = 0, names = 0;
 
   // The map's size on the page, read again only when it or its frame changes size: a read each frame, after the name tags
   // have moved, would make the browser lay the page out again then and there.
@@ -116,6 +126,12 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
     /** The Map key: the next mode, which is returned. */
     cycle() { return this.setMode(nextMapMode(mode)); },
     setMode(value) { mode = mapMode(value); canvas.hidden = mode === MAP_OFF; measured = null; return mode; },
+    /** The Map line thickness option, read again each frame so a change shows at once. */
+    setLineScale(v) { lineScale = v; },
+    /** How see-through the whole map is, 0 to `MAP_TRANSPARENCY_MAX`. */
+    setTransparency(v) { const o = String(1 - mapTransparency(v)); if (canvas.style.opacity !== o) canvas.style.opacity = o; },
+    /** How see-through the labels are (Name transparency). */
+    setNameTransparency(v) { names = nameTransparency(v); },
     /** Stops watching the map's size. */
     dispose() { watching?.disconnect(); watching = null; },
     /**
@@ -125,18 +141,20 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
      * a `color` (its team) and a `marker` (`"arrow"`: Tag's It, the robber), drawn larger and kept at the map's edge when
      * the truck is off it. `focus`: the truck the map centres on (the watched one in spectator mode). `state`: on a
      * Rumble, the focused truck's scoring state (2 in the zone). `points`: other things an extension marks
-     * (`{ pos, color }`, a ball).
+     * (`{ pos, color }`, a ball). `checkpoints`: `{ gates: [{ pos, psi, half }], current }` (`half`: half the box's width, feet), the course's gates and the index of
+     * the focused truck's next one (-1 for none), or null.
      */
-    set(trucks, dt = 0.016, { focus = 0, player = 0, state = 0, points = [] } = {}) {
+    set(trucks, dt = 0.016, { focus = 0, player = 0, state = 0, points = [], checkpoints = null } = {}) {
       if (mode === MAP_OFF) return;
       const [w, h] = fit();
       ctx.clearRect(0, 0, w, h);
       const me = trucks[focus] ?? trucks[0];
       if (!me) return;
       const k = (h / 480) * MAP_PIXELS_PER_FOOT, cx = w * MAP_ORIGIN[0], cy = h * MAP_ORIGIN[1];
+      const lineWidth = Math.max(1, h / 480) * mapLineScale(lineScale);
       const px = (x, z) => { const [r, u] = toMapFrame(x, z, me.pos[0], me.pos[2], me.heading); return [cx + r * k, cy - u * k]; };
       if (zoneMap) {
-        ctx.lineWidth = Math.max(1, h / 480);
+        ctx.lineWidth = lineWidth;
         const outline = (box) => {
           ctx.beginPath();
           boxCorners(box).forEach(([x, z], i) => { const [sx, sy] = px(x, z); if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy); });
@@ -158,7 +176,7 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
         }
       }
       if (loop.length > 2) {
-        ctx.lineWidth = Math.max(1, h / 480);
+        ctx.lineWidth = lineWidth;
         ctx.strokeStyle = "rgba(225,225,225,.85)";
         for (const sign of [1, -1]) {
           ctx.beginPath();
@@ -192,6 +210,38 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
         ctx.fillStyle = p.color ?? "#ffffff";
         ctx.beginPath(); ctx.arc(x, y, 2 * unitPx, 0, Math.PI * 2); ctx.fill();
       }
+      // The checkpoints (the port's own, Advanced: Checkpoints on the map): a bar across the road at each gate, as long
+      // as its box is wide (`half`, half that) and as thick as the map's lines; the next one in its own colour, kept at
+      // the map's edge when off it.
+      if (checkpoints?.gates?.length) {
+        const thick = ctx.lineWidth = lineWidth;
+        const halfOf = (g) => (g.half > 0 ? g.half : MAP_HALF_WIDTH_FT);
+        ctx.lineCap = "butt";
+        checkpoints.gates.forEach((g, i) => {
+          if (!g || i === checkpoints.current) return;
+          const across = halfOf(g);
+          const dx = Math.cos(g.psi) * across, dz = -Math.sin(g.psi) * across;
+          const a = px(g.pos[0] - dx, g.pos[2] - dz), b = px(g.pos[0] + dx, g.pos[2] + dz);
+          ctx.strokeStyle = CHECKPOINT_COLOR;
+          ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+        });
+        const g = checkpoints.gates[checkpoints.current];
+        if (g) {
+          const across = halfOf(g);
+          const dx = Math.cos(g.psi) * across, dz = -Math.sin(g.psi) * across;
+          let a = px(g.pos[0] - dx, g.pos[2] - dz), b = px(g.pos[0] + dx, g.pos[2] + dz);
+          let [x, y] = px(g.pos[0], g.pos[2]);
+          const edge = across * k + thick;
+          if (x < edge || y < edge || x > w - edge || y > h - edge) {
+            const ex = x - cx, ey = y - cy;
+            const f = Math.min((ex > 0 ? w - edge - cx : cx - edge) / Math.max(1e-6, Math.abs(ex)), (ey > 0 ? h - edge - cy : cy - edge) / Math.max(1e-6, Math.abs(ey)));
+            const mx = cx + ex * f - x, my = cy + ey * f - y;
+            a = [a[0] + mx, a[1] + my]; b = [b[0] + mx, b[1] + my];
+          }
+          ctx.strokeStyle = NEXT_CHECKPOINT_COLOR;
+          ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+        }
+      }
       for (let i = trucks.length - 1; i >= 0; i--) {
         const t = trucks[i];
         let [x, y] = px(t.pos[0], t.pos[2]);
@@ -218,6 +268,7 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
         const label = mapLabel(mode, { truck: t.truck, driver: t.driver, place: t.place, summit });
         if (!label) continue;
         const colour = mapLabelColor(i, player);
+        ctx.globalAlpha = 1 - names;
         if (font) {
           const s = unitPx * 0.6, width = textWidth(font, label, s), left = x - width / 2, top = y + 3 * unitPx;
           drawText(ctx, font, label, left + unitPx, top + unitPx, { color: "#000", scale: s });
@@ -228,6 +279,7 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
           ctx.textAlign = "center";
           ctx.fillText(label, x, y + 12 * unitPx);
         }
+        ctx.globalAlpha = 1;
       }
     },
   };

@@ -73,19 +73,44 @@ Tires are at +0x60 (front right), +0x18C (front left), +0x318 (rear right), +0x4
 
 **Weight** W = `dry_weight` + `fuel.weight` + both axle weights.
 
-**Springs** (`0x5ecba0`, `CVehicle::setSprings`, s in [0, 1] from the garage; the constructor
-uses the same formula):
+**Springs** (`0x5ecba0`, `CVehicle::setSprings`, s in [0, 1] from the garage). The setter first
+turns the setting round, p = 1 - s (clamped to [0, 1]), then:
 
-    sag      = min(front maxcompr, rear maxcompr) * (0.5 - 0.4 * (0.5 - s))
-    k_rear   = W_sprung * (zFront - zCG) / (zFront - zRear) * 0.5 / sag
-    k_front  = W_sprung * (zCG - zRear) / (zFront - zRear) * 0.5 / sag
-    damping  = 3.5 * sqrt(k)            (per axle)
+    sag      = min(front maxcompr, rear maxcompr) * (0.5 - 0.4 * (0.5 - p))
+    k_rear   = W_sprung * (zFront - zCG) / (zFront - zRear) * 0.5 / sag        (+0x598)
+    k_front  = W_sprung * (zCG - zRear) / (zFront - zRear) * 0.5 / sag        (+0x2E0)
+    damping  = 3.5 * sqrt(k)            (per axle, +0x59C rear, +0x2E4 front; 0x65d8a2)
+    CG.y     = front right static_bpos.y (+0x94) + sag + cgModifier.y (+0x1280) + 0.25   (+0x1274)
 
 with `W_sprung` = `dry_weight` + both axle weights and z the axles' and CG's forward
-positions. The CG height is reset to the hub height + sag + `cgModifier.y`. **Hypothesis:** a stock
-vehicle without race springs keeps its `.TRK` `spring_rate` (the garage only enables the setting
-with race springs; when `setSprings` is called was not traced). **The Shocks setting is not used**: its own text
-says "not hooked up" (`0x5ecdd0`).
+positions (the axle blocks' copies of `static_bpos` z, +0x2D8 and +0x590). So s = 0 gives a sag of
+0.7 of the travel (softest) and s = 1 a sag of 0.3 (stiffest); the default 0.5 gives half the
+travel. The 0.25 ft is a double at `0x65d8aa`. (The first pass wrote the formula without the turn and
+the CG without the 0.25; corrected.) Units: rates lb/ft per wheel, damping lb s/ft, sag ft.
+
+**`setSprings` always runs.** The race setup (`0x508cd0`, two call sites, `0x509177` for the entry
+list and `0x509652` for the others) calls every garage setter on every vehicle with its profile's
+settings, `setSprings` first; a computer vehicle gets its AI file's (`0x40c840`), and "Default
+Settings" 0.5 (`0x5a28d0`). The `.TRK`'s `spring_rate` is therefore overwritten before the race in
+every case, and its CG height replaced. (The first pass's hypothesis that a stock vehicle keeps its
+`.TRK` rate is wrong; it makes no difference at the default setting, since Evo 2's `.TRK` rates are this
+formula at s = 0.5, section 10.) Evo 1's `setSprings` (`0x58e900`) has the same constants (0.5, 3.5,
+0.25) and is called the same way (`0x4eb800`).
+
+**No `.TRK` damping.** The reader (`0x5ed4b0`) reads no damping figure (the `.TRK` has none): the
+damping is only ever 3.5 sqrt(k), from the constructor (`0x5e9c80`, which runs the formula with a sag of
+1.0 ft and its own default figures: static_bpos y -4.0, z 5.67 front and -4.0 rear, axles 500 lb, dry
+weight 3000) and then from `setSprings`. The strings `faxle.damping_cf` and `damping_friction`
+(`0x6381e8`...) belong to the telemetry/debug dump `0x4852b0` and are never read from a file.
+
+**The Shocks setting is not used**: its own text says "not hooked up" (`0x5ecd60`, message `0x63a8d7`).
+
+**Aero damping derivatives** (`clp,cmq,cnr`, +0x122C..+0x1234): Evo 2's reader reads them and then
+**overwrites `clp` and `cmq` with -0.05** (`0xbd4ccccd`, `0x5ed4b0` for `.TRK` version 4 or more, so
+every stock vehicle); `cnr` keeps the `.TRK`'s (-0.4 on all 150 stock vehicles). The constructor's
+defaults are the same -0.05, -0.05, -0.4. **Evo 1 keeps the `.TRK`'s -0.2, -0.2, -0.4** (reader
+`0x58f260`, constructor `0x58c0b0` defaults -0.2, -0.2, -0.4). So Evo 2 damps roll and pitch 4 times
+less than the `.TRK` says.
 
 ### 2.1 Fitted parts (`0x5eaa40`)
 
@@ -130,7 +155,7 @@ valve; a racing transfer case): "Cannot modify" otherwise.
 
 | Setter | Address | Effect |
 |---|---|---|
-| `setSprings` | `0x5ecba0` | the springs of section 2, from the sag: 0 stiffest (sag 0.3 of the travel), 1 softest (0.7) |
+| `setSprings` | `0x5ecba0` | the springs of section 2, from the sag: the setter uses 1 - s, so 0 is softest (sag 0.7 of the travel) and 1 stiffest (0.3) |
 | `setShocks` | `0x5ecd60` | nothing ("not hooked up", `0x63a8d7`) |
 | `setTransferGear` (Axle Ratio) | `0x5eca90` | `final_drive` (+0x6B8) = (`(1 - s)` * 1.5 (`0x65d856`) + 0.25 (`0x65d85a`)) * the base final drive (+0x6BC); the effective ratio (+0x6C8) is redone. 0 is 1.75 times the vehicle's own (acceleration, "left"), 0.5 its own, 1 a quarter of it (top speed, "right") |
 | `setHandling` | `0x5ecdd0` | every tire's CF is reset to its base times 1 plus the parts' tire CF modifier (+0x12B4); then the two front tires' CF is raised by 0.75 (`0x65d926`) * s of itself. 0 understeer, 1 oversteer |
@@ -188,12 +213,20 @@ accelerates downward at 1.75 g** (56.3045 / 32.174). The body forces start from 
 
 ### 5.1 Spring force and friction capacity (`0x559770`, `0x559500`)
 
-Per tire:
+Per tire, in this order (`0x559770`, called for the four tires by `0x5589a0`):
 
-    spring  = compression * spring_rate - compressionRate * damping      (at least 0)
-    load    = spring force vector . ground normal                        (0 off the ground)
-    grip    = CF * mu(surface) * weather * tread(surface)
-    Fmax    = grip * load
+    Fs      = compression * spring_rate                      (tire +0x80 = tire +0x78 * axle +0x280)
+    N       = (0, Fs, 0) turned into world axes . ground normal (tire +0x9C; 0 off the ground)
+    grip    = CF * mu(surface) * weather * tread(surface)      (tire +0x98)
+    Fmax    = grip * N                                         (tire +0x9C)
+    spring  = max(0, Fs - compressionRate * damping)           (tire +0x80 = +0x80 - tire +0x7C * axle +0x284)
+
+**The friction capacity comes from the spring force before damping**: `N` and `Fmax` are taken from
+`compression * spring_rate` alone, and the damper term is subtracted from tire +0x80 only afterwards.
+The damped, clamped `spring` is the vertical force the force sum adds (9.1). (The first pass wrote the
+damper into the load; corrected.) `compressionRate` (tire +0x7C) is written by the post-step (5.4):
+`(previous compression - new compression) / dt`, positive while the wheel drops away, so `- rate *
+damping` adds force while the spring compresses and removes it while it extends.
 
 `mu` is the surface table (`0x545ac0`, `EVO2_EXE_ANALYSIS.md` 4.2). **Tread factor**
 (`0x559500`), by tire tread and surface:
@@ -239,22 +272,92 @@ Per tire:
 
 Per tire:
 
-- **Brakes and rolling resistance**: `(brake * max_brake_force_pct * 0.8 + 0.02) * load`,
-  opposing the tire's motion, never reversing it (constants `0x64b49b`, `0x64b49f`).
+- **Brakes and rolling resistance**: `D = (brake * max_brake_force_pct * 0.8 + 0.02) * Fmax` (tire
+  +0x9C, the friction capacity, not the bare load), negative when the tire rolls forward (tire +0x50
+  above 0), positive otherwise (constants `0x64b49b`, `0x64b49f`). Under 14.67 ft/s the hold rule of
+  5.2 adjusts D (`0x55a3ff`).
 - **Drive**: `gear_ratio[gear] * finalRatio * engineTorque / tireRadius`. In 2WD the front tires
   get none and each rear tire half; in 4WD the axle's split times the differential's share for
   that tire (section 6).
-- The total is capped at `Fmax` in each direction (the forward cap applies only while the
-  vehicle is still).
+- **Cap** (`0x559d30` after the hold rule): with `L = 0.8 * Fmax` (`0x64b49b`), the drive force is
+  cut so that `D + drive <= L` always, and so that `D + drive >= -L` only while the body's external
+  force accumulator (body +0x3C..+0x44) is zero, which it is unless something (a vehicle collision)
+  has pushed the body since the last force sum (9.1 clears it). The tire's force is then
+  `F = D + drive`. So both caps are 0.8 Fmax, not Fmax, and the negative one is skipped only on a step
+  with an external push. (The first pass read the condition as "while still"; corrected.)
 - **Wheelspin** (`0x559af0`): a threshold
-  `T = 200 * 0.01 * (0.84 - 0.002 * speed) * grip * load` (times 0.1 for a tire off the
-  ground). A drive force beyond T builds a slip value at
+  `T = k * 0.01 * (0.84 - 0.002 * speed) * grip * Fmax` (grip tire +0x98, Fmax tire +0x9C; k the
+  global `0x679928`, 200; times 0.1 for a tire off the ground). A drive force beyond T builds a slip value at
   `(excess + 0.001 * slip) * 330 / driveInertia` per second (230 above a slip of 50); within T
   the slip is multiplied by 0.99. Every step the slip is capped at 100 and otherwise multiplied
   by 0.7, and cleared under 1. A negative drive force counts half. The slip adds
   `0.3 * slip` to the tire's spin rate (tire +0xC8) and feeds the particles.
 - **Tire to body** (`0x55aaf0`): each tire's ground-plane force is rotated through its slope
   angles into body axes.
+
+### 5.4 Suspension: travel, limits, bump stop (`0x5456e0` -> `0x55d8b0`, `0x55d9d0`, `0x55d260`)
+
+The suspension is moved in the post-step (`0x55d8b0`, called from the ground pass `0x5456e0` after
+the probes), MTM2's scheme (`MTM2_PHYSICS.md` 14.11) with each vehicle's own figures. Per axle (the
+axle block's fields are at offsets from its right tire: FR +0x60, RR +0x318):
+
+| Field | Offset (from the right tire) | Meaning |
+|---|---|---|
+| `static_bpos` (x, y, z) | tire +0x30, +0x34, +0x38 (FR +0x90..+0x98) | the wheel's anchor, body ft |
+| `spring_arm` | tire +0xAC (FR +0x10C, FL +0x238, RR +0x3C4, RL +0x4F0) | lever for the axle's roll, per tire (left ones negative in the `.TRK`: 5 and -5 on every stock vehicle) |
+| articulation | axle +0x258, cos +0x25C, sin +0x260 | the axle's roll angle |
+| `maxangle` | axle +0x264 (+0x2C4, +0x57C) | articulation limit, rad (0.5 stock) |
+| `maxcompr` | axle +0x268 (+0x2C8, +0x580) | travel, ft |
+| axle height | axle +0x274 (+0x2D4, +0x58C) | live; starts as `static_bpos.y` (copied by the reader) |
+| `spring_rate`, damping | axle +0x280, +0x284 (+0x2E0/+0x2E4, +0x598/+0x59C) | lb/ft, lb s/ft |
+| compression, its rate | tire +0x78, +0x7C | ft, ft/s |
+| depth under the ground | tire +0xA4; lever tire +0xA8 | from the probe (`0x5582e0`) |
+
+**What `static_bpos` is: the full-droop position.** Each tire's compression is
+
+    compression = spring_arm * sin(articulation) + (axleY - static_bpos.y)
+
+so it is 0 (no spring force) with the axle at its `static_bpos` height, and grows as the axle rises
+toward the body. The axle is never lower than that: after the bump test below, `axleY < static_bpos.y`
+puts it back at `static_bpos.y` and adds the difference to both compressions (`0x55d9d0`). A
+compression below 0 is set to 0. The rest position is above it by the sag: at the default setting the
+springs are made (section 2) so that the vehicle settles at **half the travel** (sag 0.5 *
+`maxcompr`), 0.3 to 0.7 across the setting. Full bump is `static_bpos.y + maxcompr`.
+
+The post-step, per axle (`0x55d9d0`), the deeper axle first (`0x55d8b0` compares the larger tire
+depth of the front pair, tire +0x104 / +0x230, against the rear's, +0x3BC / +0x4E8; what the first
+axle cannot absorb is carried to the second):
+
+1. Keep the old compressions (tire +0x7C = +0x78) and remove the carried lift from both depths.
+2. **Articulation** from the depths, `atan` of `(dR - dL) / (leverL + leverR)` (or one side over its
+   own lever when the sum is not positive), held to +/- `maxangle`; the depths are corrected by the
+   change of `sin(articulation)` times each lever.
+3. Compressions from the formula above.
+4. **Bump limit**: a compression over `maxcompr` is set to `maxcompr`; the excess is taken off the
+   axle height and off the other tire's compression, and added to both depths.
+5. **Droop limit**: the axle height is held at `static_bpos.y` or above (as above).
+6. **Ground**: the deeper tire's depth raises the axle by up to the travel left (`maxcompr` minus the
+   larger compression); **what the travel cannot take moves the whole body** up along that tire's
+   ground normal (by the depth left times the normal's body-y component), and every contact point's
+   depth (the 16 points) is reduced by it; that amount is carried to the other axle. This is the hard
+   stop: the wheel never goes above `static_bpos.y + maxcompr` in the body frame, the body is lifted
+   instead.
+7. Compressions under 0 become 0; `compressionRate = (old - new) / dt` (dt `0x67976c` + 0x3458).
+
+**Bottoming impulse** (`0x55d260`, after both axles): for each tire whose compression is at least its
+axle's `maxcompr` and whose ground normal n has `v . n < 0` (world velocity into the ground), the
+body's velocity loses `0.25 * (v . n) * n` (`0x64b54b` 0.25, `0x64b54f` -1); the corrections of the
+bottomed tires add up (four bottomed tires remove the whole into-ground component). The sum is kept at
+vehicle +0x2524. There is **no bump-stop force** (no spring stiffening near full travel): the limit is
+this position clamp plus the velocity cut.
+
+**Solid axles only.** Every vehicle runs both axles through this solid-axle routine. The `.TRK`'s
+`frontSuspType`, `rearSuspType`, `frontSuspSpringType` and `rearSuspSpringType` are read (+0x12A4..
++0x12B0, constructor defaults 0, 1, 0, 2) and written back by the `.TRK` writer (`0x5efd30`) but never
+read by the simulation: there is no independent suspension in Evo 2's physics.
+
+**Spring force units**: lbf per tire, vertical in the body frame; the friction capacity (5.1) is its
+component along the ground normal.
 
 ## 6. Driveline
 
@@ -265,6 +368,17 @@ Per tire:
   redline the RPM is set to `redline - 250` and the torque to 0. In neutral the RPM moves 10% a
   step toward `throttle * redline` and decays by 0.97 a step otherwise. The live RPM follows its
   target at rate dt.
+- **The limiter, exactly** (on the ground, run once per tire, so four times a step): the target is
+  `|v_z * 60 * ratio * fr / (2pi * r) + (sum of the four tires' slip, tire +0x11C) * 0.25 * 60 *
+  ratio * fr / 2pi + neutral RPM (+0x688)|` (0.25 `0x64b477`); under 800 it is 800 (`0x64b4ab`); **above the
+  redline it becomes `redline + 100000`** (`0x64b4af`), so the live RPM (+0x5D0) jumps past the redline
+  in one update. Then `rpm += (target - rpm) * dt`; if `rpm < redline` the torque is the curve's,
+  otherwise `rpm = redline - 250` (`0x64b487`) and the torque is 0 unless `v_z / ratio <= 0` (rolling
+  against the gear), when the curve's torque is kept. In the air the target is held to the throttle's
+  share of the redline from below and set to `redline - 250` above the redline, then wound down by
+  `(brake * 16000 + 3200) * dt` (`0x64b48b`, `0x64b48f`). **So the RPM the gearbox sees (+0x5D0, at the
+  start of the next step) is always below the redline**: at most `redline - 250` after a cut, or a value
+  still climbing toward it.
 - **Torque**: `torqueTable[i]` is the torque at `500 i` RPM, linear between entries, at most 23
   entries; times throttle times the parts' torque modifier.
 - **Misfire**: while `0x5ec870` returns a negative value (**not traced**; likely fuel or damage),
@@ -288,10 +402,35 @@ document read the numbers one lower; corrected.)
   `upshift_rpm * 2pi * tireRadius / (60 * gear_ratio * finalRatio)`. Down one gear when the RPM
   is under `dnshift_rpm`, the gear is second or above, and the speed is under the downshift speed.
   The constructor starts every vehicle in first (gear 4).
-- **Manual**: the shift request (+0x6D8, +1 or -1) moves one gear, down to Park.
-- With the "skip neutral" setting (`0xcad904` = 1) and the vehicle slow (+0x780 under 3), Park and
-  Neutral are stepped over (+2 or -2).
+- **The automatic's exact test** (`0x553fb0`), with `r` the **rear left tire's radius** (+0x4B0,
+  tire +0x6C), `fr` the effective final ratio (+0x6C8), `v` the body's forward speed (body +0x14) and
+  both sides compared in mph (`* 0.681818`, `0x64b3a3`):
+
+      vUp(g)   = 2pi r * upshift_rpm / (60 * ratio[g] * fr)
+      vDown(g) = 2pi r * dnshift_rpm / (60 * ratio[g] * fr)
+      up   if auto and rpm >= upshift_rpm and 4 <= g < maxGear and g in {4,5,6,7} and v > vUp(g)
+      down if auto and rpm <  dnshift_rpm and g >= 5 and g in {5,6,7,8} and v < vDown(g)
+
+  The gear sets in braces are written out in the code: an automatic never shifts up from gear 8 (a
+  fifth forward gear) or down from gear 9, whatever `maxGear` says. The up test runs first and the down
+  test sees its result; at most one gear each way per step. In automatic the shift request is ignored.
+- **Upshift against the redline**: the RPM tested is always below the redline (6.1), at most
+  `redline - 250` after the limiter cuts. So an automatic upshifts only when `upshift_rpm <= redline -
+  250` in practice (`upshift_rpm` between `redline - 250` and the redline needs the RPM caught on its way
+  up, which a 100,000 RPM target overshoots in one update), and **never when `upshift_rpm >= redline`**:
+  such a vehicle stays in first. Every stock Evo 2 `.TRK` has `upshift_rpm <= redline - 250` (the
+  closest are the Class 3 race trucks, 7500 against 7800).
+- **Manual** (+0x11F0 clear): the shift request (+0x6D8, +1 or -1) moves one gear, up while under
+  `maxGear`, down while above Park.
+- **Reverse skipped at a staged start** (the first pass called this "skip neutral"; wrong): in race
+  type 1 (`0xcad904`, the race type; see 12) while the vehicle has passed fewer than 3 checkpoints
+  (+0x780, the count of 12), a shift up from Park goes to Neutral (+2) and a shift down from Neutral to
+  Park (-2): Reverse cannot be selected before the start.
 - **Park holds both brakes** (both brake inputs 1 at the end of the step), as in MTM2.
+- **`xm.type` (+0x704) has no effect on the physics**: it is copied only into the vehicle-information
+  record that `0x507570` fills (its +0xC4, beside the drive type and final drive) for display; whether the box is automatic is the player's or AI file's setting (`0x5ecdc0`
+  sets +0x11F0, called from the race setup `0x508cd0` with the profile's value). For a `.TRK` older
+  than version 5 with no eighth gear the reader sets it to 1.
 
 ### 6.4 Centre split and differentials (`0x5589a0`, `0x5587c0`)
 
@@ -347,6 +486,9 @@ so `CL` is a vertical drag coefficient, not lift.
     pitch = cmq * q_rate * A_top  * b * q      (the axes' pairing **hypothesis**)
     roll  = clp * p_rate * A_side * b * q
     yaw   = cnr * r_rate * A_side * b * q
+
+In Evo 2 `clp` and `cmq` are always -0.05 whatever the `.TRK` says (section 2); `cnr` is the
+`.TRK`'s. Evo 1 uses the `.TRK`'s three.
 
 ## 9. Integration
 
@@ -411,6 +553,9 @@ function, against the constants:
 | **Rear grip while steering above 20 mph** | absent | present (3.1) | **differs** |
 | **Hull friction limit** | `0.5 * N * mu * weather` (`0x607e60`) | **1.5 *** | **differs** |
 | Recovery timer | a 5 s timer in the position step resets a vehicle in state 1 that is stuck or airborne | moved out of the step (**not traced** where) | differs |
+| **Aero damping `clp`, `cmq`** | the `.TRK`'s (-0.2, -0.2) | **forced to -0.05** by the reader (`0x5ed4b0`) | **differs** (section 2) |
+| Suspension, `setSprings` at race start | `0x58e900`, same constants | `0x5ecba0` | same (sections 2, 5.4) |
+| **Checkpoint direction** | only crossed forward (`0x5150f0`) | either way (`0x53a150`) | **differs** (section 12) |
 
 **The data differ too.** Of the 109 vehicles both games ship, every one has different spring
 rates, and one has a different tire CF. The totals are the same; the split is not: the Blazer
@@ -456,7 +601,8 @@ original Evo 1 release (2000) is not this build**; its physics may differ again.
   it could also stand in for MTM trucks' figures under Evo physics, which is not done.
 
 **Not reproduced** (OpenPhotex `SIM_EVO.md`): Evo's own catch-up for computer vehicles, the
-misfire, the crash timer (`0x55e240`), the recovery timer, independent suspension, `axleBias`.
+misfire, the crash timer (`0x55e240`), the recovery timer, `axleBias`. (Independent suspension was
+listed here; Evo 2 has none, 5.4.)
 Computer-driven vehicles use MTM2's autopilot. A torque table shorter than the rev range holds its
 last entry. The garage's tire cut is the tread (Shallow, Medium, Deep; Evo's fourth, Studded, has no choice
 yet), and a new profile's is Medium, with Medium suspension (MTM2's own start is Shallow and Soft):
@@ -471,3 +617,38 @@ the rear brakes.
 
 **Still to do:** a hand check of the contact solvers' geometry against `0x548c00`. The garage's settings are built
 (2.2).
+
+## 12. Checkpoints (`0x53a150`; Evo 1 `0x5150f0`)
+
+Called once per vehicle per step (`0x53c5b0`). Race types (`0xcad904`, set from the race list by
+`0x518130`; names from `0x48d220`): 2 circuit, 3 rally, 4 king of the hill, 5 bomb tag, 6 mission,
+and 1, a type with no name in that table whose drivers are staged (the gearbox's Reverse lock, 6.3;
+**hypothesis**: the drag race). Types 4 and 5 and a frozen simulation (`0x8924a0`) test nothing.
+
+- **Only the next checkpoint is tested**: index +0x11E8 ("nextcheckpoint" in the race dump
+  `0x5f1630`) in the checkpoint table, stride 0xA8: race type 1 uses the table at `0x679834` +
+  0x30E0, every other type the one at +0x45E0. Passing any other checkpoint does nothing.
+- **Near enough**: the distance between the vehicle's and the checkpoint's positions must be under
+  `2 * (r_vehicle + r_checkpoint)`, each r the bounding radius of the object's model (object +0x50,
+  then +0x38; `0x64a47e` = 2).
+- **Touching**: the box overlap test `0x535ce0` between the vehicle and the checkpoint must give a
+  positive depth (`0xcadc2c`, reset to -9999 before the test).
+- **Direction**: the vehicle's velocity (body +0xC, turned into world axes, then into the checkpoint's
+  frame by its orientation matrix) gives `vz`, the component along the checkpoint's forward axis.
+  **Evo 2 only requires `vz != 0`** (`test [0xcada28], 0x7fffffff` at `0x53a3ab`): a vehicle crossing
+  the checkpoint backwards counts as well as one crossing it forwards. **Evo 1 requires `vz > 0`**
+  (`fldz`/compare at `0x5152c8`): only a forward crossing counts.
+- **The second test** (race types other than 1): the same overlap test is run against the race-type-1
+  table's checkpoint of the same index (`0x53a3fc`); failing it marks the vehicle (state 3) and counts
+  nothing. In Evo 1 a failed second test also puts the vehicle back at that checkpoint (position from
+  the checkpoint, raised by a constant `0x5e011c`, orientation from it, velocities cleared) unless its
+  last state was already 3 or flag +0x255C is set; Evo 2 only records the state (+0x788).
+- **Counting** (state 2): the pass count (+0x780) goes up (held at 90), the split time is the race
+  clock (`0xcad908`, less `0xcad90c` outside race type 1) minus `depth / vz` (the time since the crossing,
+  so a backward crossing in Evo 2 is timed later, not earlier) minus the earlier splits of this lap and
+  the earlier laps' total (+0x11E4, the race time so far); then `0x53a020` advances +0x11E8, and at the last checkpoint (count `0xcad910`) ends
+  the lap (+0x778, lap times, best lap +0x11E0) and resets +0x11E8 to 0; a network game sends the pass
+  (`0x4edfd0`, packet 0x1A, `EVO_MULTIPLAYER.md`).
+
+So in 4x4 Evolution 2 every checkpoint can be taken in either direction, as long as it is the next one
+and the vehicle touches it while moving; in 4x4 Evolution only forwards.

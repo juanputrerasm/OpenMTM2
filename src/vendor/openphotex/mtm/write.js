@@ -74,10 +74,13 @@ function mass(value) {
 }
 function truck(out, vehicle) {
     const s = vehicle.state;
-    if (!s) {
-        out.push("truckFile", vehicle.truckFile ?? "POWERBIG.TRK", "ipos", triple(vehicle.position), "bvel", "0,0,0", "theta,phi,psi", triple(vehicle.orient), "p,q,r", "0,0,0", "faxle.angle,faxle.steering_angle", "0,0", "faxle.rtire.on_gnd,faxle.ltire.on_gnd", "-1,1", "raxle.angle,raxle.steering_angle", "0,0", "raxle.rtire.on_gnd,raxle.ltire.on_gnd", "-1,1", "xm.gear", "4", "ap.autopilot,ap.cnumber", "0,1", "ap.speed_control,ap.course_control,ap.lasterror", "0,0,0", "!ap.courseToFollow", String(vehicle.courseToFollow ?? 2), "$heliTimer,heliTheta,heliPhi,heliPsi", "0,0,0,0", "heliPos", "0,0,0", "^segments,laps,staged,bonusLaps,finishedRace,nextcheckpoint", "0,0,0,0,0,0", "totalracetime,fastestLap,dragTimer", "0,0,0");
-        for (let lap = 0; lap < 20; lap++)
-            out.push("***Lap time***", "0", "*****Checkpoint times*****", ...Array(20).fill("0"));
+    if (!s || s.damageCode === null) {
+        // The stock grid slot: at rest unless a parsed slot (state with no damage code) says otherwise.
+        const g = (vs, fallback) => (vs ? vs.map((v) => String(Number(v || 0))).join(",") : fallback);
+        out.push("truckFile", vehicle.truckFile ?? "POWERBIG.TRK", "ipos", triple(vehicle.position), "bvel", g(s?.bvel, "0,0,0"), "theta,phi,psi", triple(vehicle.orient), "p,q,r", g(s?.rates, "0,0,0"), "faxle.angle,faxle.steering_angle", g(s?.frontAxle, "0,0"), "faxle.rtire.on_gnd,faxle.ltire.on_gnd", g(s?.frontOnGround, "-1,1"), "raxle.angle,raxle.steering_angle", g(s?.rearAxle, "0,0"), "raxle.rtire.on_gnd,raxle.ltire.on_gnd", g(s?.rearOnGround, "-1,1"), "xm.gear", g(s && [s.gear], "4"), "ap.autopilot,ap.cnumber", g(s && [s.autopilot, s.cnumber], "0,1"), "ap.speed_control,ap.course_control,ap.lasterror", g(s?.apControl, "0,0,0"), "!ap.courseToFollow", String(vehicle.courseToFollow ?? 2), "$heliTimer,heliTheta,heliPhi,heliPsi", g(s?.heli, "0,0,0,0"), "heliPos", g(s?.heliPos, "0,0,0"), "^segments,laps,staged,bonusLaps,finishedRace,nextcheckpoint", g(s && [s.segments, s.laps, s.staged, s.bonusLaps, s.finished, s.nextCheckpoint], "0,0,0,0,0,0"), "totalracetime,fastestLap,dragTimer", g(s && [s.totalRaceTime, s.fastestLap, s.dragTimer], "0,0,0"));
+        for (let lap = 0; lap < 20; lap++) {
+            out.push("***Lap time***", String(Number(s?.lapTimes[lap] || 0)), "*****Checkpoint times*****", ...Array.from({ length: 20 }, (_, k) => String(Number(s?.checkpointTimes[lap]?.[k] || 0))));
+        }
         return;
     }
     // As 0x4c0360 prints a live truck: floats with six decimals (`%f`), the damage code unsigned (`%u`).
@@ -88,6 +91,113 @@ function truck(out, vehicle) {
     for (let lap = 0; lap < 20; lap++) {
         out.push("***Lap time***", f(s.lapTimes[lap]), "*****Checkpoint times*****", ...Array.from({ length: 20 }, (_, k) => f(s.checkpointTimes[lap]?.[k])));
     }
+}
+/**
+ * A parsed MTM2 SIT (`parseMtmSit`) as `writeMtm2Sit` input, for an editor that reads a level, changes its data and
+ * writes it back: `writeMtm2Sit(mtm2SitFromParsed(parseMtmSit(bytes)))` reads back as the same level.
+ *
+ * Positions are taken in feet as the game loader keeps them (`positionFt`, `startFt`), so a negative x or z comes back
+ * wrapped by +8192, which the game reads as the same place. A course segment gets the game's track width
+ * (`trackWidthFt`, 32 when the file had no `&` line). Numbers are written in the stock layout (two decimals, six for
+ * mass, speeds and lengths), and the header lines no reader interprets are carried over as written.
+ *
+ * Throws on what `writeMtm2Sit` cannot express: a SIT that is not MTM2, or a top-crush car in the size form, which no
+ * stock MTM2 level uses.
+ */
+export function mtm2SitFromParsed(sit) {
+    if (sit.origin !== "MTM2")
+        throw new Error(`mtm2SitFromParsed: a ${sit.origin} SIT cannot be written as MTM2`);
+    if (sit.topCrush.some((car) => car.sizeFt || car.size2Ft))
+        throw new Error("mtm2SitFromParsed: a top-crush car in the size form cannot be written");
+    const f6 = (v) => Number(v || 0).toFixed(6);
+    // Two decimals where they hold the value, as community editors write; six where they do not, as TRI's editor wrote.
+    const exact = (v) => {
+        const n = Number(v || 0);
+        for (const digits of [2, 6])
+            if (Number(n.toFixed(digits)) === n)
+                return n.toFixed(digits);
+        return String(n);
+    };
+    const feet = (v) => [exact(v?.[0]), exact(v?.[1]), exact(v?.[2])];
+    const angles = (a, b, c) => [exact(a), exact(b), exact(c)];
+    const truckOf = (t) => {
+        const s = t?.state;
+        return {
+            truckFile: t?.name || undefined,
+            position: feet(t?.positionFt),
+            orient: angles(t?.theta ?? 0, t?.phi ?? 0, t?.psi ?? 0),
+            courseToFollow: t?.courseToFollow,
+            // With no @damageCode line (a level's own grid slot) the writer keeps the stock grid layout.
+            state: s ?? undefined,
+        };
+    };
+    const placement = (b) => ({
+        position: feet(b.positionFt),
+        orient: angles(b.theta, b.phi, b.psi),
+        ...(b.modelName ? { modelName: b.modelName } : { extents: feet(b.sizeFt ?? [b.length, b.width, b.height]) }),
+        mass: b.mass,
+        bvel: feet(b.bvel ?? [0, 0, 0]),
+        rates: feet(b.rates ?? [0, 0, 0]),
+    });
+    const courseOf = (c) => (c?.segments ?? []).map((seg) => ({
+        start: feet(seg.startFt), end: feet(seg.endFt),
+        speedLimit: f6(seg.speedLimit), trackWidth: f6(seg.trackWidthFt),
+        types: `${seg.ctype},${seg.cspeedType}`,
+        speeds: `${f6(seg.cdecPoint)},${f6(seg.cspeed)},${seg.lastEntry}`,
+    }));
+    const player = sit.trucks.find((t) => t.playerSlot);
+    const extended = [null, null, null, null];
+    const directions = [0, 0, 0, 0];
+    sit.extendedCourses.forEach((c, i) => {
+        const slot = c.slot ?? i;
+        if (slot < 0 || slot > 3)
+            return;
+        extended[slot] = courseOf(c);
+        directions[slot] = c.direction;
+    });
+    return {
+        lvlName: sit.lvlName,
+        trackName: sit.trackName ?? "",
+        localeName: sit.localeName ?? "",
+        longitudeLatitude: sit.longitudeLatitude ?? undefined,
+        ambientLine: sit.ambientSound !== null,
+        viewState: sit.viewState ?? undefined,
+        raceTimes: sit.raceTimes ? sit.raceTimes.map(f6).join(",") : undefined,
+        controlFlags: sit.controlFlags ?? undefined,
+        stageFlags: sit.stageFlags ?? undefined,
+        pictureBmp: sit.logoBmp ?? "",
+        iconBmp: sit.mapBmp ?? "",
+        flyByAvi: sit.flyBy ?? undefined,
+        announcerWav: sit.announcerWav ?? undefined,
+        descriptionTxt: sit.descriptionTxt ?? "",
+        raceType: sit.trackTypeCode ?? undefined,
+        redbookTrack: sit.redbookTrack ?? undefined,
+        ambientSound: sit.ambientSound ?? undefined,
+        trackLength: f6(sit.trackLength),
+        weatherMask: sit.weatherMask ?? undefined,
+        yourTruck: truckOf(player),
+        vehicles: sit.trucks.filter((t) => !t.playerSlot).map(truckOf),
+        ramps: sit.boxes.filter((b) => b.type === 99).map(placement),
+        boxes: sit.boxes.filter((b) => b.type !== 99 && b.type !== 98).map((b) => ({
+            ...placement(b), type: b.type, flags: b.flags, priority: b.priority ?? 0,
+            hitSound: b.hitSound ?? undefined, loopSound: b.loopSound ?? undefined,
+            light: b.lightFields,
+        })),
+        cylinders: sit.cylinders ?? undefined,
+        topCrush: sit.topCrush.map((car) => ({
+            position: feet(car.positionFt), position2: feet(car.position2Ft), orient: angles(car.theta, car.phi, car.psi),
+            modelName: car.modelName || undefined, cabModelName: car.cabModelName || undefined,
+            mass: car.mass, bvel: feet(car.bvel), rates: feet(car.rates),
+        })),
+        course: courseOf(sit.primaryCourse),
+        courseDirection: sit.primaryCourse?.direction ?? 0,
+        extendedCourses: extended,
+        extendedCourseDirections: directions,
+        stadium: sit.arena
+            ? { placed: sit.arena.placed, flag: 1, x: sit.arena.x, z: sit.arena.y, sx: sit.arena.sx, sz: sit.arena.sy, modelName: sit.arena.modelName }
+            : undefined,
+        backdrop: { type: sit.backdropType ?? 0, modelNames: sit.backdropModelNames ?? [] },
+    };
 }
 /**
  * The lines of one SIT truck record (after its delimiter), as `writeMtm2Sit` writes it: for a caller that rewrites

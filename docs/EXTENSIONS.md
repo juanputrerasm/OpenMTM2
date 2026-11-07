@@ -547,7 +547,9 @@ of each a race.
 `--`), each coloured green (60 percent and up), yellow (35), orange (15) or red, and after a space the credits and what a
 full repair costs. Wheels lost, wrecks (with the wrecker's YeeHaw) and the player's
 repairs are told. The names over the trucks carry each truck's hit points in percent, in the same colours; Wrecked or
-Out under a truck that is out.
+Out under a truck that is out. "Names over the trucks" (0.6.6, on by default) starts the race with them off; the Names key shows and hides them in
+Combat as in any race (before 0.6.6 a hidden name came back with the hit points). The race screen reads a `names`
+setting the same way for any extension.
 
 Not in replays: a replay shows the trucks without the loose wheels, the debris and the smoke. Online rooms: see "Over the
 network" (each machine judges the trucks it drives; the owner decides the end).
@@ -639,6 +641,12 @@ the extension for its rules before it builds the ground (`session-loader.js` `ex
 same track, the new rules judging: a back flip held on the throttle off a ramp landed in 90 of 190 tries (0 without),
 sky wheelies 49 runs against 17, slap wheelies 15 against 5, keyboard donuts 20 runs in 30 against 17; levelling the
 truck in the air kept ordinary jumps at a 4% crash rate (3% without), and flip attempts crash 37% of the time.
+
+**Freestyle options** (0.6.6; the run's settings): Trick physics' three strengths, held to `TRICK_LIMITS` (air pitch
+control 0 to 10, air spin damping 0.05 to 1, ground yaw damping 0.1 to 1; the defaults are the tuned ones above);
+"Trick physics with MTM1 and Evo physics too" (`trickAnyPhysics`; CART's model never has it); and a weight of 0 to 2x
+for each judged category (`weight_<category>`, `judgingWeights`), which scales that category's share of the 10 points.
+The total is still held to 0 to 10.
 
 The HUD shows the time left, the score, each category's points and the deductions, and announces each move as it is
 judged ("Back flip!", "Donuts x2!", "What a save!"), the crowd's YeeHaw for a spectacular one. The checkpoint finder

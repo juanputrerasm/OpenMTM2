@@ -182,3 +182,13 @@ OpenMTM2 Server folder and two browsers (or two computers) at `localhost` or the
    the teammates, a muted player, and the gamepad's quick-message wheel.
 4. A player leaving mid-race; the owner leaving (another owns the room, the computer trucks
    drive themselves); the owner removing a player; stopping the server (everyone is told).
+
+### The owner's rules (0.6.6, server 0.4.0)
+
+With the start the owner sends the room's `rules` setting (`game/host-rules.js` `hostRules`): the physics model, how
+the computer trucks drive and their AI speed, the opponent frame rate, Sonic trucks, shifting in automatic, the Evo
+helicopter, the skill, and the chosen extension's settings as `ext.<id>.<key>`. Every player's race runs by them over
+their own settings, for that race only (`withHostRules`, `ui/screens/race.js` `raceRules`); cameras, keys, the
+gamepad, graphics and sound stay each player's. A server before 0.4.0 refuses the field, and a client before 0.6.6
+ignores it.
+

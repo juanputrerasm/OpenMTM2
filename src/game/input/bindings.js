@@ -30,6 +30,9 @@ export const ACTIONS = Object.freeze([
   { id: "cameraUp", label: msg("View Forward") },
   { id: "cameraDown", label: msg("View Back") },
   { id: "map", label: msg("Map") },
+  // Not one of the game's: the OpenMTM2 map's zoom (render/open-map.js), a step in or out a press.
+  { id: "mapZoomIn", label: msg("Map zoom in") },
+  { id: "mapZoomOut", label: msg("Map zoom out") },
   { id: "names", label: msg("Names") },
   { id: "finder", label: msg("Finder") },
   { id: "headlights", label: msg("Headlights") },
@@ -69,6 +72,8 @@ export const DEFAULT_BINDINGS = Object.freeze({
   cameraUp: Object.freeze(["Minus", "NumpadSubtract"]),
   cameraDown: Object.freeze(["Equal", "NumpadAdd"]),
   map: Object.freeze(["Tab", "KeyM"]),
+  mapZoomIn: Object.freeze(["BracketRight"]),
+  mapZoomOut: Object.freeze(["BracketLeft"]),
   names: Object.freeze(["KeyN"]),
   finder: Object.freeze(["KeyF"]),
   headlights: Object.freeze(["KeyL"]),

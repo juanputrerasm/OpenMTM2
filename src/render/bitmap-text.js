@@ -7,6 +7,30 @@ import { fontSpacing } from "../worker/bitmap-font.js";
 
 const loaded = new Map();
 
+/** OpenMTM2's own font (its menus'), for "OpenMTM2 font in-game" (Options, Advanced, OMTM2). */
+export const OMTM2_FONT = '"Trebuchet MS", "Segoe UI", system-ui, sans-serif';
+/** Its letters' size against the bitmap font's line pitch, which it keeps so every layout stays as it is. */
+const SYSTEM_FONT_SIZE = 0.86;
+let systemFont = false;
+/**
+ * Draw every in-game text in OpenMTM2's own font (`on`) or the game's bitmap fonts: the fonts loaded from now on are
+ * of that kind. The font objects keep the bitmap font's `lineHeight`, so the HUD, captions and boards keep their sizes.
+ */
+export function useSystemFont(on) {
+  if (!!on === systemFont) return;
+  systemFont = !!on;
+  loaded.clear();
+}
+/** A font that draws with OpenMTM2's own, as tall as the bitmap font it stands for (`lineHeight` sheet pixels). */
+export const systemFontFor = (lineHeight = 14) => ({ vector: true, lineHeight, size: Math.max(6, Math.round(lineHeight * SYSTEM_FONT_SIZE)) });
+let measurer = null;
+const vectorFont = (font, scale) => `${font.size * scale}px ${OMTM2_FONT}`;
+function measureVector(font, text, scale) {
+  measurer ??= (typeof OffscreenCanvas === "function" ? new OffscreenCanvas(1, 1) : document.createElement("canvas")).getContext("2d");
+  measurer.font = vectorFont(font, scale);
+  return measurer.measureText(String(text)).width;
+}
+
 /**
  * Forget every loaded font (the POD manager, after the mounted archives change: another archive
  * may now hold the sheet).
@@ -29,6 +53,8 @@ export function loadFont(assets, stem) {
       sheet.getContext("2d").putImageData(new ImageData(rgba, data.width, data.height), 0, 0);
       return { glyphs, lineHeight: data.lineHeight, sheet, tinted: new Map() };
     }).catch(() => null).then((font) => {
+      // OpenMTM2's own font in its place, as tall; even without the sheet (an install lacking it).
+      if (systemFont) return systemFontFor(font?.lineHeight ?? 14);
       // Not cached when missing: the archives may not be mounted yet (the first start), so a later call asks again.
       if (!font) loaded.delete(stem);
       return font;
@@ -65,6 +91,14 @@ function tintedSheet(font, color) {
 
 /** Draw `text` with its top-left at (x, y); returns its width in canvas pixels. */
 export function drawText(ctx, font, text, x, y, { color = "#fff", scale = 1 } = {}) {
+  if (font.vector) {
+    ctx.font = vectorFont(font, scale);
+    ctx.textBaseline = "top";
+    ctx.fillStyle = color;
+    // Centred in the bitmap font's line, as its letters sit.
+    ctx.fillText(String(text), x, y + Math.round(((font.lineHeight - font.size) * scale) / 2));
+    return measureVector(font, text, scale);
+  }
   const { space, gap } = fontSpacing(font);
   const sheet = tintedSheet(font, color);
   ctx.imageSmoothingEnabled = false;
@@ -81,6 +115,7 @@ export function drawText(ctx, font, text, x, y, { color = "#fff", scale = 1 } = 
 }
 
 export function textWidth(font, text, scale = 1) {
+  if (font.vector) return measureVector(font, text, scale);
   const { space, gap } = fontSpacing(font);
   let w = 0;
   for (const ch of String(text)) {

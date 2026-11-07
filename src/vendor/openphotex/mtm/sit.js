@@ -170,6 +170,13 @@ export function parseMtmSit(input, sitTitle = "") {
         trucks: parseTrucks(lines),
         cylinders: parseCylinders(lines),
         longitudeLatitude: valueAfter("Track Longtitude, Latitude")?.trim() ?? null,
+        viewState: valueAfter("viewmode,spotd,spotp,spoth,zoom")?.trim() ?? null,
+        controlFlags: valueAfter("controlflag, autoShift, autoStage, bothStaged, bothStagedPrev")?.trim() ?? null,
+        stageFlags: valueAfter("stageComFlag, bonusLapFlag")?.trim() ?? null,
+        backdropType: (() => {
+            const at = indexOfLine(lines, "*** Backdrop ***");
+            return at >= 0 && at + 2 < lines.length ? parseLeadingInt(lines[at + 2]) : null;
+        })(),
         warnings: [],
     };
     const trackType = valueAfter("Track Race Type");
@@ -558,8 +565,9 @@ function parseTruckBlock(lines, startIdx) {
         truck.phi = a[1];
         truck.psi = a[2];
     }
-    // Within this record: the next one starts at a delimiter or a section header.
-    let end = startIdx;
+    // Within this record: the next one starts at a delimiter or a section header. The player slot's record opens on
+    // its own delimiter (it follows the section header directly), which is not the end of it.
+    let end = lines[startIdx]?.startsWith("****") ? startIdx + 1 : startIdx;
     while (end < lines.length && !lines[end].startsWith("****"))
         end++;
     const followIdx = indexOfLinePrefix(lines, "!ap.courseToFollow", startIdx, end);
@@ -580,7 +588,7 @@ function numbersAfter(lines, label, start, end) {
  * checkpoint times' own star lines have no space after the stars).
  */
 function parseTruckState(lines, startIdx) {
-    let end = startIdx;
+    let end = lines[startIdx]?.startsWith("****") ? startIdx + 1 : startIdx;
     while (end < lines.length && !(lines[end].trim() === "*********************************************" || /^\*\*\* \S/.test(lines[end].trim())))
         end++;
     const bvel = numbersAfter(lines, "bvel", startIdx, end);

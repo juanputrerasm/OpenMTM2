@@ -4,7 +4,8 @@ import { frame } from "../frame.js";
 import { mountOptionsPanel } from "../options-panel.js";
 import { msg } from "../../game/strings.js";
 
-export async function openOptionsModal(context) {
+/** `tab` opens on that tab (its English name); `extension` shows only that extension's settings there. */
+export async function openOptionsModal(context, { tab = null, extension = null } = {}) {
   if (context.optionsDialog?.isConnected) return;
   const panel = el("div", { class: "options-modal-panel" });
   const dialog = el("dialog", { class: "options-modal", "aria-label": context.t("Options") },
@@ -12,7 +13,7 @@ export async function openOptionsModal(context) {
   context.optionsDialog = dialog;
   document.body.append(dialog);
   const close = () => dialog.close();
-  const cleanup = await mountOptionsPanel(panel, context, { close });
+  const cleanup = await mountOptionsPanel(panel, context, { close, tab, extension });
   // Escape and a click outside ask about unsaved changes, as the Close button does.
   dialog.addEventListener("cancel", (event) => { event.preventDefault(); cleanup.requestClose(); });
   dialog.addEventListener("close", () => {

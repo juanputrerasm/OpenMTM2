@@ -213,11 +213,17 @@ async function evoTruck(view, file, game) {
   - a group's bump texture (`<model>_BUMP.TIF`) is its normal map, under the name the renderer looks one up by
     (`<texture stem>_N`). Its green points down the picture, which is the way V runs here, so it is not flipped
     as Community Patch 3's are (`normalScaleY`);
-  - a lamp group (LIGHTHL and the rest) is moved off the body as `0x5d6f50` moves it, and named for its glow.
+  - a lamp group (LIGHTHL and the rest) is moved off the body as `0x5d6f50` moves it, and named for its glow;
+  - every face is drawn from its front only: the game culls a truck's back faces, as JSTruckViewer does. A body's
+    inner lining shares the planes of its outer skin, facing in: CHEVTROPHY.SMF's UNDBODY lines the rear of the
+    Chevy TrailBlazer Race SUV (CTTT2.TRK) in the plane of BODY's panels, on black art. Drawn from both sides
+    (`loadEvoModelTextures` makes every group of an art with an opacity plane two-sided, for a track's cards) the
+    lining's back showed through the skin, and the rear of the truck stood solid black.
 */
-async function evoTruckMaterials(view, parts, textures) {
+export async function evoTruckMaterials(view, parts, textures) {
   for (const model of Object.values(parts)) {
     for (const mesh of model?.meshes ?? []) {
+      mesh.doubleSided = false;
       if (mesh.transparent && textures[mesh.textureName]?.hasAlpha) { mesh.blended = true; mesh.cutout = false; }
       if (mesh.bumpTextureName && mesh.textureName) {
         const key = `${stemOf(mesh.textureName)}_N`;

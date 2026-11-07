@@ -106,7 +106,7 @@ export function explainError(error) {
   const text = `${error.name ?? ""} ${error.message ?? ""}`;
   if (error.kind === "contextLost" || /context lost|CONTEXT_LOST/i.test(text)) return {
     title: msg("The graphics card stopped drawing the game."),
-    hint: msg("The browser took the graphics away from the page (the driver restarted, or it ran out of video memory). Go back to the menu and start the race again; lower Graphics in Options if it happens again."),
+    hint: msg("The browser took the graphics away from the page (the driver restarted, or it ran out of video memory). Go back to the menu and start the race again; if it happens again, lower Texture size (Options, Display) and Graphics."),
   };
   if (error.kind === "stalled") return {
     title: msg("The simulation stopped answering."),

@@ -12,6 +12,7 @@ import { buildCatalog } from "../src/worker/catalog.js";
 import { buildTruckRender } from "../src/worker/truck-build.js";
 import { foreignTruckId, parseForeignTruckId, tireSize, withHelmet } from "../src/worker/foreign-truck-build.js";
 import { raceEntrants } from "../src/game/race-setup.js";
+import { skipLocal } from "./helpers/stock.mjs";
 
 const GAMES = process.env.OPENMTM2_GAMES ?? join(process.env.HOME ?? "", "games");
 const mount = (game, dir, file) => {
@@ -20,7 +21,7 @@ const mount = (game, dir, file) => {
 };
 const ARCHIVES = [["CPR", "cpr", "RACECAR.POD"], ["EVO1", "evo1", "TRUCK.POD"], ["EVO2", "evo2", "TRUCK.POD"]];
 const missing = ARCHIVES.filter(([, dir, file]) => !existsSync(join(GAMES, dir, file))).map(([, dir, file]) => `${dir}/${file}`);
-const skip = missing.length ? `not installed under ${GAMES}: ${missing.join(", ")}` : false;
+const skip = skipLocal(GAMES) || (missing.length ? `not installed under ${GAMES}: ${missing.join(", ")}` : false);
 
 test("a vehicle of another game is named <GAME>:<file>; an MTM truck's name is not one", () => {
   assert.equal(foreignTruckId("EVO2", "truck\\cbls24.trk"), "EVO2:CBLS24.TRK");

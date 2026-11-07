@@ -238,3 +238,28 @@ test("a truck on a ground-box deck keeps its chase camera; a box the line runs i
   const blocked = createChaseCamera().update(2, [0, 5, 0], 0, flat, 0.016, { solid: wall }).position;
   assert.ok(blocked[2] >= -20, `the wall pulls it in (${blocked})`);
 });
+
+test("camera systems: each lists its game's views, the default is OMTM2, and every view is a short-cycle choice", async () => {
+  const C = await import("../src/game/cameras.js");
+  assert.deepEqual(C.systemViews("mtm2"), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  assert.deepEqual(C.systemViews("omtm2", true), [0, 19, 14, 10]);
+  assert.deepEqual(C.systemViews("nonsense"), C.systemViews(C.DEFAULT_CAMERA_SYSTEM));
+  assert.equal(C.systemShortcut("mtm1", 2), 12);
+  assert.equal(C.systemShortcut("mtm1", 7), null);
+  for (const id of Object.values(C.CAMERA_SYSTEMS).flatMap((s) => s.views)) assert.ok(C.SHORT_VIEW_CHOICES.some((m) => m.id === id), `view ${id} can join the short cycle`);
+  // MTM1's Chase near: 0x2aaa, zoom 0x6000 (MTM1_MONSTER_EXE_ANALYSIS.md 10); OMTM2's chase views keep the standard lens.
+  assert.equal(C.cameraMode(11).dist, 0x2aaa);
+  assert.equal(C.cameraMode(19).zoom, 0x10000);
+  assert.equal(C.cameraMode(14).zoom, 0x10000);
+  assert.ok(C.cameraMode(14).dist > C.cameraMode(19).dist);
+  // The lens Inertia keeps Chase Near's distance and opens to four times Chase Near's zoom flat out.
+  const slow = C.inertiaView(0, { lens: true }), fast = C.inertiaView(200, { lens: true });
+  assert.equal(slow.dist, fast.dist);
+  assert.ok(Math.abs(fast.zoom / slow.zoom - C.INERTIA_LENS_MOST) < 1e-9);
+  // Evo 2's Inertia pulls back with speed.
+  const cam = C.createChaseCamera(), flat = () => 0;
+  const near = cam.update(15, [0, 0, 0], 0, flat, 1 / 60, { speedFt: 0 });
+  for (let i = 0; i < 300; i++) cam.update(15, [0, 0, 0], 0, flat, 1 / 60, { speedFt: 100 });
+  const far = cam.update(15, [0, 0, 0], 0, flat, 1 / 60, { speedFt: 100 });
+  assert.ok(Math.abs(far.position[2]) > Math.abs(near.position[2]) + 20);
+});

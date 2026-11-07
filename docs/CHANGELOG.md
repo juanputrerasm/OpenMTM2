@@ -4,7 +4,163 @@ What was built, milestone by milestone and stage by stage, as the plan recorded 
 current state and everything still open are in [PLAN.md](PLAN.md); a "Not done", "Left" or "Pending" line below is
 as it stood when it was written, and the plan's open items list is the one kept up to date.
 
-## v0.6.5 (test build; player notes in releases/v0.6.5.txt)
+## v0.7.0 (begun as the v0.6.6 test build)
+
+Players' reports on 0.6.5 (RuDeE) and the decisions on them. The research behind the Evo and MTM1 rules is in
+`EVO2_PHYSICS.md` (section 2 rewritten, 5.4 Suspension, 6.3, 12 Checkpoints), `EVO2_EXE_ANALYSIS.md` (10 Cameras, 11
+Helicopter and recovery, 12 Computer drivers) and `MTM1_MONSTER_EXE_ANALYSIS.md` (10 Cameras, 11 CPU trucks).
+
+Second round, from the first test of this build:
+- **Races screen:** Mode and its options button were gone from the classic screen; the button's style had taken the
+  Mode panel out of its place (`styles/screens.css`).
+- **OMTM2 cameras:** Chase Near and Chase Far keep the standard lens (zoom 0x10000) at MTM2's distances for now
+  (`game/cameras.js` `OMTM2_CHASE`, views 19 and 14); the zoom each one should have is still to come.
+- **Computer trucks drive as: Same as physics** (`app/settings.js` `resolveAiBehaviour`): the drivers of the race's
+  physics model, after Auto is resolved: MTM1 for MTM1, MTM2 for MTM2 and CART, EVO for either 4x4 Evolution. The
+  default stays OMTM2. Online the owner's choice travels and each player resolves it with the owner's physics.
+- **Start without the server** moved to Data, POD mounting.
+- **Commentary truck names** moved to Advanced, MTM2; off by default, on with the MTM2 Classic preset.
+- **Presets:** a list (Computer trucks drive as, Camera system and the rest) now shows the value a preset gives it;
+  the presets did set them, the lists showed the old choice.
+- **Options sub-tabs:** Keys (Keyboard, Gamepad, Touch), Extensions (one per extension, in the page's two columns),
+  Advanced (one per section) and Data (POD mounting, POD.INI, Settings, MTM2 HOF) are split into sub-tabs; the last
+  one shown is remembered for the session. Advanced's three presets and Data's Clear browser game data sit at the
+  bottom of every sub-tab. The Jukebox button is at the bottom of Sound; Display's graphics note reads "Changes take
+  effect next race."; the Races screen's extension button reads "Settings".
+- **Tests:** the tests that read local game files are opt-in (`OPENMTM2_STOCK=1 node --test tests/`), mount only
+  the 19 retail archives in retail order, and name the retail tracks they check instead of counting the install's
+  (`tests/helpers/stock.mjs` `skipLocal`, `RETAIL_TRACKS`).
+
+- **Presses no longer lost or doubled** (shift keys and H had to be pressed twice): the frame sampled the keys and
+  cleared their latches, and a frame that ran no simulation step (any frame under 1/60 s, so every other frame on a
+  120 Hz screen) dropped the press; a frame that ran two steps shifted twice. The worker now keeps the one-shot
+  presses (`ONE_SHOT_INPUTS`) until a step takes them, and only one step takes each (`worker/sim-worker.js`
+  `advance`, `step`). A gamepad's shift is no longer dropped while a drive key is held (`ui/screens/race.js`
+  `sampleInput`). Test: tests/sim-session.test.mjs.
+- **Gamepad buttons in Options, Keys** (`game/input/pad-bindings.js`): every race action can be put on any button,
+  the default layout as before (RB / LB shift, D-pad down Emergency Brake, Y helicopter, X camera, A dashboard,
+  B map, Start pause, D-pad up Drive Mode, D-pad left and right zoom); the sticks and triggers stay fixed. While the
+  screen waits for a button the menus ignore the pad (`context.padCapture`).
+- **Shift gears in automatic** (Advanced, OMTM2; on, off in the classic presets): the automatic box takes the shift
+  keys and LB / RB too, and holds the chosen gear until the engine reaches its limiter or drops under the downshift
+  rpm (OpenPhotex `autoOverride`, `shiftHold`, in the MTM2, Evo and CPR gearboxes). The touch shift buttons show in
+  automatic with it.
+- **Camera systems** (Advanced, Cameras; `game/cameras.js` `CAMERA_SYSTEMS`), chosen apart from the physics:
+  OMTM2 (the default: the cockpit and its own Chase Near and Chase Far, both with the standard lens),
+  MTM2 (the game's ten), MTM1 (its five from 1.00: the cockpit, Chase near 0x2aaa zoom 0x6000, Chase far 0x4000
+  pitch 0x1000, the Goodyear Blimp over a point 32 ft ahead, RaceCam; no heading easing) and EVO (4x4 Evolution 2's
+  cockpit, Inertia, Sky Cam, Chase Near and Chase Far). Every new view can join the short camera cycle; the number
+  keys pick the system's views in order. **Inertia widens the lens** (Advanced, Cameras; off): the Inertia view keeps
+  Chase Near's distance and opens its lens to a quarter of Chase Near's zoom with speed.
+- **Computer trucks** (a new Advanced section): "Computer trucks drive as" OMTM2 (the default: the port's drivers as
+  before), MTM2 (the game's autopilot alone, the Professional reset on a missed checkpoint, the player's gearbox
+  setting copied to every truck as the game does), MTM1 (as MTM2 but a missed checkpoint always calls the
+  helicopter: OpenPhotex `missedLift`) or EVO (`game/evo-driver.js`: 4x4 Evolution 2's line follower on the track's
+  recorded AI line with its speeds, look-ahead, steering, pedals, rubber band, reversing out and the warp back to the
+  line; on a track without an AI line, MTM2's autopilot). Opponent frame rate, Sonic trucks, AI speed, Computer
+  drivers and Computer opponents moved there.
+- **4x4 Evolution physics** (OpenPhotex `sim/evo`): Evo 2 counts a checkpoint driven through either way (the race's
+  `twoWay`, `EVO2_RULES.twoWayCheckpoints`; Evo 1 forwards only); `setSprings` runs for every vehicle at the
+  default 0.5 unless the garage sets it, with the slider turned round as the game does (the garage's suspension was
+  backwards); the CG sits at the front right wheel's full-droop height plus the sag, `cgModifier.y` and 0.25 ft (it
+  was 0.5 ft over the origin, well too high); Evo 2 forces roll and pitch damping to -0.05 (`rollPitchDamping`; the
+  .TRK's -0.2 damped four times too hard). The AI lines' speeds are read (`parseEvoAiLine` `speeds`).
+- **Evo rear wheels no longer shake in a turn**: the controls set a rear steering angle that the Evo step zeroes on a
+  vehicle without rear steering, after the pose drawn from had been taken, so the wheels swung between the two poses
+  every frame. The angle is zeroed before that pose now.
+- **Evo vehicles drawn from the front of their faces only** (`worker/foreign-truck-build.js` `evoTruckMaterials`), as
+  the game culls them and JSTruckViewer draws them. The Chevy TrailBlazer Race SUV (CTTT2.TRK, CHEVTROPHY.SMF) lines
+  its rear with UNDBODY, facing in, in the planes of BODY's panels and on black art; its art has an opacity plane, so
+  every group had been made two-sided as a track's cards are, and the lining's back showed through: the rear stood
+  solid black. Its gears: the original shifts too, but its first gear runs
+  to about 70 mph on a rear axle carrying 38% of the weight, so it rarely gets there.
+- **Helicopter to the last checkpoint** (Advanced, EVO; off): 4x4 Evolution 2's H key, 32 ft behind the last
+  checkpoint passed, facing along it; before the first checkpoint the course's nearest point as before.
+- **Checkpoints on the map** (Advanced, OMTM2; on, off in the classic presets): the course map draws a bar across the
+  road at every checkpoint, as long as its box is wide and as thick as its lines, not animated; the watched truck's
+  next one in yellow, kept at the map's edge when it is off it, the rest in blue (`render/minimap.js`).
+- **Map line thickness and Map transparency** (Advanced, OMTM2): the course map's lines 0.25x to 1.75x, 1x (the game's)
+  in the middle of the slider, and the whole map 0% (the game's) to 90% see-through: 50% by default and with the
+  OpenMTM2 preset, 0% with the MTM1 and MTM2 Classic presets.
+- **MTM2's loading bar** (`game/loading-bar.js`, `ui/loading-board.js`; MONSTER_EXE_ANALYSIS.md, "The loading bar",
+  traced from 0x568b40): the loading screen draws the game's bar, 570 x 28 at (34, 416) of 640 x 480 in a black box,
+  with what is being done centred in it in the game's FNT1 font, at the timing board's size and pixel for pixel (drawn
+  in device pixels at `hudFontScale`, the art fitted to the view) ("Loading world database", "Initializing phototexture
+  system", "Loading scenery", "Loading terrain database", "Loading courses", "Loading vehicles" from the track build,
+  then "Preparing simulator" and "Loading additional graphics"; 9 steps, so it stops one short as the game's does), and
+  "Race : <name>" and "Skill : <level>" over it. "Determining times for remaining trucks" runs the same bar in 30
+  steps as the times are worked out. The port's own lines at the top left say the track (and its type), the truck,
+  the game mode, the physics, the computer drivers and the camera system. The bar's colours are the port's (the game's
+  are palette entries 4 and 7, the palette not traced).
+- **OpenMTM2 font in-game** (Advanced, OMTM2; off): every bitmap-font text (the timing board, captions, name tags,
+  map labels, gauges, loading screen, watermark) drawn in OpenMTM2's own font ("Trebuchet MS", "Segoe UI",
+  system-ui, sans-serif) at the bitmap font's line height, so the layouts keep their sizes
+  (`render/bitmap-text.js` `useSystemFont`).
+- **Chat box in single player** (Advanced, OMTM2; on) and **MTM2 Caption bar** (Advanced, MTM2; off, on with the MTM1
+  and MTM2 Classic presets): a single-player race has the online race's chat box (`ui/race-chat.js` `local`) as a log
+  of the announcer's text commentary ("Army") and the race's messages, in place of the caption bar; the Chat key types
+  lines only the player sees. The camera views' names stay in the caption bar. MTM2 Caption bar keeps the game's
+  caption bar and turns the chat box off (`game/chat.js` `soloChatOn`).
+- **Combat: Names over the trucks** (Combat's options): off starts the race with the names off, and the Names key now
+  hides them in Combat too (a name always came back before).
+- **Extension options button** beside Mode on the Races screen, for an extension with options: Options opens on the
+  Extensions tab with that extension alone (`openOptionsModal(context, { tab, extension })`).
+- **Freestyle options**: Trick physics' three strengths (air pitch control, air spin damping, ground yaw damping, held
+  to `TRICK_LIMITS`), Trick physics under MTM1 and Evo physics too, and a 0 to 2x weight for each judged category
+  (`judgingWeights`; the total is still out of 10).
+- **Touch controls on iPhone**: a long press on a pedal no longer selects the watermark or opens the callout menu
+  (no text selection or callout on the watermark or on the page while the touch controls show; the pedals cancel
+  `touchstart`).
+- **Online: the room owner's rules** (`game/host-rules.js`; OpenMTM2 Server 0.4.0's `rules` room setting): the
+  physics model, the computer trucks' behaviour, AI speed, opponent frame rate, Sonic trucks, shifting in
+  automatic, the Evo helicopter, the skill and the chosen extension's settings go to every player with the start and
+  apply to that race only. Cameras, keys and graphics stay each player's.
+
+- **4x4 Evolution 2 ground in three levels of detail** (Cape Hatteras on Max at 2560 x 1440: 70 to 80 frames a second,
+  50 at the worst places): with Smooth terrain an Evo 2 track's ground is cut 4 x 4 a cell, 32 triangles, and every
+  chunk was drawn so out to the horizon, about 3.4 million triangles a frame there. MTM2's smoothed ground already
+  had a coarse level far off; the Evo 2 ground now has a middle one (2 x 2 a cell) past 600 ft of a chunk's edge and
+  the cell's two triangles past 2400 ft, in the fine mesh's own vertices, the cells on a chunk's border keeping every
+  point of it so that chunks at any two levels meet without a crack (`worker/terrain-mesh.js` `fineTerrainLevel`,
+  `render/track-scene.js` `MID_FINE_RANGE_FT`; tests/fine-terrain-levels.test.mjs). About 1 million triangles a frame
+  on that track now. On an Apple M5 at 1280 x 625 the ground went from 4 ms a frame to 0.6 and the race from 89 to
+  113 frames a second; at 2560 x 1249 the frame is bound by its pixels and the rate did not change (66 and 67). The
+  vegetation is not the cost: in the same race the grass took 0.03 ms a frame and the trees 0.4; the tire tracks (0.4 to
+  2.4 ms, with how many ruts are in view), the water (1.4) and the placed objects (1.4) took more. On Max that track
+  runs as the stock tracks do there (Voodoo Island 67 to 71, Farm Road 29 79 to 90).
+- **OpenMTM2 map** (Options, Advanced, OMTM2: Course map; `render/open-map.js`): a modern course map after the
+  one in Wreckfest, beside MTM2's, which is now called the MTM2 classic map. A tall strip on the right of the screen,
+  forward up, the player low in it so more road shows ahead. The map eases after the truck's heading (`easeAngle`,
+  0.3 s) instead of turning with it, so a quick yaw swings the player's yellow chevron and the map follows; a reset or
+  a new truck watched turns it at once. The course is one soft light line that fades toward the strip's ends and
+  sides; opponents are white dots with a black edge, extension marks, checkpoints and Summit Rumble areas as on the
+  classic map. The Map key cycles no names, driver names and truck names, each with its place
+  (`game/course-map-labels.js` `nextOpenMapMode`, `openMapLabel`). The default and the OpenMTM2 preset's; both
+  classic presets choose the MTM2 classic map. From the next race.
+- **Name transparency** (Options, Advanced, OMTM2; `render/name-tag-style.js` `nameTransparency`): how see-through
+  the names over the trucks (N) and on either map are, also in replays. 50% by default and in the OpenMTM2 preset, 0%
+  in the classic presets.
+- **OpenMTM2 map, second pass:** moved in from the screen's right edge; seen at an angle, as from above and behind
+  the truck, so the road ahead draws smaller toward the top and about twice as much of it fits (`tiltProject`); the
+  course's corners rounded as JSTrackViewer's Smooth course style draws them (`game/course-shape.js`
+  `smoothCoursePath`); and zoom keys, Map zoom in (]) and Map zoom out ([), in Options, Keys, stepping through 0.1x
+  (ten times out, the whole track) to 4x and easing to each (`OPEN_MAP_ZOOMS`). The zoom is kept for the next races
+  (`openMapZoom`, 2x at first). The view looks 60 degrees down from overhead (`OPEN_MAP_TILT`). The Map key also turns
+  this map off after truck names; it keeps its own mode (`openMapMode`), so it starts shown while the classic map
+  starts off.
+- **Texture size** (Options, Display; `worker/art-texture.js` `setHdTextureLimit`): Full, Half (512) or Quarter (256),
+  the largest side HD art keeps as it loads (box-filtered down), for a track's models and ground tiles and for the
+  trucks. The ground's tile stacks get the matching budget (512 MB before mipmaps at Full, 128 MB at Half, 32 MB at
+  Quarter). From a report of Valparaiso Racing 2026 (VALPO4.POD, HD art throughout) on Intel HD graphics: the WebGL
+  context was lost, then the browser stopped answering. The context-lost message now points to it.
+- **Error reports**: the race's rows no longer fail as a whole ("v.toFixed is not a function") when a figure is not a
+  number; it is written as it is.
+- **Online rules for extensions with a hyphen in their id** (Race & Rumble, Cops & Robbers): their rule names
+  (`ext.race-rumble.laps`) were refused by OpenMTM2 Server 0.4.0's check and not read back by `withHostRules`. Both
+  take hyphens now (server 0.4.0 as released).
+- **OpenPhotex 1.6.0.**
+
+## v0.6.5 (test build)
 
 - **HD track pictures** (a Valparaíso Racing 2026 POD made in JSTraxx showed no picture on the Races screen): Traxx
   writes a track's HD picture as a PNG or TGA with the stem of the BMP its SIT names (`UI\VALPO4S.PNG` beside
@@ -119,7 +275,7 @@ as it stood when it was written, and the plan's open items list is the one kept 
   with water over it or not. The port read it as deep water. Terminal Velocity, Fury3 and Hellbender levels stay Dirt
   everywhere.
 
-## v0.6.4 (test build; player notes in releases/v0.6.4.txt)
+## v0.6.4 (test build)
 
 - **Freestyle tricks fitted to MTM2's physics** (docs/EXTENSIONS.md, "Tricks on MTM2's physics"): a wheelie or nose
   wheelie is timed from 10 degrees, needs 20 at its steepest and 0.75 s (was 20 throughout and 1 s for a wheelie); a

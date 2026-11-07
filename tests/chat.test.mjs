@@ -89,3 +89,10 @@ test("the quick-message wheel: the stick's way, clockwise from the top, nothing 
   assert.equal(wheelSlot(-0.7, -0.7), 7);
   assert.equal(QUICK_MESSAGES.length, 8);
 });
+
+test("a single-player race has the chat box unless it is off or MTM2 caption bar is on", async () => {
+  const { soloChatOn } = await import("../src/game/chat.js");
+  assert.equal(soloChatOn({}), true);
+  assert.equal(soloChatOn({ soloChat: false }), false);
+  assert.equal(soloChatOn({ soloChat: true, captionBar: true }), false);
+});

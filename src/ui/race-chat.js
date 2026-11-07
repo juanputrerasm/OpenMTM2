@@ -11,6 +11,10 @@
   - The players' latency, top right, while Options, Multiplayer, Latency display is on.
   - A player leaving, told once in the chat and in the race's caption.
 
+  A single-player race may have the box too (`local`; Options, Advanced, OMTM2: Chat box in single player): a log of the
+  announcer's text commentary and the race's messages in place of the caption bar, and lines the player types, which
+  only they see.
+
   Team lines go to the teammates the race knows (an extension mode's teams) where the room server routes them
   (`session.canTeamChat()`); the classic game has no team channel.
 */
@@ -38,12 +42,16 @@ const CHANNEL_NAMES = { all: msg("All"), team: msg("Team"), reply: msg("Reply") 
  * @param {{ name: string, member?: number|null, computer?: boolean }[]} o.entrants the race's trucks, the player's first
  * @param {(i: number) => number|null} o.teamOf entrant i's team, or null when the race has no teams
  * @param {(text: string) => void} [o.caption] shows a line in the race's caption (a player leaving)
+ * @param {{ name: string }|null} [o.local] a single-player race's box: the player's name; nothing is sent anywhere
  */
-export function createRaceChat({ context, view, entrants, teamOf = () => null, caption = () => {} }) {
+export function createRaceChat({ context, view, entrants, teamOf = () => null, caption = () => {}, local = null }) {
   const { t } = context;
-  const net = context.net;
+  const net = local ? null : context.net;
   const session = net?.session;
-  const options = () => chatSettings(context.settings.net);
+  /** A single-player race's history (a network race's is the session's log, app/net.js). */
+  const localLog = [];
+  // A single-player box always shows its lines: the network chat's "off" is for other players.
+  const options = () => { const o = chatSettings(context.settings.net); return local ? { ...o, mode: "all" } : o; };
   const maxLength = CHAT_MAX[net?.kind === "rooms" ? "rooms" : "classic"];
 
   const feedBox = el("div", { class: "race-chat", "aria-live": "polite" });
@@ -79,7 +87,7 @@ export function createRaceChat({ context, view, entrants, teamOf = () => null, c
     return entrants.flatMap((e, i) => (i > 0 && !e.computer && e.member != null && teamOf(i) === mine ? [e.member] : []));
   };
   const channels = () => chatChannels({ team: !!session?.canTeamChat?.() && teammates().length > 0, reply: !!net?.lastPrivate });
-  const others = () => (session?.state().players ?? []).filter((p) => !p.local && !p.computer);
+  const others = () => (session?.state?.().players ?? []).filter((p) => !p.local && !p.computer);
 
   // ---- Drawing ----
   function lineNode(line, count = 1) {
@@ -104,7 +112,7 @@ export function createRaceChat({ context, view, entrants, teamOf = () => null, c
   }
   function drawHistory() {
     const { mode } = options();
-    const lines = (net?.log ?? []).filter((line) => chatShown(line, mode)).slice(-CHAT_HISTORY);
+    const lines = (local ? localLog : net?.log ?? []).filter((line) => chatShown(line, mode)).slice(-CHAT_HISTORY);
     history.replaceChildren(...lines.map((line) => lineNode(line)));
     history.scrollTop = history.scrollHeight;
   }
@@ -140,6 +148,7 @@ export function createRaceChat({ context, view, entrants, teamOf = () => null, c
       caption(line.text);
     }
     if (!chatShown(line, options().mode)) return;
+    if (local) { localLog.push(line); if (localLog.length > CHAT_HISTORY) localLog.shift(); }
     feed = feedAdd(feed, line, performance.now(), options().lines);
     drawFeed();
     if (api.typing) drawHistory();
@@ -150,6 +159,12 @@ export function createRaceChat({ context, view, entrants, teamOf = () => null, c
   // ---- Sending ----
   function send(text) {
     const said = parseChat(text, others().map((p) => p.name));
+    // Alone in the race: a line is the player's own, seen by them only.
+    if (local) {
+      if (said.kind === "say" || said.kind === "team") { if (said.text) show({ name: local.name, text: said.text, own: true }); return; }
+      if (said.kind === "help") { for (const line of CHAT_HELP) tell(t(line)); return; }
+      if (said.kind !== "mute" && said.kind !== "unmute") return tell(t("No other players in this race."));
+    }
     const toChannel = (words) => {
       if (channel === "team") return sendTeam(words);
       if (channel === "reply" && net?.lastPrivate) return session.chat(words, net.lastPrivate.from);
@@ -258,7 +273,7 @@ export function createRaceChat({ context, view, entrants, teamOf = () => null, c
     // Let go: the message pointed at goes, nothing with the stick at rest.
     wheelOpen = false;
     wheel.hidden = true;
-    if (slot >= 0) session?.quick(t(QUICK_MESSAGES[slot]));
+    if (slot >= 0) { if (local) show({ name: local.name, text: t(QUICK_MESSAGES[slot]), own: true, quick: true }); else session?.quick(t(QUICK_MESSAGES[slot])); }
     slot = -1;
   };
   frame = requestAnimationFrame(loop);

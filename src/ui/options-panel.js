@@ -6,26 +6,30 @@ import { buildKind, defaultSkin } from "../install/exe-version.js";
 import { el } from "./dom.js";
 import { showAlert, showConfirm } from "./dialogs.js";
 import { fullscreenButton } from "./display-mode.js";
-import { LANGUAGES, PHYSICS_MODELS, applyMtm1Classic, applyMtm2Classic, applyOpenMtm2, clearSettings, languageOf, optionsFile, physicsModel, readOptionsFile, saveSettings } from "../app/settings.js";
+import { AI_BEHAVIOURS, LANGUAGES, PHYSICS_MODELS, applyMtm1Classic, applyMtm2Classic, applyOpenMtm2, clearSettings, languageOf, optionsFile, physicsModel, readOptionsFile, saveSettings } from "../app/settings.js";
 import { offlineStatusText } from "../app/offline.js";
 import { loadStrings } from "../app/strings-store.js";
 import { locName, msg } from "../game/strings.js";
-import { chatSettings, setMuted } from "../game/chat.js";
+import { chatSettings, setMuted, soloChatOn } from "../game/chat.js";
 import { ACTIONS, DEFAULT_BINDINGS, codeLabel, conflictFor, mergeBindings } from "../game/input/bindings.js";
-import { PAD_PEDALS, testRumble } from "../game/input/gamepad.js";
+import { PAD_PEDALS, choosePad, testRumble } from "../game/input/gamepad.js";
+import { PAD_ACTIONS, bindPadButton, mergePadBindings, newPress, padButtonLabel } from "../game/input/pad-bindings.js";
 import { TOUCH_MODES } from "../game/input/touch.js";
 
 /** The Rumble effects slider's steps (game/input/rumble.js RUMBLE_LEVELS). */
 const RUMBLE_LEVEL_NAMES = [msg("Hits"), msg("Hits + ground"), msg("All")];
 import { CAB_STYLES, VIEW_DISTANCES, VR_VIEWS, vrSettings } from "../game/vr/settings.js";
 import { AA_HINT, AA_MODES, aaChoice } from "../game/aa.js";
-import { GRAPHICS_HINT, GRAPHICS_NOTES, GRAPHICS_PRESETS, applyGraphics, detectGraphics, graphicsChoice, graphicsLabel } from "../game/graphics.js";
+import { GRAPHICS_HINT, GRAPHICS_PRESETS, applyGraphics, detectGraphics, graphicsChoice, graphicsLabel } from "../game/graphics.js";
 import { graphicsHardware } from "../app/graphics-hardware.js";
 import { VISUAL_OPTIONS } from "../game/visuals.js";
 import { CPU_NAMES, CPU_NAME_MAX, cpuNames } from "../game/race-setup.js";
-import { FOV_ACROSS_MAX, FOV_ACROSS_MIN, GAME_FOV_ACROSS_DEG, SHORT_VIEW_CHOICES, shortViews } from "../game/cameras.js";
+import { CAMERA_SYSTEMS, FOV_ACROSS_MAX, FOV_ACROSS_MIN, GAME_FOV_ACROSS_DEG, SHORT_VIEW_CHOICES, shortViews } from "../game/cameras.js";
 import { EXTENSIONS, REPAIR_CHOICES, setExtensionSetting, settingsForExtension } from "../game/extensions/loader.js";
 import { FPS_LIMITS } from "../render/frame-limit.js";
+import { MAP_LINE_MAX, MAP_LINE_MIN, MAP_TRANSPARENCY_MAX, mapLineScale, mapTransparency } from "../render/minimap.js";
+import { NAME_TRANSPARENCY_MAX, nameTransparency } from "../render/name-tag-style.js";
+import { useSystemFont } from "../render/bitmap-text.js";
 import { AI_SPEED, aiSpeedPercent, effectiveAiSpeed } from "../game/ai-speed.js";
 
 /*
@@ -35,7 +39,7 @@ import { AI_SPEED, aiSpeedPercent, effectiveAiSpeed } from "../game/ai-speed.js"
   Labels are English tags (game/strings.js), shown through `t`. A control keeps its tag in `data-opt`, which is how
   `showDraft` finds it again in any language.
 */
-export async function mountOptionsPanel(container, context, { close: closeNow = () => {} } = {}) {
+export async function mountOptionsPanel(container, context, { close: closeNow = () => {}, tab = null, extension: onlyExtension = null } = {}) {
   const t = (text, ...args) => context.t(text, ...args);
   const live = context.settings;
   const copy = (value) => JSON.parse(JSON.stringify(value));
@@ -108,8 +112,100 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
   };
   window.addEventListener("keydown", onKey);
 
+  // The gamepad's buttons (game/input/pad-bindings.js): pick an action, then press a button on the pad; Escape or a
+  // wait of PAD_WAIT_MS cancels. While waiting the pad does nothing else (ui/gamepad-nav.js `context.padCapture`).
+  const PAD_WAIT_MS = 8000;
+  const padNote = el("p", { class: "muted" }, t("The left stick steers and the triggers or the left stick work the pedals (Gamepad pedals). Pick an action, then press the gamepad button to use for it."));
+  const padRows = el("div", { class: "bindings" });
+  let padListening = null, padFrame = 0;
+  const padButtons = () => {
+    const pad = choosePad(navigator.getGamepads ? [...navigator.getGamepads()] : []);
+    return pad ? pad.buttons.map((b) => !!b?.pressed) : [];
+  };
+  const stopPadListen = () => {
+    cancelAnimationFrame(padFrame);
+    padListening = null;
+    context.padCapture = false;
+  };
+  const showPad = () => {
+    const pb = mergePadBindings(settings.padBindings);
+    padRows.replaceChildren(...PAD_ACTIONS.map((action) => el("div", { class: "form-row" },
+      el("span", { class: "binding-label" }, context.t(action.label)),
+      el("button", {
+        class: padListening === action.id ? "pick selected" : "pick",
+        onclick: () => listenPad(action),
+      }, padListening === action.id ? "..." : pb[action.id].length ? pb[action.id].map(padButtonLabel).map((n) => t(n)).join(" / ") : t("None")))));
+  };
+  const listenPad = (action) => {
+    stopPadListen();
+    padListening = action.id;
+    context.padCapture = true;
+    padNote.textContent = t("Press a gamepad button for \"<<1>>\"...", t(action.label));
+    showPad();
+    // A button held when the wait starts (A, pressing this very button) must be let go first.
+    let before = padButtons();
+    const until = performance.now() + PAD_WAIT_MS;
+    const poll = () => {
+      if (padListening !== action.id) return;
+      const now = padButtons();
+      const pressed = newPress(before, now);
+      before = now;
+      if (pressed >= 0) {
+        settings.padBindings = bindPadButton(settings.padBindings, action.id, pressed);
+        save();
+        padNote.textContent = `${t(action.label)}: ${t(padButtonLabel(pressed))}.`;
+        // The button is still down: the menus must not take this press as their own.
+        setTimeout(stopPadListen, 300);
+        padListening = null;
+        showPad();
+        return;
+      }
+      if (performance.now() > until) { stopPadListen(); padNote.textContent = t("Cancelled."); showPad(); return; }
+      padFrame = requestAnimationFrame(poll);
+    };
+    padFrame = requestAnimationFrame(poll);
+  };
+  const onPadEscape = (event) => {
+    if (!padListening || event.code !== "Escape") return;
+    event.preventDefault();
+    stopPadListen();
+    escapeAt = performance.now();
+    padNote.textContent = t("Cancelled.");
+    showPad();
+  };
+  window.addEventListener("keydown", onPadEscape, true);
+  showPad();
+
   // Every option is one row of the same height: its name on the left, its control on the right.
   const row = (label, control, title = null) => el("label", { class: "opt-row", title: title && t(title) }, el("span", { class: "opt-label" }, t(label)), el("span", { class: "opt-control" }, control));
+  // A long tab is split into sub-tabs at each `sub` heading (Keys, Extensions, Advanced); rows before the first stay
+  // above the sub-tab buttons (Advanced's presets).
+  // Rows after `foot()` sit under every sub-tab (Advanced's presets, Data's Clear browser game data).
+  const SUB = Symbol("sub"), FOOT = Symbol("foot");
+  const sub = (name) => ({ [SUB]: name });
+  const foot = () => ({ [FOOT]: true });
+  const subTabbed = (tabName, rows) => {
+    const lead = [], groups = [], tail = [];
+    let inFoot = false;
+    for (const r of rows) {
+      if (r?.[FOOT]) inFoot = true;
+      else if (inFoot) tail.push(r);
+      else if (r?.[SUB] !== undefined) groups.push({ name: r[SUB], rows: [] });
+      else (groups.length ? groups[groups.length - 1].rows : lead).push(r);
+    }
+    const footer = tail.length ? [el("div", { class: "opt-foot" }, ...tail)] : [];
+    if (!groups.length) return [...lead, ...footer];
+    const panes = groups.map((g) => el("div", { class: "opt-subpage" }, ...g.rows));
+    const buttons = groups.map((g, i) => el("button", { type: "button", class: "opt-subtab", onclick: () => show(i) }, t(g.name)));
+    const remembered = (context.optionsSubTab ??= {});
+    const show = (i) => {
+      remembered[tabName] = i;
+      panes.forEach((pane, k) => { pane.hidden = k !== i; });
+      buttons.forEach((b, k) => b.classList.toggle("selected", k === i));
+    };
+    show(Math.min(remembered[tabName] ?? 0, groups.length - 1));
+    return [...lead, ...(groups.length > 1 ? [el("div", { class: "opt-subtabs" }, ...buttons)] : []), ...panes, ...footer];
+  };
   // Which setting each switch shows, for the controls to follow a preset (`showDraft`).
   const toggleKeys = new Map();
   const toggle = (label, key, title = null) => {
@@ -119,12 +215,16 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       onchange: (event) => { settings[key] = event.target.checked; save(); },
     }), title);
   };
-  const choose = (label, key, names, values = names.map((_, index) => index)) => row(label,
+  // Which setting each list shows, for the same reason.
+  const chooseKeys = new Map();
+  const choose = (label, key, names, values = names.map((_, index) => index)) => chooseKeys.set(label, key) && row(label,
     el("select", { "aria-label": t(label), "data-opt": label, onchange: (event) => {
       settings[key] = typeof values[0] === "number" ? Number(event.target.value) : event.target.value;
       save();
     } }, ...names.map((name, index) => el("option", { value: values[index], selected: values[index] === settings[key] }, t(name)))));
+  const sliderFormats = new Map();
   const slider = (label, { min, max, step, value, format, set, title = null }) => {
+    sliderFormats.set(label, format);
     const out = el("output", { class: "opt-value" }, t(format(value)));
     // As wide as its longest figure, so the slider does not jump as the words change.
     const steps = Array.from({ length: Math.floor((max - min) / step) + 1 }, (_, i) => min + i * step);
@@ -147,6 +247,17 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
     return row(msg("Wheels damage"), input, wheelsDamageTitle);
   };
   let wheelsDamageInput = null;
+  // The chat box in single-player races, which MTM2 caption bar (Advanced, MTM2) turns off.
+  let soloChatInput = null;
+  const soloChatRow = () => {
+    soloChatInput = el("input", {
+      type: "checkbox", class: "opt-switch", checked: soloChatOn(settings), disabled: !!settings.captionBar,
+      "aria-label": t("Chat box in single player"), "data-opt": "Chat box in single player",
+      onchange: (event) => { settings.soloChat = event.target.checked; save(); },
+    });
+    return row(msg("Chat box in single player"), soloChatInput, msg("A chat box in single-player races: the announcer's text commentary and the race's messages go to it as a log, in place of the caption bar, and the Chat key types lines only you see. Off while MTM2 caption bar (MTM2) is on. Not in the games. From the next race"));
+  };
+  function showSoloChat() { if (soloChatInput) { soloChatInput.disabled = !!settings.captionBar; soloChatInput.checked = soloChatOn(settings); } }
   // AI Speed (Community Patch 3, game/ai-speed.js). A running tournament keeps its own value: shown, locked.
   const aiSpeedTitle = msg("Community Patch 3's AI Speed: how fast the computer trucks drive, from 70 to 130 percent; 100 is the standard. A tournament keeps the value it started with");
   const aiSpeedRow = () => {
@@ -218,7 +329,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       }) : toggle(option.label, option.key, option.hint)))
       : []));
     const machine = choice === "auto" ? t("This machine: <<1>>.", t(graphicsLabel(detected))) : "";
-    sceneryNote.textContent = [GRAPHICS_NOTES[choice] && t(GRAPHICS_NOTES[choice]), machine, t("Takes effect from the next race.")].filter(Boolean).join(" ");
+    sceneryNote.textContent = [machine, t("Changes take effect next race.")].filter(Boolean).join(" ");
   };
   showScenery();
 
@@ -412,17 +523,20 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
     nav(msg("About"), leaveFor(() => context.router.go("about"))));
 
   /** Settings declared by each extension: a heading, its description and its rows, as the Display page's sections are. */
-  const extensionPanels = EXTENSIONS.flatMap((extension) => [
+  // Opened for one extension (the Races screen's button beside Mode): only its panel shows.
+  const extensionPanels = EXTENSIONS.filter((extension) => !onlyExtension || extension.id === onlyExtension).map((extension) => el("div", { class: "ext-panel", "data-ext": extension.id, "data-name": extension.name },
     el("h3", {}, t(extension.name)),
     el("p", { class: "muted" }, t(extension.description)),
     ...extension.settings.map((spec) => {
       const current = settingsForExtension(settings, extension)[spec.key];
       if (spec.type === "number") {
         const input = el("input", {
-          type: "number", min: spec.min, max: spec.max, value: current,
+          type: "number", min: spec.min, max: spec.max, step: spec.step ?? 1, value: current,
           "aria-label": `${t(extension.name)}: ${t(spec.label)}`,
           onchange: (event) => {
-            const typed = Math.trunc(Number(event.target.value));
+            // Whole numbers unless the setting has a finer step (Freestyle's trick physics).
+            const raw = Number(event.target.value);
+            const typed = spec.step ? Number((Math.round(raw / spec.step) * spec.step).toFixed(4)) : Math.trunc(raw);
             const value = Math.max(spec.min, Math.min(spec.max, Number.isFinite(typed) && event.target.value !== "" ? typed : spec.default));
             event.target.value = String(value);
             setExtensionSetting(settings, extension, spec.key, value);
@@ -447,7 +561,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       }
       return null;
     }).filter(Boolean),
-  ]);
+  ));
 
   /**
    * Reload POD.INI: the browser keeps no handle on the folder, so it is picked again (the same one or another), and every
@@ -600,13 +714,6 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       choose(msg("Wheels back on after"), "looseWheelsRepairS", [msg("5 seconds"), msg("8 seconds"), msg("12 seconds"), msg("Never (X only)")], [...REPAIR_CHOICES]),
       toggle(msg("Drag auto stage"), "autoStage", msg("Drag races: the truck drives itself to the staging beams. Off, you stage it yourself; the Auto Stage key (T) then does it for one pass")),
       choose(msg("Speed"), "units", ["MPH", "KPH"], ["mph", "kph"]),
-      row(msg("Computer opponents"), el("select", { "aria-label": t("Computer opponents"), "data-opt": "Computer opponents", onchange: (event) => {
-        // A new default replaces the list picked on the Races screen.
-        settings.defaultOpponents = Number(event.target.value);
-        delete settings.opponentTrucks;
-        save();
-      } }, ...[0, 1, 2, 3, 4, 5, 6, 7].map((n) => el("option", { value: n, selected: n === (settings.defaultOpponents ?? 3) }, String(n)))),
-      msg("How many computer trucks race by default; the Races screen picks which")),
       // The game's videos (game/videos.js): off and greyed while the install has none.
       introVideosSwitch, resultVideosSwitch,
       menus,
@@ -623,6 +730,8 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       }), msg("Textures filtered smooth and the world lit by the sun (the enhanced look). Off: the game's own sharp texels and baked light")),
       toggle(msg("Lens flare"), "sunFlare", msg("With Smooth textures: the sun's flare across the screen. Off keeps the sun and moon")),
       choose(msg("Detail"), "detailLevel", [msg("Low"), msg("Medium"), msg("High")]),
+      choose(msg("Texture size"), "textureSize", [msg("Full"), msg("Half (512)"), msg("Quarter (256)")], [1024, 512, 256]),
+      el("p", { class: "muted" }, t("The largest HD textures and ground tiles a track and the trucks keep (Community Patch 3 and HD tracks such as Valparaíso Racing). Half or Quarter for graphics with little memory, built into the processor: the game then needs a quarter or a sixteenth of the video memory for them. The game's own textures are not changed. From the next race")),
       row(msg("Anti-aliasing"), el("select", {
         "aria-label": t("Anti-aliasing"), "data-opt": "Anti-aliasing", title: t(AA_HINT),
         onchange: (event) => { settings.aa = event.target.value; save(); },
@@ -679,9 +788,6 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         save();
       } })),
       toggle(msg("Menu music"), "menuMusic"),
-      // The jukebox acts at once, apart from the draft (ui/jukebox-dialog.js, game/jukebox.js).
-      el("div", { class: "opt-actions" }, button(msg("Jukebox"), async () => { (await import("./jukebox-dialog.js")).openJukebox(context); },
-        null, msg("The music of the mounted tracks and menus as one playlist, in your own order, played in the menus and in races"))),
       // The game's two commentary switches (MONSTER.INI commentaryFlag and textCommentaryFlag).
       toggle(msg("Voice commentary"), "commentary", msg("The announcer talks about your truck and the one the camera follows. From the next race")),
       toggle(msg("Text commentary"), "textCommentary", msg("The announcer's lines are shown on screen. From the next race")),
@@ -694,16 +800,19 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       toggle(msg("Opponents Horn"), "aiHorn", msg("Computer trucks high in the air may honk")),
       toggle(msg("Opponents Yee-Haw"), "aiYeeHaw", msg("Computer trucks high in the air may whoop")),
       toggle(msg("Reduce Yee-Haw/Horn Freq."), "aiSfxReduce", msg("Computer trucks honk and whoop in the air 6 to 10 times less often, each at its own rate")),
+      // The jukebox acts at once, apart from the draft (ui/jukebox-dialog.js, game/jukebox.js).
+      el("div", { class: "opt-actions" }, button(msg("Jukebox"), async () => { (await import("./jukebox-dialog.js")).openJukebox(context); },
+        null, msg("The music of the mounted tracks and menus as one playlist, in your own order, played in the menus and in races"))),
     ]],
-    [msg("Keys"), [note, keyRows, el("div", { class: "opt-actions" }, button(msg("Reset keys"), () => {
+    [msg("Keys"), [sub(msg("Keyboard")), note, keyRows, el("div", { class: "opt-actions" }, button(msg("Reset keys"), () => {
       Object.assign(bindings, mergeBindings({})); settings.bindings = {}; save(); note.textContent = t("Keys reset."); showKeys();
     })), choose(msg("Fly-by controls"), "flyControls", FLY_SCHEMES.map((id) => FLY_SCHEME_NAMES[id]), [...FLY_SCHEMES]),
+      sub(msg("Gamepad")),
       // The left stick as the pedals too makes a thumb that drifts while steering press them (game/input/gamepad.js).
       choose(msg("Gamepad pedals"), "padPedals", [msg("Triggers"), msg("Left stick"), msg("Triggers and left stick")], [...PAD_PEDALS]),
-      // The race's touch overlay (ui/touch-controls.js): Auto on a phone or tablet with no mouse, keyboard or gamepad.
-      Object.assign(choose(msg("Touch controls"), "touchControls", [msg("Auto"), msg("On"), msg("Off")], [...TOUCH_MODES]), {
-        title: t(msg("On-screen stick, pedals and buttons for racing on a phone or tablet. Auto shows them on a device with only a touchscreen, and hides them while a gamepad is connected or a key is pressed")),
-      }),
+      el("h3", {}, t("Gamepad buttons")), padNote, padRows, el("div", { class: "opt-actions" }, button(msg("Reset gamepad"), () => {
+        stopPadListen(); settings.padBindings = {}; save(); padNote.textContent = t("Gamepad buttons reset."); showPad();
+      })),
       // The game's steering response (MONSTER.INI [Control]): a stick's curve is x ^ (1 + 2r), the keys' x ^ (1 + r / 4), r a tenth of it.
       slider(msg("Steering response"), {
         min: 0, max: 10, step: 1, value: settings.steeringResponse ?? 10, format: (v) => String(v),
@@ -728,42 +837,41 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         const target = event.currentTarget;
         const said = await testRumble();
         target.textContent = said === "ok" ? t("Rumble: strong motor, then weak motor") : said === "no gamepad" ? t("No gamepad connected") : t("This browser or pad has no rumble");
-      }))]],
+      })),
+      sub(msg("Touch")),
+      // The race's touch overlay (ui/touch-controls.js): Auto on a phone or tablet with no mouse, keyboard or gamepad.
+      Object.assign(choose(msg("Touch controls"), "touchControls", [msg("Auto"), msg("On"), msg("Off")], [...TOUCH_MODES]), {
+        title: t(msg("On-screen stick, pedals and buttons for racing on a phone or tablet. Auto shows them on a device with only a touchscreen, and hides them while a gamepad is connected or a key is pressed")),
+      }),
+    ]],
     [msg("Multiplayer"), multiplayerRows()],
     [msg("Extensions"), [
-      el("p", { class: "muted" }, t("Optional game modes shipped with OpenMTM2. Each extension owns its settings and runtime rules.")),
-      ...extensionPanels,
+      ...extensionPanels.flatMap((panel) => [sub(panel.dataset.name), panel]),
     ]],
     // What a newcomer can leave alone: other games' tracks, the patch's materials, the computer trucks and the cameras.
     [msg("Advanced"), [
-      // Each preset sets the draft; Save keeps it.
-      el("div", { class: "opt-actions opt-presets" },
-        preset(msg("MTM1 Classic preset"), applyMtm1Classic, "Monster Truck Madness 1 as it was: MTM1 sky, trucks apart, original backdrops shown, MTM1 particles and sounds with no dust or sparks, the 1996 physics, no terrain overlap, smooth textures, and the enhanced graphics off. Save to keep it."),
-        preset(msg("MTM2 Classic preset"), applyMtm2Classic, "Monster Truck Madness 2 as it was: no MTM1 option, original backdrops, MTM2 classic dust (the game's few puffs), no sparks or water splashes, no CP3 HD weather or reflections, MTM2's water and truck reflections, backdrops, and the enhanced graphics off. Save to keep it."),
-        preset(msg("OpenMTM2 preset"), applyOpenMtm2, "The port's own picture: no MTM1 or MTM2 option, the track backdrops, tire tracks, water splashes, normal dust puffs and sparks, every enhanced part including the glossy paint, and CP3 terrain detail, HD weather and reflections. Save to keep it.")),
-      el("h3", {}, t("MTM1")),
+      sub(msg("MTM1")),
       toggle(msg("No overlap on MTM1 tracks"), "mtm1NoOverlap", msg("With Terrain overlap on: the ground tiles of a Monster Truck Madness 1 track still meet edge to edge, as MTM1 draws them; the other tracks keep the two-pixel overlap. From the next race")),
       toggle(msg("MTM1 particles"), "mtm1Particles", msg("Monster Truck Madness 1's own particles and tracks: single points of the ground's colour thrown by the tires, which mark the ground where they land, and tracks darkened into the ground, in place of the dust, the spray and the tire tracks. From the next race")),
       toggle(msg("MTM1 sounds"), "mtm1Sounds", msg("Monster Truck Madness 1's skids from MTM2's SOUND.POD: its corner, wheelspin and brake skids. MTM1's engine is not in MTM2's archives; the engine stays MTM2's")),
       toggle(msg("MTM1 sky"), "mtm1EarthSky", msg("Monster Truck Madness 1's flat sky on every track: an MTM1 track's own, and EARTHSKY on the others, in the weathers without a sky of their own. Needs MTM1's sky files mounted (EARTHSKY.ACT and ALIENSKY.RAW, in MTM1's GAME.POD). From the next race")),
       toggle(msg("Keep MTM1 trucks apart"), "mtm1TrucksApart", msg("Monster Truck Madness 1 trucks named like MTM2's (BIGFOOT.TRK and the rest) are listed too, as \"Bigfoot (MTM1)\", and drawn from MTM1's own files. Off, a name goes to the archive mounted first, MTM2's, as in the game")),
-      el("h3", {}, t("MTM2")),
+      sub(msg("MTM2")),
       toggle(msg("Original backdrops"), "originalBackdrops", msg("The game's own backdrops in place of HD ones (Community Patch 3's backdropsHD.pod), wherever an archive still has the original. From the next race")),
       // MTM2's own two (MONSTER.INI reflectionFlag and truckReflectionFlag), for the game's water and every truck.
       toggle(msg("MTM2 Water reflections"), "waterReflections", msg("MTM2's: the world mirrored in the game's water (\"Reflective water\" has its own). From the next race")),
       toggle(msg("MTM2 Truck reflections"), "truckReflections", msg("MTM2's: the clouds mirrored on the trucks' bodies, or the sky in Rain, Dusk and Night; none in fog or Pitch Black. From the next race")),
       toggle(msg("MTM2 classic dust"), "greyDust", msg("Wheels' dust and collisions' smoke in the game's own grey puff colour, as MTM2 draws them, in place of the port's earth-coloured dust and dark smoke. From the next race")),
-      row(msg("Opponent frame rate"), el("select", { "aria-label": t("Opponent frame rate"), "data-opt": "Opponent frame rate", onchange: (event) => { settings.opponentFps = Number(event.target.value); save(); } },
-        ...[15, 20, 24, 30, 45, 60].map((n) => el("option", { value: n, selected: n === (settings.opponentFps ?? 30) }, `${n} FPS`))),
-      msg("The frame rate the computer trucks drive as if the game ran at: they steer by the frame, so it changes how they handle. 30 is the standard")),
-      toggle(msg("Sonic trucks"), "sonicTrucks", msg("Professional only: the computer trucks drive as on a Sonic track, on every track")),
+      toggle(msg("Commentary truck names"), "commentaryTruckNames", msg("The text commentary names the trucks, as the game's does, in place of their drivers. From the next race")),
+      row(msg("MTM2 Caption bar"), el("input", { type: "checkbox", class: "opt-switch", checked: !!settings.captionBar, "aria-label": t("MTM2 Caption bar"), "data-opt": "MTM2 Caption bar",
+        onchange: (event) => { settings.captionBar = event.target.checked; save(); showSoloChat(); } }),
+        msg("The race's messages and the text commentary in the game's caption bar at the bottom of the screen, as MTM2 shows them. Turns off the chat box in single-player races. From the next race")),
       toggle(msg("Full Autopilot"), "fullAutopilot", msg("The truck drives itself")),
       toggle(msg("Show hidden tracks"), "showHiddenTracks"),
       toggle(msg("Kooky horn"), "kookyHorn", msg("Three horns instead of one")),
       copyVideosRow,
-      el("h3", {}, t("CP3")),
+      sub(msg("CP3")),
       toggle(msg("CP3 voice commentary"), "cp3Commentary", msg("Community Patch 3's announcer: many more lines, calls for the final lap, the weather, road signs, trains, the Summit Rumble and drag passes, and shorter pauses between lines. The drag calls need Community Patch 3's Sound.POD. From the next race")),
-      aiSpeedRow(),
       toggle(msg("CP3 Terrain detail"), "terrainDetail", msg("Community Patch 3 tracks: detail normals where the track paints a mask, and HD ground normal maps (Enhanced look)")),
       row(msg("CP3 HD weather"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.hdWeather !== false, "aria-label": t("CP3 HD weather"), "data-opt": "CP3 HD weather", onchange: (event) => { settings.hdWeather = event.target.checked; save(); } }),
         msg("Community Patch 3's HD skies for Rain, Dusk and Night and the older levels' clouds: the pictures in the game folder's WeatherArt folder, or the port's own copy of the community's set. Off: the game's own sky art")),
@@ -771,19 +879,56 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       toggle(msg("Chase mirror"), "chaseMirror", msg("Community Patch 3's rear-view mirror over the top of the external views: a look back from the cab")),
       toggle(msg("Racing line"), "raceLine", msg("Community Patch 3's racing line: the course the computer trucks follow, drawn on the ground ahead in a race")),
       toggle(msg("Drag split screen"), "dragSplitScreen", msg("Community Patch 3's drag split screen: in a drag race against a truck, both lanes at once, side by side, in the same chase view")),
-      el("h3", {}, t("OMTM2")),
+      sub(msg("OMTM2")),
       row(msg("Terrain overlap"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.terrainOverlap !== false, "aria-label": t("Terrain overlap"), "data-opt": "Terrain overlap", onchange: (event) => { settings.terrainOverlap = event.target.checked; save(); } }),
         msg("The ground tiles overlap by two pixels, as Monster Truck Madness 2 draws them. Off, they meet edge to edge, as MTM1 draws them. Some HD texture packs need it on. From the next race")),
-      row(msg("Computer drivers"), button(msg("Names..."), () => editDriverNames()), "The names of the computer drivers"),
-      toggle(msg("Commentary truck names"), "commentaryTruckNames", msg("The text commentary names the trucks, as the game's does, in place of their drivers. From the next race")),
+      toggle(msg("Shift gears in automatic"), "shiftInAuto", msg("With Automatic gears: the shift keys and a gamepad's LB and RB still change gear, to shift down before a corner. The chosen gear holds until the engine reaches its redline or drops too low, then the automatic box takes over again. Not in the games")),
+      row(msg("OpenMTM2 font in-game"), el("input", { type: "checkbox", class: "opt-switch", checked: !!settings.systemFont, "aria-label": t("OpenMTM2 font in-game"), "data-opt": "OpenMTM2 font in-game",
+        onchange: (event) => { settings.systemFont = event.target.checked; save(); useSystemFont(settings.systemFont); } }),
+        msg("Every text in the race, the replays and the fly-bys (the timing board, the messages, the names, the map, the gauges and the loading screen) in OpenMTM2's own font instead of the game's bitmap fonts. Not in the games")),
+      soloChatRow(),
+      choose(msg("Course map"), "mapStyle", [msg("OpenMTM2 map"), msg("MTM2 classic map")], ["openmtm2", "classic"]),
+      el("p", { class: "muted" }, t("OpenMTM2 map: a strip on the right of the screen that turns smoothly with the truck, the other trucks as white dots and yours as a yellow chevron. The Map key (Tab) cycles no names, driver names and truck names, each with its place, then turns it off; ] and [ zoom it. MTM2 classic map: the game's own map over the whole screen, which the Map key turns off, or shows with places, truck names or driver names. From the next race")),
+      toggle(msg("Checkpoints on the map"), "mapCheckpoint", msg("The course map marks every checkpoint with a bar across the road, the next one in yellow and kept at the map's edge when it is farther away. Not in the games")),
+      slider(msg("Map line thickness"), {
+        min: MAP_LINE_MIN, max: MAP_LINE_MAX, step: 0.25, value: mapLineScale(settings.mapLineWidth), format: (v) => `${v}x`,
+        set: (v) => { settings.mapLineWidth = v; save(); },
+        title: msg("How thick the course map's lines are: 1x is the game's"),
+      }),
+      slider(msg("Map transparency"), {
+        min: 0, max: MAP_TRANSPARENCY_MAX, step: 0.1, value: mapTransparency(settings.mapTransparency), format: (v) => `${Math.round(v * 100)}%`,
+        set: (v) => { settings.mapTransparency = v; save(); },
+        title: msg("How see-through the course map is over the race: 0% is the game's"),
+      }),
+      slider(msg("Name transparency"), {
+        min: 0, max: NAME_TRANSPARENCY_MAX, step: 0.1, value: nameTransparency(settings.nameTransparency), format: percent,
+        set: (v) => { settings.nameTransparency = v; save(); },
+        title: msg("How see-through the names over the trucks (the Names key) and on the course map are: 0% is the game's"),
+      }),
       toggle(msg("Ground box grain"), "groundBoxGrain", msg("With Ground detail on: its grain on the ground boxes too, the walls, buildings and signs built of them. Off, they keep their textures plain. From the next race")),
-      el("h3", {}, t("CPR")),
+      sub(msg("Computer trucks")),
+      choose(msg("Computer trucks drive as"), "aiBehaviour", [msg("OMTM2"), msg("Same as physics"), msg("MTM2"), msg("MTM1"), msg("EVO")], [...AI_BEHAVIOURS]),
+      el("p", { class: "muted" }, t("OMTM2: the port's computer drivers, which weave less, catch slides, steer round objects, back out when stuck and take another course when cut off. Same as physics: the drivers of the race's physics model, MTM2's under CART Precision Racing. MTM2 and MTM1: each game's own autopilot alone, as they drove in 1998 and 1996. EVO: 4x4 Evolution's drivers on their race lines. From the next race")),
+      row(msg("Computer opponents"), el("select", { "aria-label": t("Computer opponents"), "data-opt": "Computer opponents", onchange: (event) => {
+        // A new default replaces the list picked on the Races screen.
+        settings.defaultOpponents = Number(event.target.value);
+        delete settings.opponentTrucks;
+        save();
+      } }, ...[0, 1, 2, 3, 4, 5, 6, 7].map((n) => el("option", { value: n, selected: n === (settings.defaultOpponents ?? 3) }, String(n)))),
+      msg("How many computer trucks race by default; the Races screen picks which")),
+      row(msg("Opponent frame rate"), el("select", { "aria-label": t("Opponent frame rate"), "data-opt": "Opponent frame rate", onchange: (event) => { settings.opponentFps = Number(event.target.value); save(); } },
+        ...[15, 20, 24, 30, 45, 60].map((n) => el("option", { value: n, selected: n === (settings.opponentFps ?? 30) }, `${n} FPS`))),
+      msg("The frame rate the computer trucks drive as if the game ran at: they steer by the frame, so it changes how they handle. 30 is the standard")),
+      toggle(msg("Sonic trucks"), "sonicTrucks", msg("Professional only: the computer trucks drive as on a Sonic track, on every track")),
+      aiSpeedRow(),
+      row(msg("Computer drivers"), button(msg("Names..."), () => editDriverNames()), "The names of the computer drivers"),
+      sub(msg("CPR")),
       // CART Precision Racing's Skill Level (docs/CPR_PHYSICS.md 14.3; game/cpr-driver.js `cprAids`).
       row(msg("CPR skill level"), el("select", { "aria-label": t("CPR skill level"), "data-opt": "CPR skill level", onchange: (event) => { settings.cprSkill = event.target.value; save(); } },
         ...[["rookie", msg("Rookie")], ["intermediate", msg("Intermediate")], ["professional", msg("Professional")]]
           .map(([value, label]) => el("option", { value, selected: (settings.cprSkill ?? "rookie") === value }, t(label)))),
       msg("Under the CART Precision Racing physics, how much the game helps the player's car, as its Driving Aids. Rookie: full grip, Auto-Brake, Stay on track, anti-lock brakes, traction control and Spin Correction. Intermediate: four fifths of the grip, with Stay on track, anti-lock brakes, traction control and Spin Correction. Professional: four fifths of the grip, less still on grass, dirt and rocks, and no aids")),
-      el("h3", {}, t("EVO")),
+      sub(msg("EVO")),
       // 4x4 Evolution's grass: how far around the camera it is drawn (render/evo-grass.js `GRASS_RADII`).
       slider(msg("Evo grass"), {
         min: 0, max: GRASS_LEVEL_NAMES.length - 1, step: 1, value: grassLevel(settings), format: (v) => GRASS_LEVEL_NAMES[v],
@@ -793,7 +938,11 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       toggle(msg("Evo particles"), "evoParticles", msg("4x4 Evolution tracks: the game's tire debris, in the ground's colour, by surface (gravel, grass, sand, mud, snow) from spinning and sliding tires, and the leaves on Autumn. From the next race")),
       toggle(msg("Evo AI life"), "evoLife", msg("4x4 Evolution tracks: the game's AI life, four flocks of birds that follow the computer drivers' line, circle, land and take off when a truck comes near, as the game's ailife setting. From the next race")),
       toggle(msg("Evo forest"), "evoForest", msg("4x4 Evolution tracks without a vegetation file (the first game's): a forest generated over every tile its .TEX marks for trees, as 4x4 Evolution 2 does, from the track's own tree models. From the next race")),
-      el("h3", {}, t("Cameras")),
+      toggle(msg("Helicopter to the last checkpoint"), "checkpointHeli", msg("The Helicopter key (H) sets the truck down 32 feet behind the last checkpoint it passed, facing on, as 4x4 Evolution 2's H key does, instead of at the nearest point of the course. Checkpoints sit at the corners, so it is the start of the stretch you are on. Useful on bridges. From the next race")),
+      sub(msg("Cameras")),
+      choose(msg("Camera system"), "cameraSystem", Object.values(CAMERA_SYSTEMS).map((c) => c.name), Object.keys(CAMERA_SYSTEMS)),
+      el("p", { class: "muted" }, t("The views the Camera key (V) and the number keys step through, whatever the physics. OMTM2: the cockpit, Chase Near and Chase Far, with the standard lens. MTM2: the game's ten. MTM1: its five, with the Goodyear Blimp. EVO: 4x4 Evolution 2's cockpit, Inertia (farther back the faster you go), Sky Cam, Chase Near and Chase Far")),
+      toggle(msg("Inertia widens the lens"), "inertiaLens", msg("With Z-mode cameras: the Inertia view stays at Chase Near's distance and widens its lens as the truck speeds up, to a quarter of Chase Near's zoom, so the ground seems to rush at the screen. Off, it pulls back instead, keeping the game's lens")),
       row(msg("Short camera cycle"), el("span", { class: "opt-slider" },
         el("input", { type: "checkbox", class: "opt-switch", checked: !!settings.shortViewCycle, "aria-label": t("Short camera cycle"), "data-opt": "Short camera cycle", onchange: (event) => { settings.shortViewCycle = event.target.checked; save(); } }),
         button(msg("Views..."), () => editShortViews())),
@@ -805,12 +954,23 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       toggle(msg("Click to look"), "freeLookDrag", msg("With Free look: the mouse looks round only while a button is held on the picture, so moving it off the screen does not turn the camera")),
       toggle(msg("Reverse free look"), "freeLookInvert", msg("The mouse's look turns the other way, up and down and left and right")),
       toggle(msg("Hold free look"), "freeLookHold", msg("A look stays where the mouse leaves it, without easing back")),
-      el("h3", {}, t("Localization")),
-      language, wording, offlineRow,
+      sub(msg("Localization")),
+      language, wording,
+      foot(),
+      // Each preset sets the draft; Save keeps it.
+      el("div", { class: "opt-actions opt-presets" },
+        preset(msg("MTM1 Classic preset"), applyMtm1Classic, "Monster Truck Madness 1 as it was: MTM1 sky, trucks apart, original backdrops shown, MTM1 particles and sounds with no dust or sparks, the 1996 physics, no terrain overlap, smooth textures, the MTM2 classic map with solid names, and the enhanced graphics off. Save to keep it."),
+        preset(msg("MTM2 Classic preset"), applyMtm2Classic, "Monster Truck Madness 2 as it was: no MTM1 option, original backdrops, MTM2 classic dust (the game's few puffs), no sparks or water splashes, no CP3 HD weather or reflections, MTM2's water and truck reflections, backdrops, the MTM2 classic map with solid names, and the enhanced graphics off. Save to keep it."),
+        preset(msg("OpenMTM2 preset"), applyOpenMtm2, "The port's own picture: no MTM1 or MTM2 option, the track backdrops, tire tracks, water splashes, normal dust puffs and sparks, every enhanced part including the glossy paint, CP3 terrain detail, HD weather and reflections, and the OpenMTM2 map with names at 50% transparency. Save to keep it.")),
     ]],
     [msg("Data"), [
+      sub(msg("POD mounting")),
       el("p", { class: "muted" },
         t("OpenMTM2 reads the tracks and vehicles of Monster Truck Madness 1 and 2, CART Precision Racing and 4x4 Evolution 1 and 2. Add POD.INI reads another game folder's POD.INI and mounts every archive it lists. Reload POD.INI picks the game folder again (or another Monster Truck Madness 2 folder) and reads every archive its POD.INI lists afresh, in its order. The POD manager shows what is mounted, and adds single POD files from any game without the game being installed.")),
+      el("div", { class: "opt-actions opt-data" },
+        button(msg("POD manager"), async () => { (await import("./pod-manager.js")).openPodManager(context); })),
+      offlineRow,
+      sub(msg("POD.INI")),
       el("div", { class: "opt-actions opt-data" },
         button(msg("Add POD.INI"), async (event) => {
           const target = event.currentTarget;
@@ -840,19 +1000,17 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         }, null, msg("Pick another game's folder: its POD.INI is read and every archive it lists is added beside the base install")),
         button(msg("Reload POD.INI"), (event) => reinstall(event.currentTarget), null,
           msg("Pick the Monster Truck Madness 2 folder again, or another one: its POD.INI is read and every archive it lists is copied again, changed or not, and mounted in the file's order"))),
-      el("h3", {}, t("POD mounting")),
-      el("div", { class: "opt-actions opt-data" },
-        button(msg("POD manager"), async () => { (await import("./pod-manager.js")).openPodManager(context); })),
-      el("h3", {}, t("Settings")),
+      sub(msg("Settings")),
       el("div", { class: "opt-actions opt-data" },
         button(msg("Export settings"), () => exportOptions()),
         button(msg("Import settings"), () => importOptions())),
-      el("h3", {}, t("Monster Truck Madness 2 saves")),
+      sub(msg("MTM2 HOF")),
       el("div", { class: "opt-actions opt-data" },
         button(msg("Import drivers and Hall of Fame"), () => importGameSaves(), null,
           msg("Pick player.pro, MTM2 High Scores or both from the game's folder: their drivers and results are added to OpenMTM2's")),
         button(msg("Export drivers and Hall of Fame"), () => exportGameSaves(), null,
           msg("Save OpenMTM2's drivers and Hall of Fame as player.pro and MTM2 High Scores, for the game's folder"))),
+      foot(),
       el("div", { class: "opt-actions opt-data" },
         el("button", { class: "danger", onclick: async (event) => {
           const target = event.currentTarget;
@@ -872,14 +1030,16 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
     ]],
   ];
   // One category at a time, chosen from the tabs; the last one shown is remembered for the session.
-  const pages = sections.map(([, rows]) => el("div", { class: "opt-page" }, ...rows));
+  const pages = sections.map(([name, rows]) => el("div", { class: "opt-page" }, ...subTabbed(name, rows.filter(Boolean))));
   const tabs = sections.map(([name], i) => el("button", { class: "opt-tab", onclick: () => pick(i) }, t(name)));
   const pick = (i) => {
     context.optionsTab = i;
     pages.forEach((page, k) => { page.hidden = k !== i; });
     tabs.forEach((tab, k) => tab.classList.toggle("selected", k === i));
   };
-  pick(Math.min(context.optionsTab ?? 0, sections.length - 1));
+  // Opened on a named tab (`tab`, its English name), else the last one shown.
+  const named = tab ? sections.findIndex(([name]) => name === tab) : -1;
+  pick(named >= 0 ? named : Math.min(context.optionsTab ?? 0, sections.length - 1));
   // The Headset tab shows where the browser has a headset; elsewhere it stays out of the way.
   const headsetIndex = sections.findIndex(([name]) => name === "Headset");
   if (!context.xr) tabs[headsetIndex].hidden = true;
@@ -895,18 +1055,22 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       "Enhanced graphics": () => graphicsChoice(settings.graphics), "Terrain overlap": () => settings.terrainOverlap !== false,
       "Crash damage": () => settings.crashDamage !== false, "Wheels damage": () => !!settings.looseWheels && settings.crashDamage !== false,
       "Frame rate limit": () => (settings.fpsLimit ? settings.fpsLimitValue ?? 60 : 0),
-      "CP3 HD weather": () => settings.hdWeather !== false, "Dust": () => dustLevel(settings), "Sparks": () => sparkLevel(settings), "Evo grass": () => grassLevel(settings),
+      "CP3 HD weather": () => settings.hdWeather !== false, "MTM2 Caption bar": () => !!settings.captionBar, "OpenMTM2 font in-game": () => !!settings.systemFont,
+      "Map line thickness": () => mapLineScale(settings.mapLineWidth), "Map transparency": () => mapTransparency(settings.mapTransparency), "Name transparency": () => nameTransparency(settings.nameTransparency), "Dust": () => dustLevel(settings), "Sparks": () => sparkLevel(settings), "Evo grass": () => grassLevel(settings),
     };
     // A slider's figure beside it, in its own words.
     const named = { "Dust": DUST_LEVEL_NAMES, "Sparks": SPARK_LEVEL_NAMES, "Evo grass": GRASS_LEVEL_NAMES };
     for (const control of container.querySelectorAll("input[data-opt], select[data-opt]")) {
       const label = control.getAttribute("data-opt");
-      const value = toggleKeys.has(label) ? !!settings[toggleKeys.get(label)] : shown[label]?.();
+      const value = toggleKeys.has(label) ? !!settings[toggleKeys.get(label)] : shown[label] ? shown[label]() : chooseKeys.has(label) ? settings[chooseKeys.get(label)] : undefined;
       if (value === undefined) continue;
       if (control.type === "checkbox") control.checked = !!value; else control.value = String(value);
       if (control.type === "range" && named[label] && control.nextElementSibling) control.nextElementSibling.textContent = t(named[label][value]);
+      else if (control.type === "range" && sliderFormats.has(label) && control.nextElementSibling) control.nextElementSibling.textContent = t(sliderFormats.get(label)(Number(value)));
     }
     if (wheelsDamageInput) wheelsDamageInput.disabled = settings.crashDamage === false;
+    showSoloChat();
+    useSystemFont(!!settings.systemFont);
     showScenery();
   }
 
@@ -927,6 +1091,8 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
   container.addEventListener("change", onChange);
   const cleanup = () => {
     window.removeEventListener("keydown", onKey);
+    window.removeEventListener("keydown", onPadEscape, true);
+    stopPadListen();
     container.removeEventListener("change", onChange);
     offOffline?.();
   };

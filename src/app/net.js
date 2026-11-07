@@ -15,6 +15,7 @@ import { createRoomSession } from "../net/room-session.js";
 import { cpuNames } from "../game/race-setup.js";
 import { resolveGameMode } from "./flow.js";
 import { extensionById, soloExtension } from "../game/extensions/loader.js";
+import { hostRules } from "../game/host-rules.js";
 import { getProfiles } from "./profile-store.js";
 import { currentDriver } from "../game/profile.js";
 import { resolveWeather } from "../game/weather.js";
@@ -298,6 +299,8 @@ export function netGo(context) {
     resolveWeather: () => resolveWeather("random", track?.weatherMask), computers: net.kind === "rooms" ? pickComputers(context, st.game.computers ?? 0) : [],
     // The owner's Wheels damage for the whole room (game/extensions/loader.js `looseWheelsFor`); a classic session has no such rule.
     wheels: net.kind === "rooms" ? { on: !!context.settings.looseWheels && context.settings.crashDamage !== false, repairS: Number(context.settings.looseWheelsRepairS ?? 8) } : null,
+    // The owner's game rules for everyone (game/host-rules.js): physics, computer trucks, the mode's settings.
+    rules: net.kind === "rooms" && !st.room?.classic ? hostRules(context.settings, st.game.mode || null) : null,
   });
   return null;
 }
@@ -323,13 +326,15 @@ async function startNetRace(context, net, e) {
     owned: x.local || (x.computer && e.host),
   }));
   context.router.go("race", {
-    track, mode: track.raceType, laps: e.laps, difficulty: Number(context.settings.difficulty ?? 1), weather: e.weather,
+    track, mode: track.raceType, laps: e.laps, difficulty: Number(net.session.state().game?.rules?.difficulty ?? context.settings.difficulty ?? 1), weather: e.weather,
     gameMode: net.kind === "rooms" ? roomMode(e.mode, track) : null,
     truck: mine, trucks, setup: { ...driver.garage }, opponents: [],
     net: {
       link: net.session.raceLink(), entrants, host: e.host, policy: net.kind === "rooms" ? "smooth" : "legacy", rateHz: net.kind === "rooms" ? 20 : 4,
       // The room's Wheels damage rule, the owner's (rooms only).
       wheels: net.kind === "rooms" ? { on: !!net.session.state().game?.wheels, repairS: net.session.state().game?.wheelsRepairS ?? 8 } : null,
+      // The owner's game rules (game/host-rules.js), applied over this player's settings for the race.
+      rules: net.kind === "rooms" ? net.session.state().game?.rules ?? null : null,
     },
   }, { replace: true });
 }

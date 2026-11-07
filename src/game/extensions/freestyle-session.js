@@ -5,7 +5,7 @@
   pause menu) is judged on the time it used.
 */
 import * as S from "../../vendor/openphotex/sim/mtm2/index.js";
-import { createFreestyle, freestyleEnd, freestyleRules, freestyleScore, freestyleStep } from "./freestyle.js";
+import { createFreestyle, freestyleEnd, freestyleRules, freestyleScore, freestyleStep, judgingWeights } from "./freestyle.js";
 
 /** The physics rules of a run (freestyle.js `freestyleRules`): Trick physics unless the player turned it off. */
 export const freestyleSimRules = freestyleRules;
@@ -27,6 +27,8 @@ export function createFreestyleRuntime(payload, env) {
   const { trucks, race, step } = env;
   race.roundSeconds = Math.max(1, Number(payload.minutes) || 2) * 60;
   const game = createFreestyle(race.roundSeconds);
+  // The player's judging weights (Options, Extensions, Freestyle).
+  game.weights = judgingWeights(payload);
   const sinceStart = () => race.clock - race.startTime;
   // The worker keeps the hardest object contact of a reply in `snd.hit` (sim-worker.js `noteObjectHit`): a new record is
   // a new contact.

@@ -75,6 +75,8 @@ table.results tr.player td { color: var(--accent); font-weight: 600; }
 .race-view { position: fixed; inset: 0; background: #000; overflow: hidden; }
 .race-canvas { width: 100%; height: 100%; display: block; }
 .race-loading { position: absolute; z-index: 5; inset: 0; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+/* The loading screen and its bar (src/ui/loading-board.js), drawn in device pixels over the whole view. */
+.race-loading-board { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .race-loading-art { max-width: 100%; max-height: 100%; width: auto; height: 100%; object-fit: contain; image-rendering: pixelated; }
 .race-loading-text { position: absolute; bottom: 16px; margin: 0; color: #fff; font: 600 16px/1.4 system-ui, sans-serif; text-shadow: 0 1px 2px #000; }
 /* The drag race's Christmas tree (ui/drag-tree.js): two lanes of seven lamps, labels between. */
@@ -224,6 +226,11 @@ table.results tr.player td { color: var(--accent); font-weight: 600; }
 .track-info dt { color: #9fb2ff; }
 .track-info dd { margin: 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .race-length { text-align: center; }
+/* The extension's options, beside Mode: a small square button just past the Mode box. */
+.stage-panel-mode { overflow: visible; }
+.stage-panel-mode .race-mode-options { position: absolute; left: calc(100% + 3px); top: 50%; transform: translateY(-50%); }
+.race-mode-options { height: 22px; padding: 0 8px; line-height: 1; font-size: 12px; white-space: nowrap; }
+.race-mode-options[hidden] { display: none; }
 .stage-panel-lengthLabel { display: grid; place-items: center end; padding: 0 4px 0 0; border: 0; background: transparent; }
 .race-length-label { color: #fff; font-weight: 700; text-shadow: 0 1px 3px #000; }
 
@@ -284,6 +291,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 .gold-fps { right: 6px; top: 4px; }
 .gold-z { right: 6px; top: 40px; }
 .race-minimap { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* The OpenMTM2 map (render/open-map.js): a tall strip on the right, wider than its road so the names fit beside the dots. */
+.race-openmap { position: absolute; z-index: 2; right: 9vh; top: 16vh; width: 22vh; height: 44vh; max-width: 32vw; pointer-events: none; }
 .race-cockpit { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; pointer-events: none; image-rendering: pixelated; }
 /* The finder is its own small canvas in device pixels, placed by render/cockpit.js. */
 .race-finder { position: absolute; z-index: 3; pointer-events: none; }
@@ -385,6 +394,20 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 /* Every page the same size, whatever it holds: a longer one scrolls. */
 .opt-pages { height: min(470px, calc(100vh - 230px)); overflow-y: auto; padding-right: 4px; }
 .opt-page[hidden] { display: none; }
+/* A long tab's sub-tabs (Keys, Extensions, Advanced): the buttons across the page, one sub-page shown in the page's grid. */
+.opt-subtabs { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 6px; }
+.opt-subtab { padding: 4px 10px; font-size: 13px; border-radius: 4px; background: transparent; color: var(--muted, #aab); }
+.opt-subtab.selected { border-color: var(--accent, #f2c14e); color: var(--accent, #f2c14e); }
+.opt-subpage { display: contents; }
+.opt-subpage[hidden] { display: none; }
+/* Rows under every sub-tab (Advanced's presets, Data's clear button): kept at the bottom of the page as it scrolls. */
+.opt-foot { grid-column: 1 / -1; position: sticky; bottom: 0; margin-top: auto; padding: 8px 0 2px; background: var(--panel, #1a2030); border-top: 1px solid var(--panel-edge); }
+.opt-foot .opt-actions { margin: 0; }
+/* An extension's settings in the page's columns. */
+.ext-panel { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 6px 18px; align-content: start; }
+.ext-panel > h3, .ext-panel > p { grid-column: 1 / -1; }
+/* Its own sub-tab names an extension already. */
+.opt-subtabs ~ .opt-subpage > .ext-panel > h3 { display: none; }
 .opt-page { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 6px 18px; align-content: start; }
 /* The label takes the room it needs (translations run longer than English), the control what is left. */
 .opt-row { display: grid; grid-template-columns: minmax(150px, max-content) minmax(96px, 1fr); align-items: center; gap: 10px; height: 36px; padding: 0 10px; border: 1px solid var(--panel-edge); border-radius: 6px; background: rgba(255, 255, 255, 0.03); }
@@ -401,13 +424,13 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 .opt-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; }
 .opt-muted { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px; }
 .opt-muted-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.opt-page > .muted, .opt-page > .bindings, .opt-page > .opt-switches { grid-column: 1 / -1; }
-.opt-page > h3 { grid-column: 1 / -1; margin: 10px 0 2px; font-size: 13px; color: var(--muted, #aab); text-transform: uppercase; letter-spacing: 0.05em; }
-.opt-page > h3:first-child { margin-top: 0; }
-.opt-page > .opt-switches { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 6px 18px; }
-.opt-page > .opt-switches:empty { display: none; }
-.opt-page > .bindings { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 6px 18px; }
-.opt-page > .bindings .form-row { display: grid; grid-template-columns: minmax(150px, max-content) minmax(96px, 1fr); align-items: center; height: 36px; margin: 0; padding: 0 10px; border: 1px solid var(--panel-edge); border-radius: 6px; }
+:is(.opt-page, .opt-subpage) > .muted, :is(.opt-page, .opt-subpage) > .bindings, :is(.opt-page, .opt-subpage) > .opt-switches { grid-column: 1 / -1; }
+:is(.opt-page, .opt-subpage) > h3 { grid-column: 1 / -1; margin: 10px 0 2px; font-size: 13px; color: var(--muted, #aab); text-transform: uppercase; letter-spacing: 0.05em; }
+:is(.opt-page, .opt-subpage) > h3:first-child { margin-top: 0; }
+:is(.opt-page, .opt-subpage) > .opt-switches { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 6px 18px; }
+:is(.opt-page, .opt-subpage) > .opt-switches:empty { display: none; }
+:is(.opt-page, .opt-subpage) > .bindings { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 6px 18px; }
+:is(.opt-page, .opt-subpage) > .bindings .form-row { display: grid; grid-template-columns: minmax(150px, max-content) minmax(96px, 1fr); align-items: center; height: 36px; margin: 0; padding: 0 10px; border: 1px solid var(--panel-edge); border-radius: 6px; }
 /* On the modern stage the controls that sit in the art's openings have no box of their own either. */
 .stage-modern :is(.stage-panel-name, .stage-panel-skill, .stage-panel-truck, .stage-panel-message, .stage-panel-sonic, .stage-panel-lengthLabel,
   .stage-panel-length, .stage-panel-opponents, .stage-panel-weather, .stage-panel-weatherLabel, .stage-panel-tracks, .stage-panel-list) { background: none; border: 0; }

@@ -130,6 +130,8 @@ export const COMBAT_EXTENSION = Object.freeze({
     Object.freeze({ key: "credits", label: msg("Earn credits and repair with X"), type: "boolean", default: true }),
     Object.freeze({ key: "startCredits", label: msg("Credits at the start"), type: "number", min: 0, max: 99999, default: 500 }),
     Object.freeze({ key: "cpuRepairs", label: msg("Computer trucks repair themselves"), type: "boolean", default: true }),
+    // Read by the race screen for any extension: off starts the race with the Names key's tags off (N still shows them).
+    Object.freeze({ key: "names", label: msg("Names over the trucks"), type: "boolean", default: true }),
     Object.freeze({
       key: "aggression", label: msg("Computer trucks' aggression"), type: "select", default: "normal",
       options: Object.freeze([

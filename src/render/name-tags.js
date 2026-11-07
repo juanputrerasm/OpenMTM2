@@ -9,7 +9,7 @@
 import * as THREE from "three";
 import { el } from "../ui/dom.js";
 import { drawText, textWidth } from "./bitmap-text.js";
-import { linePieces, nameTagLineColour, nameTagPaintKey, nameTagScale } from "./name-tag-style.js";
+import { linePieces, nameTagLineColour, nameTagPaintKey, nameTagScale, nameTransparency } from "./name-tag-style.js";
 
 export { NAME_COLOURS, nameTagScale } from "./name-tag-style.js";
 
@@ -60,6 +60,8 @@ export function createNameTags(count, font = null) {
   const inView = new THREE.Vector3();
   return {
     element: root,
+    /** How see-through every name is (Name transparency), 0 to `NAME_TRANSPARENCY_MAX`. */
+    setTransparency(v) { const o = String(1 - nameTransparency(v)); if (root.style.opacity !== o) root.style.opacity = o; },
     /**
      * `labels[i]` is the text, two lines as `[first, second]`, or null; `positions[i]` the truck in game feet;
      * `hidden[i]` skips a truck (the one you sit in). `width` and `height` are the view's size in pixels.

@@ -36,24 +36,90 @@ export const INERTIA_MODE = Object.freeze({ id: 10, name: msg("Inertia"), dist: 
  */
 export const INERTIA_SPEEDS_FT = Object.freeze([10, 45, 80]);
 const smooth = (t) => { const c = Math.max(0, Math.min(1, t)); return c * c * (3 - 2 * c); };
+/**
+ * "Inertia widens the lens" (Advanced, Cameras; the port's own): the Inertia view stays at Chase Near's distance and
+ * opens its lens instead, from Chase Near's to Z mode's 0.25x of it flat out; the wider angle makes the ground rush at
+ * the screen. Off, the camera pulls back as above, keeping MTM2's lens.
+ */
+export const INERTIA_LENS_MOST = 4;
 /** The Inertia view's distance in feet and its zoom factor at a speed (feet per second), before easing. */
-export function inertiaView(speedFt) {
+export function inertiaView(speedFt, { lens = false } = {}) {
   const [slow, fast, top] = INERTIA_SPEEDS_FT;
   const near = 0x1555 / 256, far = 0x2aaa / 256;
+  if (lens) {
+    const a = smooth((speedFt - slow) / (top - slow));
+    return { dist: near, zoom: (0xc000 / 0x10000) * (1 + (INERTIA_LENS_MOST - 1) * a) };
+  }
   const a = smooth((speedFt - slow) / (fast - slow)), b = smooth((speedFt - fast) / (top - fast));
   return { dist: near + (far - near) * a + far * 0.5 * b, zoom: (0xc000 + (0x10000 - 0xc000) * a) / 0x10000 };
 }
 
-/** A view by its number: the game's ten, or the Inertia view. */
-export const cameraMode = (id) => CAMERA_MODES[id] ?? (id === INERTIA_MODE.id ? INERTIA_MODE : undefined);
+/**
+ * The other games' chase views and the port's own, each a view of its own number so the replay, the short cycle and the
+ * saved view keep them apart. `follow: "instant"` takes the truck's heading each frame (MTM1 has no easing); `aheadFt`
+ * looks at a point that far ahead of the truck instead of the truck. `system` says which camera system lists the view.
+ *
+ * MTM1 1.00 (MTM1_MONSTER_EXE_ANALYSIS.md 10): Chase near 0x2aaa, pitch 0x800, zoom 0x6000; Chase far 0x4000, pitch
+ * 0x1000, zoom 0x10000; the Goodyear Blimp 64 ft straight over a point 32 ft ahead of the truck, looking down. Its
+ * cockpit and Racecam are drawn as MTM2's (0 and 4).
+ *
+ * OMTM2 (the port's own): Chase Near and Chase Far at MTM2's distances with the standard lens (zoom 0x10000, 90 degrees
+ * across). Each view's distance is `OMTM2_CHASE`, the one place to tune them.
+ */
+/** OMTM2's chase distances, 1/256 ft (MTM2's Chase Near and Chase Far for now). */
+export const OMTM2_CHASE = Object.freeze({ near: 0x1555, far: 0x2aaa });
+export const EXTRA_MODES = Object.freeze([
+  { id: 11, name: msg("Chase Near"), choice: msg("MTM1 Chase Near"), system: "mtm1", dist: 0x2aaa, pitch: 0x800, offset: 0, zoom: 0x6000, follow: "instant" },
+  { id: 12, name: msg("Chase Far"), choice: msg("MTM1 Chase Far"), system: "mtm1", dist: 0x4000, pitch: 0x1000, offset: 0, zoom: 0x10000, follow: "instant" },
+  { id: 13, name: msg("Goodyear Blimp"), choice: msg("MTM1 Goodyear Blimp"), system: "mtm1", dist: 0x4000, pitch: 0x3fff, offset: 0, zoom: 0x10000, follow: "instant", aheadFt: 32 },
+  { id: 19, name: msg("Chase Near"), choice: msg("OMTM2 Chase Near"), system: "omtm2", dist: OMTM2_CHASE.near, pitch: 0x800, offset: 0, zoom: 0x10000 },
+  { id: 14, name: msg("Chase Far"), choice: msg("OMTM2 Chase Far"), system: "omtm2", dist: OMTM2_CHASE.far, pitch: 0x800, offset: 0, zoom: 0x10000 },
+  // 4x4 Evolution 2 (EVO2_EXE_ANALYSIS.md 10): its Inertia, Sky Cam, Chase Near and Chase Far. Evo's zoom 1.3333 is
+  // MTM2's 0xc000 (73.7 degrees across). `aimFt` raises the point the camera looks at and swings round; `followRate` is
+  // the heading's lag per second. The Inertia view's distance is worked out from the speed (`EVO_INERTIA`).
+  { id: 15, name: msg("Inertia"), choice: msg("EVO Inertia"), system: "evo", dist: 0x100, pitch: 0, offset: 0, zoom: 0x10000, evoInertia: true, aimFt: 5, followRate: 3.5 },
+  { id: 16, name: msg("Sky Cam"), choice: msg("EVO Sky Cam"), system: "evo", dist: Math.round(100 * Math.SQRT2 * 256), pitch: 0x2000, offset: 0, zoom: 0x10000, followRate: 0.5 },
+  { id: 17, name: msg("Chase Near"), choice: msg("EVO Chase Near"), system: "evo", dist: 0x1964, pitch: 0, offset: 0, zoom: 0xc000, aimFt: 7 },
+  { id: 18, name: msg("Chase Far"), choice: msg("EVO Chase Far"), system: "evo", dist: 0x1fff, pitch: 0x800, offset: 0, zoom: 0x10000, aimFt: 10 },
+]);
+
+/**
+ * 4x4 Evolution 2's Inertia view (0x5f4840): a speed share `s` eased at 5 a second toward forward ft/s x 0.01, the eye
+ * 40 s + 1 ft behind the driver's head and 5 ft over it, looking at a point 5 ft over the vehicle. The driver's head is
+ * the .TRK's; the port takes 3 ft over the origin for every vehicle.
+ */
+export const EVO_INERTIA = Object.freeze({ perFtS: 0.01, ease: 5, reach: 40, base: 1, headFt: 3 });
+
+/** A view by its number: the game's ten, the Inertia view, or one of `EXTRA_MODES`. */
+export const cameraMode = (id) => CAMERA_MODES[id] ?? (id === INERTIA_MODE.id ? INERTIA_MODE : EXTRA_MODES.find((m) => m.id === id));
+
+/**
+ * The camera systems (Options, Advanced, Cameras; the port's own choice, apart from the physics): the views the Camera
+ * key steps through, in order. MTM2's are the game's ten; MTM1's its five; OMTM2's the cockpit and its own Chase Near and
+ * Chase Far. The Inertia view joins any of them with the Z-mode cameras option.
+ */
+export const CAMERA_SYSTEMS = Object.freeze({
+  omtm2: Object.freeze({ name: msg("OMTM2"), views: Object.freeze([0, 19, 14]) }),
+  mtm2: Object.freeze({ name: msg("MTM2"), views: Object.freeze(CAMERA_MODES.map((m) => m.id)) }),
+  mtm1: Object.freeze({ name: msg("MTM1"), views: Object.freeze([0, 11, 12, 13, 4]) }),
+  // 4x4 Evolution 2's three view slots by default (Cockpit, Inertia, Sky Cam), then its Chase Near and Chase Far.
+  evo: Object.freeze({ name: msg("EVO"), views: Object.freeze([0, 15, 16, 17, 18]) }),
+});
+export const DEFAULT_CAMERA_SYSTEM = "omtm2";
+/** A camera system by its id, the default for an unknown one. */
+export const cameraSystem = (id) => CAMERA_SYSTEMS[id] ?? CAMERA_SYSTEMS[DEFAULT_CAMERA_SYSTEM];
+/** The views the Camera key steps through: the system's, and the Inertia view with `inertia`. */
+export const systemViews = (id, inertia = false) => [...cameraSystem(id).views, ...(inertia ? [INERTIA_MODE.id] : [])];
+/** The view a number key picks in a system (`modeForShortcut`'s index): the system's views in order, else null. */
+export const systemShortcut = (id, index) => (index === null ? null : cameraSystem(id).views[index] ?? null);
 
 /** The mode after `mode` going forward (View) or back (Shift + View), wrapping 0 to 9 (`count` 11 takes the Inertia view in). */
 export const nextMode = (mode, back = false, count = CAMERA_MODES.length) => (Math.min(mode, count - 1) + (back ? count - 1 : 1)) % count;
 
 /** The short camera cycle as the port first had it: the cockpit, Chase Near and Chase Far. */
 export const DEFAULT_SHORT_VIEWS = Object.freeze([0, 1, 2]);
-/** Every view the short cycle may hold, in order: the game's ten and the Inertia view. */
-export const SHORT_VIEW_CHOICES = Object.freeze([...CAMERA_MODES, INERTIA_MODE]);
+/** Every view the short cycle may hold, in order: the game's ten, the Inertia view and every system's own. */
+export const SHORT_VIEW_CHOICES = Object.freeze([...CAMERA_MODES, INERTIA_MODE, ...EXTRA_MODES]);
 /** The views in the short cycle (Options, Advanced): those of `list` that are views, once each, in order; the default when none are. */
 export function shortViews(list) {
   const ids = Array.isArray(list) ? SHORT_VIEW_CHOICES.map((m) => m.id).filter((id) => list.includes(id)) : [];
@@ -145,9 +211,9 @@ const turnBetween = (from, to) => ((to - from + Math.PI * 3) % (Math.PI * 2)) - 
  * by moving in, as the game does.
  */
 export function createChaseCamera() {
-  let heading = null, lastMode = -1, settle = 0, inertia = null, lifted = null, lastPitch = null;
+  let heading = null, lastMode = -1, settle = 0, inertia = null, lifted = null, lastPitch = null, evoShare = null;
   return {
-    reset() { heading = null; lastMode = -1; inertia = null; lifted = null; lastPitch = null; },
+    reset() { heading = null; lastMode = -1; inertia = null; lifted = null; lastPitch = null; evoShare = null; },
     /**
      * `turn` (radians) swings the camera round the truck and `scale` stretches its distance: the replay's rotate and zoom,
      * and Z mode's orbit. `speedFt` is the truck's speed, which the Inertia view's distance follows; that view's result
@@ -159,7 +225,7 @@ export function createChaseCamera() {
      * camera is pulled in to stay out of them as out of the ground, so in a tunnel built of ground boxes it stays under
      * the roof and between the walls (an OpenMTM2 addition; the game's camera knows only the terrain).
      */
-    update(mode, pos, yaw, height, dt, { turn = 0, scale = 1, speedFt = 0, pitchBy = 0, clearFt = 0, look = null, solid = null } = {}) {
+    update(mode, pos, yaw, height, dt, { turn = 0, scale = 1, speedFt = 0, pitchBy = 0, clearFt = 0, look = null, solid = null, inertiaLens = false } = {}) {
       const m = cameraMode(mode);
       if (!m?.dist) throw new RangeError(`camera mode ${mode} is not a chase view`);
       // Choosing a view arms a two second timer (0x52b780); nothing else is blended: the distance, pitch
@@ -174,14 +240,20 @@ export function createChaseCamera() {
         const gap = turnBetween(heading, wanted);
         if (settle > 0 && Math.abs(gap) >= (0x100 / 65536) * Math.PI * 2) heading += gap * Math.min(1, 4 * dt);
         else { settle = 0; heading = wanted; }
+      } else if (m.follow === "instant") {
+        // MTM1's views take the truck's heading as it is, every frame.
+        heading = wanted;
       } else {
-        // The others follow the truck's heading by 4 per second of the remaining difference, always.
-        heading += turnBetween(heading, wanted) * Math.min(1, 4 * dt);
+        // The others follow the truck's heading by 4 per second of the remaining difference, always (Evo's own rates).
+        heading += turnBetween(heading, wanted) * Math.min(1, (m.followRate ?? 4) * dt);
       }
+      if (m.aimFt) pos = [pos[0], pos[1] + m.aimFt, pos[2]];
+      // A view that looks ahead of the truck (MTM1's Goodyear Blimp) stands over that point instead.
+      if (m.aheadFt) pos = [pos[0] + Math.sin(yaw) * m.aheadFt, pos[1], pos[2] + Math.cos(yaw) * m.aheadFt];
       let dist = (m.dist / 256) * scale, zoom = null;
       if (m.inertia) {
         // Eased, about a second to settle: the camera drifts out as the truck gathers speed and back in as it slows.
-        const want = inertiaView(speedFt);
+        const want = inertiaView(speedFt, { lens: inertiaLens });
         if (!inertia) inertia = { ...want };
         const k = Math.min(1, 1.5 * dt);
         inertia.dist += (want.dist - inertia.dist) * k;
@@ -189,8 +261,18 @@ export function createChaseCamera() {
         dist = inertia.dist * scale;
         zoom = inertia.zoom;
       }
+      let evoPitch = 0;
+      if (m.evoInertia) {
+        const E = EVO_INERTIA;
+        const want = Math.max(0, speedFt * E.perFtS);
+        evoShare = evoShare === null ? want : evoShare + (want - evoShare) * Math.min(1, E.ease * dt);
+        // The eye is the head's height over the aim point and (40 s + 1) behind it.
+        const back = E.reach * evoShare + E.base;
+        dist = Math.hypot(back, E.headFt) * scale;
+        evoPitch = Math.atan2(E.headFt, back);
+      }
       const lookPitch = look?.pitch ?? 0;
-      const pitch = Math.max(ANGLE(CAMERA_PITCH_MIN), Math.min(ANGLE(CAMERA_PITCH_MAX), ANGLE(pitchBy ? turnedPitch(mode, pitchBy) : m.pitch) + lookPitch));
+      const pitch = Math.max(ANGLE(CAMERA_PITCH_MIN), Math.min(ANGLE(CAMERA_PITCH_MAX), ANGLE(pitchBy ? turnedPitch(mode, pitchBy) : m.pitch) + evoPitch + lookPitch));
       const facing = heading + (look?.yaw ?? 0);
       const at = (t, p) => [pos[0] - Math.sin(facing) * Math.cos(p) * t, pos[1] + Math.sin(p) * t, pos[2] - Math.cos(facing) * Math.cos(p) * t];
       // Tilt up in 0x200 steps (at most 0x3fff) until the camera at full distance is over the ground, or `clear` feet

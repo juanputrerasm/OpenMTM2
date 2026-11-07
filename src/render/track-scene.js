@@ -52,6 +52,11 @@ const GRID = 256, CELL_FT = 32, CHUNK_CELLS = 64;
  * chunk's edge, and the play that keeps one at that range from changing back and forth.
  */
 export const FINE_RANGE_FT = 2400, FINE_PLAY_FT = 160;
+/**
+ * On ground with a middle level of detail (4x4 Evolution 2's, cut 4 x 4 a cell everywhere), how near a chunk is drawn
+ * fine, feet from its edge: past it the chunk is drawn middling out to the fine range, then coarse.
+ */
+export const MID_FINE_RANGE_FT = 600;
 /** Where the world is drawn, in worlds: the original first, then its eight neighbours. */
 const WORLD_COPIES = Object.freeze([[0, 0], [-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]]);
 /** What `updateTrackWorld` and `moveObjects` work on, per world, found once when it is made. */
@@ -360,6 +365,29 @@ export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.at
       mesh.matrixAutoUpdate = false;
       mesh.renderOrder = GROUND_ORDER;
       group.add(mesh);
+      if (!terrain.levels) continue;
+      // 4x4 Evolution 2's smoothed ground (worker/terrain-mesh.js `fineTerrainLevel`): the chunk at three levels of
+      // detail in the same vertices, the fine one near the camera, the cell's two triangles far off (updateTrackWorld).
+      const chunk = chunkRow * (GRID / CHUNK_CELLS) + chunkCol;
+      mesh.userData.chunk = chunk;
+      mesh.userData.detail = "fine";
+      mesh.visible = false;
+      for (const detail of ["mid", "coarse"]) {
+        const level = terrain.levels[detail], part = level.chunks[chunk];
+        const lod = new THREE.BufferGeometry();
+        for (const [name, attribute] of Object.entries(shared.attributes)) lod.setAttribute(name, attribute);
+        lod.setIndex(new THREE.BufferAttribute(level.indices.subarray(part.start, part.start + part.count), 1));
+        // Its points are some of the fine level's: the fine level's bounds hold them.
+        lod.boundingSphere = geometry.boundingSphere;
+        const lodMesh = new THREE.Mesh(lod, material);
+        lodMesh.name = "terrain";
+        lodMesh.matrixAutoUpdate = false;
+        lodMesh.renderOrder = GROUND_ORDER;
+        lodMesh.userData.chunk = chunk;
+        lodMesh.userData.detail = detail;
+        lodMesh.visible = detail === "coarse";
+        group.add(lodMesh);
+      }
     }
   }
   return group;
@@ -1476,10 +1504,15 @@ export function updateTrackWorld(world, camera, dt, { viewRange = Infinity, fine
       const dx = Math.abs(chunk.x - localX), dz = Math.abs(chunk.z - localZ);
       const seen = Math.hypot(dx, dz) < viewRange + chunk.radius;
       if (!chunk.fine) { chunk.mesh.visible = seen; continue; }
-      // Fine within range of the chunk's nearest edge; both levels have the same border, so neighbours of either kind meet.
-      chunk.near = Math.hypot(Math.max(0, dx - chunk.half), Math.max(0, dz - chunk.half)) < fineRange + (chunk.near ? FINE_PLAY_FT : 0);
+      // Fine within range of the chunk's nearest edge; every level has the same border, so neighbours of any kind meet.
+      // A chunk with a middle level (4x4 Evolution 2's ground) is fine only close by and middling out to `fineRange`.
+      const edge = Math.hypot(Math.max(0, dx - chunk.half), Math.max(0, dz - chunk.half));
+      chunk.near = edge < (chunk.mid ? Math.min(fineRange, MID_FINE_RANGE_FT) : fineRange) + (chunk.near ? FINE_PLAY_FT : 0);
+      const middling = !!chunk.mid && !chunk.near && edge < fineRange + (chunk.middling ? FINE_PLAY_FT : 0);
+      chunk.middling = middling;
       chunk.fine.visible = seen && chunk.near;
-      chunk.mesh.visible = seen && !chunk.near;
+      if (chunk.mid) chunk.mid.visible = seen && middling;
+      chunk.mesh.visible = seen && !chunk.near && !middling;
     }
     return;
   }
@@ -1847,14 +1880,14 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
     if (object.name === "terrain") {
       const { center, radius } = object.geometry.boundingSphere;
       const copy = object.parent.parent;
-      // The drawn ground has two meshes a chunk, one for each level of detail.
+      // The drawn ground has a mesh a chunk for each level of detail (two, or three on 4x4 Evolution 2's ground).
       const key = object.userData.chunk === undefined ? object : `${copy.id}|${object.userData.chunk}`;
       if (!chunkOf.has(key)) {
-        chunkOf.set(key, { mesh: null, fine: null, near: false, x: center.x + copy.position.x, z: center.z + copy.position.z, radius, half: (CHUNK_CELLS * CELL_FT) / 2 });
+        chunkOf.set(key, { mesh: null, fine: null, mid: null, near: false, middling: false, x: center.x + copy.position.x, z: center.z + copy.position.z, radius, half: (CHUNK_CELLS * CELL_FT) / 2 });
         parts.chunks.push(chunkOf.get(key));
       }
       const chunk = chunkOf.get(key);
-      if (object.userData.detail === "fine") chunk.fine = object; else chunk.mesh = object;
+      if (object.userData.detail === "fine") chunk.fine = object; else if (object.userData.detail === "mid") chunk.mid = object; else chunk.mesh = object;
       chunk.radius = Math.max(chunk.radius, radius);
     }
   });

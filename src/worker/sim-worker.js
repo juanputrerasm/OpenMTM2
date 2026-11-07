@@ -23,11 +23,15 @@ import { courseWindow, createFlight, departVisual, flightVisual, nearestCourseSp
 import { CLOSE_FT, STOPPED_FT_S, joinedSegment, obstacleAhead, offCourse, pickRoute } from "../game/course-route.js";
 import { createRacerRecovery, racerRecovering, racerRecoveryBefore, racerRecoveryStep } from "../game/racer-recovery.js";
 import { cpuAvoidStep, cpuControlBefore, cpuControlStep, createCpuControl } from "../game/cpu-control.js";
+import { createEvoDriver, evoAiLine, evoDriveStep } from "../game/evo-driver.js";
 import { AVOID, boxObstacles, groundBoxWalls } from "../game/obstacle-avoid.js";
 import { replyError, sendWorkerFaults } from "../shared/worker-faults.js";
 import { aiSpeedFactor } from "../game/ai-speed.js";
+import { LOADING_BAR } from "../game/loading-bar.js";
 
 export const STEP = 1 / 60;
+/** The presses that act once (a shift, Drive Mode, the helicopter): kept until a step takes them, and taken by one only. */
+export const ONE_SHOT_INPUTS = ["shiftUp", "shiftDown", "driveMode", "helicopter"];
 
 
 /** A cheap fingerprint of a box's pose, to tell which boxes moved: six numbers, into `out` from `k`. */
@@ -340,6 +344,8 @@ export function createSession(init) {
     ? S.createSurfaceMap(new Uint16Array(init.clr), new Int32Array(init.textureValues))
     : null;
   let weather = init.weather ?? 0;
+  /** How the computer trucks drive (Advanced, Computer trucks): "omtm2" (the port's), "mtm2", "mtm1" or "evo". */
+  const aiBehaviour = ["omtm2", "mtm2", "mtm1", "evo"].includes(init.aiBehaviour) ? init.aiBehaviour : "omtm2";
   // The physics model's rules (app/settings.js PHYSICS_MODELS): MTM2's unless the race asks for the 1996 game's, or for one
   // of 4x4 Evolution's, whose vehicle model then drives every truck (OpenPhotex evoSim; docs/EVO2_PHYSICS.md).
   const evoModel = E.isEvoRules(init.rules);
@@ -483,7 +489,10 @@ export function createSession(init) {
     gripScale: cprPlayerAids.gripScale, offroadGrip: cprPlayerAids.offroadGrip,
   };
   const trucks = specs.map((spec, i) => {
-    const setup = { difficulty, autoShift: init.autoShift ?? true, ...spec.setup };
+    // The game copies the player's gearbox setting to every truck (MONSTER_EXE_ANALYSIS.md +0xfb0), which the MTM1 and
+    // MTM2 computer drivers keep; the OMTM2 and EVO drivers always use the automatic box.
+    const cpuAuto = !!spec.autopilot && (aiBehaviour === "omtm2" || aiBehaviour === "evo");
+    const setup = { difficulty, autoShift: cpuAuto ? true : init.autoShift ?? true, ...spec.setup };
     let params, state, cprCar = false;
     if (cprModel && spec.truck.cpr) {
       // A CPR car on its own figures and the player's Garage setup (`setup.cpr`; the stock one for the others).
@@ -525,11 +534,15 @@ export function createSession(init) {
     // `proLift`: a computer truck that misses a checkpoint or comes to rest is always fetched by the helicopter, never
     // set back on the course at once as the game does on Professional (the port's choice).
     const recovery = {
-      racing: true, player: i === 0 && !autopilot && !remote, autopilot, difficulty, summit: false, segment: null, previous: null, proLift: true,
+      racing: true, player: i === 0 && !autopilot && !remote, autopilot, difficulty, summit: false, segment: null, previous: null,
+      // The OMTM2 drivers' choice; the MTM2 and EVO drivers keep the game's Professional reset, MTM1's always lifts a missed checkpoint.
+      proLift: aiBehaviour === "omtm2", missedLift: aiBehaviour === "mtm1",
     };
     // A foot under the body's origin: a step up to about a wheel's height is climbed, a taller face is not ground.
     const ownGround = meshGround ? meshGround.below(() => state.pos[1] - 1) : extensionGround;
     const ctx = { ground: ownGround, human: i === 0 && !autopilot && !remote, difficulty, sonicTrack, recovery };
+    // Shift gears in automatic (Advanced, OMTM2; OpenPhotex `autoOverride`): the player's box takes LB / RB and the keys.
+    if (ctx.human && init.shiftInAuto) state.controls.autoOverride = true;
     const aiSpeed = autopilot && i > 0 && cpuAiSpeed !== null ? cpuAiSpeed : undefined;
     if (aiSpeed !== undefined) ctx.aiSpeed = aiSpeed;
     return { state, params, autopilot, remote, recovery, ctx, aiSpeed, evoVehicle: !!spec.truck.evo, cprCar, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, bottoming: 0, collide: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
@@ -562,6 +575,8 @@ export function createSession(init) {
       S.raceCheckpoints(dragMode ? [] : init.race.checkpoints), dragMode ? [] : course,
       dragMode ? 1 : init.race.laps ?? 3, difficulty, dragMode ? "circuit" : init.race.mode ?? "circuit")
     : null;
+  // 4x4 Evolution 2's physics: a checkpoint counts driven through either way (EVO2_PHYSICS.md 12).
+  if (race && rules.twoWayCheckpoints) race.twoWay = true;
   const raceAp = dragMode ? { ...apCtx, course: [] } : apCtx;
   if (drag) {
     race.startTime = Infinity;
@@ -768,7 +783,15 @@ export function createSession(init) {
   // checkpoint (or calls the helicopter when that is quicker) and gets itself out of a jam; the helicopter is its last
   // resort, when it makes no headway, never a fixed count-down. A truck that starts off the course (Castle Nugget's
   // grid stands on the castle) finds its way to it the same way.
-  if (race && !race.summit && !drag && course.length) {
+  // Only the OMTM2 drivers (Advanced, Computer trucks); the EVO ones follow the track's AI line (game/evo-driver.js).
+  const evoLine = aiBehaviour === "evo" && init.evoLine?.points?.length > 10 ? evoAiLine(init.evoLine) : null;
+  if (race && !race.summit && !drag && course.length && evoLine) {
+    trucks.forEach((t, i) => {
+      if (!t.autopilot || t.remote || t.cprDriver || race.trucks[i].outOfRace) return;
+      t.evoDriver = createEvoDriver(evoLine, Math.min(4, Math.max(1, Number(difficulty) + 1)));
+    });
+  }
+  if (race && !race.summit && !drag && course.length && aiBehaviour === "omtm2") {
     trucks.forEach((t, i) => {
       if (!t.autopilot || t.remote || t.cprDriver || race.trucks[i].outOfRace) return;
       t.racerRecovery = createRacerRecovery({ returns: true, unsticks: true });
@@ -1372,6 +1395,47 @@ export function createSession(init) {
   }
 
   /** A computer truck keeping control after the autopilot (game/cpu-control.js), and steering clear of what is ahead. */
+  /** One step of an EVO computer driver (game/evo-driver.js): its controls, or its warp back to the line. */
+  function evoDrive(t, i) {
+    const s = t.state, d = t.evoDriver;
+    const pointOf = (pos) => {
+      let best = 0, bd = Infinity;
+      d.line.points.forEach((p, k) => { const dd = (p[0] - pos[0]) ** 2 + (p[2] - pos[2]) ** 2; if (dd < bd) { bd = dd; best = k; } });
+      return best;
+    };
+    // The humans' places on the line are looked up twice a second, not every step.
+    if (!t.evoSeen || d.clock - t.evoSeen.at >= 0.5) {
+      t.evoSeen = {
+        at: d.clock,
+        humans: trucks.filter((o) => !o.autopilot || o.remote).map((o) => ({ pos: o.state.pos, index: pointOf(o.state.pos) })),
+        others: trucks.filter((o) => o !== t && o.evoDriver).map((o) => ({ index: o.evoDriver.index })),
+      };
+    }
+    const out = evoDriveStep(d, {
+      pos: s.pos, heading: s.euler[2], speed: s.bvel[2], allDown: s.tires.every((w) => w.onGround),
+    }, {
+      weather: weather === S.WEATHER.RAIN ? "rain" : weather === S.WEATHER.SNOW ? "snow" : null,
+      humans: t.evoSeen.humans, others: t.evoSeen.others, lengthFt: 2 * t.radius,
+      rearSteerFactor: t.params.evo && !t.params.evo.spec.rearSteer ? 0 : 0.33,
+    }, STEP);
+    const c = s.controls;
+    if (out.warp) {
+      s.pos[0] = out.warp.pos[0]; s.pos[1] = Math.max(out.warp.pos[1], ground.height(out.warp.pos[0], out.warp.pos[2]) + 10); s.pos[2] = out.warp.pos[2];
+      s.euler[0] = 0; s.euler[1] = 0; s.euler[2] = out.warp.heading;
+      S.eulerToMatrix(s.euler[0], s.euler[1], s.euler[2], s.matrix);
+      s.rates.fill(0); s.bvel.fill(0); s.bvel[2] = out.warp.speed;
+      c.gear = S.GEAR.FIRST;
+      return;
+    }
+    c.steer = out.steer;
+    c.rearSteer = out.rearSteer;
+    if (out.reverse) c.gear = S.GEAR.REVERSE;
+    else if (c.gear === S.GEAR.REVERSE || c.gear === S.GEAR.PARK || c.gear === S.GEAR.NEUTRAL) c.gear = S.GEAR.FIRST;
+    c.throttle = out.throttle;
+    c.brakeFront = c.brakeRear = out.brake;
+    if (s.evo) s.evo.handbrake = out.handbrake;
+    void i;
+  }
   function keepControl(t) {
     if (!t.cpuControl || t.state.heliTimer > 0) return;
     const aim = aimOf(t);
@@ -1426,6 +1490,8 @@ export function createSession(init) {
   let keepPrevious = true;
   /** An extension's action waiting for the next step (`step`). */
   let pendingAction = null;
+  /** One-shot presses (`ONE_SHOT_INPUTS`) no step has taken yet (`advance`). */
+  let carriedPresses = {};
   /** The listed boxes' poses before a step (`poseInto`), kept from step to step. */
   let before = new Float64Array(0);
 
@@ -1458,6 +1524,8 @@ export function createSession(init) {
       return;
     }
     Object.assign(keys, held);
+    // One-shot presses are taken by this step only: a tick that runs two steps must not shift twice.
+    if (input) input.shiftUp = input.shiftDown = input.driveMode = false;
     if (helicopter) {
       callHelicopter(player);
       input.helicopter = false;
@@ -1511,6 +1579,8 @@ export function createSession(init) {
         } else if (go && t.cprDriver) {
           cprDrive(t);
           watchHeadway(t);
+        } else if (go && t.evoDriver) {
+          evoDrive(t, i);
         } else if (go && t.racerRecovery) {
           racerRecoveryBefore(t.racerRecovery, t.state.controls);
           if (t.cpuControl) cpuControlBefore(t.cpuControl, t.state.controls);
@@ -1523,7 +1593,8 @@ export function createSession(init) {
           keepControl(t);
           // A drag pass: flat out to the finish beam (game/drag-race.js `dragPedals`); the autopilot steers and stops it after.
           if (drag && !race.trucks[i].finished && t.state.bvel[2] > 1) dragPedals(t.state.controls, -t.state.euler[0], Math.atan2(t.state.bvel[0], t.state.bvel[2]));
-          watchHeadway(t);
+          // The no-headway helicopter is the OMTM2 drivers' (the games' own check is the speed, in the recovery step).
+          if (aiBehaviour === "omtm2" || drag) watchHeadway(t);
         } else t.state.controls.throttle = 0;
       } else if (i === 0) {
         const controlCtx = {
@@ -1594,6 +1665,9 @@ export function createSession(init) {
     }
     keys.shiftUp = keys.shiftDown = keys.driveMode = false;
     if (joystick) joystick.shiftUp = joystick.shiftDown = false;
+    // A vehicle without rear steering under Evo physics: the step zeroes the rear angle the controls set, so zero it
+    // before the pose drawn from is taken too, or the rear wheels swing between the two poses every frame in a turn.
+    for (const t of trucks) if (t.params.evo && !t.params.evo.spec.rearSteer) t.state.controls.rearSteer = 0;
     if (keepPrevious) for (const t of trucks) t.previous = snapshot(t.state);
     // 4x4 Evolution 2's object paths and the track's script run from the start, as the game's (0x4f3680).
     stepScript();
@@ -1699,11 +1773,25 @@ export function createSession(init) {
     // has reached: at a crossroads the nearest point may be on another part of the lap (game/heli-flight.js).
     const racing = !!race && !race.summit && S.raceStarted(race);
     const spot = extensionSession?.heliSpot?.(trucks.indexOf(t))
+      ?? (racing && init.checkpointHeli && t === player ? lastCheckpointSpot(t) : null)
       ?? nearestCourseSpot(driven, here, (x, z) => ground.height(x, z), { around: racing ? t.state.ap.segment : null })
       ?? { pos: [here[0], ground.height(here[0], here[2]), here[2]], heading: t.state.euler[2] };
     t.flight = createFlight(t.state, spot, { teryl: heliCalls === 2, height: (x, z) => ground.height(x, z) });
     t.state.heliTimer = 1;
     t.exit = null;
+  }
+  /**
+   * 4x4 Evolution 2's H key (EVO2_EXE_ANALYSIS.md 11, Advanced: Helicopter to the last checkpoint): 32 ft behind the last
+   * checkpoint passed, facing along it. Before the first checkpoint of the race, null (the course's nearest point then).
+   */
+  function lastCheckpointSpot(t) {
+    const rt = race.trucks[trucks.indexOf(t)];
+    const n = race.checkpoints.length;
+    if (!rt || !n || (rt.checkpoint === 0 && rt.laps === 0)) return null;
+    const cp = race.checkpoints[(rt.checkpoint - 1 + n) % n];
+    const heading = cp.psi;
+    const x = cp.gate.pos[0] - Math.sin(heading) * 32, z = cp.gate.pos[2] - Math.cos(heading) * 32;
+    return { pos: [x, ground.height(x, z), z], heading };
   }
   function flyTruck(t) {
     const s = t.state;
@@ -1807,16 +1895,23 @@ export function createSession(init) {
 
   /**
    * After the player finishes: run the trucks still racing on, up to 240 s of race time, so each
-   * gets a time (MONSTER_EXE_ANALYSIS.md 5, "End of race"). Returns the race view.
+   * gets a time (MONSTER_EXE_ANALYSIS.md 5, "End of race"). Returns the race view. `progress(count)` is called as the
+   * loading screen's bar moves on: 30 steps over the 240 s, as the game's ("The loading bar").
    */
-  function finishRace() {
+  function finishRace(progress = () => {}) {
     if (!race) return null;
     // An extension race left early ends where it stands; one played on the race (Race & Rumble) runs on as a race does.
     if (extensionSession && !extensionSession.keepsRace) { extensionSession.finish(); return raceView(); }
     const until = race.clock + FAST_SIMULATION_S;
     keepPrevious = false;
     try {
-      while (race.clock < until && !race.trucks.every((rt) => rt.finished)) step({});
+      const from = race.clock;
+      let shown = 0;
+      while (race.clock < until && !race.trucks.every((rt) => rt.finished)) {
+        step({});
+        const count = Math.min(LOADING_BAR.finishSteps, Math.floor(((race.clock - from) / FAST_SIMULATION_S) * LOADING_BAR.finishSteps));
+        if (count > shown) progress((shown = count));
+      }
     } finally {
       keepPrevious = true;
     }
@@ -1828,6 +1923,9 @@ export function createSession(init) {
   /** Catch up with `seconds` of wall time; returns the states to interpolate between. */
   function advance(seconds, input) {
     if (input?.modeAction) { pendingAction = input.modeAction; input.modeAction = null; }
+    // One-shot presses a tick with no step kept (a frame under 1/60 s, as on a 120 Hz screen): this tick's step takes them.
+    if (input) for (const k of ONE_SHOT_INPUTS) if (carriedPresses[k]) input[k] = true;
+    carriedPresses = {};
     const target = Math.min(seconds, time + MAX_CATCH_UP);
     let steps = 0;
     try {
@@ -1840,6 +1938,7 @@ export function createSession(init) {
     } finally {
       keepPrevious = true;
     }
+    if (input) for (const k of ONE_SHOT_INPUTS) if (input[k]) carriedPresses[k] = true;
     // An extension's own objects are drawn by the extension (they are in its view), not as the level's.
     const boxes = [...dirty].filter((box) => !box.extensionOwned).map(boxPose);
     dirty.clear();
@@ -1904,7 +2003,7 @@ if (typeof self !== "undefined" && typeof self.postMessage === "function" && typ
     },
     finish() {
       if (!session) throw new Error("No session.");
-      return session.finishRace();
+      return session.finishRace((count) => self.postMessage({ event: "finish-progress", payload: { count } }));
     },
   };
   self.addEventListener("message", async ({ data }) => {

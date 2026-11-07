@@ -35,3 +35,18 @@ export function mapLabel(mode, { truck = "", driver = "", place = null, summit =
 
 /** The label's colour: only the player's own truck is dark red, whichever truck the map follows. */
 export const mapLabelColor = (index, player) => (index === player ? MAP_PLAYER_COLOR : MAP_OTHER_COLOR);
+
+/*
+  The OpenMTM2 map (render/open-map.js; the port's): the Map key cycles no names, driver names, truck names, then off.
+  A name carries its place, "Bigfoot (5)", as on the classic map. Its own setting (`openMapMode`) keeps the same
+  numbers: MAP_PLACES is "no names" there.
+*/
+export const OPEN_MAP_CYCLE = Object.freeze([MAP_PLACES, MAP_DRIVERS, MAP_TRUCKS, MAP_OFF]);
+
+/** A stored setting as an OpenMTM2 map mode; anything unreadable is "no names", so the map shows. */
+export const openMapMode = (value) => (value === false || value === 0 ? MAP_OFF : value === undefined || value === null ? MAP_PLACES : mapMode(value) === MAP_OFF ? MAP_PLACES : mapMode(value));
+
+export const nextOpenMapMode = (mode) => OPEN_MAP_CYCLE[(OPEN_MAP_CYCLE.indexOf(openMapMode(mode)) + 1) % OPEN_MAP_CYCLE.length];
+
+/** The OpenMTM2 map's label: nothing with no names (or off), else the classic map's name and place. */
+export const openMapLabel = (mode, truck = {}) => { const m = openMapMode(mode); return m === MAP_PLACES || m === MAP_OFF ? "" : mapLabel(m, truck); };

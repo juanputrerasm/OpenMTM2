@@ -58,8 +58,9 @@ browser and reads the player's own install. `docs/PLAN.md` holds the current sta
 
 ## Tests
 
-- `node --test tests/` (Node 22.18 or newer). Use `tests/helpers/stock.mjs` for anything that
-  needs the game files; it reads `$OPENMTM2_GAMES/mtm2` or `~/games/mtm2` and skips without it.
+- `node --test tests/` (Node 22.18 or newer). No test may depend on local game files by default: anything that
+  reads them goes through `tests/helpers/stock.mjs` (`skipWithoutStock`, `skipLocal`), runs only with
+  `OPENMTM2_STOCK=1`, mounts the retail archives alone and names what it checks instead of counting the install's.
 - Every behaviour taken from the docs gets a test stating it.
 
 ## Writing

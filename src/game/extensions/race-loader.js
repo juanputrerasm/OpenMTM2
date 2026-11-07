@@ -451,9 +451,11 @@ const COMBAT = {
       },
     };
   },
-  // Each name with the truck's hit points, coloured as on the board; a wrecked truck's name says so instead.
+  // Each name with the truck's hit points, coloured as on the board; a wrecked truck's name says so instead. With the
+  // names off (the Names key, or Combat's "Names over the trucks" off) there is no tag at all.
   labels: (state, entrants, baseLabel) => entrants.map((entrant, index) => {
-    const label = baseLabel(entrant, index) || entrant.name;
+    const label = baseLabel(entrant, index);
+    if (!label) return null;
     const me = state.trucks?.[index];
     if (state.out?.[index]) return withLine(label, me?.quit ? OUT_LABEL : WRECKED_LABEL);
     if (!me) return label;
@@ -543,7 +545,11 @@ const FREESTYLE = {
     dress: { mode: extension.id },
     start: (_index, fallback) => fallback,
     // Trick physics is on unless the player turned it off (freestyle.js `freestyleRules`).
-    simulation: { mode: extension.id, minutes: length, trickPhysics: settings?.trickPhysics !== false },
+    simulation: {
+      mode: extension.id, minutes: length, trickPhysics: settings?.trickPhysics !== false, trickAnyPhysics: !!settings?.trickAnyPhysics,
+      airPitchControl: settings?.airPitchControl, airRotationDamping: settings?.airRotationDamping, groundYawDamping: settings?.groundYawDamping,
+      ...Object.fromEntries(Object.entries(settings ?? {}).filter(([k]) => k.startsWith("weight_"))),
+    },
   }),
   // No checkpoints to find: the whole track is the arena.
   finderTarget: () => null,

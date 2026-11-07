@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   MAP_DRIVERS, MAP_OFF, MAP_OTHER_COLOR, MAP_PLACES, MAP_PLAYER_COLOR, MAP_TRUCKS,
-  mapLabel, mapLabelColor, mapMode, nextMapMode,
+  mapLabel, mapLabelColor, mapMode, nextMapMode, nextOpenMapMode, openMapLabel, openMapMode,
 } from "../src/game/course-map-labels.js";
 
 test("the Map key cycles off, places, truck names, driver names, then off", () => {
@@ -41,4 +41,20 @@ test("only the player's own truck is dark red", () => {
   assert.equal(MAP_PLAYER_COLOR, "#800000");
   assert.equal(mapLabelColor(2, 0), MAP_OTHER_COLOR);
   assert.equal(mapLabelColor(0, -1), MAP_OTHER_COLOR);
+});
+
+test("the OpenMTM2 map's Map key cycles no names, driver names, truck names, then off", () => {
+  assert.deepEqual([MAP_PLACES, MAP_DRIVERS, MAP_TRUCKS, MAP_OFF].map(nextOpenMapMode), [MAP_DRIVERS, MAP_TRUCKS, MAP_OFF, MAP_PLACES]);
+  assert.equal(openMapMode(MAP_OFF), MAP_OFF);
+  assert.equal(openMapMode(undefined), MAP_PLACES, "an unset mode shows the map");
+  assert.equal(openMapMode(false), MAP_OFF);
+});
+
+test("the OpenMTM2 map writes no number alone: nothing with no names, else the name and place", () => {
+  const t = { truck: "Bigfoot", driver: "Sam", place: 5 };
+  assert.equal(openMapLabel(MAP_PLACES, t), "");
+  assert.equal(openMapLabel(MAP_OFF, t), "");
+  assert.equal(openMapLabel(MAP_DRIVERS, t), "Sam (5)");
+  assert.equal(openMapLabel(MAP_TRUCKS, t), "Bigfoot (5)");
+  assert.equal(openMapLabel(MAP_TRUCKS, { ...t, summit: true }), "Bigfoot");
 });

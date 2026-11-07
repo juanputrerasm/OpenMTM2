@@ -797,3 +797,337 @@ MTM2's vehicle model.
 - Water wake, spray, smoke puffs and skid marks in detail (5.5).
 - Whether Evo 1's executable (`~/games/evo1/4x4LE.exe`) differs from Evo 2 on any of this. The
   data formats are the same (ASPEN has `.TEX` classes, `.RTD` and `.SDW`).
+
+---
+
+## 10. Cameras (`..\core\view.c`)
+
+### 10.1 The camera object and the modes
+
+The game keeps two camera objects, `0x67d870` (player 1) and `0x67d874` (split screen), each
+stepped by `0x5f3d10`, which switches on the mode at +0x18 ("Bad view mode!" for anything else). The
+names come from `0x5f4c50`:
+
+| Mode | Name | Step | What it is |
+|---|---|---|---|
+| 0 | Hood | `0x5f3920` | body frame, at (0, head.y + 0.667, head.z + 2.9) ft |
+| 1 | Cockpit | `0x5f20e0` | body frame, at the driver's head + (0, 0.667, 0) |
+| 2 | Window | `0x5f3be0` | body frame, at (x - 0.7, head.y + 0.75, head.z), x from the record at vehicle +0x50, +0x2C (**not traced** further) |
+| 3 | Inertia | `0x5f4840` | the speed-dependent chase camera (10.3) |
+| 4 | Sky Cam | `0x5f4ac0` | high chase (10.3) |
+| 5 | Chase Near | `0x5f2540` | classic chase (10.2) |
+| 6 | Chase Far | `0x5f2540` | classic chase (10.2) |
+| 7, 8 | Suspension Front, Rear | `0x5f3720`, `0x5f3820` | near clip 0.5 ft; not detailed |
+| 9 | RaceCam | `0x5f2d50` | trackside TV camera on the course (10.4) |
+| 10 | Chase Front | `0x5f2540` | classic chase looking back at the vehicle |
+| 11, 12 | Chase Left, Chase Right | `0x5f2540` | classic chase from the side |
+| 13 | Look Back | `0x5f3ae0` | body frame at (0, head.y + 0.75, head.z - 12), heading + pi, pitch and roll negated |
+| 15 | BlimpCam | `0x5f3390` | vehicle + (500, 500, -500) ft, pitch 45 deg, heading -45 deg, zoom 1 |
+| 16 | Chase Big Rear | `0x5f2540` | classic chase |
+| 17 | Eye | `0x5f3a10` | as Cockpit, without the cockpit art |
+| 18 | Chase Big Front | `0x5f2540` | classic chase |
+
+"head" is the `.TRK` `driverHead.initBPos` (vehicle +0x12F4, read by `0x5ed4b0` for version 4 and
+later; the Blazer's is (-1.25, 3.3, -0.05)). The body-frame modes copy the vehicle's angles
+(vehicle +0xC pitch, +0x10 heading, +0x14 roll) and rotate the offset by its matrix (+0x18): they
+are rigid, with no lag.
+
+Camera fields: +0 distance (1/256 ft), +4 pitch and +0xC heading offset (65536 a turn, the `.SIT`
+"viewmode,spotd,spotp,spoth,zoom" line at `0x551ce0`), +0x14 zoom, +0x1C position (ft), +0x28
+angles, +0x70 the vehicle watched.
+
+**Zoom** (+0x14) is the projection scale (`0x495e10`, used by `0x495e40`): x is scaled by zoom, y
+by zoom times width over height, so **zoom 1.0 is 90 deg across the width**, MTM2's convention.
+The same value is the near clip distance in feet (`0x496870`; the far clip is 8192 ft), except the
+Suspension cameras (0.5) and BlimpCam (256). `0x5f2b90` sets it on entering a mode: 1.0 by default,
+**1.3333** (73.7 deg) for Chase Near, Front, Left and Right, **2.6667** (41.1 deg) for Chase Big Rear
+and Big Front. After every mode the eye is kept at least 2 ft above the ground (`0x65ef15`) and
+wrapped into the world.
+
+### 10.2 The classic chase cameras (`0x5f2540`)
+
+MTM2's integer camera, in 1/256 ft and 65536-a-turn angles. `0x5f2b90` sets, per mode:
+
+| Mode | Distance | Pitch | Heading offset | Target height | Along-view offset | Zoom |
+|---|---|---|---|---|---|---|
+| Chase Near (5) | 0x1964 = 25.4 ft | 0 | 0 | +0x700 = 7 ft | 5 ft | 1.333 |
+| Chase Far (6) | 0x1FFF = 32.0 ft | 0x800 = 11.25 deg | 0 | +0xA00 = 10 ft | 3 ft | 1.0 |
+| Chase Front (10) | 0x1555 = 21.3 ft | 11.25 deg | 0x8000 (in front) | 0 | 0 | 1.333 |
+| Chase Left (11) | 21.3 ft | 11.25 deg | 0x4000 | 0 | 0 | 1.333 |
+| Chase Right (12) | 21.3 ft | 11.25 deg | 0xC000 | 0 | 0 | 1.333 |
+| Chase Big Rear (16) | 21.3 ft | 0xA00 = 14.06 deg | 0 | 0 | 0 | 2.667 |
+| Chase Big Front (18) | 21.3 ft | 11.25 deg | 0x8000 | 0 | 0 | 2.667 |
+
+Each frame:
+
+1. **Target** = the vehicle position (+0) in 1/256 ft, plus the target height on y.
+2. **Heading** = the vehicle heading (+0x10, radians, turned into 65536ths) + the heading offset.
+   It **lags**: `h += wrap16(target - h) * 4 * dt` (dt the frame time in 1/65536 s, `0x82f230`), a
+   first-order follow at 4 per second (time constant 0.25 s). Chase Front and Big Front lag only
+   for 2 s after the mode is chosen (+0x80 = 0x20000), or until the error is under 0x100 (1.4 deg);
+   after that they are locked to the vehicle heading. No camera here follows pitch or roll, and
+   **nothing depends on speed**.
+3. **Terrain**: the pitch starts at the mode's and is raised 0x200 (2.8 deg) at a time, at most 32
+   times and to 0x3FFF, while the ground under the eye is above it; then the distance is built up
+   in 32 steps of distance/32 and stops one step short of the first point under the ground.
+4. **Eye** = target - (d cos p sin h, -d sin p, d cos p cos h); the camera looks along (pitch p,
+   heading h, roll 0) at the target, then moves along its own view by the along-view offset (Near
+   ends about 20.4 ft from the target, Far 29 ft).
+
+The player can turn and tilt any camera but Cockpit with keyViewLeft and keyViewRight (Insert,
+Delete) and keyViewForward and keyViewBack (keypad minus and plus), at 0x4000 a second (90 deg/s),
+pitch held within +/-0x3FFF (`0x5f4410`); the offsets are remembered for the mode
+(`0x8924c4`..`0x8924cc`). `gViewPan` (default 1, `0x672f34`) chooses this camera; 0 selects
+`0x5f2230`, the same placement with no lag and no terrain search.
+
+**Evo 1** (`0x594600`): the same table with Chase Near at 0x1555 (21.3 ft) and pitch 0, Chase Far
+at 0x1FFF and pitch 0, and its own numbering: Cockpit 0, Chase Near 1, Chase Far 2, BlimpCam 3,
+RaceCam 4, Chase Front 5, Left 6, Right 7, Big Rear 9, Big Front 10. Evo 1 has no Hood, Window,
+Inertia, Sky Cam, Look Back or Eye.
+
+### 10.3 Inertia and Sky Cam: Evo 2's own chase cameras
+
+Float cameras in feet and radians, with dt the simulation's frame time (`0x67976c` +0x3458).
+"lerp(a, b, r)" is `a + (b - a) * r * dt` when `r * dt < 1`, else b (`0x54d2d0`; `0x54d320` does the
+same on the wrapped angle difference).
+
+**Inertia** (`0x5f4840`), the default second camera:
+
+- heading = lerp(previous, vehicle heading, **3.5**); pitch and roll of the placement 0.
+- s = lerp(previous s, max(0, forward speed * 0.01), **5**), forward speed being body velocity z
+  (vehicle +0x4C, +0x14) in ft/s.
+- eye = vehicle position + R(heading) * (0, head.y + **5**, head.z - (**40 s + 1**)): about 8 ft up
+  and **1 ft + 0.4 ft per ft/s** behind (29 ft back at 70 ft/s, 48 mph). This is the speed-dependent
+  zoom: the camera falls back as the vehicle speeds up and closes in as it slows, lagging 0.2 s.
+- it looks at vehicle position + (0, 5, 0): pitch = lerp(previous, pitch of that line, 3.5), at
+  most **37 deg** down (`0x67d810`).
+- zoom 1.0 (90 deg).
+
+**Sky Cam** (`0x5f4ac0`), the default third camera: heading = lerp(previous, vehicle heading,
+**0.5**) (a slow swing, 2 s time constant); eye = vehicle + R(heading) * (0, head.y + **100**,
+head.z - **100**); pitch fixed **45 deg**; zoom 1.0.
+
+### 10.4 RaceCam (`0x5f2d50`)
+
+The TV camera walks the vehicle's `.SIT` course (course +0x11F4, segment +0x71C, segments at
+`0x7ecba0`, 0x38 bytes): the camera stands on the first straight segment at or after the vehicle's,
+a quarter of the way along it (at its middle instead when the segment is over 320 ft and the vehicle
+is nearer the middle), at least 14 ft above the highest of 10 ground samples along the segment. When
+the ground hides the vehicle it falls back to a fixed eye (`0x5f3300`). It is pulled toward the
+vehicle to within the visible distance less 32 ft. It looks at the vehicle, pitch within
++/-0x37FF (77 deg); zoom = horizontal distance / 10, between 2 and 64. Every change of segment
+toggles a second style with zoom 2 and the distance capped at 576 ft. A course with fewer than two
+segments falls back to Cockpit.
+
+### 10.5 Cycling
+
+keyNextView (V, scan code 0x2F; with Shift backwards) does not step through the modes in a race: it
+steps through the profile's **three camera slots** `view1`, `view2`, `view3` (profile +0x4128..,
+`0x516480`, `0x516740`), defaulting to **Cockpit, Inertia, Sky Cam** (1, 3, 4; `0x506af0`). The
+options name the slots Bumper View, Driver View and Chase View. keyCockpitView (Home) puts
+Cockpit (1) into the slot that holds it or the current one. Outside a race (replay, demo:
+`0x7fee34` set) V steps through modes 0 to 13 (`0x5f42f0`, `0x5f4330`). keyLookBack (B, held,
+`0x489a90`) shows Look Back while held. keyCamera (K) changes the vehicle watched (+0x70). The
+start of a race, a finish (mode 9, RaceCam, `0x45ed10`) and the lift timer (11.2) can force a mode.
+
+**Correction to 6.7:** `0x4117a0` and `0x436c90` are not camera code. `0x4117a0` is the computer
+driver's nearest box (sim +0x5AE4 list) and `0x411720` its nearest path object (12.4);
+`0x436c90` is the replay object's position history (11.2).
+
+---
+
+## 11. Helicopter (H) and recovery
+
+### 11.1 The H key (`0x489a90`)
+
+The key is **keyHelicopter**, default H (scan code 0x23). It acts on a press when all of these
+hold: the vehicle has not finished (+0x24FC clear), the simulation is not frozen (`0x8924a0`), the
+track's race type (`0xcad904`) is not 1, 4 or 5, the race has started (`0xcad90c` non-zero), and at
+least **5 s** have passed since the start (`0xcad908 >= 0xcad90c + 5`, `0x6396dd`). There is no
+delay, animation, time penalty or limit on uses.
+
+**Placement, circuit and rally races** (not a network game, `0x678e34` +0x8D1D8 clear; race type
+not 6, Mission; and for a Rally, type 3, only after the first checkpoint):
+
+- The **last checkpoint passed**: index = next checkpoint (vehicle +0x11E8) - 1, wrapping to the
+  last (`0xcad910` - 1) when it is 0. The checkpoints are the sim's records at +0x30E0, 0xA8 bytes
+  each (position +0, angles +0xC, matrix +0x18), counted round the lap by `0x4f82b0`.
+- Position = checkpoint + its matrix * (0, 0, **-32**): **32 ft behind the checkpoint**, along its
+  own facing. Orientation = the checkpoint's angles.
+- Height = the ground height there + **10 ft** (`0x6396e1`): the vehicle drops onto the track.
+- Body velocity and angular rates zeroed, gear set to first (4), shift request cleared, +0x2B18 set.
+
+So H does not use the AI line or the nearest point of the course: players see the start of "the
+segment they were on" because checkpoints sit at the course's corners.
+
+**Placement otherwise** (missions, network games, a rally before its first checkpoint): the replay
+object's position history (`0x4366c0`): the game records every vehicle's position and angles every
+0.25 s (`0x436c90`, a ring of 0x5140 records of 0x28 bytes). The search goes back from the newest
+record of this vehicle to the first that is at least **100 ft** away horizontally, upright (its up
+vector's y over 0.9), **between 0 and 10 ft above the ground** and above the water (`0x475840`);
+the vehicle is put there with that orientation, then as above (velocities zeroed, ground + 10 ft).
+Records of objects on paths or touched boxes are flagged and skipped (`0x4368c0`).
+
+### 11.2 Automatic righting (`0x557cc0`), and the timer at +0x1248
+
+Evo 2 rights a **local human player's** vehicle (+0x24CC = 1; 0 computer, 2 network, 3 replay) as
+soon as it comes to rest on its back or side. `0x5578b0` calls `0x557cc0` every step for such a
+vehicle; it acts when:
+
+- body speed under **0.1 ft/s**, the race started, the hull has at least one contact (+0x4C,
+  +0x54), and **no tire touches the ground** (tire +4 at vehicle +0x64, +0x190, +0x31C, +0x448).
+
+It then clears +0x1248, zeroes the velocities and rates, sets **pitch and roll to 0**, lifts the
+vehicle **10 ft** (`0x64b3e7`), and, in race types other than 4 and 5, turns its heading toward the
+end of its current course segment (`0xcadb68` record at vehicle +0x71C: a straight segment's end,
+or the point on an arc). No timer, no penalty. Computer vehicles never get this; they warp (12.5).
+
+**+0x1248 and `0x55e240`** are a 15-second helicopter lift, counting down: above 10 s the vehicle
+hangs on a circle of radius 40 * (t - 10) ft (200 ft at the start) round its own position, turning
+toward it; below 10 s its angles and position move by the per-second rates stored at the start
+(+0x124C..) and its height offset changes 5 ft/s (down, then up below 4 s); at 0 the tires are
+reset and the step resumes. While it runs, the player's camera switches to Chase Far looking from the side
+(`0x5ed0d0`). **No code in Evo 2 starts it**: the only writers are the vehicle state reader
+(`0x5f10f0`, from a saved state) and the clears above. It is Evo 1's sequence left in place.
+
+### 11.3 Evo 1 (`0x505f90`, timer at vehicle +0x1590)
+
+For a local human vehicle (+0x255C = 1):
+
+- While the hull touches and no tire does, the timer counts **down** from 0 by dt; otherwise it
+  climbs back to 0. When it passes **-5 s** the vehicle is righted by `0x507120` (the same rule as
+  Evo 2's `0x557cc0`: velocities zeroed, pitch and roll 0, 10 ft up, facing its course segment).
+- If the timer is still under -5 (righting refused), `0x507350` starts the helicopter: timer 15 s,
+  plus 5 s for each other vehicle already lifting in the same course segment, and per-second rates
+  that take the pitch, roll, heading and position to the segment over 10 s.
+- At rest (speed under 0.1 ft/s, or 0.5 with three or more contacts) a human vehicle is righted at
+  once, as in Evo 2.
+
+So Evo 1 has the 5 s automatic recovery and the lift; Evo 2 rights at rest at once and leaves the
+rest to the H key.
+
+---
+
+## 12. Computer drivers (`..\core\aitruck.cpp`, `CVehicleAI`)
+
+### 12.1 The AI lines (`0x40a270`, `0x4125a0`)
+
+The manager (`0x73247c`, constructed at `0x411d90`) loads up to three lines
+`AI\CLASS<c>\AI_<c><n><track>.TXT`, n = 1 to 3, c the class from the player's vehicle (1 to 3,
+`0x411f90`), and gives each computer driver one at random. Each line also sets the driver's tire
+type, suspension, brake balance, torque split and axle ratio, with handling 1.0 (`0x40c840`).
+At most 1849 points are read and the **last 5 dropped**. Point record (0x38 bytes):
+
+| Offset | Field | Made by |
+|---|---|---|
+| +0 | position (ft) | file |
+| +0xC | unit direction to the next point | `0x40b900` |
+| +0x18 | lateral: direction x ground normal, unit | `0x40b360` |
+| +0x24 | **speed, ft/s** (compared directly with body forward velocity) | file |
+| +0x28 | length to the next point | `0x40b2e0` |
+| +0x2C | turn at the point, **degrees** (`|wrap(heading in - heading out)| * 57.3`) | `0x40b740` |
+| +0x30 | height above the ground | `0x40ba30` |
+| +0x34 | checkpoint the driver heads for | file |
+
+Indices wrap round (`0x409d60`), except on a Rally (race type 3), where they stop at the last.
+
+### 12.2 The step (`0x40c840`, every frame, in this order)
+
+1. Difficulty level (`0x4120f0`, 12.6). 2. Off-line warp check (`0x40fbe0`). 3. Stuck warp check
+(`0x40ecf0`). 4. Behaviour state (`0x40d1b0`). 5. Advance along the line (`0x4109a0`): the current
+point index (+0xE8) moves on while the vehicle is past the plane through the next point at right
+angles to the line; each move clears the stuck timer. 6. Curve ahead (`0x410480`). 7. Base speed
+(`0x410e80`). 8. Steering and avoidance (`0x40d590`). 9. Throttle and brake (`0x40edb0`).
+
+### 12.3 Steering (`0x40d590`, `0x40fca0`)
+
+- **Lookahead distance** L = forward speed * **0.7** * f, where f = min(turn at the current
+  target point, 5 deg) / 5, at least **0.4**; L at least **20 ft**. L is smoothed toward that at 6
+  per second (`0x412bf0`). A curvy target lengthens the lookahead, so the driver cuts corners.
+- **Target** = the first point whose summed segment lengths from the current point exceed L, and at
+  least two points ahead (`0x4101e0`).
+- The target (or an avoidance point, 12.4) is taken into the body frame (`0x40d500`) and its
+  heading e = atan2(x, z) found.
+- **Steering command** s = clamp(3 * clamp(e / 45 deg, -1, 1), -1, 1): **full lock at 15 deg of
+  heading error**, linear below. (A second term, the target against the velocity heading, has
+  weight 0; an off-line term, offset * 0, is also 0.) Reversing out (12.5) negates s.
+- Applied (`0x40fca0`): front steering angle (+0x2DC) = **0.45 rad** * s, smoothed at 100 per second
+  (immediate at normal frame rates); rear steering = -front * the vehicle's rear-steer factor
+  (+0x1288).
+- **Handbrake** (+0x1244) on when |s before clamping| is 1 or more (the float-to-int helper hides
+  the rounding: **hypothesis** truncation, so errors of 15 deg or more) and speed over **60 ft/s**.
+
+### 12.4 Speed (`0x410e80`, `0x410f10`, `0x40edb0`)
+
+- **Base speed** = the line speed at the point after the current one, times **0.9 in rain** (weather
+  3) or **0.8 in snow** (weather 4), times 1.0 (manager +0x4C02C).
+- **Rubber band** (`0x410f10`), against the nearest human-driven vehicle P, in vehicle lengths Lv
+  (`0x5d7590`, the bounding box's length):
+
+| Level | base k | most when behind | least when ahead |
+|---|---|---|---|
+| 1 | 0.9 | 1.25 | 0.5 |
+| 2 | 1.0 | 1.3 | 0.6 |
+| 3 | 1.1 | 1.35 | 0.7 |
+| 4 | 1.2 | 1.4 | 0.8 |
+
+  With d the distance to P: under **5 Lv**, factor = k (times **1.1** when the driver is behind P in
+  race position). Beyond, if ahead of P: t = clamp((d - 5 Lv) / (15 Lv), 0, 1), factor = k - (k -
+  least) t (slows down until 20 Lv ahead); if behind: t = clamp((d - 5 Lv) / (5 Lv), 0, 1), factor =
+  k + (most - k) t (full boost 10 Lv behind). Within **2 Lv** of another computer vehicle, the one
+  ahead in position gets * **1.05**, the one behind * **0.95**. The factor moves at most **0.1 a
+  second**, is 1.0 once finished, and also sets the vehicle's **torque modifier** (+0x12B8) to
+  max(1, factor) (more engine when catching up) and its **tire CF modifier** (+0x12BC) to **1.2**
+  (1.0 in one case, 1.5 on MEDI and THAI at given checkpoints: track-specific code). **Target speed**
+  = max(**25 ft/s**, base speed * factor).
+- **Throttle and brake** (`0x40edb0`), outside the following-vehicle state:
+  - full throttle, no brake, when speed <= target, or when the next sharp bend is more than
+    **2.5 s** away (`0x410480`: the distance to the first point of the next run of same-direction
+    turns over 0.25 deg each, against speed * 2.5) unless the driver is easing off ahead of P;
+  - otherwise throttle -= **10 * dt**; and when all four tires are on the ground (`0x412e40`):
+    over **1.5 x** target, brake **0.75** and throttle 0; over **1.25 x**, brake **0.5** and
+    throttle 0.
+  - Throttle and brake are smoothed toward their commands (`0x412bf0`): throttle at 10 per second,
+    brake at 20.
+- **Following another vehicle** (state 1, `0x40d1b0`, when faster than the vehicle ahead above
+  50 ft/s): speed command = other's speed + 1.0 * (gap - (0.5 * other length + D)), D 100 ft times
+  0.5, 0.3 or 0.2 by situation; brake when the command is negative.
+- The behaviour states (`0x411870` table): Following course, Following vehicle, Passing, Passing
+  left, Passing right, Blocking vehicle, Side ramming, Rear Ramming, Calling AAA, Returning to
+  checkpoint. Avoidance (12.2 step 8) swerves for vehicles within 6 Lv and for boxes and path
+  objects in front (`0x4117a0`, `0x411720`), by half the gap times (1 - distance / 2 Lv); the
+  avoidance geometry is **not traced** in detail.
+
+### 12.5 Getting unstuck
+
+- **Reversing out** (`0x40edb0`): while the throttle is over 0.9, every 1 s the driver checks how far
+  it moved; under **7 ft** it shifts to reverse (gear 2), full throttle, no brake, steering negated,
+  for **4 s**, then first gear (4) again.
+- **Warp** (`0x40ecf0`, `0x40fbe0`, `0x4107e0`): after **10 s** without reaching a new line point,
+  or when more than **256 ft** from the line, the driver is moved only if no human player can see
+  it (`0x40f560`; "not visible. Unsticking." / "Warping."): onto its current line point, **10 ft**
+  up, angles along the line, velocity zeroed but for a forward speed of **half the line speed**.
+- No automatic righting for computer vehicles (11.2): a rolled computer truck waits for the warp.
+
+### 12.6 Difficulty (`0x4123f0`, `0x4120f0`)
+
+The level (1 to 4, per driver +0xD8) starts at 2 within 1 to 4 (`aiMin`, `aiMax`). With the
+opponent setting at 0 (`0x678e34` +0x8D1D4, **hypothesis**: "auto") the range comes from the
+player's past placings on the tracks: an average place of 2 or better fixes it at 4; 5 or worse gives
+1 to 2; in between 1 to 4 or fixed at 1. Every **2 s** each driver compares itself with the human
+P and counts the computer vehicles near P (within **75 ft**), ahead of it and behind it
+(`0x412310`): a driver ahead of P while at least as many are ahead as near or behind "gets wimpy"
+(level down: 4 to 3, 3 to 2, else 1); a driver behind P while at least as many are behind as ahead
+or near "steps it up a notch" (2 to 3, 3 to 4, else 2). The level is kept within the range.
+
+**Catch-up in the physics** (`EVO2_PHYSICS.md` 9.4) is separate: the last-placed vehicle's velocity
+is scaled by 1 + 0.00005 d each step.
+
+### 12.7 For OpenMTM2
+
+An Evo CPU driver reads the AI line points of 12.1 (OpenPhotex `parseEvoAiLine` has position and
+speed; the turn, length and direction are derived as above) and runs 12.3 to 12.6 each frame:
+lookahead L, steer = clamp(e / 15 deg), front angle 0.45 rad * steer, target speed from the line
+with the rubber band, throttle and brake by the rules of 12.4, reverse after 1 s of under 7 ft at
+full throttle, warp when unseen and stuck 10 s. Not reproduced exactly: the avoidance and passing
+states, and the per-track hacks for MEDI, THAI, FM109, ASPEN and AUTUMN.

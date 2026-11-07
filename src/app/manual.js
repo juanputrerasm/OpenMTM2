@@ -51,7 +51,7 @@ export const MANUAL = Object.freeze([
         body: [
           msg("With automatic shifting (Options, Game) the truck changes gear by itself: hold Brake to stop, and keep holding it to back up. Without it, shift up and down yourself, through reverse and neutral."),
           { keys: [["accelerate", msg("Accelerate")], ["brake", msg("Brake")], ["left", msg("Turn Left")], ["right", msg("Turn Right")], ["shiftUp", msg("Shift Up")], ["shiftDown", msg("Shift Down")]] },
-          msg("A gamepad drives the same way: the stick or the triggers for the pedals, the stick for steering. Options, Controls changes any key."),
+          msg("A gamepad drives the same way: the left stick steers, the triggers (or the stick) are the pedals, RB and LB shift, Y calls the helicopter, X changes the camera, A the dashboard, B the map, Start pauses, D-pad up is Drive Mode and D-pad down the Emergency Brake. Options, Keys changes any key and any gamepad button."),
         ],
       },
       {

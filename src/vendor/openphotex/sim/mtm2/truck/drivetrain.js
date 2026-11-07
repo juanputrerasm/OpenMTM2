@@ -85,9 +85,15 @@ export function driveForce(transfer, gear, torque, tireRadius, axleSplit) {
  * brakes on.
  */
 export function stepGearbox(box, ctx) {
-    const { rpm, autoShift } = ctx;
+    const { rpm } = ctx;
+    // A request in automatic (`autoOverride`): taken as the manual box would, then held.
+    const taken = ctx.autoShift && !!box.autoOverride && box.shiftRequest !== 0;
+    const autoShift = ctx.autoShift && !taken;
+    const gearBefore = box.gear;
+    // Held: up only at the rev limit (the rpm is held to ENGINE.maxRpm on the ground, so just under it).
+    const upRpm = box.shiftHold ? ENGINE.maxRpm - 1 : ENGINE.upshiftRpm;
     const up = autoShift
-        ? rpm > ENGINE.upshiftRpm && box.gear >= GEAR.FIRST && box.gear <= GEAR.SECOND
+        ? rpm > upRpm && box.gear >= GEAR.FIRST && box.gear <= GEAR.SECOND
         : box.shiftRequest > 0 && box.gear < GEAR.THIRD;
     if (up)
         box.gear = ctx.dragStaging && box.gear === GEAR.PARK ? GEAR.NEUTRAL : box.gear + 1;
@@ -96,6 +102,7 @@ export function stepGearbox(box, ctx) {
         : box.shiftRequest < 0 && (box.gear > GEAR.FIRST || (box.gear > GEAR.PARK && ctx.forwardSpeed <= 0));
     if (down)
         box.gear = ctx.dragStaging && box.gear === GEAR.NEUTRAL ? GEAR.PARK : box.gear - 1;
+    holdAfterShift(box, taken, autoShift, gearBefore);
     box.shiftRequest = 0;
     if (box.gear === GEAR.PARK) {
         box.brakeFront = 1;
@@ -104,3 +111,10 @@ export function stepGearbox(box, ctx) {
 }
 /** Below this speed a tire holds the truck still (static hold, §5.2). */
 export const STATIC_HOLD_SPEED = MPH_10;
+/** `autoOverride`'s hold: set by a taken request, ended by the automatic box's own next shift. */
+export function holdAfterShift(box, taken, autoShift, gearBefore) {
+    if (taken)
+        box.shiftHold = true;
+    else if (autoShift && box.gear !== gearBefore)
+        box.shiftHold = false;
+}

@@ -90,6 +90,19 @@ export default async function mount(container, context) {
   const modeSelect = el("select", { "aria-label": t("Mode"), class: "race-mode" },
     ...modes.map((m) => el("option", { value: m.id, selected: m.id === gameMode }, context.t(m.name))));
   const modeLabel = el("span", { class: "race-length-label race-mode-label" }, context.t("Mode"));
+  // Beside Mode while an extension is chosen: its settings (Options, Extensions, that extension alone).
+  const modeOptionsButton = el("button", {
+    type: "button", class: "race-mode-options", title: t("Extension options"),
+    onclick: async () => {
+      const ext = extensionById(gameMode);
+      if (!ext) return;
+      const { openOptionsModal } = await import("./options.js");
+      await openOptionsModal(context, { tab: "Extensions", extension: ext.id });
+      // Its length may have changed (Combat's laps, Freestyle's minutes).
+      context.optionsDialog?.addEventListener("close", () => { laps.value = String(lengthFor(gameMode, track)); }, { once: true });
+    },
+  }, t("Settings"));
+  const showModeOptions = () => { modeOptionsButton.hidden = !extensionById(gameMode)?.settings?.length; };
   const lengthLabel = el("span", { class: "race-length-label" });
   const weather = el("select", { "aria-label": t("Weather"), class: "race-weather" });
   const tableBody = el("tbody");
@@ -241,6 +254,7 @@ export default async function mount(container, context) {
       if (option.value === "default") option.disabled = !!track.freeRoamOnly;
       else option.disabled = false;
     }
+    showModeOptions();
   };
   const chooseTrack = (item) => {
     // A track-locking extension ignores track choices while it is active.
@@ -394,14 +408,14 @@ export default async function mount(container, context) {
     ui.regions.weatherLabel.append(el("span", { class: "race-length-label" }, context.t("Weather")));
     ui.regions.weather.append(weather);
     ui.regions.modeLabel.append(modeLabel);
-    ui.regions.mode.append(modeSelect);
+    ui.regions.mode.append(modeSelect, modeOptionsButton);
     if (!ui.art) {
       table.prepend(el("thead", {}, el("tr", {}, el("th", {}, context.t("Track Name")), el("th", {}, context.t("Track Type")))));
     }
   } else {
     ui.regions.list.append(selectedLabel, listHead, table,
       el("div", { class: "form-row" },
-        el("label", {}, lengthLabel, " ", laps), el("label", {}, modeLabel, " ", modeSelect), el("label", {}, `${t("Weather")} `, weather), opponentsButton),
+        el("label", {}, lengthLabel, " ", laps), el("label", {}, modeLabel, " ", modeSelect), modeOptionsButton, el("label", {}, `${t("Weather")} `, weather), opponentsButton),
       el("div", { class: "track-preview-modern" }, preview, info, previewFoot),
       el("div", { class: "screen-actions" }, goButton));
   }

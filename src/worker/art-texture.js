@@ -11,6 +11,13 @@ import { decodeRawTexture, rawTextureSide } from "../vendor/openphotex/texture/r
 import { loadTextureSource } from "./level-load.js";
 import { decodeTrueColorTexture, hdDimensionRefusal } from "./image-decoder.js";
 
+/** The largest side an HD texture keeps (Options, Graphics: Texture size); larger art is box-filtered down as it loads. */
+export const HD_TEXTURE_SIDES = Object.freeze([1024, 512, 256]);
+let hdLimit = 1024;
+/** Sets the largest HD side for the loads that follow (the worker's track and truck builds); anything else is full size. */
+export function setHdTextureLimit(side) { hdLimit = HD_TEXTURE_SIDES.includes(Number(side)) ? Number(side) : 1024; }
+export const hdTextureLimit = () => hdLimit;
+
 export const artStem = (name) => String(name ?? "").toUpperCase().replace(/^.*[\\/]/, "").replace(/\.[^.]*$/, "");
 
 async function hdImage(vfs, stem) {
@@ -20,7 +27,8 @@ async function hdImage(vfs, stem) {
     try {
       const image = await decodeTrueColorTexture(bytes, `${stem}.${extension}`, extension);
       if (hdDimensionRefusal(`${stem}.${extension}`, image.width, image.height)) continue;
-      return { width: image.width, height: image.height, rgba: new Uint8ClampedArray(image.rgba), source: extension };
+      const loaded = { width: image.width, height: image.height, rgba: new Uint8ClampedArray(image.rgba), source: extension };
+      return loaded.width > hdLimit || loaded.height > hdLimit ? shrinkImage(loaded, hdLimit) : loaded;
     } catch { /* not usable: the next source */ }
   }
   return null;

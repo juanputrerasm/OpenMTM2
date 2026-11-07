@@ -677,6 +677,11 @@ export async function buildEvoTrackRender(vfs, sitPath, sitBytes, { truckFiles =
       road: null,
       /** A one-way course (a rally from A to B): the map draws it with two ends. */
       courseOpen,
+      /**
+       * The first recorded AI line, for the EVO computer drivers (game/evo-driver.js): positions in the world's feet and
+       * each one's speed, ft/s; null on a track without one.
+       */
+      evoLine: aiLines[0]?.points.length > 10 ? { points: aiLines[0].points.map((p) => [p[0], p[1], p[2]]), speeds: [...(aiLines[0].speeds ?? [])] } : null,
       /** Surfaces a truck drives on over the terrain (rocks, planks), each triangle with its surface value. */
       /** Object paths (game/evo-paths.js): each with its object's sitIndex, its number for the script, its bottom. */
       paths: pathRuns,

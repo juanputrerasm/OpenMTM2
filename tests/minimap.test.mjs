@@ -52,3 +52,22 @@ test("a Rumble's map takes a track build's checkpoint gates (position, full size
   assert.deepEqual(boxCorners(gate), [[80, 190], [120, 190], [120, 210], [80, 210]]);
   assert.deepEqual(boxCorners({ pos: [100, 50, 200], half: [20, 5, 10] }), boxCorners(gate));
 });
+
+test("Map line thickness: 0.25x to 1.75x the game's line, 1x (the middle) for anything unreadable", async () => {
+  const { mapLineScale, MAP_LINE_MIN, MAP_LINE_MAX } = await import("../src/render/minimap.js");
+  assert.equal(mapLineScale(undefined), 1);
+  assert.equal(mapLineScale("x"), 1);
+  assert.equal(mapLineScale(0.5), 0.5);
+  assert.equal(mapLineScale(0), MAP_LINE_MIN);
+  assert.equal(mapLineScale(99), MAP_LINE_MAX);
+  assert.equal((MAP_LINE_MIN + MAP_LINE_MAX) / 2, 1);
+});
+
+test("the map's transparency is 0 (solid, the game's) by default and held to its range", async () => {
+  const { mapTransparency, MAP_TRANSPARENCY_MAX } = await import("../src/render/minimap.js");
+  assert.equal(mapTransparency(undefined), 0);
+  assert.equal(mapTransparency("x"), 0);
+  assert.equal(mapTransparency(0.4), 0.4);
+  assert.equal(mapTransparency(-1), 0);
+  assert.equal(mapTransparency(5), MAP_TRANSPARENCY_MAX);
+});

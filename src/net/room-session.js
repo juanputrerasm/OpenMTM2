@@ -158,11 +158,15 @@ export function createRoomSession({ server, room, me, hasTrack = () => true, tra
   };
   /** Start (owner): the server seats everyone. Random weather is drawn here, from what the track allows. */
   /** `wheels`: the owner's Wheels damage rule (`{ on, repairS }`), put into the room's settings first so every player races by it. */
-  async function start({ resolveWeather = () => 0, computers = [], wheels = null } = {}) {
+  /** `rules`: the owner's game rules (game/host-rules.js), put into the room's settings with the wheels before the start. */
+  async function start({ resolveWeather = () => 0, computers = [], wheels = null, rules = null } = {}) {
     requireHost();
     const w = settings().weather;
     const weather = w < 0 ? resolveWeather() : w;
-    if (wheels) await putSettings({ wheels: !!wheels.on, wheelsRepairS: Math.max(0, Math.min(600, Math.trunc(wheels.repairS ?? 8))) });
+    const fields = {};
+    if (wheels) Object.assign(fields, { wheels: !!wheels.on, wheelsRepairS: Math.max(0, Math.min(600, Math.trunc(wheels.repairS ?? 8))) });
+    if (rules) fields.rules = rules;
+    if (Object.keys(fields).length) await putSettings(fields);
     server.request("start", { weather, computers: computers.slice(0, settings().computers) }).catch((err) => notice("error", err.message));
   }
 
@@ -292,6 +296,8 @@ export function createRoomSession({ server, room, me, hasTrack = () => true, tra
         track: t ? { sit: t.sit, name: t.name || t.sit } : null, laps: s.laps, weather: s.weather, teamPlay: false, crc: t?.crc ?? null, computers: s.computers, mode: s.mode,
         // Wheels damage, the owner's rule for the room (set as the race starts).
         wheels: !!s.wheels, wheelsRepairS: Number.isInteger(s.wheelsRepairS) ? s.wheelsRepairS : 8,
+        // The owner's game rules (game/host-rules.js); a server before 0.4.0 keeps none.
+        rules: s.rules && typeof s.rules === "object" ? s.rules : null,
       },
       room: { code: snapshot.code, name: snapshot.name, locked: snapshot.locked, maxPlayers: snapshot.maxPlayers, public: snapshot.public, classic: !!snapshot.classic },
       players, racing: !!race, canStart: canStart(),

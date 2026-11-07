@@ -600,6 +600,7 @@ export default async function mount(container, context, { replay, namesMode: sta
     // it the mixer kept the race's last ear and gains, and the paused race's engine droned on under the film.
     camera.getWorldDirection(listenerForward);
     audio.setListener(camera.position, listenerForward, camera.up);
+    nameTags.setTransparency(context.settings.nameTransparency);
     nameTags.update(camera, canvas.clientWidth, canvas.clientHeight, replayEntrants.map((e) => nameLabel(namesMode, e, truckTitle)),
       state.trucks.map((p) => p?.pos ?? null), replayEntrants.map((_, i) => i === focus && viewMode === 0 && !flyer.enabled));
     time.textContent = formatRaceTime(clock);

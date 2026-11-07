@@ -8,8 +8,9 @@
   replay screens, else the screen's Back button, else the screen before. LB and RB step through the Options tabs.
 
   Racing. While the race screen says it is being driven (`context.padDriving`), the buttons are the race's own keys, from
-  the player's bindings: Y Helicopter, X Camera, A Dashboard, B Map, Start Pause, D-pad up Drive Mode. The sticks,
-  triggers and bumpers drive (game/input/gamepad.js).
+  the player's bindings; by default Y Helicopter, X Camera, A Dashboard, B Map, Start Pause, D-pad up Drive Mode (Options,
+  Keys, Gamepad changes them: game/input/pad-bindings.js). The sticks, triggers and bumpers drive (game/input/gamepad.js).
+  While the Options screen waits for a button to bind (`context.padCapture`), the pad does nothing else.
 
   The menu sounds are the mouse's: MOUSEON as the focus comes to a button, and a button's own sound when A presses it.
 
@@ -17,6 +18,7 @@
 */
 import { mergeBindings } from "../game/input/bindings.js";
 import { choosePad } from "../game/input/gamepad.js";
+import { mergePadBindings, padKeyButtons } from "../game/input/pad-bindings.js";
 import { openPadKeyboard } from "./pad-keyboard.js";
 import { menuSoundFor, playMenuSound } from "../audio/menu-sounds.js";
 
@@ -25,10 +27,6 @@ export const PAD = Object.freeze({
   A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, BACK: 8, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15,
 });
 
-/** The race's buttons: the bound action each one presses. */
-export const DRIVE_BUTTONS = Object.freeze({
-  [PAD.Y]: "helicopter", [PAD.X]: "camera", [PAD.A]: "dashboard", [PAD.B]: "map", [PAD.START]: "pause", [PAD.UP]: "driveMode",
-});
 
 /** Screens whose own Escape key is their way back or their pause. */
 const ESCAPE_SCREENS = new Set(["race", "fly-by", "replay", "dev-drive", "dev-track"]);
@@ -220,9 +218,9 @@ export function startGamepadNav(context, win = window) {
     if (editing && (doc.activeElement !== editing.node || !editing.node.isConnected)) endEdit(false);
     const down = pad.buttons.map((b) => !!b?.pressed);
     const edge = (i) => down[i] && !prev[i];
+    if (context.padCapture) { prev = down; return; }
     if (driving()) {
-      for (const [button, action] of Object.entries(DRIVE_BUTTONS)) {
-        const i = Number(button);
+      for (const [i, action] of padKeyButtons(mergePadBindings(context.settings?.padBindings))) {
         if (down[i] === !!prev[i]) continue;
         const code = actionKey(action);
         if (!code) continue;

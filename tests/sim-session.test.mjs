@@ -7,7 +7,7 @@ import { MAX_CATCH_UP, catchUpOrigin, createSession, STEP } from "../src/worker/
 import { buildTrackRender } from "../src/worker/track-build.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { skipWithoutStock, stockVfs } from "./helpers/stock.mjs";
+import { RETAIL_TRACKS, retailTracks, skipWithoutStock, stockVfs } from "./helpers/stock.mjs";
 import { createVfs } from "../src/worker/vfs.js";
 import { parsePod, readPodEntry } from "../src/vendor/openphotex/index.js";
 import { mtm2Sim } from "../src/vendor/openphotex/index.js";
@@ -228,8 +228,8 @@ test("a CPU truck on autopilot laps every stock Circuit track (14.22, 14.23)", {
   const { buildCatalog } = await import("../src/worker/catalog.js");
   const vfs = stockVfs();
   const { tracks } = await buildCatalog(vfs);
-  const circuits = tracks.filter((t) => t.raceType === "circuit");
-  assert.equal(circuits.length, 8);
+  const circuits = retailTracks(tracks).filter((t) => t.raceType === "circuit");
+  assert.equal(circuits.length, Object.values(RETAIL_TRACKS).filter((type) => type === "circuit").length);
   for (const t of circuits) {
     const build = await buildTrackRender(vfs, t.path);
     const truck = build.truckModels[build.sim.start.file];
@@ -253,7 +253,7 @@ test("headless races finish on every stock Circuit track: 8 CPU trucks, 2 laps (
   const { buildCatalog } = await import("../src/worker/catalog.js");
   const vfs = stockVfs();
   const { tracks } = await buildCatalog(vfs);
-  for (const t of tracks.filter((x) => x.raceType === "circuit")) {
+  for (const t of retailTracks(tracks).filter((x) => x.raceType === "circuit")) {
     const build = await buildTrackRender(vfs, t.path);
     const trucks = build.sim.grid.map((g) => ({ truck: build.truckModels[g.file], start: { pos: g.pos, heading: g.heading }, autopilot: true }));
     assert.equal(trucks.length, 8, t.name);
@@ -574,4 +574,26 @@ test("a saved race comes back as it was: each truck where it was, as fast, with 
   // And it races on from there.
   second.step({});
   assert.ok(second.race.clock > saved.clock);
+});
+
+test("a shift press is kept through a tick with no step and taken by one step only", { skip: skipWithoutStock("POD.INI") }, async () => {
+  const build = await buildTrackRender(stockVfs(), "WORLD\\TPARK.SIT");
+  const truck = build.truckModels[build.sim.start.file];
+  const session = createSession({
+    heights: build.heights.buffer, clr: build.sim.clr.buffer, textureValues: build.sim.textureValues.buffer,
+    waterLevelFt: build.waterLevelFt, weather: 0, difficulty: 1, autoShift: false,
+    truck: { anchors: truck.anchors, scrapePoints: truck.scrapePoints },
+    start: { pos: build.sim.start.pos, heading: build.sim.start.heading },
+  });
+  let r;
+  for (let t = 0.25; t < 2; t += 0.25) r = session.advance(t, {});
+  const gear = session.state.controls.gear;
+  // A tick shorter than a step runs none: the press waits.
+  r = session.advance(r.time + STEP / 2, { shiftUp: true });
+  assert.equal(r.steps, 0);
+  assert.equal(session.state.controls.gear, gear);
+  // The next tick runs three steps: one shift.
+  r = session.advance(r.time + 3 * STEP, {});
+  assert.ok(r.steps >= 2);
+  assert.equal(session.state.controls.gear, gear + 1);
 });

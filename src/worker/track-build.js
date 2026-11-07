@@ -30,7 +30,7 @@ import { buildGroundBoxMesh, groundBoxSlots } from "./ground-box-mesh.js";
 import { buildTvSky, buildTvTrackRender } from "./tv-track-build.js";
 import { buildTruckRender, buildTrucks, cachedTruckRender } from "./truck-build.js";
 import { loadVehicleModels } from "./vehicle-models.js";
-import { artStem, loadAoMap, loadArtTexture, loadNormalMap, loadPlainImage, shrinkImage } from "./art-texture.js";
+import { artStem, hdTextureLimit, loadAoMap, loadArtTexture, loadNormalMap, loadPlainImage, shrinkImage } from "./art-texture.js";
 
 /** A mask's red channel alone, as RGBA (the mask is greyscale; one channel is read). */
 function greyMask(image) {
@@ -287,6 +287,7 @@ export async function loadRex(mtm, truckPalettes) {
  *   builds the terrain as the drawn ground, `groundMap` the map of its height for the water
  *   and the weather, `puddles` the map of where rain stands, `snow` the depth of settled snow
  *   on every vertex of the terrain.
+ *   `progress(text)`: called with MTM2's loading-screen message (MONSTER_EXE_ANALYSIS.md, "The loading bar") as each part begins.
  */
 /** The VFS with the archive that holds `sitPath` looked through first, for a track of another game than MTM. */
 export function trackHome(vfs, sitPath) {
@@ -294,7 +295,7 @@ export function trackHome(vfs, sitPath) {
   return home && (home.family ?? "MTM") !== "MTM" ? vfs.preferMount?.(home.name) ?? vfs : vfs;
 }
 
-export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType = "circuit", truckFiles = [], weather = 0, mtm1 = MTM1_DEFAULTS, tileOverlap, visuals = {}, smoothTiles = false, hdWeather = false, originalBackdrops = false, evoForest = true, sunShadows = false } = {}) {
+export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType = "circuit", truckFiles = [], weather = 0, mtm1 = MTM1_DEFAULTS, tileOverlap, visuals = {}, smoothTiles = false, hdWeather = false, originalBackdrops = false, evoForest = true, sunShadows = false, progress = () => {} } = {}) {
   // A Terminal Velocity, Fury3 or Hellbender level has no SIT: it is named by its LVL (worker/tv-track-build.js).
   if (/\.LVL$/i.test(sitPath)) return withMtm1Sky(vfs, await buildTvTrackRender(vfs, sitPath, { truckFiles, tileOverlap }), weather, mtm1);
   // Another game's track reads its own archive first: every CART Precision Racing track POD has art of the same names
@@ -302,6 +303,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   // own to Laguna's road and walls. MTM tracks keep the game's mount order.
   vfs = trackHome(vfs, sitPath);
   // A 4x4 Evolution track is another kind of level altogether (worker/evo-track-build.js).
+  progress("Loading world database");
   const { sitBytes, lite } = await readTrackScript(vfs, sitPath);
   if (sitBytes && isEvoSit(sitBytes)) return withMtm1Sky(vfs, await buildEvoTrackRender(vfs, sitPath, sitBytes, { detailLevel, raceType, truckFiles, weather, hdWeather, tileOverlap, forest: evoForest, sunShadows, smoothTerrain: !!visuals.smoothing, lite }), weather, mtm1);
   const level = await loadLevel(vfs, sitPath, sitBytes);
@@ -317,6 +319,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   const mtm = cpr ? vfs.scoped?.("MTM") ?? vfs : vfs;
   const truckPalettes = cpr ? createPaletteResolver(mtm, "MTM2", level.palette) : palettes;
 
+  progress("Initializing phototexture system");
   const sources = await Promise.all(level.textureNames.map((n) => loadTextureSource(vfs, n, palettes, "terrain")));
   const legacy = decodeTerrainTextures(sources);
   // CP3's HD ground art (ART\<stem>.PNG or .TGA) replaces a tile: at its own size in the stacks, scaled to
@@ -331,7 +334,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   const atlas = buildTerrainAtlas(decodedTerrain, 0, { smooth: smoothTiles });
   // A slot no cell and no ground box names is left out of the stacks (it would draw as the narrowest stack's checker).
   const inUse = slotsInUse(level.clr, cpr ? [] : groundBoxSlots(level.groundBoxes));
-  const terrainStacks = buildTileStacks(fullTerrain.map((image, slot) => (inUse.has(slot) ? image : null)), { minSide: atlas.tileSide, maxSide: HD_STACK_SIDE, budgetBytes: STACK_BUDGET, smooth: smoothTiles });
+  // A smaller Texture size shrinks the stacks' budget with the area: 128 MB at 512, 32 MB at 256.
+  const terrainStacks = buildTileStacks(fullTerrain.map((image, slot) => (inUse.has(slot) ? image : null)), { minSide: atlas.tileSide, maxSide: Math.min(HD_STACK_SIDE, hdTextureLimit()), budgetBytes: STACK_BUDGET * (hdTextureLimit() / HD_STACK_SIDE) ** 2, smooth: smoothTiles });
   // HD ground tiles may carry a normal map (`<stem>_N`, AUTHORING_HD_ART.md): a second atlas laid out as the first, flat
   // where a tile has none. Legacy 64 px tiles cannot carry one.
   const tileNormals = await Promise.all(level.textureNames.map(async (n, i) => {
@@ -389,6 +393,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   const missing = new Set();
   level.textureNames.forEach((n, i) => { if (n && !decodedTerrain[i]) missing.add(`ART\\${n}`); });
   for (const name of road?.missing ?? []) missing.add(name);
+  progress("Loading scenery");
   // Models, once each.
   const models = {};
   const decoded = new Map();
@@ -541,6 +546,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     ramps.push({ positionFt: box.positionFt, theta: box.theta, phi: box.phi, psi: box.psi, sizeFt: box.sizeFt, mass: box.mass, bounds: name ? boundsOf[name] : null });
   }
 
+  progress("Loading terrain database");
   // The ground itself, once what stands on it is known: the game's own two triangles a cell, or with
   // "Smooth terrain" the drawn ground (game/terrain-relief.js), which keeps to the game's under all of that.
   // For a race in Snow the mesh also carries the snow that will lie on it (game/snow-cover.js), whatever ground is drawn.
@@ -565,6 +571,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       if (shelter) cover = { side: GROUND_MAP_SIDE, top, shelter };
     }
   }
+  progress("Loading courses");
   // Every course a truck may be put on: the primary one, and Professional's (MONSTER_EXE_ANALYSIS.md 9).
   const courses = [sit.primaryCourse, ...(sit.extendedCourses ?? [])].map((course) => course?.segments ?? []).filter((segments) => segments.length);
   if (visuals.smoothing || visuals.snow) {
@@ -636,6 +643,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     if (ao?.value) modelTextures[`${artStem(name)}_AO`] = ao.value;
   });
 
+  progress("Loading vehicles");
   const { blimp, heli } = await loadRaceVehicles(mtm, truckPalettes);
 
   // A CPR track takes MTM2's sky and weathers.

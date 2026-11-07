@@ -220,3 +220,57 @@ test("version 11 moves shipped mode settings into extension-owned panels", async
   assert.ok(!("hockeyGoals" in moved));
   assert.ok(!("tagMinutes" in moved));
 });
+
+test("the classic presets set their game's computer trucks and cameras; MTM2 Classic names the trucks in the commentary", async () => {
+  const { DEFAULT_SETTINGS, applyMtm1Classic, applyMtm2Classic, applyOpenMtm2 } = await import("../src/app/settings.js");
+  const mtm2 = applyMtm2Classic({ ...DEFAULT_SETTINGS });
+  assert.equal(mtm2.aiBehaviour, "mtm2");
+  assert.equal(mtm2.cameraSystem, "mtm2");
+  assert.equal(mtm2.commentaryTruckNames, true);
+  const mtm1 = applyMtm1Classic({ ...DEFAULT_SETTINGS });
+  assert.equal(mtm1.aiBehaviour, "mtm1");
+  assert.equal(mtm1.cameraSystem, "mtm1");
+  assert.equal(DEFAULT_SETTINGS.commentaryTruckNames, false);
+  assert.equal(applyOpenMtm2({ ...mtm2 }).commentaryTruckNames, false);
+});
+
+test("Computer trucks drive as Same as physics: MTM1, MTM2, EVO for either Evolution, MTM2 under CART, OMTM2 otherwise", async () => {
+  const { DEFAULT_SETTINGS, resolveAiBehaviour } = await import("../src/app/settings.js");
+  assert.equal(DEFAULT_SETTINGS.aiBehaviour, "omtm2");
+  const want = { mtm1: "mtm1", mtm2: "mtm2", evo1: "evo", evo2: "evo", cpr: "mtm2", nonsense: "omtm2" };
+  for (const [physics, ai] of Object.entries(want)) assert.equal(resolveAiBehaviour("physics", physics), ai, physics);
+  assert.equal(resolveAiBehaviour("mtm1", "evo2"), "mtm1");
+  assert.equal(resolveAiBehaviour(undefined, "mtm1"), "omtm2");
+});
+
+test("the map is half see-through by default and with the OpenMTM2 preset, solid with the classic ones; the classics use the caption bar", async () => {
+  const { DEFAULT_SETTINGS, applyMtm1Classic, applyMtm2Classic, applyOpenMtm2 } = await import("../src/app/settings.js");
+  assert.equal(DEFAULT_SETTINGS.mapTransparency, 0.5);
+  assert.equal(DEFAULT_SETTINGS.systemFont, false);
+  assert.equal(DEFAULT_SETTINGS.captionBar, false);
+  assert.equal(DEFAULT_SETTINGS.soloChat, true);
+  const mtm2 = applyMtm2Classic({ ...DEFAULT_SETTINGS });
+  assert.equal(mtm2.mapTransparency, 0);
+  assert.equal(mtm2.captionBar, true);
+  assert.equal(applyMtm1Classic({ ...DEFAULT_SETTINGS }).mapTransparency, 0);
+  const omtm2 = applyOpenMtm2({ ...mtm2 });
+  assert.equal(omtm2.mapTransparency, 0.5);
+  assert.equal(omtm2.captionBar, false);
+  assert.equal(omtm2.soloChat, true);
+});
+
+test("the OpenMTM2 map and names at 50% are the default and the OpenMTM2 preset's; the classic presets keep MTM2's map and solid names", async () => {
+  const { DEFAULT_SETTINGS, applyMtm1Classic, applyMtm2Classic, applyOpenMtm2 } = await import("../src/app/settings.js");
+  assert.equal(DEFAULT_SETTINGS.mapStyle, "openmtm2");
+  assert.equal(DEFAULT_SETTINGS.nameTransparency, 0.5);
+  assert.equal(DEFAULT_SETTINGS.openMapMode, 1, "the OpenMTM2 map starts shown, with no names");
+  assert.equal(DEFAULT_SETTINGS.openMapZoom, 2);
+  for (const apply of [applyMtm1Classic, applyMtm2Classic]) {
+    const s = apply({ mapStyle: "openmtm2", nameTransparency: 0.5 });
+    assert.equal(s.mapStyle, "classic", apply.name);
+    assert.equal(s.nameTransparency, 0, apply.name);
+  }
+  const s = applyOpenMtm2({ mapStyle: "classic", nameTransparency: 0 });
+  assert.equal(s.mapStyle, "openmtm2");
+  assert.equal(s.nameTransparency, 0.5);
+});

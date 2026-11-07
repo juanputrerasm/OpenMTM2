@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { choosePad, createGamepadInput, motorLevel, padPedalAxis } from "../src/game/input/gamepad.js";
-import { DRIVE_BUTTONS, PAD, pickInDirection } from "../src/ui/gamepad-nav.js";
+import { PAD, pickInDirection } from "../src/ui/gamepad-nav.js";
+import { bindPadButton, mergePadBindings, padConflictFor, padKeyButtons, newPress } from "../src/game/input/pad-bindings.js";
 import { applyJoystick } from "../src/vendor/openphotex/sim/mtm2/truck/controls.js";
 
 const pad = ({ mapping = "standard", stickY = 0, rt = 0, lt = 0 } = {}) => {
@@ -72,12 +73,30 @@ test("gamepad menus: the nearest control that way, across counting double", () =
   assert.equal(pickInDirection(from, rects, "up"), -1);
 });
 
-test("gamepad race buttons: Y helicopter, X camera, A dashboard, B map, Start pause", () => {
-  assert.equal(DRIVE_BUTTONS[PAD.Y], "helicopter");
-  assert.equal(DRIVE_BUTTONS[PAD.X], "camera");
-  assert.equal(DRIVE_BUTTONS[PAD.A], "dashboard");
-  assert.equal(DRIVE_BUTTONS[PAD.B], "map");
-  assert.equal(DRIVE_BUTTONS[PAD.START], "pause");
+test("gamepad race buttons: Y helicopter, X camera, A dashboard, B map, Start pause by default", () => {
+  const keys = padKeyButtons(mergePadBindings(null));
+  assert.equal(keys.get(PAD.Y), "helicopter");
+  assert.equal(keys.get(PAD.X), "camera");
+  assert.equal(keys.get(PAD.A), "dashboard");
+  assert.equal(keys.get(PAD.B), "map");
+  assert.equal(keys.get(PAD.START), "pause");
+  // The shifts, the Emergency Brake and the zoom are read by the driving input, not pressed as keys.
+  assert.equal(keys.get(PAD.RB), undefined);
+});
+
+test("gamepad bindings: a button given to an action leaves the action that had it", () => {
+  const saved = bindPadButton(null, "handbrake", PAD.B);
+  const b = mergePadBindings(saved);
+  assert.deepEqual(b.handbrake, [PAD.B]);
+  assert.deepEqual(b.map, []);
+  assert.equal(padConflictFor(b, PAD.B, "map"), "handbrake");
+  assert.equal(padKeyButtons(b).get(PAD.B), undefined);
+  // The shift goes on the bound button.
+  const pads = [{ connected: true, mapping: "standard", axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: i === PAD.A, value: i === PAD.A ? 1 : 0 })) }];
+  const input = createGamepadInput({ getGamepads: () => pads }, () => "triggers", () => bindPadButton(null, "shiftUp", PAD.A));
+  assert.equal(input.sample().shiftUp, true);
+  assert.equal(newPress([false, false], [false, true]), 1);
+  assert.equal(newPress([true], [true]), -1);
 });
 
 test("gamepad rumble: a level starts where the motor turns, and a steady one is not sent again every frame", () => {

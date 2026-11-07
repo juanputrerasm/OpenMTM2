@@ -33,6 +33,7 @@ import { FONT_SHEETS, parseBitmapFont } from "./bitmap-font.js";
 import { readUserData, removeUserData, writeUserData } from "./user-data.js";
 import { crcStart, crcUpdate } from "../net/vendor/mtmnet/track-crc.js";
 import { replyError, sendWorkerFaults } from "../shared/worker-faults.js";
+import { setHdTextureLimit } from "./art-texture.js";
 
 /** RGBA pixels as PNG bytes, through an OffscreenCanvas; null where the worker has none. */
 async function encodePng({ width, height, rgba }) {
@@ -213,13 +214,17 @@ const handlers = {
 
   /** Everything needed to draw a track; `{ path }` is its SIT, e.g. "WORLD\\TPARK.SIT". */
   /** `scope` is the track's lookup family (the catalogue's `scope`), for a track of another game than MTM. */
-  async trackRender({ path, scope, detailLevel, raceType, truckFiles, weather, mtm1, tileOverlap, visuals, smoothTiles, hdWeather, originalBackdrops, evoForest, sunShadows }) {
-    const build = await buildTrackRender(scoped(await mounted(), scope), path, { detailLevel, raceType, truckFiles, weather, mtm1, tileOverlap, visuals, smoothTiles, hdWeather, originalBackdrops, evoForest, sunShadows });
+  async trackRender({ path, scope, detailLevel, raceType, truckFiles, weather, mtm1, tileOverlap, visuals, smoothTiles, hdWeather, originalBackdrops, evoForest, sunShadows, textureSide }) {
+    setHdTextureLimit(textureSide);
+    const build = await buildTrackRender(scoped(await mounted(), scope), path, { detailLevel, raceType, truckFiles, weather, mtm1, tileOverlap, visuals, smoothTiles, hdWeather, originalBackdrops, evoForest, sunShadows,
+      // Each part as it begins, for the loading screen's bar (ui/loading-board.js).
+      progress: (text) => self.postMessage({ event: "load-progress", payload: { text } }) });
     return withTransfer(build, transferablesOf(build));
   },
 
   /** A truck's models and the mini garage for the Driver Check-in preview; `{ file }` is its TRK. */
-  async truckPreview({ file, winner = false }) {
+  async truckPreview({ file, winner = false, textureSide }) {
+    setHdTextureLimit(textureSide);
     const build = await buildTruckPreview(await mounted(), file, { winner });
     return withTransfer(build, transferablesOf(build));
   },

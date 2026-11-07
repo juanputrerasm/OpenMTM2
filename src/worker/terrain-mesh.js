@@ -412,5 +412,73 @@ export function buildFineTerrainMesh({ fineFt, sub = 4, clr, atlas, tileInset = 
       }
     }
   }
-  return { positions, normals, uvs, shade, indices, hasLte: false, indicesPerCell: sub * sub * 6 };
+  return {
+    positions, normals, uvs, shade, indices, hasLte: false, indicesPerCell: sub * sub * 6,
+    // The levels drawn further off (render/track-scene.js): a sub-cell of 2 x 2 in the middle distance, the cell far off.
+    levels: sub % 2 === 0 ? { mid: fineTerrainLevel({ sub, step: sub / 2 }), coarse: fineTerrainLevel({ sub, step: sub }) } : null,
+  };
+}
+
+/** A chunk's side in cells, as render/track-scene.js draws the terrain. */
+const CHUNK_CELLS = 64;
+
+/**
+ * A level of detail of `buildFineTerrainMesh`'s ground, in that mesh's own vertices, by chunks of `chunkCells` cells a
+ * side, in the order render/track-scene.js draws them (rows of chunks along z, then along x). Inside a chunk a cell is
+ * cut in `sub / step` parts a side (`step` = `sub`: the cell's two triangles). The cells along the chunk's border keep
+ * every point of the border, as the fine level has it, and are fanned from their centre point to it and to their inner
+ * sides, which are cut as the inside is. Chunks at any two levels therefore meet point for point, without a crack.
+ * `step` divides `sub`, which is even (a cell has a centre point).
+ */
+export function fineTerrainLevel({ sub, step, chunkCells = CHUNK_CELLS, grid = GRID }) {
+  const n = sub + 1, perCell = n * n, parts = sub / step, centre = (sub / 2) * n + sub / 2;
+  const chunksPerSide = grid / chunkCells;
+  const border = 4 * (chunkCells - 1);
+  // A border cell has at most two sides of `sub` points and two of `parts`, each giving a triangle per point.
+  const perChunk = ((chunkCells * chunkCells - border) * parts * parts * 2 + border * (2 * sub + 2 * parts)) * 3;
+  const indices = new Uint32Array(chunksPerSide * chunksPerSide * perChunk);
+  const chunks = [];
+  const loop = [];
+  let ii = 0;
+  for (let chunkRow = 0; chunkRow < chunksPerSide; chunkRow++) {
+    for (let chunkCol = 0; chunkCol < chunksPerSide; chunkCol++) {
+      const start = ii;
+      for (let row = chunkRow * chunkCells; row < (chunkRow + 1) * chunkCells; row++) {
+        for (let col = chunkCol * chunkCells; col < (chunkCol + 1) * chunkCells; col++) {
+          const base = (row * grid + col) * perCell;
+          const at = (j, i) => base + j * n + i;
+          const r = row - chunkRow * chunkCells, c = col - chunkCol * chunkCells;
+          const bottom = r === 0, top = r === chunkCells - 1, left = c === 0, right = c === chunkCells - 1;
+          if (!(bottom || top || left || right)) {
+            // Inside the chunk: a lattice of `parts` x `parts`, each split by its parity as the fine level splits it.
+            for (let j = 0; j < sub; j += step) {
+              for (let i = 0; i < sub; i += step) {
+                const v00 = at(j, i), v01 = at(j, i + step), v10 = at(j + step, i), v11 = at(j + step, i + step);
+                if (((((row * sub + j) / step) ^ ((col * sub + i) / step)) & 1) === 0) {
+                  indices[ii++] = v00; indices[ii++] = v01; indices[ii++] = v11;
+                  indices[ii++] = v00; indices[ii++] = v11; indices[ii++] = v10;
+                } else {
+                  indices[ii++] = v00; indices[ii++] = v01; indices[ii++] = v10;
+                  indices[ii++] = v01; indices[ii++] = v11; indices[ii++] = v10;
+                }
+              }
+            }
+            continue;
+          }
+          // On the border: round the cell the way the fine level's triangles turn, every point on a side along the
+          // chunk's edge and every `step` on the others, and a fan from the centre.
+          loop.length = 0;
+          for (let i = 0; i < sub; i += bottom ? 1 : step) loop.push(at(0, i));
+          for (let j = 0; j < sub; j += right ? 1 : step) loop.push(at(j, sub));
+          for (let i = sub; i > 0; i -= top ? 1 : step) loop.push(at(sub, i));
+          for (let j = sub; j > 0; j -= left ? 1 : step) loop.push(at(j, 0));
+          for (let k = 0; k < loop.length; k++) {
+            indices[ii++] = base + centre; indices[ii++] = loop[k]; indices[ii++] = loop[(k + 1) % loop.length];
+          }
+        }
+      }
+      chunks.push({ row: chunkRow, col: chunkCol, start, count: ii - start });
+    }
+  }
+  return { indices: indices.slice(0, ii), chunks };
 }

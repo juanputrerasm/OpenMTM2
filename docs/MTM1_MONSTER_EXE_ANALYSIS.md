@@ -1025,3 +1025,204 @@ A SIT box's second sound name (a grandstand's `CROWD.WAV`, say) is registered as
 at the box's place when the level loads (`0x436590` calls `0x40aa60` with volume 0x3f times the
 INI's sound volume, and no repeat interval, which makes it a loop), as MTM2 does. The first name is
 the hit sound (`SCREAMX.WAV` for Crazy Eight's stands).
+
+---
+
+## 10. Cameras
+
+Read from the 1.00 code and compared with MTM2's (`MONSTER_EXE_ANALYSIS.md` 11). MTM1 keeps the
+camera in globals, not in an object: the view mode `0x547f84`, the chase distance `0x547f74`, pitch
+`0x547f78`, heading offset `0x547f80` and the zoom `0x547f68`, all in the same units as MTM2's
+(distance in 1/256 ft, angles 65536 to the turn, zoom 16.16). The watched truck is
+`0x833ae0[0x540710]` (pointer `0x93d8bc`). The placed camera is `0x7ea52c`/`0x7ea530`/`0x7ea534`
+(x, y, z in 1/256 ft) and `0x7ea520` roll, `0x7ea524` heading, `0x7ea528` pitch.
+
+### 10.1 The views
+
+| Mode | Caption (`0x412750`) | Menu (Ctrl key) | Placed by |
+|---|---|---|---|
+| 0 | `Cockpit of %s` | Cockpit (Ctrl-1) | the eye (`0x437dc0`) |
+| 1 | `Chase (near) of %s` | Chase (near) (Ctrl-2) | `0x412a30` |
+| 2 | `Chase (far) of %s` | Chase (far) (Ctrl-3) | `0x412a30` |
+| 3 | `Goodyear Blimp of %s` | Goodyear Blimp (Ctrl-8) | `0x412a30` |
+| 4 | `Racecam of %s` | Automatic Race Camera (Ctrl-4) | `0x413010` |
+| 5 | `Spectator Stands - starting line view` | Spectator stands - starting line (Ctrl-5) | `0x413580` |
+| 6 | `Spectator Stands - finish line view` | Spectator stands - finish line (Ctrl-6) | `0x413580` |
+| 7 | `Finish Line - on track view` | Finish line - on track (Ctrl-7) | `0x413580` |
+
+The frame routine is `0x413a40`; a bad mode stops with "Bad view mode!".
+
+**The cycle.** Next View (`0x414770`) adds one and wraps to 0 at **5, or at 8 in a drag race**
+(race type `0x839ef4` = 1); with Shift (`0x4147b0`) it steps back, from 0 to 4 (7 in a drag race). So
+outside drag racing the cycle is Cockpit, Chase near, Chase far, Blimp, Racecam, and the three
+spectator views exist only on a drag strip. Their menu items are enabled only while the race phase
+`0x5482dc` is 1 to 3 (`0x49f1d0`). MTM2 has ten modes (0 to 9) and none of the spectator views;
+MTM2's 5 to 9 (Chase Front, Left, Right, Big Rear, Big Front) are not in MTM1.
+
+**Choosing a view** (`0x412e40`, also every menu command) sets:
+
+| Mode | distance | pitch | heading offset | zoom |
+|---|---|---|---|---|
+| 0 Cockpit | - | - | - | 0x10000 (0xc000 with the full cockpit) |
+| 1 Chase near | 0x2aaa (42.7 ft) | 0x800 (11.25 deg) | 0 | **0x6000** |
+| 2 Chase far | 0x4000 (64 ft) | 0x1000 (22.5 deg) | 0 | 0x10000 |
+| 3 Goodyear Blimp | 0x4000 (64 ft) | 0x3fff (90 deg) | 0 | 0x10000 |
+| 4 to 7 | not set | not set | not set | set each frame (below) |
+
+The zoom is `0xc000 + (boomZoom == 0x10000 ? 0x4000 : 0)`, times `0x6000 / 0x10000` in Chase near.
+`boomZoom` (`0x5480e8`, MONSTER.INI `boomZoom`) is set to 0xf000 when the view is the full cockpit
+(`0x547fec`) and 0x10000 otherwise, so in practice the zoom is 0x10000 in every view but Chase near
+(0x6000) and the full cockpit (0xc000). Against MTM2's table:
+
+- **Chase near** is twice as far (0x2aaa against 0x1555) with half the zoom (0x6000 against
+  0xc000): about the same size of truck on screen, through a much narrower lens (with the MTM2 lens
+  of `MONSTER_EXE_ANALYSIS.md` 11, about 41 degrees across a 4:3 screen against 73.7).
+- **Chase far** is 64 ft (MTM2 42.7) and pitched twice as steeply (0x1000 against 0x800).
+- **The cockpit with the full dashboard** narrows the zoom to 0xc000; MTM2 keeps 0x10000 and only
+  shortens the window.
+
+**Following.** The chase views (1 to 3, `0x412a30`) take the truck's position (`+0xfe0`, times 256)
+and its yaw (`+0x1024`, times 65536 / 2 pi) **as they are, every frame**: the camera heading is the
+truck's yaw plus the offset, with **no lag** (MTM2 eases it at 4 per second of the difference). The
+roll is 0 and the truck's own pitch and roll are ignored, as in MTM2. A pitch below 0 is first lifted
+to 0. The camera is the truck's point minus `sin(h) cos(p) d` in x, plus `sin(p) d` in y, minus
+`cos(h) cos(p) d` in z, `h` the heading, `p` the pitch.
+
+**Ground.** Chase near and far step the distance out in **8 steps of d/8**; at the first step where
+the ground height under the camera (`0x4aa6f0`) is above the camera, it goes back one step and stops
+(at the truck itself when the first step is already under ground). **The pitch is never raised**:
+MTM2 raises the pitch in 0x200 steps and then searches 32 distance steps.
+
+**Goodyear Blimp (3)** is not MTM2's BlimpCam. It is the chase placement with the pivot moved
+**32 ft ahead** of the truck along its yaw (`sin(h) / 8` and `cos(h) / 8` of a unit, 8192 / 256 ft),
+distance 64 ft and pitch 0x3fff: the camera hangs **64 ft straight above a point 32 ft ahead of the
+truck, looking down**, and turns with the truck at once. There is no ground test and no blimp object
+(MTM1 has no `GOODY.BIN`, no flight route, no zoom rule).
+
+**The View keys** in modes 1 to 7 (and in slew mode), `0x42fb40`: View Left adds `dt / 4` to the
+heading offset and View Right takes it away (wrapping at 0x10000); View Forward adds `dt / 4` to the
+pitch (held at 0x3fff), View Back takes it away (held at -0x3fff): MTM2's rule and rate (0x4000 a
+second). The default scan codes come from MONSTER.INI as in MTM2 (`keyViewLeft`...; the key table
+at `0x548330`, the order of `0x5483a0`).
+
+**The zoom keys.** In Z mode (`0x547f8c`) or slew mode (`0x547ff4`) the `-` key (scan 0x0c)
+lowers the zoom by 0x1000 (at least 0x1000) and `=` (0x0d) raises it (at most 0x20000), as in MTM2.
+Outside those modes the same keys step `boomZoom` between 0xf000 and 0x10000 and redo the 3D window
+(`0x4171f0`); `-` also sets the zoom to 0xc000 (0x10000 if `boomZoom` stayed 0x10000).
+
+### 10.2 Racecam (mode 4, `0x413010`)
+
+Outside a drag race:
+
+- If the watched truck's course has fewer than 2 segments the view falls back to the cockpit
+  (mode 0).
+- From the truck's segment (`+0x898`, course `+0xfb4`) it looks forward, wrapping after the last,
+  for the next **straight** (type 1). The camera stands at that straight's **start**; when the
+  straight is longer than **320 ft** and the truck is nearer its middle than its start, at the
+  **middle**, at the ground height there plus 12 ft. In both cases **14 ft** is then added to the
+  height. (MTM2: a quarter of the way along, at least 14 ft over the highest of ten samples, and no
+  farther than the view range.)
+- It looks at the truck: heading `atan2(dx, dz) + 0x8000`, pitch held to **+-0x1fff** (45 degrees;
+  MTM2 0x37ff).
+- Zoom, unless Z mode is on: `65536 / (h x 0.0625)` held to 0x1000..0x8000, `h` the horizontal
+  distance to the truck: MTM2's rule.
+
+In a drag race the Racecam is a director: with `t` the time since the green (0 before it, race clock
+`0x83a838` minus `raceStartTime` `0x83a5f0`), it shows view 5 while `t < 2` s, view 6 while
+`t < 4` s and view 7 after.
+
+### 10.3 The drag strip views (5 to 7, `0x413580`)
+
+Fixed points from the gate table (`0x82f230`, 0x294 bytes a checkpoint, 5.1). With `g` a gate
+(position `+0x4c`, `+0x50`, `+0x54`, and the three values at `+0x64`, `+0x68`, `+0x6c`) and the
+SIT's stadium flag `0x54828c` (the `*** Stadium ***` block, `stadiumFlag`):
+
+| View | Gate | Point without a stadium | Point with a stadium |
+|---|---|---|---|
+| 5 starting line stands | 3 (the start beam, `0x82f7a4`) | `(x - g[+0x68], y, z - g[+0x64])` | `(x - 2/3 g[+0x68], y + g[+0x6c], z - 2/3 g[+0x64])` |
+| 6 finish line stands | 4 (the finish, `0x82fa38`) | the same rule | the same rule |
+| 7 finish line on track | 4 | `(x, y, z)` | `(x, y + g[+0x6c], z)` |
+
+The camera looks at the watched truck (pitch +-0x1fff, the Racecam zoom rule). Every 2 s (0x20000
+of frame time, accumulated in `0x540714`) the watched truck becomes the leader (the truck with place
+`+0x8f8` below 2), unless `0x548048` is set.
+
+### 10.4 The cockpit
+
+- **The eye** (`0x437dc0`) is the body point **(-1.667, 4, 1) ft** (x = -5/3), in the truck's
+  frame with its three angles: 1.67 ft **left** of the centre line, where MTM2's `0x553cf0` uses
+  (0, 4, 1).
+- **Looking round** (`0x4026c0`, every frame) is **gradual**, not MTM2's snap: View Right moves the
+  head's turn `0x548014` toward +0x4000 at 0x8000 a second, View Left toward -0x4000; View Forward
+  moves `0x54800c` (added to the pitch slot `0x7ea528`) toward +0x4000 and View Back toward -0x4000.
+  Each frame the turn also returns toward 0 at 0x4000 a second, so a held key turns at a net 0x4000
+  a second (90 degrees) and a released one comes back at the same rate. The turn is **at most 90
+  degrees either way**: there is no 180 degree look back. The joystick hat (`0x7ea7e4` values 3, 7,
+  11, 15) does the same.
+- The full cockpit's panel and gauges are drawn only while the head is straight (`0x548014` = 0).
+
+### 10.5 Other camera rules
+
+- **Race start** (`0x418e80`, when `0x5480e0` is clear) sets Cockpit (mode 0) and the zoom 0x10000; a drag
+  pass (`0x425680` and its two neighbours) starts in the cockpit or the Racecam, depending on its
+  pairing record. The SIT can also carry a view: the loader (`0x436d90`) reads `viewmode, spotd,
+  spotp, spoth` into the mode, distance, pitch and heading offset (the writer `0x437750` prints the
+  label `viewmode,spotd,spotp,spoth,zoom`).
+- **When the watched truck has finished** (`0x418250`), after a short message timer, the camera
+  goes to the Racecam of the best placed truck still racing.
+- **Helicopter** (`0x435160`): while the player's `heliTimer` (`+0x1078`) is above 0 the view is
+  forced to Chase far with heading offset 0x4000 (from the side) and the previous mode is kept in
+  `0x57aa58`; it comes back when the flight ends. MTM2 does the same in its flyer routine (`0x54f570`,
+  on `[0x6504bc]+0x18`) but leaves the offset alone when the view already was Chase far.
+- **Next truck** (K, `0x412840`): K alone steps to the truck before, Shift+K to the next. The
+  forward wrap tests `index > count`, so Shift+K reaches the index equal to the count once before
+  wrapping to 0 (a slip in the 1.00 code; MTM2's was not compared).
+
+---
+
+## 11. CPU trucks: the autopilot against MTM2's
+
+Every autopilot routine was paired with MTM2's (`match.py`, `fdiff.py`) and read where the scores
+were below 1. The figures of 4.2 hold for the whole driver.
+
+### 11.1 Identical
+
+| Part | MTM1 | MTM2 | Notes |
+|---|---|---|---|
+| Speed controller | `0x459b80` (its non-drag part) | `0x4805d0` | the same predicted acceleration (0.8 brake + 0.02 drag, 0.05 prediction gain `+0x8a4`), target at least 17 ft/s outside drag racing, the segment's `cSpeedLimit` when 10 or more, gain `+0x8a0` 1.2, throttle and brake split, autopilot levels 1 to 3 for the player |
+| Course follower, steering | `0x45b5d0` | `0x481ea0` | the same constants: 0.02 (asin of the cross-track error beyond 50 ft), 0.125 and 0.5 correction clamps, gain 22, the 32 ft and 1.5 cross-track factor, the air integrator above 14.67 ft/s, `D / 30` below 30 ft, `sqrt(20 / v)`, the **+-0.45** clamp, the 6.66 rate, **rear -0.33**, x1.25 in a drag race |
+| Look-ahead and segment line | `0x45b270`, `0x45c410` | `0x481a70`, `0x483070` | `2 ivel dt`, the 100 ft tangent |
+| Traffic | `0x45c880` | `0x483600` | the same windows (16), angles, 100 and 200 ft, 0.25, 1.25, 0.866 |
+| Time to segment end | `0x45a760` | `0x480ba0` | |
+| Segment advance and rubber band | `0x45ab3c` + `0x45a6b0` | `0x48106c` | MTM2 inlines MTM1's `0x45a6b0`; the "two more constants, 5 and 0.1" of 4.3 are that function's: the bonus `trunc(frac(bvel.z) x 5 / place) x 0.1` for a CPU truck in first or second on a straight, not on Professional, while the player is not first; the gains 0.5, 0.75, 1.0 minus it. **No difference.** |
+| Off-course re-pick | `0x45ed2c` | `0x48663c` | 160 ft or 1.1 along; the nearest arc centre on course 1, or course 2 on Professional when it has segments; for the player, the wrong-way flag |
+| Course at the start | `0x436d90` (end) | `0x551f90` | course 2 on Professional when it has segments, else 1, for every truck (in a network game the host's difficulty `0x8138b0`) |
+| Stuck timer | `0x44a1b0` (inside) | `0x46c0e0` | an autopilot truck slower than 15 ft/s counts `heliTimer` down after the green, not in a drag race until it is past the start; at -5 s the drop-off (`0x44cc90` / `0x470190`); the player's timer runs only while the hull rests with no wheel down, then `0x44ca30` / `0x46fd30` |
+| Helicopter flight | `0x44c200` | `0x46ed90` | the same 15, 11.5, 10 s, 40, 800, 4, 5, pi/4 (truck fields `+0x1154..+0x1160` for MTM2's `+0x1794..+0x17a0`) |
+| Sonic (`0x54830c`) | `0x44d1e0`, `0x45b5d0`, the longitudinal tire routine | `0x470810`, `0x481ea0`, `0x47dce0` | on Professional: `K` 1.75 to 2.0 (CPU trucks only, `+0x113c` = 0), `k` 0.45 to 1.0, CPU engine torque x1.1; on any difficulty `k2` 0.725 to 0.75 (`0x547898`). The human autoShift x0.9 (`+0xfb0`, `0x523990`) is the same too |
+
+The difficulty acts the same way: the transfer ratio (Rookie x1.25, Professional x0.75), the gains
+0.5, 0.75, 1.0 at `+0x8b8`/`+0x8c0`, course 2 on Professional, and Sonic on Professional.
+
+### 11.2 Differences
+
+1. **A missed checkpoint on Professional.** MTM1's checkpoint routine (`0x45e610`), on a miss by a
+   CPU truck (not human, not the player), **always** sets `heliTimer` to -6 s and calls the drop-off
+   (`0x44cc90`): the helicopter, on every difficulty. MTM2 (`0x485afc`) does that only below
+   Professional; on Professional it puts the truck on the missed checkpoint, 10 ft up and 20 ft back
+   (`MTM2_PHYSICS.md` 14.24). To implement: `if (miss && cpu) { heliTimer = -6; dropOff(); }`, with
+   no difficulty test.
+2. **The miss is announced for CPU trucks too.** MTM1 plays message 0x78 from the missing CPU truck
+   (`0x440dd0(truck, 0, 0, 0x78)`); MTM2 only reacts for the player.
+3. **The Helicopter key** (`0x42fb40`): not in a drag race and when `0x548048` is clear, it sets the
+   player's `heliTimer` to -15 every press; there is no second press to cancel and **no
+   pterodactyl** (MTM2 counts the presses and every third call brings `TERYL.BIN`). With Ctrl held and
+   the timer above 10 s it clears the helicopter's angles (`+0x1084..+0x1090`). This is the player's
+   truck only.
+4. **Calls outside the simulation**: the drop-off (`0x44cc90`) and the helicopter flight (`0x44c200`)
+   call routines in the sound range (`0x43d7c0`, `0x43d8a0`, `0x43f870`) that MTM2 makes elsewhere; no
+   rule depends on them.
+
+Nothing else in the driver differs: no extra rubber banding, no catch-up, no other difficulty
+effect. A CPU truck in MTM1 drives MTM2's line at MTM2's speeds; what changes is the track it
+drives on (MTM1's SIT courses), the water (4.3) and the Professional recovery above.

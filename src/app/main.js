@@ -20,6 +20,7 @@ import { startInstallTip } from "../ui/display-mode.js";
 import { missingRequiredPods } from "../install/required-pods.js";
 import { startErrorReporting } from "../ui/error-dialog.js";
 import { reportError } from "../shared/error-report.js";
+import { useSystemFont } from "../render/bitmap-text.js";
 
 const screens = {
   install: () => import("../ui/screens/install.js"),
@@ -61,6 +62,8 @@ async function boot() {
   const context = { settings: loadSettings(), t: createStrings() };
   // The scenery preset writes its switches for this machine before any screen reads them.
   applyGraphics(context.settings, graphicsHardware());
+  // The in-game text's font (Options, Advanced, OMTM2: OpenMTM2 font in-game), before any is loaded.
+  useSystemFont(!!context.settings.systemFont);
   const router = new Router(container, context, screens);
   context.router = router;
   // From here on no error is left to the console alone: it is shown with what the game knew (ui/error-dialog.js).
@@ -83,7 +86,10 @@ async function boot() {
   const callAssets = context.assets.call.bind(context.assets);
   const withOptions = (type, payload) => {
     if (type === "catalog") return { mtm1Apart: context.settings.mtm1TrucksApart !== false, ...(payload ?? {}) };
-    if (type === "trackRender") return { hdWeather: context.settings.hdWeather !== false, originalBackdrops: !!context.settings.originalBackdrops, ...(payload ?? {}) };
+    // Options, Graphics: Texture size, the largest side HD art keeps (worker/art-texture.js `setHdTextureLimit`).
+    const textureSide = Number(context.settings.textureSize) || 1024;
+    if (type === "trackRender") return { hdWeather: context.settings.hdWeather !== false, originalBackdrops: !!context.settings.originalBackdrops, textureSide, ...(payload ?? {}) };
+    if (type === "truckPreview") return { textureSide, ...(payload ?? {}) };
     if (type === "sky") return { hdWeather: context.settings.hdWeather !== false, ...(payload ?? {}) };
     return payload;
   };

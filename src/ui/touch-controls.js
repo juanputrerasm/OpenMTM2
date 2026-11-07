@@ -100,6 +100,8 @@ export function createTouchControls(context, { actionKey, autoShift = true, driv
     });
     for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) node.addEventListener(type, (e) => { if (e.pointerId === id) up(); });
     node.addEventListener("contextmenu", noMenu);
+    // iOS starts a text selection or its callout from a long press however the pointer events are handled.
+    node.addEventListener("touchstart", (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
     return { node, release: up };
   };
 
@@ -135,6 +137,8 @@ export function createTouchControls(context, { actionKey, autoShift = true, driv
       brakeButton.node, gasButton.node),
     el("div", { class: "touch-actions" }, ...actionButtons.map((b) => b.node)));
   element.addEventListener("contextmenu", noMenu);
+  element.addEventListener("selectstart", noMenu);
+  stickZone.addEventListener("touchstart", (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
 
   const releaseAll = () => {
     stickRelease();

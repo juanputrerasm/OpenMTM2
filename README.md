@@ -323,8 +323,9 @@ Serve the repository as described under [Run locally](#run-locally), then run th
 node --test tests/
 ```
 
-Tests require Node.js 22.18 or newer. Tests that use original game files look in `~/games/mtm2` or
-`$OPENMTM2_GAMES/mtm2` and skip when the installation is absent.
+Tests require Node.js 22.18 or newer. Tests that use original game files are opt-in: run
+`OPENMTM2_STOCK=1 node --test tests/` to include them. They look in `~/games` or `$OPENMTM2_GAMES` and skip when
+the files are absent.
 
 Before contributing, read [AGENTS.md](AGENTS.md). In particular: do not add game data or decompiled
 code; implement Terminal Reality formats and simulation changes in OpenPhotex; and cover behaviour

@@ -48,6 +48,20 @@ export function resolvePhysics(id, vehicle, trackGame = null) {
   return byGame(/^([A-Z0-9]+):/i.exec(String(vehicle ?? ""))?.[1]?.toUpperCase());
 }
 
+/** "Computer trucks drive as" choices; "physics" picks by the race's physics model (`resolveAiBehaviour`). */
+export const AI_BEHAVIOURS = Object.freeze(["omtm2", "physics", "mtm2", "mtm1", "evo"]);
+/** Each behaviour as Options names it. */
+export const AI_BEHAVIOUR_NAMES = Object.freeze({ omtm2: msg("OMTM2"), physics: msg("Same as physics"), mtm2: msg("MTM2"), mtm1: msg("MTM1"), evo: msg("EVO") });
+const AI_BY_PHYSICS = Object.freeze({ mtm1: "mtm1", mtm2: "mtm2", evo1: "evo", evo2: "evo", cpr: "mtm2" });
+/**
+ * How a race's computer trucks drive: the setting, or with "Same as physics" the one of the race's physics model
+ * (`resolvePhysics`'s): MTM1 for MTM1, EVO for either 4x4 Evolution, MTM2 for MTM2 and CART; OMTM2 for anything else.
+ */
+export function resolveAiBehaviour(setting, physics) {
+  if (setting === "physics") return AI_BY_PHYSICS[physics] ?? "omtm2";
+  return AI_BEHAVIOURS.includes(setting) ? setting : "omtm2";
+}
+
 /**
  * The `tileOverlap` a track build takes: false with Terrain overlap off; null (each track as its own game drew it, so an
  * MTM1 track edge to edge) with "No overlap on MTM1 tracks" on; true otherwise.
@@ -102,6 +116,22 @@ export const DEFAULT_SETTINGS = Object.freeze({
   padPedals: "triggers",      // a gamepad's throttle and brake: "triggers", "stick" (the left stick's y) or "both" (game/input/gamepad.js)
   touchControls: "auto",      // the race's touch overlay: "auto" (touch-only devices), "on" or "off" (game/input/touch.js)
   bindings: Object.freeze({}), // key code overrides by action, see game/input/bindings.js
+  aiBehaviour: "omtm2",       // how the computer trucks drive: "omtm2" (the port's), "physics" (by the race's physics), "mtm2", "mtm1" or "evo" (Advanced, Computer trucks)
+  checkpointHeli: false,      // the Helicopter key sets the truck down 32 ft behind the last checkpoint passed, as 4x4 Evolution 2's H (Advanced, EVO)
+  cameraSystem: "omtm2",      // the Camera key's views: "omtm2", "mtm2", "mtm1" or "evo" (game/cameras.js CAMERA_SYSTEMS), apart from the physics
+  inertiaLens: false,         // the Inertia view opens its lens with speed instead of pulling back (game/cameras.js inertiaView; the port's)
+  mapCheckpoint: true,        // the course map marks the checkpoints, the next one in its own colour (render/minimap.js; the port's)
+  mapLineWidth: 1,            // the course map's line thickness, 0.25 to 1.75 times the game's (render/minimap.js mapLineScale; the port's)
+  mapTransparency: 0.5,       // how see-through the course map is, 0 (the game's) to 0.9 (render/minimap.js mapTransparency; the port's)
+  mapStyle: "openmtm2",       // the course map: "openmtm2" (a strip on the right, render/open-map.js; the port's) or "classic" (MTM2's, render/minimap.js)
+  openMapMode: 1,             // the OpenMTM2 map: 1 no names, 3 driver names, 2 truck names, 0 off (the Map key cycles it; game/course-map-labels.js)
+  openMapZoom: 2,             // the OpenMTM2 map's zoom, kept for the next races (the Map zoom keys; render/open-map.js OPEN_MAP_ZOOMS)
+  nameTransparency: 0.5,      // how see-through the names over the trucks and on the map are, 0 to 0.9 (render/name-tag-style.js; the port's)
+  systemFont: false,          // every in-game text in OpenMTM2's own font instead of the game's bitmap fonts (render/bitmap-text.js useSystemFont)
+  soloChat: true,             // a single-player race's chat box: the log of the commentary and the race's messages (game/chat.js soloChatOn)
+  captionBar: false,          // MTM2 caption bar: the race's messages in the game's caption bar, and no chat box alone (Advanced, MTM2)
+  shiftInAuto: true,          // the automatic box takes the shift keys and LB / RB too, holding the gear to the redline (OpenPhotex autoOverride; the port's)
+  padBindings: Object.freeze({}), // gamepad button overrides by action (standard-mapping numbers), see game/input/pad-bindings.js
   hdWeather: true,            // Community Patch 3's HD skies: the install's WeatherArt folder, else the port's copy (worker/weather-art.js)
   mtm1TrucksApart: true,      // MTM1 trucks that MTM2's shadow by file name listed too, as "Bigfoot (MTM1)" (worker/truck-build.js)
   mtm1Particles: false,       // MTM1's particles and tracks in place of the dust, spray and tire tracks (render/mtm1-particles.js)
@@ -152,6 +182,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   sparkAmount: 2,             // the Sparks slider, both pictures: 0 None, 1 Few, 2 Normal, 3 Many (game/tire-effects.js)
   sonicTrucks: false,         // Professional only: the computer trucks drive as on a Sonic track, whatever the SIT's fly-by line says
   defaultOpponents: 3,        // computer trucks in a race until the player picks their own (MONSTER.INI defaultOpponents)
+  textureSize: 1024,          // the largest side HD art keeps, 1024 (full), 512 or 256: for low-memory graphics (worker/art-texture.js)
   drawCells: 128,             // terrain cells (32 ft each): how far the world is drawn (the camera's far plane and the fog)
   backdrops: false,           // the SIT's backdrop models behind the world (off by default)
   sunFlare: true,             // the sun's lens flare with Smooth textures (render/sun-flare.js); off keeps the sun and moon discs
@@ -317,6 +348,8 @@ export function applyMtm1Classic(settings) {
     mtm1EarthSky: true, terrainOverlap: false, mtm1TrucksApart: true, originalBackdrops: true, mtm1Particles: true, mtm1Sounds: true,
     backdrops: true, dustAmount: 0, dustEffects: false, sparkAmount: 0, sparks: false,
     physics: "mtm1", graphics: "off", look: "enhanced", hdWeather: false, cameraClearance: true,
+    cameraSystem: "mtm1", aiBehaviour: "mtm1", shiftInAuto: false, mapCheckpoint: false, mapTransparency: 0, captionBar: true,
+    mapStyle: "classic", nameTransparency: 0,
   });
   return settings;
 }
@@ -327,7 +360,7 @@ const NO_MTM1 = Object.freeze({
 });
 
 /**
- * The "MTM2 Classic preset" (Options, Advanced): the 1998 game's own picture. No MTM1 choice, the original backdrops and
+ * The "MTM2 Classic preset" (Options, Advanced): the 1998 game's own picture, cameras, computer drivers and truck names in the commentary. No MTM1 choice, the original backdrops and
  * grey dust, the game's few puffs, no sparks or splashes, MTM2's water and truck reflections and the backdrops, none of
  * Community Patch 3's weather or reflections, and the enhanced graphics off. Changes `settings` in place.
  */
@@ -336,6 +369,8 @@ export function applyMtm2Classic(settings) {
     physics: "mtm2", originalBackdrops: true, greyDust: true, hdWeather: false, reflections: false, waterSplash: false,
     dustAmount: 1, dustEffects: true, sparkAmount: 0, sparks: false,
     waterReflections: true, truckReflections: true, backdrops: true, graphics: "off", cameraClearance: true,
+    cameraSystem: "mtm2", aiBehaviour: "mtm2", shiftInAuto: false, mapCheckpoint: false, commentaryTruckNames: true,
+    mapTransparency: 0, captionBar: true, mapStyle: "classic", nameTransparency: 0,
   });
   return settings;
 }
@@ -351,6 +386,8 @@ export function applyOpenMtm2(settings) {
     tireTracks: true, waterSplash: true, dustAmount: 2, dustEffects: true, sparkAmount: 2, sparks: true,
     ...GRAPHICS_FLAGS.max, glossyPaint: true, graphics: "max", look: "enhanced",
     terrainDetail: true, hdWeather: true, reflections: true, cameraClearance: true, groundBoxGrain: false,
+    cameraSystem: "omtm2", aiBehaviour: "omtm2", shiftInAuto: true, mapCheckpoint: true, commentaryTruckNames: false,
+    mapTransparency: 0.5, captionBar: false, soloChat: true, mapStyle: "openmtm2", nameTransparency: 0.5,
   });
   return settings;
 }

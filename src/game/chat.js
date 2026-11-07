@@ -153,3 +153,13 @@ export function wheelSlot(x, y, count = QUICK_MESSAGES.length, dead = 0.5) {
   const angle = (Math.atan2(x, -y) + 2 * Math.PI) % (2 * Math.PI);
   return Math.round(angle / ((2 * Math.PI) / count)) % count;
 }
+
+/** The announcer's name on his text commentary lines in a single-player race's chat box. */
+export const ANNOUNCER = "Army";
+
+/**
+ * Whether a single-player race has the chat box (Options, Advanced, OMTM2: Chat box in single player; on by default)
+ * as the log of the commentary and the race's messages. MTM2 caption bar (Advanced, MTM2) turns it off: the game's
+ * caption bar shows them instead.
+ */
+export const soloChatOn = (settings) => settings?.soloChat !== false && !settings?.captionBar;

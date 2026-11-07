@@ -148,6 +148,34 @@ height (`0x644654`: 200, 400 or 480) and both files are opened from `art` (`STAR
 palette indices, row by row, the `.ACT` 768 bytes of RGB (0x4d5bd0; a missing `.ACT` keeps the
 current palette, a missing `.RAW` is the error "Cannot find data raw").
 
+**The loading bar.** What the game is doing goes through one status object (the pointer at
+`0x656f54`) with three calls: begin with a number of steps (`[0]`), a step with a message (`[4]`)
+and end (`[8]`). Outside a dialog it is the plain one set up at 0x568b10 (vtable `0x617228`),
+which draws on the loading screen itself (begin 0x568b20, step 0x568b40, end does nothing):
+
+- begin sets the count to 0, the steps to the number given and the fill colour to 4;
+- each step adds one to the count (at most the steps) and draws, in 640 x 480 terms scaled to
+  the screen: a black box from (33, 415) to (605, 445), then the bar from (34, 416), 570 wide
+  and 28 high, filled `count / steps` of its width in colour 4; the message centred in the
+  bar (FNT1, colour 7); "Race : %s" (the SIT's race name, `0x701418`) at the bar's left, a
+  font height over it; and "Skill : %s" (Rookie, Intermediate or Professional, 0x4dbaf0) ending
+  at the bar's right on the same line. A step's second argument, when set, clears the screen
+  to black first.
+
+The colours are numbers in the palette the screen has then (in 8-bit mode the font writes the
+number itself, 0x592af0); which palette that is during the load was not traced (in
+`ART\DEFAULT.ACT` they are greys, 33 and 58 of 255).
+
+A race load (0x551f90) begins with 9 steps and gives these messages in order: "Loading world
+database", "Initializing phototexture system" and "Loading terrain database" (in 0x4d51d4),
+"Loading vehicles", "Loading scenery", "Loading courses", "Preparing simulator" and "Loading
+additional graphics", then ends: the bar stops one step short of full. The end of a race
+(0x411610, "End of race" below) begins with 30 steps and shows "Determining times for remaining
+trucks" over the loading screen every 32 of its 960 frames, so the bar fills as the times are
+worked out. Reloading a saved race and loading a replay put a dialog in its place (class at
+0x447060, dialog 7012 over `UI\XsNObtns.BMP`: a title, "Please Wait..." and a Windows progress
+bar, string 450 "Reloading" or 40066 "Loading Replay").
+
 **About screen** (view class `CAboutScreen`, dialog 7009, set up at 0x51d392, scrolled at
 0x51dca0). A full 640 x 480 screen like the Hall Of Fame: the backdrop `UI\ABOUT.BMP` (a
 Community Patch 3 `UI.POD` has `ABOUT480.BMP` and a large `NMABOUT.BMP` instead) with a

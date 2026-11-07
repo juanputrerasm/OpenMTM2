@@ -309,3 +309,18 @@ test("Freestyle in the simulation worker: the clock runs out and the run is judg
   // Trick physics reaches the ground the trucks drive on.
   assert.equal(session.ground.rules.airPitchControl, TRICK_PHYSICS.airPitchControl);
 });
+
+test("Freestyle options: trick strengths held to their range, other physics only when asked, judging weights", async () => {
+  const { freestyleRules, judgingWeights, TRICK_PHYSICS } = await import("../src/game/extensions/freestyle.js");
+  const mtm2 = { id: "mtm2" }, evo = { id: "evo2" }, cpr = { id: "cpr" };
+  assert.equal(freestyleRules({}, mtm2).airPitchControl, TRICK_PHYSICS.airPitchControl);
+  assert.equal(freestyleRules({ airPitchControl: 50 }, mtm2).airPitchControl, 10);
+  assert.equal(freestyleRules({}, evo), evo);
+  assert.equal(freestyleRules({ trickAnyPhysics: true }, evo).groundYawDamping, 0.5);
+  assert.equal(freestyleRules({ trickAnyPhysics: true }, cpr), cpr);
+  assert.equal(freestyleRules({ trickPhysics: false }, mtm2), mtm2);
+  const w = judgingWeights({ weight_air: 2, weight_saves: -1 });
+  assert.equal(w.air, 2);
+  assert.equal(w.saves, 0);
+  assert.equal(w.time, 1);
+});

@@ -6,12 +6,12 @@ import assert from "node:assert/strict";
 import { loadLevel, loadTextureSource } from "../src/worker/level-load.js";
 import { createPaletteResolver } from "../src/worker/palette-resolver.js";
 import { buildCatalog } from "../src/worker/catalog.js";
-import { skipWithoutStock, stockVfs } from "./helpers/stock.mjs";
+import { RETAIL_TRACKS, retailTracks, skipWithoutStock, stockVfs } from "./helpers/stock.mjs";
 
 test("every stock track loads: heightfield, colour grid, textures, types, palette", { skip: skipWithoutStock("POD.INI") }, async () => {
   const vfs = stockVfs();
-  const { tracks } = await buildCatalog(vfs);
-  assert.equal(tracks.length, 15);
+  const tracks = retailTracks((await buildCatalog(vfs)).tracks);
+  assert.equal(tracks.length, Object.keys(RETAIL_TRACKS).length);
   for (const track of tracks) {
     const level = await loadLevel(vfs, track.path);
     assert.equal(level.heights.length, 65536, track.file);

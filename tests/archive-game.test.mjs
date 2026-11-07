@@ -9,6 +9,7 @@ import { parsePod, readPodEntry } from "../src/vendor/openphotex/index.js";
 import { detectArchiveGame } from "../src/worker/addon-store.js";
 import { createVfs, gameFamily } from "../src/worker/vfs.js";
 import { buildCatalog } from "../src/worker/catalog.js";
+import { skipLocal } from "./helpers/stock.mjs";
 
 const GAMES = process.env.OPENMTM2_GAMES ?? join(process.env.HOME ?? "", "games");
 const CASES = [
@@ -17,7 +18,7 @@ const CASES = [
 ];
 
 for (const [path, game] of CASES) {
-  test(`${path} is ${game}`, { skip: existsSync(join(GAMES, path)) ? false : `${path} is not under ${GAMES}` }, async () => {
+  test(`${path} is ${game}`, { skip: skipLocal(join(GAMES, path), `${path} is not under ${GAMES}`) }, async () => {
     const bytes = new Uint8Array(readFileSync(join(GAMES, path)));
     const archive = parsePod(bytes);
     assert.equal(await detectArchiveGame(archive, async (entry) => readPodEntry(bytes, entry)), game);
@@ -28,7 +29,7 @@ test("an archive with nothing that tells is not guessed at", async () => {
   assert.equal(await detectArchiveGame({ entries: [{ normalizedName: "ART\\\\X.RAW" }] }, async () => new Uint8Array(0)), null);
 });
 
-test("an archive of MTM trucks whose game was never told still lists its trucks", { skip: existsSync(join(GAMES, "mtm2/TRUCK2.POD")) ? false : "no MTM2 install" }, async () => {
+test("an archive of MTM trucks whose game was never told still lists its trucks", { skip: skipLocal(join(GAMES, "mtm2/TRUCK2.POD"), "no MTM2 install") }, async () => {
   const bytes = new Uint8Array(readFileSync(join(GAMES, "mtm2/TRUCK2.POD")));
   const mount = { name: "ADDON.POD", family: gameFamily(null), archive: parsePod(bytes), readEntry: async (entry) => readPodEntry(bytes, entry) };
   const { trucks } = await buildCatalog(createVfs([mount]));

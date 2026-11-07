@@ -1160,10 +1160,6 @@
   "text": "Este equipo: <<1>>."
  },
  {
-  "tag": "Takes effect from the next race.",
-  "text": "Se aplica desde la próxima carrera."
- },
- {
   "tag": "Localization",
   "text": "Localización"
  },
@@ -1586,10 +1582,6 @@
  {
   "tag": "Extensions",
   "text": "Extensiones"
- },
- {
-  "tag": "Optional game modes shipped with OpenMTM2. Each extension owns its settings and runtime rules.",
-  "text": "Modos de juego opcionales incluidos en OpenMTM2. Cada extensión tiene su propia configuración y sus propias reglas."
  },
  {
   "tag": "Advanced",
@@ -5336,10 +5328,6 @@
   "text": "Con el cambio automático (Opciones, Juego) el camión cambia de marcha solo: mantén Frenar para detenerte y sigue manteniéndolo para retroceder. Sin él, sube y baja de marcha tú mismo, pasando por reversa y neutro."
  },
  {
-  "tag": "A gamepad drives the same way: the stick or the triggers for the pedals, the stick for steering. Options, Controls changes any key.",
-  "text": "Un control se maneja igual: la palanca o los gatillos para los pedales, la palanca para girar. En Opciones, Controles se puede cambiar cualquier tecla."
- },
- {
   "tag": "Keys in a race",
   "text": "Teclas en carrera"
  },
@@ -6084,8 +6072,8 @@
   "text": "La tarjeta gráfica dejó de dibujar el juego."
  },
  {
-  "tag": "The browser took the graphics away from the page (the driver restarted, or it ran out of video memory). Go back to the menu and start the race again; lower Graphics in Options if it happens again.",
-  "text": "El navegador le quitó los gráficos a la página (el controlador se reinició o se quedó sin memoria de video). Vuelve al menú y empieza la carrera de nuevo; baja Gráficos en Opciones si vuelve a pasar."
+  "tag": "The browser took the graphics away from the page (the driver restarted, or it ran out of video memory). Go back to the menu and start the race again; if it happens again, lower Texture size (Options, Display) and Graphics.",
+  "text": "El navegador le quitó los gráficos a la página (el controlador se reinició o se quedó sin memoria de video). Vuelve al menú y empieza la carrera de nuevo; si vuelve a pasar, baja Tamaño de texturas (Opciones, Pantalla) y Gráficos."
  },
  {
   "tag": "The simulation stopped answering.",
@@ -6882,5 +6870,381 @@
  {
   "tag": "On-screen stick, pedals and buttons for racing on a phone or tablet. Auto shows them on a device with only a touchscreen, and hides them while a gamepad is connected or a key is pressed",
   "text": "Palanca, pedales y botones en pantalla para correr en un teléfono o una tableta. Automático los muestra en un dispositivo que solo tiene pantalla táctil y los oculta mientras haya un mando conectado o se pulse una tecla"
+ },
+ {
+  "tag": "MTM1 Chase Near",
+  "text": "Cámara cercana MTM1"
+ },
+ {
+  "tag": "MTM1 Chase Far",
+  "text": "Cámara lejana MTM1"
+ },
+ {
+  "tag": "Goodyear Blimp",
+  "text": "Dirigible Goodyear"
+ },
+ {
+  "tag": "MTM1 Goodyear Blimp",
+  "text": "Dirigible Goodyear MTM1"
+ },
+ {
+  "tag": "OMTM2 Chase Near",
+  "text": "Cámara cercana OMTM2"
+ },
+ {
+  "tag": "OMTM2 Chase Far",
+  "text": "Cámara lejana OMTM2"
+ },
+ {
+  "tag": "EVO Inertia",
+  "text": "Inercia EVO"
+ },
+ {
+  "tag": "Sky Cam",
+  "text": "Cámara aérea"
+ },
+ {
+  "tag": "EVO Sky Cam",
+  "text": "Cámara aérea EVO"
+ },
+ {
+  "tag": "EVO Chase Near",
+  "text": "Cámara cercana EVO"
+ },
+ {
+  "tag": "EVO Chase Far",
+  "text": "Cámara lejana EVO"
+ },
+ {
+  "tag": "Trick physics with MTM1 and Evo physics too",
+  "text": "Física de trucos también con la física de MTM1 y Evo"
+ },
+ {
+  "tag": "Air pitch control (0 to 10)",
+  "text": "Control de cabeceo en el aire (0 a 10)"
+ },
+ {
+  "tag": "Air spin damping (0 free to 1 the game's)",
+  "text": "Amortiguación de giros en el aire (0 libre a 1 la del juego)"
+ },
+ {
+  "tag": "Ground yaw damping (0.1 loose to 1 the game's)",
+  "text": "Amortiguación de giro en el suelo (0,1 suelta a 1 la del juego)"
+ },
+ {
+  "tag": "Judging: time used (x)",
+  "text": "Puntuación: tiempo usado (x)"
+ },
+ {
+  "tag": "Judging: speed and momentum (x)",
+  "text": "Puntuación: velocidad e impulso (x)"
+ },
+ {
+  "tag": "Judging: aggression (x)",
+  "text": "Puntuación: agresividad (x)"
+ },
+ {
+  "tag": "Judging: air (x)",
+  "text": "Puntuación: aire (x)"
+ },
+ {
+  "tag": "Judging: tricks (x)",
+  "text": "Puntuación: trucos (x)"
+ },
+ {
+  "tag": "Judging: saves (x)",
+  "text": "Puntuación: salvadas (x)"
+ },
+ {
+  "tag": "Judging: spectacular moments (x)",
+  "text": "Puntuación: momentos espectaculares (x)"
+ },
+ {
+  "tag": "Right stick",
+  "text": "Stick derecho"
+ },
+ {
+  "tag": "D-pad up",
+  "text": "Cruceta arriba"
+ },
+ {
+  "tag": "D-pad down",
+  "text": "Cruceta abajo"
+ },
+ {
+  "tag": "D-pad left",
+  "text": "Cruceta izquierda"
+ },
+ {
+  "tag": "D-pad right",
+  "text": "Cruceta derecha"
+ },
+ {
+  "tag": "Home",
+  "text": "Inicio"
+ },
+ {
+  "tag": "Zoom out",
+  "text": "Alejar zoom"
+ },
+ {
+  "tag": "Zoom in",
+  "text": "Acercar zoom"
+ },
+ {
+  "tag": "The left stick steers and the triggers or the left stick work the pedals (Gamepad pedals). Pick an action, then press the gamepad button to use for it.",
+  "text": "El stick izquierdo dirige y los gatillos o el stick izquierdo manejan los pedales (Pedales del mando). Elige una acción y pulsa el botón del mando que quieras usar para ella."
+ },
+ {
+  "tag": "Press a gamepad button for \"<<1>>\"...",
+  "text": "Pulsa un botón del mando para \"<<1>>\"..."
+ },
+ {
+  "tag": "Gamepad buttons",
+  "text": "Botones del mando"
+ },
+ {
+  "tag": "Reset gamepad",
+  "text": "Restablecer mando"
+ },
+ {
+  "tag": "Gamepad buttons reset.",
+  "text": "Botones del mando restablecidos."
+ },
+ {
+  "tag": "Shift gears in automatic",
+  "text": "Cambiar de marcha en automático"
+ },
+ {
+  "tag": "With Automatic gears: the shift keys and a gamepad's LB and RB still change gear, to shift down before a corner. The chosen gear holds until the engine reaches its redline or drops too low, then the automatic box takes over again. Not in the games",
+  "text": "Con Cambio automático: las teclas de cambio y los botones LB y RB del mando siguen cambiando de marcha, para reducir antes de una curva. La marcha elegida se mantiene hasta que el motor llega al corte o baja demasiado, y entonces vuelve a mandar la caja automática. No está en los juegos"
+ },
+ {
+  "tag": "Computer trucks",
+  "text": "Camiones de la computadora"
+ },
+ {
+  "tag": "Computer trucks drive as",
+  "text": "Los camiones de la computadora conducen como"
+ },
+ {
+  "tag": "OMTM2: the port's computer drivers, which weave less, catch slides, steer round objects, back out when stuck and take another course when cut off. Same as physics: the drivers of the race's physics model, MTM2's under CART Precision Racing. MTM2 and MTM1: each game's own autopilot alone, as they drove in 1998 and 1996. EVO: 4x4 Evolution's drivers on their race lines. From the next race",
+  "text": "OMTM2: los pilotos de la computadora de OpenMTM2, que zigzaguean menos, corrigen derrapes, esquivan objetos, retroceden cuando se atascan y toman otro recorrido cuando se les corta el paso. Igual que la física: los pilotos del modelo de física de la carrera, los de MTM2 con CART Precision Racing. MTM2 y MTM1: solo el piloto automático de cada juego, como conducían en 1998 y 1996. EVO: los pilotos de 4x4 Evolution sobre sus líneas de carrera. Desde la próxima carrera"
+ },
+ {
+  "tag": "Helicopter to the last checkpoint",
+  "text": "Helicóptero al último punto de control"
+ },
+ {
+  "tag": "The Helicopter key (H) sets the truck down 32 feet behind the last checkpoint it passed, facing on, as 4x4 Evolution 2's H key does, instead of at the nearest point of the course. Checkpoints sit at the corners, so it is the start of the stretch you are on. Useful on bridges. From the next race",
+  "text": "La tecla Helicóptero (H) deja el camión 32 pies detrás del último punto de control que pasó, mirando hacia delante, como la tecla H de 4x4 Evolution 2, en lugar de en el punto más cercano del recorrido. Los puntos de control están en las curvas, así que es el comienzo del tramo en el que estás. Útil en los puentes. Desde la próxima carrera"
+ },
+ {
+  "tag": "Camera system",
+  "text": "Sistema de cámaras"
+ },
+ {
+  "tag": "Inertia widens the lens",
+  "text": "La Inercia abre el objetivo"
+ },
+ {
+  "tag": "With Z-mode cameras: the Inertia view stays at Chase Near's distance and widens its lens as the truck speeds up, to a quarter of Chase Near's zoom, so the ground seems to rush at the screen. Off, it pulls back instead, keeping the game's lens",
+  "text": "Con Cámaras del modo Z: la vista Inercia se queda a la distancia de Cámara cercana y abre el objetivo a medida que el camión acelera, hasta un cuarto del zoom de Cámara cercana, de modo que el suelo parece venirse encima de la pantalla. Desactivada, se aleja en su lugar y conserva el objetivo del juego"
+ },
+ {
+  "tag": "Extension options",
+  "text": "Opciones de la extensión"
+ },
+ {
+  "tag": "A gamepad drives the same way: the left stick steers, the triggers (or the stick) are the pedals, RB and LB shift, Y calls the helicopter, X changes the camera, A the dashboard, B the map, Start pauses, D-pad up is Drive Mode and D-pad down the Emergency Brake. Options, Keys changes any key and any gamepad button.",
+  "text": "Un mando conduce igual: el stick izquierdo dirige, los gatillos (o el stick) son los pedales, RB y LB cambian de marcha, Y llama al helicóptero, X cambia la cámara, A el tablero, B el mapa, Start pausa, la cruceta arriba es Modo de tracción y la cruceta abajo el Freno de emergencia. Opciones, Teclas cambia cualquier tecla y cualquier botón del mando."
+ },
+ {
+  "tag": "Gamepad",
+  "text": "Mando"
+ },
+ {
+  "tag": "Touch",
+  "text": "Táctil"
+ },
+ {
+  "tag": "Checkpoints on the map",
+  "text": "Puntos de control en el mapa"
+ },
+ {
+  "tag": "The course map marks every checkpoint with a bar across the road, the next one in yellow and kept at the map's edge when it is farther away. Not in the games",
+  "text": "El mapa del circuito marca cada punto de control con una barra a lo ancho del camino, el siguiente en amarillo y en el borde del mapa cuando está más lejos. No está en los juegos"
+ },
+ {
+  "tag": "Map line thickness",
+  "text": "Grosor de las líneas del mapa"
+ },
+ {
+  "tag": "How thick the course map's lines are: 1x is the game's",
+  "text": "El grosor de las líneas del mapa del circuito: 1x es el del juego"
+ },
+ {
+  "tag": "The views the Camera key (V) and the number keys step through, whatever the physics. OMTM2: the cockpit, Chase Near and Chase Far, with the standard lens. MTM2: the game's ten. MTM1: its five, with the Goodyear Blimp. EVO: 4x4 Evolution 2's cockpit, Inertia (farther back the faster you go), Sky Cam, Chase Near and Chase Far",
+  "text": "Las vistas que recorren la tecla Cámara (V) y las teclas numéricas, sea cual sea la física. OMTM2: la cabina, Cámara cercana y Cámara lejana, con el lente estándar. MTM2: las diez del juego. MTM1: sus cinco, con el dirigible Goodyear. EVO: la cabina de 4x4 Evolution 2, Inercia (más atrás cuanto más rápido vas), Cámara aérea, Cámara cercana y Cámara lejana"
+ },
+ {
+  "tag": "Changes take effect next race.",
+  "text": "Los cambios se aplican en la próxima carrera."
+ },
+ {
+  "tag": "POD.INI",
+  "text": "POD.INI"
+ },
+ {
+  "tag": "MTM2 HOF",
+  "text": "Salón de la Fama MTM2"
+ },
+ {
+  "tag": "Same as physics",
+  "text": "Igual que la física"
+ },
+ {
+  "tag": "Loading world database",
+  "text": "Cargando base de datos del mundo"
+ },
+ {
+  "tag": "Initializing phototexture system",
+  "text": "Iniciando sistema de fototexturas"
+ },
+ {
+  "tag": "Loading terrain database",
+  "text": "Cargando base de datos del terreno"
+ },
+ {
+  "tag": "Loading vehicles",
+  "text": "Cargando vehículos"
+ },
+ {
+  "tag": "Loading scenery",
+  "text": "Cargando escenario"
+ },
+ {
+  "tag": "Loading courses",
+  "text": "Cargando recorridos"
+ },
+ {
+  "tag": "Preparing simulator",
+  "text": "Preparando simulador"
+ },
+ {
+  "tag": "Loading additional graphics",
+  "text": "Cargando gráficos adicionales"
+ },
+ {
+  "tag": "Race : <<1>>",
+  "text": "Carrera : <<1>>"
+ },
+ {
+  "tag": "Skill : <<1>>",
+  "text": "Nivel : <<1>>"
+ },
+ {
+  "tag": "Track:",
+  "text": "Pista:"
+ },
+ {
+  "tag": "Game mode:",
+  "text": "Modo de juego:"
+ },
+ {
+  "tag": "Physics:",
+  "text": "Física:"
+ },
+ {
+  "tag": "Computer AI:",
+  "text": "IA de la computadora:"
+ },
+ {
+  "tag": "Cameras:",
+  "text": "Cámaras:"
+ },
+ {
+  "tag": "Map transparency",
+  "text": "Transparencia del mapa"
+ },
+ {
+  "tag": "How see-through the course map is over the race: 0% is the game's",
+  "text": "Cuánto se ve a través del mapa del recorrido durante la carrera: 0% es como en el juego"
+ },
+ {
+  "tag": "Chat box in single player",
+  "text": "Chat en carreras de un jugador"
+ },
+ {
+  "tag": "A chat box in single-player races: the announcer's text commentary and the race's messages go to it as a log, in place of the caption bar, and the Chat key types lines only you see. Off while MTM2 caption bar (MTM2) is on. Not in the games. From the next race",
+  "text": "Un chat en las carreras de un jugador: los comentarios en texto del locutor y los mensajes de la carrera quedan en él como registro, en lugar de la barra de mensajes, y la tecla de chat escribe líneas que solo ves tú. Desactivado mientras Barra de mensajes de MTM2 (MTM2) está activa. No está en los juegos. Desde la próxima carrera"
+ },
+ {
+  "tag": "MTM2 Caption bar",
+  "text": "Barra de mensajes de MTM2"
+ },
+ {
+  "tag": "The race's messages and the text commentary in the game's caption bar at the bottom of the screen, as MTM2 shows them. Turns off the chat box in single-player races. From the next race",
+  "text": "Los mensajes de la carrera y los comentarios en texto en la barra de mensajes del juego, abajo en la pantalla, como los muestra MTM2. Desactiva el chat en las carreras de un jugador. Desde la próxima carrera"
+ },
+ {
+  "tag": "OpenMTM2 font in-game",
+  "text": "Fuente de OpenMTM2 en el juego"
+ },
+ {
+  "tag": "Every text in the race, the replays and the fly-bys (the timing board, the messages, the names, the map, the gauges and the loading screen) in OpenMTM2's own font instead of the game's bitmap fonts. Not in the games",
+  "text": "Todo el texto de la carrera, las repeticiones y los recorridos (el tablero de tiempos, los mensajes, los nombres, el mapa, los indicadores y la pantalla de carga) con la fuente de OpenMTM2 en lugar de las fuentes de mapa de bits del juego. No está en los juegos"
+ },
+ {
+  "tag": "No other players in this race.",
+  "text": "No hay otros jugadores en esta carrera."
+ },
+ {
+  "tag": "Course map",
+  "text": "Mapa del recorrido"
+ },
+ {
+  "tag": "OpenMTM2 map",
+  "text": "Mapa de OpenMTM2"
+ },
+ {
+  "tag": "MTM2 classic map",
+  "text": "Mapa clásico de MTM2"
+ },
+ {
+  "tag": "OpenMTM2 map: a strip on the right of the screen that turns smoothly with the truck, the other trucks as white dots and yours as a yellow chevron. The Map key (Tab) cycles no names, driver names and truck names, each with its place, then turns it off; ] and [ zoom it. MTM2 classic map: the game's own map over the whole screen, which the Map key turns off, or shows with places, truck names or driver names. From the next race",
+  "text": "Mapa de OpenMTM2: una franja a la derecha de la pantalla que gira suavemente con el camión, los demás camiones como puntos blancos y el tuyo como un chevrón amarillo. La tecla Mapa (Tab) alterna entre sin nombres, nombres de los pilotos y nombres de los camiones, cada uno con su posición, y luego lo apaga; ] y [ lo acercan y alejan. Mapa clásico de MTM2: el mapa del propio juego sobre toda la pantalla, que la tecla Mapa apaga o muestra con posiciones, nombres de camiones o de pilotos. Desde la próxima carrera"
+ },
+ {
+  "tag": "Name transparency",
+  "text": "Transparencia de los nombres"
+ },
+ {
+  "tag": "How see-through the names over the trucks (the Names key) and on the course map are: 0% is the game's",
+  "text": "Cuánto se ve a través de los nombres sobre los camiones (la tecla Nombres) y en el mapa del recorrido: 0% es como en el juego"
+ },
+ {
+  "tag": "Map zoom in",
+  "text": "Acercar el mapa"
+ },
+ {
+  "tag": "Map zoom out",
+  "text": "Alejar el mapa"
+ },
+ {
+  "tag": "Texture size",
+  "text": "Tamaño de texturas"
+ },
+ {
+  "tag": "Half (512)",
+  "text": "Mitad (512)"
+ },
+ {
+  "tag": "Quarter (256)",
+  "text": "Cuarto (256)"
+ },
+ {
+  "tag": "The largest HD textures and ground tiles a track and the trucks keep (Community Patch 3 and HD tracks such as Valparaíso Racing). Half or Quarter for graphics with little memory, built into the processor: the game then needs a quarter or a sixteenth of the video memory for them. The game's own textures are not changed. From the next race",
+  "text": "El tamaño máximo de las texturas HD y las baldosas del suelo de una pista y de los camiones (Community Patch 3 y pistas HD como Valparaíso Racing). Mitad o Cuarto para gráficos con poca memoria, integrados en el procesador: el juego necesita entonces un cuarto o un dieciseisavo de la memoria de video para ellas. Las texturas propias del juego no cambian. Desde la próxima carrera"
  }
 ]

@@ -3,7 +3,8 @@
   the left stick steers, RB / LB shift up and down, and the D-pad's down, held, is an Evolution truck's handbrake.
   The camera (the port's own, `camera()`): the right stick's up and down tilt the chase camera as the Camera up and down
   keys do, and the D-pad's left and right zoom as the Z-mode cameras option's Shift - and + do.
-  The other buttons are the race's keys (ui/gamepad-nav.js).
+  The other buttons are the race's keys (ui/gamepad-nav.js). Every button is the player's to change (Options, Keys,
+  Gamepad; game/input/pad-bindings.js); the layout above is the default.
   Browsers report every axis already centred to -1..1, so the game's calibration reduces to the
   dead zone, which the simulation applies.
 
@@ -19,7 +20,9 @@
   Uses the first connected pad in the standard mapping, else the first connected pad; `sample()`
   returns null when there is none, and the keyboard then drives alone.
 */
-const TRIGGER_LEFT = 6, TRIGGER_RIGHT = 7, BUMPER_LEFT = 4, BUMPER_RIGHT = 5, DPAD_DOWN = 13, DPAD_LEFT = 14, DPAD_RIGHT = 15;
+import { mergePadBindings, padHeld } from "./pad-bindings.js";
+
+const TRIGGER_LEFT = 6, TRIGGER_RIGHT = 7;
 const RIGHT_STICK_Y = 3;
 const DEAD_ZONE = 0.12;
 /** The right stick's dead zone for the camera's tilt: larger, so a thumb resting on it does not drift the camera. */
@@ -29,11 +32,11 @@ const TILT_DEAD_ZONE = 0.25;
  * A pad's camera input: `tilt` -1..1 (the right stick pushed up is +1, tilting up as the Camera up key does), `zoom`
  * -1 (D-pad left, out), +1 (right, in) or 0. A pad without the standard mapping has none.
  */
-export function padCamera(pad) {
+export function padCamera(pad, bindings = mergePadBindings(null)) {
   if (!pad || pad.mapping !== "standard") return { tilt: 0, zoom: 0 };
   const y = pad.axes[RIGHT_STICK_Y] ?? 0;
   const tilt = Math.abs(y) < TILT_DEAD_ZONE ? 0 : -Math.sign(y) * (Math.abs(y) - TILT_DEAD_ZONE) / (1 - TILT_DEAD_ZONE);
-  const zoom = (pad.buttons[DPAD_RIGHT]?.pressed ? 1 : 0) - (pad.buttons[DPAD_LEFT]?.pressed ? 1 : 0);
+  const zoom = (padHeld(pad, bindings.zoomIn) ? 1 : 0) - (padHeld(pad, bindings.zoomOut) ? 1 : 0);
   return { tilt, zoom };
 }
 
@@ -79,26 +82,29 @@ export async function testRumble(nav = navigator) {
   }
 }
 
-/** `pedals` gives the Gamepad pedals choice, read at every sample so that a change in the options takes effect at once. */
-export function createGamepadInput(nav = navigator, pedals = () => PAD_PEDALS[0]) {
+/**
+ * `pedals` gives the Gamepad pedals choice and `bindings` the player's button changes (`settings.padBindings`), both read
+ * at every sample so that a change in the options takes effect at once.
+ */
+export function createGamepadInput(nav = navigator, pedals = () => PAD_PEDALS[0], bindings = () => null) {
   let upHeld = false, downHeld = false, rumbling = false, sentStrong = 0, sentWeak = 0, sentAt = 0;
   const sends = [];
   const padNow = () => choosePad(nav.getGamepads ? [...nav.getGamepads()] : []);
-  const pressed = (pad, i) => !!pad.buttons[i]?.pressed;
   return {
     /** The pad's camera input this frame (`padCamera`). */
-    camera() { return padCamera(padNow()); },
+    camera() { return padCamera(padNow(), mergePadBindings(bindings())); },
     /** The joystick input for the simulation, or null with no pad. */
     sample() {
       const pad = choosePad(nav.getGamepads ? [...nav.getGamepads()] : []);
       if (!pad) return null;
       const choice = pedals();
       const y = padPedalAxis(pad, PAD_PEDALS.includes(choice) ? choice : PAD_PEDALS[0]);
-      const up = pressed(pad, BUMPER_RIGHT), down = pressed(pad, BUMPER_LEFT);
+      const b = mergePadBindings(bindings());
+      const up = padHeld(pad, b.shiftUp), down = padHeld(pad, b.shiftDown);
       // Shifts are edges, like the keys.
       const shiftUp = up && !upHeld, shiftDown = down && !downHeld;
       upHeld = up; downHeld = down;
-      return { x: pad.axes[0] ?? 0, y, deadZone: DEAD_ZONE, shiftUp, shiftDown, handbrake: pressed(pad, DPAD_DOWN) };
+      return { x: pad.axes[0] ?? 0, y, deadZone: DEAD_ZONE, shiftUp, shiftDown, handbrake: padHeld(pad, b.handbrake) };
     },
     /**
      * The pad's two motors, 0..1 (game/input/rumble.js), for the next tenth of a second, or off with both 0. A browser or

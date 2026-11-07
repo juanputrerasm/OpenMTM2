@@ -4,7 +4,7 @@ import { parsePod, readPodEntry, writePod1 } from "../src/vendor/openphotex/inde
 import { createVfs } from "../src/worker/vfs.js";
 import { RACE_TYPES, bmpStem, buildCatalog, defaultLaps } from "../src/worker/catalog.js";
 import { parsePodIni } from "../src/install/pod-ini.js";
-import { RETAIL_TRUCKS, skipWithoutStock, stockVfs } from "./helpers/stock.mjs";
+import { RETAIL_TRACKS, RETAIL_TRUCKS, retailTracks, skipWithoutStock, stockVfs } from "./helpers/stock.mjs";
 
 const text = (s) => new TextEncoder().encode(s);
 
@@ -28,17 +28,16 @@ test("the first mounted POD wins a path, lookups ignore case and slash style", a
 });
 
 
-test("the stock catalog has 15 MTM2 tracks, 2 of them hidden", { skip: skipWithoutStock("POD.INI") }, async () => {
+test("the stock catalog has the 15 retail MTM2 tracks, typed, GRAVEY and WAR hidden", { skip: skipWithoutStock("POD.INI") }, async () => {
   const { tracks, problems } = await buildCatalog(stockVfs());
   assert.deepEqual(problems, []);
-  assert.equal(tracks.length, 15);
-  assert.deepEqual(tracks.filter((t) => t.hidden).map((t) => t.file).sort(), ["GRAVEY.SIT", "WAR.SIT"]);
+  // Named, not counted: an archive rebuilt with more tracks still passes.
+  const retail = retailTracks(tracks);
+  assert.deepEqual(retail.map((t) => t.file).sort(), Object.keys(RETAIL_TRACKS).sort());
+  for (const t of retail) assert.equal(t.raceType, RETAIL_TRACKS[t.file], t.file);
+  assert.deepEqual(retail.filter((t) => t.hidden).map((t) => t.file).sort(), ["GRAVEY.SIT", "WAR.SIT"]);
   const farm = tracks.find((t) => t.file === "TPARK.SIT");
   assert.equal(farm.name, "Farm Road 29");
-  assert.equal(farm.raceType, "circuit");
-  const counts = {};
-  for (const t of tracks) counts[t.raceType] = (counts[t.raceType] ?? 0) + 1;
-  assert.deepEqual(counts, { circuit: 8, rally: 4, summit: 3 });
 });
 
 test("the track list keeps POD.INI's order, not the names'", { skip: skipWithoutStock("POD.INI") }, async () => {

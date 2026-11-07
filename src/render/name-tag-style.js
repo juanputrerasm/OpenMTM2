@@ -27,3 +27,7 @@ export function nameTagPaintKey(lines, extensionColour = "") {
 
 /** The name tags' font scale on a screen `deviceHeight` device pixels tall: whole, one font pixel a screen pixel to about 1,600. */
 export const nameTagScale = (deviceHeight) => Math.max(1, Math.round(deviceHeight / 1080));
+
+/** How see-through the names are (Options, Advanced, OMTM2: Name transparency; the port's), 0 solid to `NAME_TRANSPARENCY_MAX`. */
+export const NAME_TRANSPARENCY_MAX = 0.9;
+export const nameTransparency = (v) => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(NAME_TRANSPARENCY_MAX, n)) : 0; };

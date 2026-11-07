@@ -26,6 +26,16 @@ export const FREESTYLE_EXTENSION = Object.freeze({
   settings: Object.freeze([
     Object.freeze({ key: "minutes", label: msg("Run length"), type: "number", min: 1, max: 10, default: DEFAULT_FREESTYLE_MINUTES, suffix: msg("minutes") }),
     Object.freeze({ key: "trickPhysics", label: msg("Trick physics (throttle and brake tilt the truck in the air)"), type: "boolean", default: true }),
+    // Trick physics' strengths (`TRICK_PHYSICS`, `TRICK_LIMITS`): the defaults are the tuned ones.
+    Object.freeze({ key: "trickAnyPhysics", label: msg("Trick physics with MTM1 and Evo physics too"), type: "boolean", default: false }),
+    Object.freeze({ key: "airPitchControl", label: msg("Air pitch control (0 to 10)"), type: "number", min: 0, max: 10, step: 0.5, default: 5 }),
+    Object.freeze({ key: "airRotationDamping", label: msg("Air spin damping (0 free to 1 the game's)"), type: "number", min: 0.05, max: 1, step: 0.05, default: 0.25 }),
+    Object.freeze({ key: "groundYawDamping", label: msg("Ground yaw damping (0.1 loose to 1 the game's)"), type: "number", min: 0.1, max: 1, step: 0.05, default: 0.5 }),
+    // How much each judged category counts (`CATEGORIES`): 1 is the standard share; the total is still out of 10.
+    ...[
+      ["time", msg("Judging: time used (x)")], ["momentum", msg("Judging: speed and momentum (x)")], ["aggression", msg("Judging: aggression (x)")],
+      ["air", msg("Judging: air (x)")], ["tricks", msg("Judging: tricks (x)")], ["saves", msg("Judging: saves (x)")], ["spectacular", msg("Judging: spectacular moments (x)")],
+    ].map(([key, label]) => Object.freeze({ key: `weight_${key}`, label, type: "number", min: 0, max: 2, step: 0.1, default: 1 })),
   ]),
   acceptsTrack: () => true,
   trackLocked: false,
@@ -41,11 +51,38 @@ export const FREESTYLE_EXTENSION = Object.freeze({
  * down the yaw is damped half as hard. Measured headless on KF2's Orlando Monster Show.
  */
 export const TRICK_PHYSICS = Object.freeze({ airPitchControl: 5, airRotationDamping: 0.25, groundYawDamping: 0.5 });
+/** The range the player may set each strength in (Options, Extensions, Freestyle). */
+export const TRICK_LIMITS = Object.freeze({ airPitchControl: [0, 10], airRotationDamping: [0.05, 1], groundYawDamping: [0.1, 1] });
 
-/** The race's physics rules with Trick physics on them when the run asks for it and the model is MTM2's. */
+/** The run's Trick physics strengths: the player's, held to `TRICK_LIMITS`, else the tuned ones. */
+export function trickStrengths(payload) {
+  const out = {};
+  for (const [key, [lo, hi]] of Object.entries(TRICK_LIMITS)) {
+    const v = Number(payload?.[key]);
+    out[key] = Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : TRICK_PHYSICS[key];
+  }
+  return out;
+}
+
+/**
+ * The race's physics rules with Trick physics on them when the run asks for it: under MTM2's model, or under MTM1's and
+ * the Evo models when the player asks for that too (`trickAnyPhysics`). CART's model has none.
+ */
 export function freestyleRules(payload, rules) {
-  if (payload?.trickPhysics === false || rules?.id !== "mtm2") return rules;
-  return Object.freeze({ ...rules, ...TRICK_PHYSICS });
+  if (payload?.trickPhysics === false || !rules) return rules;
+  const any = !!payload?.trickAnyPhysics && rules.id !== "cpr";
+  if (rules.id !== "mtm2" && !any) return rules;
+  return Object.freeze({ ...rules, ...trickStrengths(payload) });
+}
+
+/** Each category's multiplier from the run's settings (`weight_<key>`, 0 to 2), 1 when unset. */
+export function judgingWeights(payload) {
+  const out = {};
+  for (const c of CATEGORIES) {
+    const v = Number(payload?.[`weight_${c.key}`]);
+    out[c.key] = Number.isFinite(v) ? Math.max(0, Math.min(2, v)) : 1;
+  }
+  return out;
 }
 
 /** The categories in the order they are shown, with their share of the 10 points and their raw ceiling per minute. */
@@ -350,6 +387,7 @@ export function freestyleEnd(g, used) {
  * ceilings then follow the time gone, so the live score reads fairly.
  */
 export function freestyleScore(g, used = g.done ? g.used : g.clock) {
+  const scale = g.weights ?? {};
   const minutes = Math.max(used, 1) / 60;
   const share = {
     time: g.roundSeconds > 0 ? Math.min(1, used / g.roundSeconds) : 0,
@@ -359,7 +397,8 @@ export function freestyleScore(g, used = g.done ? g.used : g.clock) {
   if (!g.done) share.time = 1;
   const categories = CATEGORIES.map((c) => {
     const s = c.perMinute === null ? share[c.key] : Math.min(1, g.raw[c.key] / (c.perMinute * minutes));
-    return { key: c.key, label: c.label, weight: c.weight, score: round1(s * c.weight) };
+    const weight = c.weight * (scale[c.key] ?? 1);
+    return { key: c.key, label: c.label, weight, score: round1(s * weight) };
   });
   const reverse = round1(Math.min(JUDGE.reverseMost, g.reverse.total * JUDGE.reversePerS));
   const crashes = round1(Math.min(JUDGE.crashMost, g.crashes * JUDGE.crashCost));
