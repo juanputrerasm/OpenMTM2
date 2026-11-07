@@ -9,13 +9,13 @@
   leaves; it carries on from the last state it was given.
 */
 import * as S from "../../vendor/openphotex/sim/mtm2/index.js";
-import { createRumbleDriver, driveToPoint } from "../rumble-ai.js";
+import { driveToPoint } from "../rumble-ai.js";
 import {
   ESCAPE_S, HOCKEY_TUNE, NUDGE_AFTER_S, NUDGE_FT_S, TURN_FLOOR, createHockey, hockeyAim, hockeyHeld,
   hockeyHeliSpot, hockeyPlaces, hockeyRoles, hockeySpot, hockeyStep, hockeyTimeLeft, hockeyWinner, outsideRink, rinkGround,
 } from "./hockey.js";
 import {
-  TAG64_BREAK_FT, TAG64_ROUND_S, TAG_MTM64, coverOf, createTag, createTagDriver, movableOf, roamRect, tag64Rate, tagAdopt,
+  TAG64_BREAK_FT, TAG64_ROUND_S, TAG_MTM64, createTag, createTagDriver, tag64Rate, tagAdopt,
   tagDrivePoint, tagHeld, tagScoring, tagShadowBand, itDistance, tagPlaces, tagRanks, tagSafe, tagSpeed, tagStep, tagZoneRate,
   wanderPoint,
 } from "./tag.js";
@@ -26,78 +26,10 @@ import {
   racerPlaces, rnrPlaces, rnrSided, rnrVariant, rnrWinner, timingTruck,
 } from "./race-rumble.js";
 import { createCombatRuntime } from "./combat-session.js";
+import { createDeathmatchRuntime } from "./deathmatch-session.js";
 import { createFreestyleRuntime, freestyleSimRules } from "./freestyle-session.js";
 import { createLooseWheelsRuntime } from "./loose-wheels-session.js";
-
-const worldVelocity = (state) => {
-  const matrix = state.matrix, [x, y, z] = state.bvel;
-  return [matrix[0] * x + matrix[1] * y + matrix[2] * z, matrix[3] * x + matrix[4] * y + matrix[5] * z, matrix[6] * x + matrix[7] * y + matrix[8] * z];
-};
-
-const roamPoints = (course) => {
-  const points = [];
-  for (const segment of course) {
-    if (segment.start) points.push([segment.start[0], segment.start[2]]);
-    if (segment.end) points.push([segment.end[0], segment.end[2]]);
-    if (segment.centre) points.push([segment.centre[0], segment.centre[2]]);
-  }
-  return points;
-};
-
-function endRace(race) {
-  race.over = true;
-  for (const truck of race.trucks) truck.finished = true;
-}
-
-function commonRuntime(payload, env) {
-  const { trucks, race, step } = env;
-  const sinceStart = () => race.clock - race.startTime;
-  const driveByPoint = (truck) => {
-    truck.recovery.player = true;
-    truck.recovery.autopilot = false;
-  };
-  const resetDriver = (truck) => { truck.extensionDriver = createRumbleDriver(truck.extensionDriver?.aggression ?? 0.6); };
-  const placeTruck = (truck, spot) => {
-    const fresh = S.createTruckState(spot.pos, spot.heading, S.GEAR.PARK, truck.params);
-    for (const [key, value] of Object.entries(fresh)) {
-      if (ArrayBuffer.isView(value)) truck.state[key].set(value);
-      else truck.state[key] = value;
-    }
-    truck.state.heliVisual = null;
-    truck.flight = null;
-    truck.exit = null;
-    truck.headway = null;
-    resetDriver(truck);
-  };
-  trucks.forEach((truck, index) => { truck.extensionDriver = createRumbleDriver(0.5 + ((index * 0.37) % 0.3)); });
-  return { payload, trucks, race, step, sinceStart, driveByPoint, resetDriver, placeTruck, end: () => endRace(race) };
-}
-
-const following = (env) => env.net?.authority === "follower";
-
-/**
- * The ground the chase modes roam (Tag, Cops & Robbers): their rectangle, the covers on it, and the objects a truck
- * would rather not hit (the covers and every movable object, which moves with the object).
- */
-function chaseField(env) {
-  const { levelBoxes, walls, course, specs } = env;
-  const home = [specs.reduce((sum, spec) => sum + spec.start.pos[0], 0) / specs.length, specs.reduce((sum, spec) => sum + spec.start.pos[2], 0) / specs.length];
-  const covers = [], avoid = [];
-  for (const box of levelBoxes) {
-    const cover = coverOf(box);
-    if (cover) covers.push(cover);
-    const movable = movableOf(box);
-    if (movable && !cover) avoid.push(movable);
-  }
-  for (const wall of walls ?? []) {
-    const cover = coverOf({ pos: wall.pos, reach: Math.hypot(wall.size[0], wall.size[2]) * 0.5, tall: wall.size[1] });
-    if (cover) covers.push(cover);
-  }
-  return { rect: roamRect(roamPoints(course), home), covers, avoid: [...covers, ...avoid] };
-}
-
-/** A truck's speed, ft/s. */
-const speedOf = (state) => Math.hypot(state.bvel[0], state.bvel[1], state.bvel[2]);
+import { PATIENT_HEADWAY_S, chaseField, commonRuntime, following, speedOf, worldVelocity } from "./party-common.js";
 
 function createHockeyRuntime(payload, env) {
   const base = commonRuntime(payload, env);
@@ -380,8 +312,6 @@ function createCnrRuntime(payload, env) {
   };
 }
 
-/** A blocker or a chase-mode truck stuck this long within 12 ft calls the helicopter (the worker's headway watch). */
-const PATIENT_HEADWAY_S = 15;
 
 function createRnrRuntime(payload, env) {
   const base = commonRuntime(payload, env);
@@ -513,6 +443,7 @@ const FACTORIES = new Map([
   ["cops-robbers", { ground: (ground) => ground, create: createCnrRuntime }],
   ["race-rumble", { ground: (ground) => ground, create: createRnrRuntime }],
   ["combat", { ground: (ground) => ground, create: createCombatRuntime }],
+  ["deathmatch", { ground: (ground) => ground, create: createDeathmatchRuntime }],
   ["freestyle", { ground: (ground) => ground, create: createFreestyleRuntime, rules: freestyleSimRules }],
 ]);
 

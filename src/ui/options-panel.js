@@ -524,7 +524,19 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
 
   /** Settings declared by each extension: a heading, its description and its rows, as the Display page's sections are. */
   // Opened for one extension (the Races screen's button beside Mode): only its panel shows.
-  const extensionPanels = EXTENSIONS.filter((extension) => !onlyExtension || extension.id === onlyExtension).map((extension) => el("div", { class: "ext-panel", "data-ext": extension.id, "data-name": extension.name },
+  // A setting with `enabledBy` (Combat's and Deathmatch's computer repairs) can only be switched on while that other
+  // switch is on: greyed out and shown off otherwise, its own stored choice kept for when it is on again.
+  const extensionPanels = EXTENSIONS.filter((extension) => !onlyExtension || extension.id === onlyExtension).map((extension) => {
+    const dependents = [];
+    const refresh = () => {
+      const now = settingsForExtension(settings, extension);
+      for (const { spec, input } of dependents) {
+        const on = !!now[spec.enabledBy];
+        input.disabled = !on;
+        input.checked = on && !!now[spec.key];
+      }
+    };
+    const panel = el("div", { class: "ext-panel", "data-ext": extension.id, "data-name": extension.name },
     el("h3", {}, t(extension.name)),
     el("p", { class: "muted" }, t(extension.description)),
     ...extension.settings.map((spec) => {
@@ -547,11 +559,13 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         return row(spec.label, spec.suffix ? el("span", {}, input, ` ${t(spec.suffix)}`) : input);
       }
       if (spec.type === "boolean") {
-        return row(spec.label, el("input", {
+        const input = el("input", {
           type: "checkbox", class: "opt-switch", checked: !!current,
           "aria-label": `${t(extension.name)}: ${t(spec.label)}`,
-          onchange: (event) => { setExtensionSetting(settings, extension, spec.key, !!event.target.checked); save(); },
-        }));
+          onchange: (event) => { setExtensionSetting(settings, extension, spec.key, !!event.target.checked); save(); refresh(); },
+        });
+        if (spec.enabledBy) dependents.push({ spec, input });
+        return row(spec.label, input);
       }
       if (spec.type === "select") {
         return row(spec.label, el("select", {
@@ -561,7 +575,10 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       }
       return null;
     }).filter(Boolean),
-  ));
+    );
+    refresh();
+    return panel;
+  });
 
   /**
    * Reload POD.INI: the browser keeps no handle on the folder, so it is picked again (the same one or another), and every

@@ -21,7 +21,7 @@ const AUDIBLE_FT = 900;
 /** How long a hull impact's level lingers as the bar the next knock must clear (it falls to a third in this time). */
 const IMPACT_FADE_S = 2;
 
-export function createTruckAudio(audio, { count, player = 0, random = Math.random, kookyHorn = false, mtm1Sounds = false, onHit = () => {}, settings = () => ({}) }) {
+export function createTruckAudio(audio, { count, player = 0, random = Math.random, kookyHorn = false, mtm1Sounds = false, onHit = () => {}, onCrash = () => {}, settings = () => ({}) }) {
   const pick = (n) => 1 + Math.floor(random() * n);
   const trucks = Array.from({ length: count }, () => ({
     engine: null, heli: null, gear: null, impactBusy: false, cooldown: 0, started: false,
@@ -231,6 +231,8 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
         }
         // The object's sound comes from the object, `offset` feet from the truck.
         if (s.hit) onHit(s.hit.sitIndex, s.hit.force, s.hit.offset ? [0, 1, 2].map((k) => pos[k] + s.hit.offset[k]) : pos, i);
+        // Two trucks met (the worker's pair test sends it from one of them): their crash, from that truck.
+        if (s.crash > 0) onCrash(pos, i === player, s.crash);
         // The game starts a hull impact's sound only when the truck's last one has finished.
         // A new knock, not a truck lying on its hull: the game starts the sound whenever the last one has ended, so a rolled truck
         // resting on its roof crunched on to the end of the race. Here an impact must stand well above the level the truck has been

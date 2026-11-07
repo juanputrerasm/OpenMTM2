@@ -129,7 +129,8 @@ export const COMBAT_EXTENSION = Object.freeze({
     }),
     Object.freeze({ key: "credits", label: msg("Earn credits and repair with X"), type: "boolean", default: true }),
     Object.freeze({ key: "startCredits", label: msg("Credits at the start"), type: "number", min: 0, max: 99999, default: 500 }),
-    Object.freeze({ key: "cpuRepairs", label: msg("Computer trucks repair themselves"), type: "boolean", default: true }),
+    // Only with credits on: Options greys it out otherwise (`enabledBy`).
+    Object.freeze({ key: "cpuRepairs", label: msg("Computer trucks repair themselves"), type: "boolean", default: true, enabledBy: "credits" }),
     // Read by the race screen for any extension: off starts the race with the Names key's tags off (N still shows them).
     Object.freeze({ key: "names", label: msg("Names over the trucks"), type: "boolean", default: true }),
     Object.freeze({
@@ -151,6 +152,8 @@ export const COMBAT_EXTENSION = Object.freeze({
   damageKey: "repair",
   /** A player who is wrecked, or quits, watches the race on. */
   watchWhenOut: true,
+  /** Combat's damage, its scene and its labels (game/extensions/loader.js `usesCombatDamage`). */
+  combatDamage: true,
 });
 
 /** The pools' full values at a toughness. */
@@ -186,11 +189,14 @@ function freshTruck(full, credits) {
   };
 }
 
-/** A Combat's state for `count` trucks. */
-export function createCombat(count, { toughness = "normal", credits = true, startCredits = 500 } = {}) {
+/**
+ * A Combat's state for `count` trucks. `rewards` is what earns credits (`CREDITS`' shape; Deathmatch's earns nothing for
+ * checkpoints or laps).
+ */
+export function createCombat(count, { toughness = "normal", credits = true, startCredits = 500, rewards = CREDITS } = {}) {
   const full = combatPools(toughness);
   return {
-    full, credits: !!credits, start: credits ? Math.max(0, Number(startCredits) || 0) : 0,
+    full, credits: !!credits, start: credits ? Math.max(0, Number(startCredits) || 0) : 0, rewards: { ...CREDITS, ...rewards },
     trucks: Array.from({ length: count }, () => freshTruck(full, credits ? Math.max(0, Number(startCredits) || 0) : 0)),
     /** Wrecked trucks in order. */
     order: [],
@@ -343,18 +349,20 @@ export function ramShares(closeA, closeB) {
 export function creditDamage(c, by, hp, wrecked = false) {
   if (by === null || by === undefined || by < 0 || !c.trucks[by]) return;
   const t = c.trucks[by];
+  const rewards = c.rewards ?? CREDITS;
   t.dealt += hp;
-  if (c.credits) t.credits += Math.round(hp * CREDITS.perHp);
+  if (c.credits) t.credits += Math.round(hp * rewards.perHp);
   if (wrecked) {
     t.wrecks++;
-    if (c.credits) t.credits += CREDITS.wreck;
+    if (c.credits) t.credits += rewards.wreck;
   }
 }
 
 /** Credit truck `i` for checkpoints and laps it has just made. */
 export function creditProgress(c, i, checkpoints, laps) {
   if (!c.credits) return;
-  c.trucks[i].credits += Math.max(0, checkpoints) * CREDITS.checkpoint + Math.max(0, laps) * CREDITS.lap;
+  const rewards = c.rewards ?? CREDITS;
+  c.trucks[i].credits += Math.max(0, checkpoints) * rewards.checkpoint + Math.max(0, laps) * rewards.lap;
 }
 
 /** Mark truck `i` wrecked (its event and its place in the wreck order); `by` the truck that did it, or -1. */
@@ -363,6 +371,20 @@ export function wreck(c, i, by = -1) {
   t.wrecked = true;
   if (!c.order.includes(i)) c.order.push(i);
   say(c, { kind: "wreck", truck: i, by });
+}
+
+/**
+ * Truck `i` back in the fight, whole (Deathmatch's respawn): every pool full, every wheel on, not wrecked. Its credits,
+ * the damage it dealt, its wrecks and its repairs are kept; its place in the wreck order is cleared.
+ */
+export function revive(c, i) {
+  const t = c.trucks[i], full = c.full;
+  Object.assign(t, {
+    global: full.global, engine: full.engine, gearbox: full.gearbox, wheels: [full.wheel, full.wheel, full.wheel, full.wheel],
+    lost: [false, false, false, false], wrecked: false, repairedAt: -Infinity,
+  });
+  c.order = c.order.filter((j) => j !== i);
+  say(c, { kind: "revive", truck: i });
 }
 
 /** A truck leaves the fight of its own will (the player's Quit to watch): it counts as wrecked. */

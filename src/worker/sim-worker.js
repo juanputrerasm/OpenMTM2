@@ -28,6 +28,7 @@ import { AVOID, boxObstacles, groundBoxWalls } from "../game/obstacle-avoid.js";
 import { replyError, sendWorkerFaults } from "../shared/worker-faults.js";
 import { aiSpeedFactor } from "../game/ai-speed.js";
 import { LOADING_BAR } from "../game/loading-bar.js";
+import { CRASH_APART_S, CRASH_MIN_FT_S } from "../game/sound-model.js";
 
 export const STEP = 1 / 60;
 /** The presses that act once (a shift, Drive Mode, the helicopter): kept until a step takes them, and taken by one only. */
@@ -45,6 +46,18 @@ const same = (x, y) => x === y || (x !== x && y !== y);
 const posedAs = (b, out, k) => same(out[k], b.pos[0]) && same(out[k + 1], b.pos[1]) && same(out[k + 2], b.pos[2])
   && same(out[k + 3], b.matrix[2]) && same(out[k + 4], b.matrix[5]) && same(out[k + 5], b.matrix[6]);
 export const MAX_CATCH_UP = 0.25;
+
+/** Two trucks' world velocities' closing speed along the line between them (ft/s; going apart is negative). */
+export function closingSpeedOf(a, b) {
+  const wv = (s) => {
+    const m = s.matrix, [x, y, z] = s.bvel;
+    return [m[0] * x + m[1] * y + m[2] * z, m[3] * x + m[4] * y + m[5] * z, m[6] * x + m[7] * y + m[8] * z];
+  };
+  const va = wv(a), vb = wv(b);
+  const d = [b.pos[0] - a.pos[0], b.pos[1] - a.pos[1], b.pos[2] - a.pos[2]];
+  const n = Math.hypot(d[0], d[1], d[2]) || 1;
+  return ((va[0] - vb[0]) * d[0] + (va[1] - vb[1]) * d[1] + (va[2] - vb[2]) * d[2]) / n;
+}
 
 /**
  * The wall-clock origin (ms) of the next tick: wall time past `MAX_CATCH_UP` that the simulation
@@ -239,12 +252,13 @@ function soundOf(t, ground) {
   const out = {
     weather, inWater, vy: m[3] * s.bvel[0] + m[4] * s.bvel[1] + m[5] * s.bvel[2],
     rpm: s.rpm, throttle: s.controls.throttle, brake: Math.max(s.controls.brakeFront, s.controls.brakeRear), gear: s.controls.gear, airborne: air, forward: s.bvel[2],
-    speed: Math.hypot(s.bvel[0], s.bvel[1], s.bvel[2]), vx: s.bvel[0], bottoming: t.snd.bottoming, collide: t.snd.collide ?? 0, 
+    speed: Math.hypot(s.bvel[0], s.bvel[1], s.bvel[2]), vx: s.bvel[0], bottoming: t.snd.bottoming, collide: t.snd.collide ?? 0, crash: t.snd.crash ?? 0, 
     impact: t.snd.impact, hit: t.snd.hit, clearance: s.pos[1] - ground.height(s.pos[0], s.pos[2]), splash: t.snd.splash, tires, surface: S.surfaceType(ground.surface(s.pos[0], s.pos[1] + 100, s.pos[2])), heli: s.heliTimer > 0, heliTeryl: !!s.heliVisual?.teryl, heliPos: s.heliVisual ? [...s.heliVisual.pos] : null,
   };
   t.snd.impact = 0;
   t.snd.bottoming = 0;
   t.snd.collide = 0;
+  t.snd.crash = 0;
   t.snd.hit = null;
   t.snd.splash = false;
   return out;
@@ -545,7 +559,7 @@ export function createSession(init) {
     if (ctx.human && init.shiftInAuto) state.controls.autoOverride = true;
     const aiSpeed = autopilot && i > 0 && cpuAiSpeed !== null ? cpuAiSpeed : undefined;
     if (aiSpeed !== undefined) ctx.aiSpeed = aiSpeed;
-    return { state, params, autopilot, remote, recovery, ctx, aiSpeed, evoVehicle: !!spec.truck.evo, cprCar, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, bottoming: 0, collide: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
+    return { state, params, autopilot, remote, recovery, ctx, aiSpeed, evoVehicle: !!spec.truck.evo, cprCar, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, bottoming: 0, collide: 0, crash: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
   });
   const player = trucks[0];
   // Under CPR physics a CPR car drives by CART.EXE's autopilot on the SIT course (game/cpr-driver.js, CPR_PHYSICS.md
@@ -852,11 +866,17 @@ export function createSession(init) {
   const crushCars = (init.topCrush ?? []).map((car) => S.createTopCrush(car, car.bodyBounds ?? null, car.cabBounds ?? null));
   const crushCtx = { groundNormal: (x, z) => ground.normal(x, z, [0, 0, 0]), dt: STEP, edges: S.createEdgeState() };
   /** The pair tests (14.14, 14.17, 14.19, 14.20, 14.21), trucks first in list order. */
+  /** When each pair of trucks last pushed on each other (its step count), for the crash sound's new meetings. */
+  const pairMet = new Map();
+  let pairStep = 0;
   function pairTests() {
+    pairStep++;
     for (let i = 0; i < trucks.length; i++) {
       for (let j = i + 1; j < trucks.length; j++) {
         const a = trucks[i], b = trucks[j];
         const f = a.state.extForce, f0 = f[0], f1 = f[1], f2 = f[2];
+        // How fast they close on each other, along the line between them, before the pair's response.
+        const closing = closingSpeedOf(a.state, b.state);
         const met = S.collideTrucks({ s: a.state, p: a.params }, { s: b.state, p: b.params }, STEP, rules);
         // A hull against a hull: the pair's forces changed. Remember the hardest hit and where the trucks met.
         const force = Math.hypot(f[0] - f0, f[1] - f1, f[2] - f2);
@@ -864,6 +884,14 @@ export function createSession(init) {
           if (drag) dragCollision(drag, a.lane, b.lane);
           extensionSession?.touch?.(i, j);
           mutator?.touch(i, j);
+          // Their crash (0x429cb0): from the player's truck when it is one of them, else the second's; once a meeting
+          // (game/sound-model.js `truckCrashSound`).
+          const key = i * 4096 + j, last = pairMet.get(key);
+          pairMet.set(key, pairStep);
+          if ((last === undefined || (pairStep - last) * STEP >= CRASH_APART_S) && closing >= CRASH_MIN_FT_S) {
+            const from = a === player ? a : b;
+            from.snd.crash = Math.max(from.snd.crash ?? 0, closing);
+          }
           const where = [0, 1, 2].map((k) => (a.state.pos[k] + b.state.pos[k]) / 2);
           // `hull`: bodywork met, not only tires (which throw no sparks).
           for (const t of [a, b]) {

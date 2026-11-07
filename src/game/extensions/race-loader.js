@@ -34,6 +34,9 @@ import {
 import { TEAM_COLOURS, TEAM_NAMES, pickedTeams } from "./teams.js";
 import { OUT_LABEL, WHEEL_NAMES, WRECKED_LABEL, combatFromWire, combatOwnFromWire, combatOwnToWire, combatToWire } from "./combat.js";
 import { momentText } from "./freestyle.js";
+import {
+  RESPAWN, deathmatchFromWire, deathmatchOwnFromWire, deathmatchOwnToWire, deathmatchToWire, spawnSpots, startSpots,
+} from "./deathmatch.js";
 
 const none = (count) => Array.from({ length: count }, () => null);
 const nearest = (positions, from, pick) => {
@@ -536,6 +539,150 @@ const COMBAT = {
   },
 };
 
+// ---- Deathmatch ----
+
+/** How a track's spawn spots are spread (deathmatch.js `spawnSpots`): along its course, on its start slots, or at random. */
+const spawnKind = (raceType) => (raceType === "summit" ? "slots" : ["circuit", "rally", "drag"].includes(raceType) ? "course" : "random");
+/** The four counts under the Winner's Circle, and on the board. */
+const tallyOf = (state, i) => {
+  const me = state.trucks?.[i];
+  return { score: state.scores?.[i] ?? 0, wrecks: me?.wrecks ?? 0, self: state.selfWrecks?.[i] ?? 0, deaths: state.deaths?.[i] ?? 0, dealt: me?.dealt ?? 0 };
+};
+const DEATHMATCH = {
+  /**
+   * The spawn spots (the same on every machine for the track), and each truck's start on one of them, as far apart as
+   * they go, by its grid slot.
+   */
+  prepare(extension, { build, entrants, length, settings, groundHeightAt, raceType, grid }) {
+    const slots = grid?.length ? grid : build.sim.grid ?? [];
+    const first = slots[0]?.pos ?? null;
+    const kind = spawnKind(raceType);
+    const course = kind === "course" ? [...(build.sim.course ?? []), ...(raceType === "drag" ? build.sim.proCourse ?? [] : [])] : [];
+    const seed = first ? (Math.round(first[0]) * 73856093) ^ (Math.round(first[2]) * 19349663) : 1;
+    const spots = spawnSpots({
+      kind, course, slots: kind === "slots" ? build.sim.grid ?? slots : slots, boxes: build.sim.boxes ?? [],
+      heightAt: groundHeightAt, waterFt: build.waterLevelFt ?? null, seed,
+    });
+    const count = Math.max(slots.length, ...entrants.map((e) => (e.slot ?? 0) + 1), entrants.length);
+    const starts = startSpots(spots, count, first);
+    return {
+      id: extension.id,
+      dress: { mode: extension.id },
+      start: (index, fallback) => starts[entrants[index]?.slot ?? index] ?? fallback,
+      simulation: {
+        mode: extension.id, minutes: length, toughness: settings?.toughness ?? "normal", respawn: settings?.respawn !== false,
+        // The computer trucks repair only when repairs are on at all.
+        repairs: !!settings?.repairs, cpuRepairs: !!settings?.repairs && settings?.cpuRepairs !== false, aggression: settings?.aggression ?? "normal",
+        helicopter: !!settings?.helicopter, spots,
+      },
+    };
+  },
+  labels: (state, entrants, baseLabel) => COMBAT.labels(state, entrants, baseLabel),
+  resultTime: (length) => length * 60,
+  // With respawns only a truck that left the fight is out; without, a wreck is too.
+  out: (state, index) => (state?.respawn ? !!state?.trucks?.[index]?.quit : !!state?.out?.[index]),
+  // The finder points at the nearest truck still in the fight.
+  finderTarget: (state, index, positions) => nearest(positions, positions[index] ?? [0, 0, 0], (i) => i !== index && !state.out?.[i]),
+  toWire: deathmatchToWire,
+  fromWire: deathmatchFromWire,
+  ownToWire: deathmatchOwnToWire,
+  ownFromWire: deathmatchOwnFromWire,
+  keyAction(state, index) {
+    const me = state?.trucks?.[index];
+    if (!me || me.wrecked || me.quit) return {};
+    if (!state.repairs) return { message: "No repairs: they are off in Options" };
+    return COMBAT.keyAction(state, index);
+  },
+  /**
+   * The time left, the score and place, the truck's hit points, engine, gearbox and wheels, its credits (and with
+   * repairs on what a full repair costs), the wait to come back and the protection after. Every wreck is told, with the
+   * wrecker's YeeHaw, and so is a truck that wrecked itself; the last minute is warned and the end says who won.
+   */
+  hud(state, race, entrants, { t, formatRaceTime, watched = 0 }, previous) {
+    const flashes = [], sounds = [], repaired = [];
+    let phase = previous.phase ?? null;
+    const nameOf = (index) => (index === watched ? t("You") : entrants[index]?.name ?? "");
+    const wheel = (w) => t(WHEEL_NAMES[w] ?? "");
+    if (phase === null) {
+      flashes.push(state.repairs
+        ? t("Deathmatch! Wreck as many trucks as you can. X repairs, with the credits you earn by attacking.")
+        : t("Deathmatch! Wreck as many trucks as you can. Wrecking yourself costs a wreck."));
+      phase = "started";
+    }
+    if (phase === "started" && state.left <= 60 && state.left > 0 && !state.over) {
+      flashes.push(t("One minute left!"));
+      phase = "minute";
+    }
+    const seen = previous.events ?? 0;
+    for (const e of state.log ?? []) {
+      if (e.id <= seen) continue;
+      if (e.kind === "repair") {
+        repaired.push(e.truck);
+        if (e.truck === watched && e.spent > 0) flashes.push(t("Repaired for <<1>> credits", e.spent));
+      } else if (e.kind === "revive") {
+        // Back whole: its dents come out too.
+        repaired.push(e.truck);
+        if (e.truck === watched) flashes.push(t("You're back! Protected for <<1>> seconds.", RESPAWN.protectS));
+      } else if (e.kind === "wheel") {
+        flashes.push(e.truck === watched ? t("You lost your <<1>> wheel!", wheel(e.wheel)) : t("<<1>> lost its <<2>> wheel!", nameOf(e.truck), wheel(e.wheel)));
+        const me = state.trucks?.[e.truck];
+        if (state.repairs && e.truck === watched && me && !me.wrecked && me.wheels.every((w) => w < 0)) flashes.push(t("No wheels left: X puts one back on"));
+      } else if (e.kind === "wreck") {
+        if (e.by >= 0) {
+          sounds.push({ kind: "yeehaw", truck: e.by });
+          if (e.truck === watched) flashes.push(t("<<1>> wrecked you!", nameOf(e.by)));
+          else if (e.by === watched) flashes.push(t("You wrecked <<1>>! +1", nameOf(e.truck)));
+          else flashes.push(t("<<1>> wrecked <<2>>!", nameOf(e.by), nameOf(e.truck)));
+        } else flashes.push(e.truck === watched ? t("You wrecked yourself! -1") : t("<<1>> wrecked itself! -1", nameOf(e.truck)));
+        if (e.truck === watched && !state.respawn) flashes.push(t("You're out. Left and Right: watch another truck."));
+      } else if (e.kind === "quit" && e.truck === watched) flashes.push(t("You left the fight. Left and Right: watch another truck."));
+    }
+    if (state.over && phase !== "over") {
+      if (state.winner >= 0) {
+        const wrecks = state.scores?.[state.winner] ?? 0;
+        flashes.push(state.winner === watched ? t("You win with a score of <<1>>!", wrecks) : t("<<1>> wins with a score of <<2>>!", nameOf(state.winner), wrecks));
+      }
+      phase = "over";
+    }
+    const watchedTruck = state.trucks?.[watched];
+    const crawl = !!watchedTruck && !watchedTruck.wrecked && (watchedTruck.engine <= 0 || watchedTruck.gearbox <= 0);
+    if (crawl && !previous.crawl) flashes.push(state.repairs ? t("Your truck is crawling: repair it with X") : t("Your truck is crawling"));
+    const done = { flashes, sounds, repaired, events: state.events ?? seen, phase, memory: { crawl } };
+    const trucks = race?.trucks;
+    const mine = state.trucks?.[watched];
+    if (!trucks?.length || !mine) return { rows: null, ...done };
+    const me = trucks[watched], tally = tallyOf(state, watched);
+    const back = state.respawnIn?.[watched], safe = state.protected?.[watched] ?? 0;
+    const rows = [
+      [t("Time Remaining:"), formatRaceTime(state.left)],
+      [t("Score:"), String(tally.score)], [t("Wrecks:"), `${tally.wrecks} (-${tally.self})`], [t("Place:"), `${me.place}/${trucks.length}`], ["", ""],
+      [t("Truck:"), mine.wrecked ? [{ text: back !== null && back !== undefined ? t("Back in <<1>>", Math.ceil(back)) : t("Wrecked"), color: damageColour(-1) }]
+        : safe > 0 ? [{ text: t("Protected"), color: "#7fd0ff" }] : shown(mine.hp)],
+      [t("Engine:"), shown(mine.engine)], [t("Gearbox:"), shown(mine.gearbox)],
+      [t("Wheels:"), mine.wheels.flatMap((share, w) => [...(w ? [{ text: " " }] : []), { text: percent(share), color: damageColour(share) }])],
+      ["", ""], [t("Credits:"), String(mine.credits)],
+    ];
+    if (state.repairs) rows.push([t("Repair (X):"), mine.cost > 0 ? String(mine.cost) : "-"]);
+    // The Helicopter key: off, or when it may be called (stuck, no one attacking).
+    const heli = state.heli?.[watched];
+    if (state.helicopter && !mine.wrecked) {
+      rows.push([t("Helicopter (H):"), heli === null ? [{ text: t("Ready"), color: damageColour(1) }] : heli === "attacked" ? [{ text: t("Under attack"), color: damageColour(0.1) }] : t("When stuck")]);
+    }
+    return { rows, ...done };
+  },
+  /** The Winner's Circle's lines: the score's parts and the damage dealt; the Points column is the score. */
+  result(state, index, t) {
+    if (!state) return null;
+    const x = tallyOf(state, index);
+    return {
+      scoreText: String(x.score),
+      detail: index !== 0 ? undefined : [
+        `${t("Wrecks:")} ${x.wrecks}`, `${t("Wrecked yourself:")} ${x.self}`, `${t("Times wrecked:")} ${x.deaths}`, `${t("Damage dealt:")} ${Math.round(x.dealt)}`,
+      ],
+    };
+  },
+};
+
 // ---- Freestyle ----
 
 const scoreOf = (x) => (Number(x) || 0).toFixed(1);
@@ -596,7 +743,7 @@ const FREESTYLE = {
   }),
 };
 
-const ADAPTERS = new Map([["hockey", HOCKEY], ["soccer", SOCCER], ["tag", TAG], ["cops-robbers", CNR], ["race-rumble", RNR], ["combat", COMBAT], ["freestyle", FREESTYLE]]);
+const ADAPTERS = new Map([["hockey", HOCKEY], ["soccer", SOCCER], ["tag", TAG], ["cops-robbers", CNR], ["race-rumble", RNR], ["combat", COMBAT], ["deathmatch", DEATHMATCH], ["freestyle", FREESTYLE]]);
 const adapterOf = (stateOrId) => ADAPTERS.get(typeof stateOrId === "string" ? stateOrId : stateOrId?.mode) ?? null;
 
 export function resolveRaceExtension(id, track) {
@@ -609,7 +756,8 @@ export const extensionKeepsRace = (extension) => !!extension?.keepsRace;
 
 /**
  * Build extension-owned race data after the track has loaded. `ctx` is `{ build, entrants, length, groundHeightAt,
- * settings }`, `settings` the extension's own (game/extensions/loader.js `settingsForExtension`).
+ * settings, raceType, grid }`, `settings` the extension's own (game/extensions/loader.js `settingsForExtension`), `grid`
+ * the start slots as the party modes fill them (game/race-setup.js `fillGrid`).
  */
 export function prepareExtensionRace(extension, ctx) {
   if (!extension) return null;

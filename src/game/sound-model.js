@@ -182,10 +182,10 @@ export function skidAmount(tire) {
 }
 
 /**
- * The sound of a hull impact (0x429080, called from the contact response at 0x46ba80): one of
- * two samples at random, `suspen5` or `suspen6` while the truck is undamaged, `suspen1` or
- * `suspen3` once it is not, at x1.8. The game has no other crash sample for trucks. It is not
- * started while the truck's previous impact sound is still playing. `null` when too soft to hear.
+ * A suspension knock (0x429080; the game calls it from the bottoming damper at 0x46ba80, the port from a hull impact):
+ * one of two samples at random, `suspen5` or `suspen6` while the truck is undamaged, `suspen1` or `suspen3` once it is
+ * not, at x1.8. It is not started while the truck's previous knock is still playing. `null` when too soft to hear.
+ * Two trucks meeting have their own sound (`truckCrashSound`).
  */
 export function impactSound(force, damaged = false, pick = () => 1) {
   if (force < 600) return null;
@@ -193,6 +193,19 @@ export function impactSound(force, damaged = false, pick = () => 1) {
   return { name: names[(pick(2) - 1) % 2], gain: IMPACT_GAIN };
 }
 export const IMPACT_GAIN = 1.8;
+
+/**
+ * Two trucks meeting (0x429cb0, from the pair test 0x4894a0; MONSTER_EXE_ANALYSIS.md, sounds): `crash1` at x1.3, its
+ * pitch at random 0.9 to 1.1 (`random()` in [0, 1)). The game starts one every step the pair pushes on each other; the
+ * port starts one when they meet (`CRASH_APART_S` apart before, closing at `CRASH_MIN_FT_S` or more), so trucks leaning
+ * on each other do not drone.
+ */
+export function truckCrashSound(random = Math.random) {
+  return { name: "CRASH1", gain: TRUCK_CRASH_GAIN, rate: 0.9 + 0.2 * random() };
+}
+export const TRUCK_CRASH_GAIN = 1.3;
+/** A meeting counts after the two have been apart this long (seconds), and only at this closing speed (ft/s). */
+export const CRASH_APART_S = 0.25, CRASH_MIN_FT_S = 6;
 
 /** The sample for a gear change (first to second, second to third), or null. */
 export function gearSound(from, to) {

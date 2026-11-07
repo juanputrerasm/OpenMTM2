@@ -6,6 +6,39 @@ as it stood when it was written, and the plan's open items list is the one kept 
 
 ## v0.7.0 (begun as the v0.6.6 test build)
 
+Deathmatch and the truck crash sound, added to this build:
+
+- **Deathmatch** (`game/extensions/deathmatch.js`, `deathmatch-session.js`, `deathmatch-ai.js`; docs/EXTENSIONS.md,
+  "Shipped extension: Deathmatch"): a new party mode with Combat's damage and no race. Any track, 1 to 99 minutes (5 by
+  default); a wreck dealt scores one, a wreck of its own (no truck credited with the hit) takes one off; places by
+  score, damage dealt, fewest times wrecked. Wrecked trucks come back after 5 s at a spawn spot away from the others,
+  whole, held 1 s and protected 3 s (Options can turn it off: a wreck is then out, as in Combat). Credits only for
+  attacking (1 a hit point, 250 a wreck, from 0); repairs with X are off by default. Spawn spots are spread along the
+  course (circuits, rallies, drag lanes), on the start slots (Summit Rumbles) or at random over the level (any other
+  track), and the trucks start on them as far apart as they go. The computer trucks hunt: the weakest prey and the
+  leader first, Tag's chase, Combat's ram, a back-off after each hit, running when hurt. Online rooms judge it as
+  Combat, each machine its own trucks.
+  - Computer trucks never repair with repairs off; Options greys their switch out then (a setting's `enabledBy`, also
+    on Combat's, by credits).
+  - The Helicopter key is off by default; on, it comes only for a truck stuck with no one attacking it, and sets it
+    down on the nearest stretch of the course (or where it is), never at a spawn spot. The HUD tells when it is ready.
+- **Combat core** (`game/extensions/combat-core.js`): Combat's damage (hits, wheels, stubs, engine and gearbox,
+  credits, the network state of each machine's trucks) moved out of `combat-session.js` so Combat and Deathmatch share
+  it; Combat plays as before. `combat.js` gains `revive` and a credit table per mode (`rewards`). A manifest's
+  `combatDamage` (loader.js `usesCombatDamage`) picks Combat's scene and labels instead of the mode's name.
+- **Party modes' shared runtime** (`game/extensions/party-common.js`): `commonRuntime`, `chaseField` and the small
+  helpers moved out of `session-loader.js`. An extension's `prepare` is also given the track's race type and the filled
+  start grid.
+- Tests: tests/deathmatch.test.mjs.
+- **Truck crash sound** (`game/sound-model.js` `truckCrashSound`, `audio/world-audio.js` `crash`, the worker's pair
+  test): two trucks meeting were silent, as the hull-impact knock never fires for a truck against a truck. The game
+  plays `crash1.wav` for it (`0x429cb0` from the pair test `0x4894a0`; MONSTER_EXE_ANALYSIS.md, sounds, now written up):
+  x1.3, a random pitch from 0.9 to 1.1, from the player's truck when it is one of the two, under the world one-shots'
+  water mix. The game starts one every step the trucks push on each other; the port one a meeting (apart 0.25 s
+  before, closing at 6 ft/s or more). The same pass found that the game's `suspen` knocks come from the bottoming
+  damper (`0x46ba80`), not from hull impacts as the doc had it; the port still plays them for hull impacts.
+  Tests: tests/truck-crash-sound.test.mjs.
+
 Players' reports on 0.6.5 (RuDeE) and the decisions on them. The research behind the Evo and MTM1 rules is in
 `EVO2_PHYSICS.md` (section 2 rewritten, 5.4 Suspension, 6.3, 12 Checkpoints), `EVO2_EXE_ANALYSIS.md` (10 Cameras, 11
 Helicopter and recovery, 12 Computer drivers) and `MTM1_MONSTER_EXE_ANALYSIS.md` (10 Cameras, 11 CPU trucks).

@@ -32,7 +32,7 @@ free of charge.
   profiles, results and a Hall of Fame, with up to eight trucks.
 - **Multiplayer:** online rooms through a server browser, up to 16 players, and classic TCP/IP play
   with the original game (retail and Community Patch 3).
-- **Party modes:** Hockey, Soccer, Tag, Cops & Robbers, Race & Rumble and Combat, with teams, roles
+- **Party modes:** Hockey, Soccer, Tag, Cops & Robbers, Race & Rumble, Combat and Deathmatch, with teams, roles
   and rules set in Options, and Freestyle, a solo show run judged out of 10.
 - **Faithful simulation:** clean-room truck physics, collisions and CPU drivers running in a Web Worker.
 - **Four Terminal Reality games in one:** MTM2 Beta 10 through Community Patch 3, plus the tracks and
@@ -210,6 +210,10 @@ its own storage, so the game files are installed once more inside it. A phone sh
   gearbox and each wheel until wheels come off. Earn credits at checkpoints and for damage dealt,
   and press X to repair. The first truck home, or the last one running, wins. A wrecked player
   watches the rest of the race.
+- Play Deathmatch on any track: Combat's damage with no race. Wreck as many trucks as you can
+  before the time runs out; the most wrecks wins, and wrecking yourself costs one. Wrecked trucks
+  come back after a few seconds at a spot away from the fight, briefly protected. Credits come only
+  from attacking and buy repairs with X when repairs are on (off by default).
 - Drive a Freestyle run on any track, alone against the clock, as at a Monster Jam show: big air,
   wheelies, donuts, flips, hits and saves are judged out of 10, with the score building live on the
   HUD and its breakdown in the Winner's Circle. Use all the time and keep moving; reversing without a
@@ -224,7 +228,7 @@ its own storage, so the game files are installed once more inside it. A phone sh
 - **Online rooms:** choose **Multiplayer**, then **Online rooms**. The default server is
   `multiplayer.openmtm2.workers.dev`. Browse, create or join rooms (public, password or code), share
   an invite link, and race with up to 16 players and computer opponents. The room owner can also
-  pick a party mode. Combat online needs a server with OpenMTM2 Server's `modeTruck` event.
+  pick a party mode. Combat and Deathmatch online need a server with OpenMTM2 Server's `modeTruck` event.
 - **Classic TCP/IP:** host or join games with the original MTM2 (retail 2.00.42 or Community
   Patch 3) by IP address, through a small desktop helper from the OpenMTM2 Server project.
 - Each machine simulates its own truck; remote trucks are smoothed, and results are shared at the end.

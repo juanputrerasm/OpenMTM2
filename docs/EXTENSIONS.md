@@ -1,13 +1,14 @@
 # OpenMTM2 extensions
 
 Extensions add optional game modes without making them part of the original game simulation. OpenMTM2
-currently ships with Hockey, Soccer, Tag, Cops & Robbers, Race & Rumble, Combat and Freestyle. They appear in the Races screen and in Options, but their rules,
+currently ships with Hockey, Soccer, Tag, Cops & Robbers, Race & Rumble, Combat, Deathmatch and Freestyle. They appear in the Races screen and in Options, but their rules,
 settings, rendering and worker state stay behind extension loader contracts.
 
 ## Ownership boundary
 
 None of these were modes in Monster Truck Madness or Monster Truck Madness 2 (Cops & Robbers and Race & Rumble
-were played by the community under hand-kept rules; Combat is after Carmageddon's combat racing). They must never be
+were played by the community under hand-kept rules; Combat is after Carmageddon's combat racing, and Deathmatch is
+Combat's damage with no race). They must never be
 implemented in OpenPhotex. OpenPhotex owns TRI file formats and behavior found in the original games.
 An OpenMTM2 extension may call public OpenPhotex simulation primitives, but its rules and adapters belong
 in this repository:
@@ -65,13 +66,17 @@ export const MY_EXTENSION = Object.freeze({
   detailLevel: null,              // null uses the normal setting
   damageKey: null,                // "repair": the Crash Damage key is the mode's (adapter `keyAction`), damage always on
   watchWhenOut: false,            // true: a player out of the race (adapter `out`) watches it on, as in spectator mode
+  combatDamage: false,            // true: fights with Combat's damage, scene and labels (loader.js `usesCombatDamage`)
 });
 ```
 
 Settings may be `type: "number"`, `type: "boolean"` (a checkbox) or `type: "select"` (with `options`, each
-`{ value, label }`). Register the manifest in
+`{ value, label }`). A checkbox with `enabledBy: "<key>"` can only be switched on while that other checkbox is on:
+Options shows it greyed out and off otherwise, and keeps its own choice for when it is on again (Combat's and
+Deathmatch's "Computer trucks repair themselves", by credits and by repairs). Register the manifest in
 `game/extensions/loader.js`. Add an entry to `ADAPTERS` in `race-loader.js`. Its `prepare` returns only the pieces
-the mode needs; the other members (labels and their colours, map marks and points, the arrow's truck, the finder's
+the mode needs (`ctx` is `{ build, entrants, length, groundHeightAt, settings, picks, raceType, grid }`, `grid` the start
+slots as `fillGrid` leaves them); the other members (labels and their colours, map marks and points, the arrow's truck, the finder's
 target, the result time, the HUD, the network state) are listed at the top of that file:
 
 ```js
@@ -201,6 +206,10 @@ What each shipped mode sends:
   credits owed to its own trucks once. The owner's `mode` state is the end, the winner, the order the trucks went
   out in, and its rules (toughness, credits on or off, credits at the start), which every machine takes on the
   first state.
+- **Deathmatch:** judged as Combat (each machine its own trucks, `netOwn`), with three more counts in each truck's
+  state: the times it wrecked itself (`sw`), the times it was wrecked (`dt`) and the times it came back (`rs`). A truck
+  comes back on its own machine; another machine that sees `rs` move on makes its copy whole, puts its wheels back and
+  protects it as there. The owner's `mode` state is the end, the winner and its rules (toughness, respawn, repairs, helicopter).
 - **Hockey:**
   - the teams, the score, each truck's goals, the phase and its timer, the last touch, the last
     event, the number of face-offs, the time played, sudden death and the end;
@@ -450,7 +459,8 @@ colour, as are the map dots. A blocker's finder points at the nearest racer of a
 After Carmageddon's combat racing, with no power-ups. Any track raced through checkpoints: a circuit, with the laps as
 the length (3 by default), or a rally, always one run (not free roam, a Summit Rumble or a drag strip). At least two
 trucks. The race is the track's own (`keepsRace`). Crash damage is always on; the Crash Damage key (X)
-repairs instead. Rules in `game/extensions/combat.js`, the runtime in `combat-session.js`, the computer drivers in
+repairs instead. Rules in `game/extensions/combat.js`, the runtime in `combat-session.js` (the damage itself in
+`combat-core.js`, which Deathmatch shares), the computer drivers in
 `combat-ai.js`, the ground under a lost wheel in `combat-ground.js`, the debris in `combat-debris.js`, the drawing in
 `render/extensions/combat-scene.js`. Options: the laps, the trucks' toughness (Soft 0.7, Normal 1, Tough 1.5 times
 every pool), credits on or off, the credits at the start (500), whether the computer trucks repair themselves (on), and the computer trucks' aggression (Low, Normal, High).
@@ -553,6 +563,66 @@ setting the same way for any extension.
 
 Not in replays: a replay shows the trucks without the loose wheels, the debris and the smoke. Online rooms: see "Over the
 network" (each machine judges the trucks it drives; the owner decides the end).
+
+## Shipped extension: Deathmatch
+
+Combat's damage with no race: wreck as many trucks as you can before the time runs out, and the truck with the most
+wrecks wins. Any track, any weather, at least two trucks, online rooms too. The round is 1 to 99 minutes (5 by
+default), from the countdown's end; the HUD warns of the last minute. No checkpoints and no laps (`keepsRace: false`).
+Rules in `game/extensions/deathmatch.js`, the runtime in `deathmatch-session.js`, the computer drivers in
+`deathmatch-ai.js`; the damage is Combat's, through the combat core (`combat-core.js`, shared with Combat's
+`combat-session.js`), and so is the drawing (`render/extensions/combat-scene.js`). Options: the minutes, the trucks'
+toughness (as Combat's), "Wrecked trucks come back" (on), "Repair with X, with the credits earned by attacking" (off),
+whether the computer trucks repair themselves (on, but only with repairs on: greyed out and off without them, and no
+computer truck repairs then), "Helicopter (H) when stuck and no one is attacking" (off), the names over the trucks, and
+the computer trucks' aggression (Low, Normal, High).
+
+- **Damage:** all of Combat's: the pools, where hits go, fights that fade, the rammer and its victim, wheels coming off
+  last, the stubs, the hurt engine and gearbox, the crawl, the debris and the smoke. Crash damage is always on.
+- **Score:** a truck credited with the hit that wrecks another (Combat's rammer rule) scores a wreck. A truck wrecked
+  with no truck credited (a landing, a wall, a roll) wrecked itself and loses one, so a score can go under 0. Places:
+  the score, then the damage dealt, then the fewest times wrecked, then entry order. The Points column is the score;
+  the Winner's Circle lists the wrecks, the wrecks of its own, the times wrecked and the damage dealt.
+- **Respawn** (on by default): a wreck lies where it is, smoking, for 5 s. Then the truck is set down at a spawn spot
+  (below), whole: every pool full, every wheel and axle back, the dents out; its credits, damage dealt and wrecks are
+  kept. It is held for 1 s, then protected for 3 s more: it neither takes nor deals damage. Off, a wreck is out for
+  good, as in Combat: the player watches on, and the round also ends when one truck is left, still won by the score.
+- **Credits:** only for attacking, from 0: 1 a hit point dealt and 250 a wreck (`DM_REWARDS`); none for a wreck of its
+  own. With repairs on, X repairs as Combat's does (200 a wheel, 2 credits a hit point, not within 3 s); off, X says
+  so. The HUD always shows the credits; what a full repair costs only with repairs on.
+- **Spawn spots** (`spawnSpots`), worked out once on the race screen, the same on every machine, and sent to the
+  simulation:
+  - circuits and rallies: every 120 ft along the course's straights, facing along them; drag strips: both lanes;
+  - Summit Rumbles: the track's start slots;
+  - any other track, or one whose course gives fewer than two: 48 points at random (seeded by the first start slot)
+    over the level's objects and start slots with 300 ft round them (at least 1200 ft each way; the whole terrain with
+    none), on ground no steeper than 0.6 across 16 ft, dry (1.5 ft over the water) and 15 ft clear of any object.
+  At most 64 are kept, as far apart as they go. A course's spots that are all steep, wet or crowded are used as they are.
+- **The start** (`startSpots`): each start slot (a room's vehicle numbers) gets its own spot, as far apart as they go
+  from the one nearest the first slot, facing the middle of the field.
+- **Coming back** (`pickSpawn`): from a random spot on, the first at least 400 ft from every truck running, else the one
+  farthest from its nearest; turned toward the nearest truck.
+- **The Helicopter key** (H) is off by default, since it could take a truck out of a fight. On (`HELI`,
+  `heliRefusal`), it comes only for a truck that is stuck (under 3 ft/s for 3 s, or on its side or roof, its up axis
+  under 0.5, for 2 s) and that no one is attacking (no other truck has touched it for 5 s, and none still in the fight
+  is within 80 ft). It sets the truck down on the nearest stretch of the course, or upright where it is on a track
+  without one. The HUD's "Helicopter (H)" row (only with it on) reads Ready, When stuck or Under attack. The computer
+  trucks' own rescue when they make no headway for 15 s is not the key and stays.
+- **Computer trucks** (`deathmatch-ai.js`) hunt instead of racing. Their prey is a running truck not protected, the
+  weakest first (fewest wheels, fewest hit points) and the leader, nearer better, within 500, 900 or 1600 ft by
+  aggression (the nearest when none is within reach). They keep it 6 to 10 s unless another scores better by 1. They
+  chase it as Tag's It does (round objects, up slopes, off ramps) at 90 ft/s and ram it from 150 ft in at 110 ft/s
+  (Combat's `ramPoint`); after meeting it they back up 60 ft away from it for 3, 2 or 1.2 s, as a fight pushed on
+  counts less and less. Under 45 or 30 percent of their hit points (Low, Normal; never at High) they run from the
+  nearest truck (Tag's shy driving) until they are back to 60 percent, unless it is within 40 ft. With repairs on they
+  repair as Combat's do. Stuck, the helicopter after 15 s.
+- **HUD:** the time left, the score, the wrecks and the wrecks of its own, the place, then the truck's hit points (or
+  "Back in" with the seconds while it lies wrecked, "Protected" after), engine, gearbox and wheels in Combat's colours,
+  the credits and, with repairs on, the repair's cost. Every wreck is told (the wrecker's YeeHaw), a wreck of its own as
+  -1, and the end names the winner and its score. The names over the trucks carry the hit points as in Combat. The
+  finder points at the nearest truck still in the fight.
+
+Not in replays, as Combat's.
 
 ## Mutator: Wheels damage
 

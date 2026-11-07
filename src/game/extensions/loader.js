@@ -9,6 +9,7 @@ import { CNR_EXTENSION } from "./cops-robbers.js";
 import { RNR_EXTENSION } from "./race-rumble.js";
 import { COMBAT_EXTENSION } from "./combat.js";
 import { FREESTYLE_EXTENSION } from "./freestyle.js";
+import { DEATHMATCH_EXTENSION } from "./deathmatch.js";
 import { msg } from "../strings.js";
 import { DEFAULT_REPAIR_S } from "./loose-wheels.js";
 
@@ -16,7 +17,7 @@ import { DEFAULT_REPAIR_S } from "./loose-wheels.js";
 export { LOOSE_WHEEL_TEXT, REPAIR_CHOICES, damagePercent, damageText } from "./loose-wheels.js";
 
 /** Shipped extensions. A new extension is registered in this one place. */
-export const EXTENSIONS = Object.freeze([HOCKEY_EXTENSION, SOCCER_EXTENSION, TAG_EXTENSION, CNR_EXTENSION, RNR_EXTENSION, COMBAT_EXTENSION, FREESTYLE_EXTENSION]);
+export const EXTENSIONS = Object.freeze([HOCKEY_EXTENSION, SOCCER_EXTENSION, TAG_EXTENSION, CNR_EXTENSION, RNR_EXTENSION, COMBAT_EXTENSION, DEATHMATCH_EXTENSION, FREESTYLE_EXTENSION]);
 
 /** An extension descriptor by id, or null for a core mode or an unknown id. */
 export function extensionById(id) {
@@ -27,6 +28,9 @@ export function extensionById(id) {
 export function availableExtensions(tracks) {
   return EXTENSIONS.filter((extension) => tracks.some((track) => extension.acceptsTrack(track)));
 }
+
+/** Whether a mode fights with Combat's damage (`combatDamage` in its manifest: Combat, Deathmatch), its scene and labels. */
+export const usesCombatDamage = (id) => !!extensionById(id)?.combatDamage;
 
 /** Whether an id belongs to a registered extension. */
 export const isExtensionMode = (id) => !!extensionById(id);

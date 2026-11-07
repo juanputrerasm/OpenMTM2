@@ -3,6 +3,7 @@ import { dressExtension } from "./party-scene.js";
 import { createItMarker } from "./it-marker.js";
 import { createCombatScene } from "./combat-scene.js";
 import { IT_COLOUR } from "../../game/extensions/tag.js";
+import { usesCombatDamage } from "../../game/extensions/loader.js";
 
 /**
  * `extension` is the race's plain `dress` data; a `marker` colour asks for the arrow over one truck (Tag's It, the robber).
@@ -14,7 +15,7 @@ export function createExtensionScene(scene, world, extension, { looseWheels = fa
   const colour = extension?.marker ?? (extension?.mode === "tag" ? IT_COLOUR : null);
   const marker = colour ? createItMarker(colour) : null;
   if (marker) scene.add(marker.object);
-  const running = extension?.mode === "combat" ? createCombatScene(scene) : null;
+  const running = usesCombatDamage(extension?.mode) ? createCombatScene(scene) : null;
   // Loose Wheels (a mutator beside any mode) draws its wheels, stubs and parts as Combat does; `frame.wheels` is its state.
   const wheels = looseWheels ? createCombatScene(scene) : null;
   return {

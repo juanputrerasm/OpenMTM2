@@ -7246,5 +7246,121 @@
  {
   "tag": "The largest HD textures and ground tiles a track and the trucks keep (Community Patch 3 and HD tracks such as Valparaíso Racing). Half or Quarter for graphics with little memory, built into the processor: the game then needs a quarter or a sixteenth of the video memory for them. The game's own textures are not changed. From the next race",
   "text": "El tamaño máximo de las texturas HD y las baldosas del suelo de una pista y de los camiones (Community Patch 3 y pistas HD como Valparaíso Racing). Mitad o Cuarto para gráficos con poca memoria, integrados en el procesador: el juego necesita entonces un cuarto o un dieciseisavo de la memoria de video para ellas. Las texturas propias del juego no cambian. Desde la próxima carrera"
+ },
+ {
+  "tag": "Deathmatch",
+  "text": "Deathmatch"
+ },
+ {
+  "tag": "Wreck as many trucks as you can before the time runs out: the most wrecks wins. Combat's damage, no race. A truck that wrecks itself loses a wreck. Credits for the damage you deal buy repairs, when they are on.",
+  "text": "Destroza a tantos camiones como puedas antes de que se acabe el tiempo: gana el que más destroce. Los daños de Combate, sin carrera. Un camión que se destroza solo pierde un destrozo. Los créditos por el daño que causas pagan las reparaciones, cuando están activadas."
+ },
+ {
+  "tag": "Wrecked trucks come back",
+  "text": "Los camiones destrozados vuelven"
+ },
+ {
+  "tag": "Repair with X, with the credits earned by attacking",
+  "text": "Reparar con X, con los créditos ganados atacando"
+ },
+ {
+  "tag": "Low: they pick their fights",
+  "text": "Baja: eligen sus peleas"
+ },
+ {
+  "tag": "High: they never back off",
+  "text": "Alta: nunca retroceden"
+ },
+ {
+  "tag": "Deathmatch! Wreck as many trucks as you can. X repairs, with the credits you earn by attacking.",
+  "text": "¡Deathmatch! Destroza a tantos camiones como puedas. X repara, con los créditos que ganas atacando."
+ },
+ {
+  "tag": "Deathmatch! Wreck as many trucks as you can. Wrecking yourself costs a wreck.",
+  "text": "¡Deathmatch! Destroza a tantos camiones como puedas. Destrozarte solo te cuesta un destrozo."
+ },
+ {
+  "tag": "You're back! Protected for <<1>> seconds.",
+  "text": "¡Volviste! Protegido durante <<1>> segundos."
+ },
+ {
+  "tag": "<<1>> wrecked you!",
+  "text": "¡<<1>> te destrozó!"
+ },
+ {
+  "tag": "You wrecked <<1>>! +1",
+  "text": "¡Destrozaste a <<1>>! +1"
+ },
+ {
+  "tag": "You wrecked yourself! -1",
+  "text": "¡Te destrozaste solo! -1"
+ },
+ {
+  "tag": "<<1>> wrecked itself! -1",
+  "text": "¡<<1>> se destrozó solo! -1"
+ },
+ {
+  "tag": "You're out. Left and Right: watch another truck.",
+  "text": "Estás fuera. Izquierda y Derecha: mira otro camión."
+ },
+ {
+  "tag": "You win with a score of <<1>>!",
+  "text": "¡Ganas con un puntaje de <<1>>!"
+ },
+ {
+  "tag": "<<1>> wins with a score of <<2>>!",
+  "text": "¡<<1>> gana con un puntaje de <<2>>!"
+ },
+ {
+  "tag": "Your truck is crawling: repair it with X",
+  "text": "Tu camión avanza a paso de tortuga: repáralo con X"
+ },
+ {
+  "tag": "Your truck is crawling",
+  "text": "Tu camión avanza a paso de tortuga"
+ },
+ {
+  "tag": "Wrecks:",
+  "text": "Destrozos:"
+ },
+ {
+  "tag": "Back in <<1>>",
+  "text": "Vuelve en <<1>>"
+ },
+ {
+  "tag": "Protected",
+  "text": "Protegido"
+ },
+ {
+  "tag": "Wrecked yourself:",
+  "text": "Te destrozaste solo:"
+ },
+ {
+  "tag": "Times wrecked:",
+  "text": "Veces destrozado:"
+ },
+ {
+  "tag": "Damage dealt:",
+  "text": "Daño causado:"
+ },
+ {
+  "tag": "No repairs: they are off in Options",
+  "text": "Sin reparaciones: están desactivadas en Opciones"
+ },
+ {
+  "tag": "Helicopter (H) when stuck and no one is attacking",
+  "text": "Helicóptero (H) al quedar atascado y sin nadie atacando"
+ },
+ {
+  "tag": "Helicopter (H):",
+  "text": "Helicóptero (H):"
+ },
+ {
+  "tag": "Under attack",
+  "text": "Bajo ataque"
+ },
+ {
+  "tag": "When stuck",
+  "text": "Al quedar atascado"
  }
 ]

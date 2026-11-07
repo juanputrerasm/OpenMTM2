@@ -113,7 +113,7 @@ import {
   extensionNetOwnFromWire, extensionNetOwnToWire, extensionNetToWire, extensionResultTime, extensionTruckLabels, extensionTruckMarks, prepareExtensionRace, resolveRaceExtension,
   extensionKeyAction, extensionTruckOut, damageColour,
 } from "../../game/extensions/race-loader.js";
-import { LOOSE_WHEEL_TEXT, damagePercent, damageText, entrantTeamPicks, looseWheelsFor, settingsForExtension, soloExtension } from "../../game/extensions/loader.js";
+import { LOOSE_WHEEL_TEXT, damagePercent, damageText, entrantTeamPicks, looseWheelsFor, settingsForExtension, soloExtension, usesCombatDamage } from "../../game/extensions/loader.js";
 import { createExtensionScene } from "../../render/extensions/loader.js";
 import { GRASS_RADII, grassLevel } from "../../render/evo-grass.js";
 import { createNetRace } from "../../net/net-race.js";
@@ -460,7 +460,7 @@ async function mountRace(container, context, params, owned = []) {
     : seatDrivers(drivers.filter((d) => build.truckModels[d.file]), grid.length);
   const extensionRace = prepareExtensionRace(extension, {
     build, entrants, length: laps, settings: settingsForExtension(raceRules, extension),
-    groundHeightAt: extensionGround,
+    groundHeightAt: extensionGround, raceType: track.raceType, grid,
     // The teams (and roles) picked in the Computer Opponents dialog; a room's are its own.
     picks: extension && !net ? entrantTeamPicks(context.settings, extension, entrants) : null,
   });
@@ -543,6 +543,10 @@ async function mountRace(container, context, params, owned = []) {
     count: entrants.length, player: 0, kookyHorn: !!context.settings.kookyHorn, mtm1Sounds: !!context.settings.mtm1Sounds, settings: () => context.settings,
     // An object struck under water sounds lower (game/sound-model.js `underwaterMix`); Snow's water is ice.
     onHit: (sitIndex, force, pos) => worldAudio.hit(sitIndex, force, pos, {
+      sourceUnder: weatherScene.weather !== 5 && waterLevelNow !== null && pos[1] < waterLevelNow,
+    }),
+    // Two trucks met: their crash, from the truck it is sent with (the player's own in the cab).
+    onCrash: (pos, own) => worldAudio.crash(own ? null : pos, {
       sourceUnder: weatherScene.weather !== 5 && waterLevelNow !== null && pos[1] < waterLevelNow,
     }),
   });
@@ -1648,7 +1652,7 @@ async function mountRace(container, context, params, owned = []) {
   const truckLabels = (state) => {
     const labels = extensionTruckLabels(state, entrants, (entrant) => nameLabel(namesMode, entrant, truckName));
     const wheels = wheelsNow?.trucks;
-    if (!wheels || state?.mode === "combat") return labels;
+    if (!wheels || usesCombatDamage(state?.mode)) return labels;
     return labels.map((label, i) => {
       if (!label || !wheels[i]) return label;
       const p = damagePercent(wheels[i]);

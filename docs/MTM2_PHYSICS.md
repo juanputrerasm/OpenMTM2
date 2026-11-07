@@ -1446,7 +1446,7 @@ radius) of `A`'s centre, each wheel `Aw` of `A` in the order FR, FL, RR, RL:
    - A gets `-f` at `R_A`, B gets `+f` (to its axes) at `R_B`, in the same last-contact record as
      the hull points.
 
-The pair also posts crash sounds and damage (`0x532140`, `0x429cb0`, `0x424060`), not physics.
+The pair also posts its crash sound (`0x429cb0`, `crash1.wav`; MONSTER_EXE_ANALYSIS.md, sounds) and damage (`0x532140`, `0x424060`), not physics.
 
 **Wheels against wheels** (`0x491950`): when two wheels' bounding spheres overlap, `0x490790`
 forms the touching point on the wheel and `0x48b5d0` / `0x491e20` respond; still to be written up

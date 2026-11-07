@@ -420,6 +420,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
 .opt-slider input { flex: 1; min-width: 80px; }
 .opt-value { min-width: 58px; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
 .opt-switch { width: 18px; height: 18px; }
+.opt-switch:disabled { opacity: 0.45; cursor: default; }
 .opt-fixed { color: var(--muted, #aab); }
 .opt-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; }
 .opt-muted { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px; }

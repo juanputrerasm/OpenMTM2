@@ -1,28 +1,20 @@
 /*
-  Combat's runtime in the simulation worker (docs/EXTENSIONS.md; the rules are combat.js). It measures each truck's hits
-  from its change of velocity step by step, with who it met (`touch`), and applies them; takes a lost wheel off the
-  ground (combat-ground.js) and throws it as a loose object every truck can hit; drags the bare axle ends; holds a hurt
-  engine's throttle and a hurt gearbox's gears; drives the computer trucks' rams (combat-ai.js); and keeps the places.
-  A wrecked truck stops where it is, out of the race.
+  Combat's runtime in the simulation worker (docs/EXTENSIONS.md; the rules are combat.js). The damage is the shared
+  combat core's (combat-core.js: hits, wheels, stubs, engine and gearbox, credits, the network); this adds the race:
+  credits for checkpoints and laps, the lift back to a missed checkpoint, the computer trucks' rams (combat-ai.js), the
+  places and the last truck standing. A wrecked truck stops where it is, out of the race.
 */
 import * as S from "../../vendor/openphotex/sim/mtm2/index.js";
-import {
-  adoptRules, IMPACT, TOUCH_MEMORY_S, applyHit, combatPlaces, combatTruckView, createCombat, creditDamage, creditProgress,
-  CRAWL, closingSpeed, crawling, engageShare, enginePower, rollCost, truckShare, gearboxStep, impactOf, lastStanding, quit, ramShares, repair, running, say, wheelsOn, wreck,
-} from "./combat.js";
-import { lostWheelGround } from "./combat-ground.js";
+import { adoptRules, combatPlaces, creditProgress, lastStanding, running, wheelsOn } from "./combat.js";
+import { createCombatCore } from "./combat-core.js";
 import { createCombatDriver, ramPoint, ramStep, wantsRepair } from "./combat-ai.js";
-import { seeded } from "./combat-debris.js";
 import { createRumbleDriver, driveToPoint } from "../rumble-ai.js";
-import { createLooseWheels, hitStep, recordTouch, stubStep, stubsOf, toWorld, worldVelocity } from "./loose-wheels-core.js";
+import { worldVelocity } from "./loose-wheels-core.js";
 
 export { LOOSE_WHEEL_SLUGS, MOST_LOOSE } from "./loose-wheels-core.js";
-/** The impacts kept for the drawing's debris. */
-export const HITS_KEPT = 24;
+export { HITS_KEPT, ROLL_EASE_FT_S2 } from "./combat-core.js";
 /** A truck one stretch past its next checkpoint and this far from its gate has missed it (feet). */
 const FAR_FROM_GATE_FT = 250;
-/** How fast a truck's "fastest lately" eases down (ft/s a second), for the cost of a flip. */
-export const ROLL_EASE_FT_S2 = 40;
 
 /** The course's stretch nearest a point (x and z), by its index; `course` is the oriented course (straights and arcs). */
 export function courseSegmentOf(course, pos) {
@@ -65,61 +57,15 @@ export const droveThrough = (from, passed, next, count) => passed > ((((next - f
 
 export function createCombatRuntime(payload, env) {
   const { trucks, race, step, watchHeadway } = env;
-  const c = createCombat(trucks.length, { toughness: payload.toughness, credits: payload.credits !== false, startCredits: payload.startCredits });
   const aggression = payload.aggression ?? "normal";
-  const clock = () => race.clock - race.startTime;
-  /** Each truck's lost wheels (the ground wrapper reads them), its hit under way, its last meeting with another truck. */
-  const per = trucks.map((t, i) => ({
-    lost: [false, false, false, false], hit: null, met: null, prevVel: null, gearbox: { last: S.GEAR.FIRST, missUntil: 0, target: null },
-    rand: seeded(0x9e3779b9 ^ (i * 7919 + 1)), driver: createCombatDriver(), progress: 0, laps: 0,
-    // Its fastest lately (ft/s, easing down), and whether it is over on its back or side now.
-    fast: 0, over: false,
-  }));
+  let decided = null, winner = -1, rulesTaken = false;
+  const core = createCombatCore(env, { toughness: payload.toughness, credits: payload.credits !== false, startCredits: payload.startCredits }, {
+    onWrecked: (i) => takeOut(i),
+    onQuit: (i) => takeOut(i),
+  });
+  const { c, per, clock, judgedHere, following } = core;
+  const drivers = trucks.map(() => createCombatDriver());
   trucks.forEach((t) => { t.extensionDriver = createRumbleDriver(0.6); });
-  const hits = [];
-  /** Each pair of trucks' fight (ENGAGE): when it began, when they last touched; by "a,b". */
-  const fights = new Map();
-  let nextId = 1, decided = null, winner = -1;
-  const wheelsLoose = createLooseWheels(() => nextId++);
-  const loose = wheelsLoose.loose;
-
-  /*
-    Online (docs/EXTENSIONS.md, "Over the network"): only the machine that drives a truck sees its own crashes, so each
-    machine judges the trucks it drives (its player's; the owner's also its computer trucks and any left by a player)
-    and sends their state (`netOwn`); the others take it (`applyNetOwn`). Credits for damage dealt to a truck judged
-    elsewhere are owed to it and sent with the state, as running totals. The owner alone decides the end (`netState`).
-  */
-  const net = env.net ?? null;
-  const following = () => net?.authority === "follower";
-  const remoteAtStart = trucks.map((t) => !!t.remote);
-  const judgedHere = (i) => !!trucks[i] && !trucks[i].remote && (!remoteAtStart[i] || !following());
-  /** Credits this machine owes other machines' trucks: running totals of hit points dealt and wrecks, by truck. */
-  const owed = trucks.map(() => ({ hp: 0, wrecks: 0 }));
-  /** What each other machine has owed this machine's trucks so far, by its sender truck. */
-  const owedSeen = new Map();
-  let rulesTaken = false;
-  /** Who wrecked each truck (-1 nobody). */
-  const wreckedBy = trucks.map(() => -1);
-  /** Credit `by` for a hit: here when it is judged here, else owed to its machine. */
-  const credit = (by, hp, wrecked) => {
-    if (by < 0 || !trucks[by]) return;
-    if (judgedHere(by)) { creditDamage(c, by, hp, wrecked); return; }
-    owed[by].hp += hp;
-    if (wrecked) owed[by].wrecks++;
-  };
-
-  /** Where a corner of truck `i` is in the world, and the way out from it. */
-  const cornerOf = (i, side, end) => {
-    const s = trucks[i].state;
-    const body = [side * 3.5, 0.5, end * 6];
-    const w = toWorld(s.matrix, body);
-    return { pos: [s.pos[0] + w[0], s.pos[1] + w[1], s.pos[2] + w[2]], normal: w };
-  };
-  /** Throw truck `i`'s wheel off: a loose box with the hub's velocity, kicked out and up (loose-wheels-core.js). */
-  function throwWheel(i, wheel) {
-    per[i].lost[wheel] = true;
-    wheelsLoose.throw(i, trucks[i], wheel, per[i].rand);
-  }
 
   /** Truck `i` is out: it stops where it is and leaves the race. */
   function takeOut(i) {
@@ -130,70 +76,6 @@ export function createCombatRuntime(payload, env) {
     const t = trucks[i];
     t.recovery.autopilot = false;
     t.recovery.player = false;
-  }
-
-  /** Count truck `i`'s hit `h` now that it is over. */
-  function settle(i, h) {
-    if (!h || !running(c.trucks[i])) return;
-    const met = per[i].met && clock() - per[i].met.at <= TOUCH_MEMORY_S ? per[i].met : null;
-    const impact = impactOf(h.dv, h.excess, met?.toward ?? null);
-    let creditTo = -1;
-    if (met) {
-      const shares = ramShares(met.close, met.theirs);
-      // Trucks leaning on each other or tangled cost little; a hit at speed all of it.
-      // and a fight pushed on past its first blow less and less (ENGAGE).
-      impact.amount *= shares.a * truckShare(closingSpeed(met.close, met.theirs)) * engageShare(h.start - met.since);
-      if (shares.creditB) creditTo = met.other;
-    }
-    if (impact.amount <= 0) return;
-    const result = applyHit(c, i, impact);
-    if (!result.taken) return;
-    const where = met
-      ? (() => { const s = trucks[i].state, d = Math.hypot(...met.towardWorld) || 1; return { pos: [s.pos[0] + met.towardWorld[0] / d * 4, s.pos[1] + 1, s.pos[2] + met.towardWorld[2] / d * 4], normal: met.towardWorld.map((v) => -v) }; })()
-      : cornerOf(i, impact.side, impact.end);
-    hits.push({ id: nextId++, truck: i, kind: impact.kind, by: met ? met.other : -1, pos: where.pos, normal: met ? met.towardWorld : where.normal, force: result.taken, vel: worldVelocity(trucks[i].state) });
-    if (hits.length > HITS_KEPT) hits.shift();
-    for (const wheel of result.wheelsOff) {
-      throwWheel(i, wheel);
-      say(c, { kind: "wheel", truck: i, wheel, by: creditTo });
-    }
-    credit(creditTo, result.taken, result.wrecked);
-    if (result.wrecked) {
-      wreckedBy[i] = creditTo;
-      wreck(c, i, creditTo);
-      takeOut(i);
-    }
-  }
-
-  /** A truck going over at speed: a small cost, once a flip. */
-  function rolled(i, speed) {
-    const p = per[i], s = trucks[i].state;
-    p.fast = Math.max(speed, p.fast - ROLL_EASE_FT_S2 * step);
-    // The body's up past level (row-major: its y is element 4).
-    const over = s.matrix[4] < 0;
-    if (over && !p.over && running(c.trucks[i]) && judgedHere(i)) {
-      const amount = rollCost(p.fast);
-      if (amount > 0) {
-        const result = applyHit(c, i, { kind: "roll", amount, side: 1, end: 1 });
-        for (const wheel of result.wheelsOff) {
-          throwWheel(i, wheel);
-          say(c, { kind: "wheel", truck: i, wheel, by: -1 });
-        }
-        if (result.wrecked) { wreck(c, i, -1); takeOut(i); }
-      }
-    }
-    p.over = over;
-  }
-
-  /** Each step: how much each truck's velocity changed, and the hits that are over. */
-  function measure() {
-    trucks.forEach((t, i) => {
-      const s = t.state, v = worldVelocity(s), p = per[i];
-      rolled(i, Math.hypot(v[0], v[1], v[2]));
-      // Another machine's truck is judged there: its copy here only follows it.
-      const done = hitStep(p, s, v, clock(), !(s.heliTimer > 0 || t.flight || !judgedHere(i)));
-      if (done) settle(i, done);
-    });
   }
 
   /** Credits for the checkpoints and laps made since the last step. */
@@ -207,35 +89,6 @@ export function createCombatRuntime(payload, env) {
       p.progress = Math.max(p.progress, now);
       p.laps = rt.laps;
     });
-  }
-
-  /** Truck `j`'s state as its own machine judged it: its pools, wheels, credits, and what changed, told and shown here. */
-  function adopt(j, e) {
-    const t = c.trucks[j], full = c.full, s = trucks[j].state;
-    const before = { global: t.global, lost: [...t.lost], repairs: t.repairs };
-    const share = (x, max) => Math.max(0, Math.min(1, Number(x) || 0)) * max;
-    t.global = share(e.g, full.global);
-    t.engine = share(e.e, full.engine);
-    t.gearbox = share(e.b, full.gearbox);
-    t.wheels = [0, 1, 2, 3].map((w) => share(e.w?.[w], full.wheel));
-    t.credits = Number(e.cr) || 0;
-    t.dealt = Number(e.d) || 0;
-    t.wrecks = Number(e.wk) || 0;
-    t.repairs = Number(e.rp) || 0;
-    const taken = before.global - t.global;
-    if (taken >= IMPACT.least) {
-      hits.push({ id: nextId++, truck: j, kind: "remote", by: -1, pos: [s.pos[0], s.pos[1] + 2, s.pos[2]], normal: [0, 1, 0], force: taken, vel: worldVelocity(s) });
-      if (hits.length > HITS_KEPT) hits.shift();
-    }
-    for (let w = 0; w < 4; w++) {
-      const lost = !!e.l?.[w];
-      t.lost[w] = lost;
-      if (lost && !before.lost[w]) { throwWheel(j, w); say(c, { kind: "wheel", truck: j, wheel: w, by: -1 }); }
-      else if (!lost) per[j].lost[w] = false;
-    }
-    if (t.repairs > before.repairs) say(c, { kind: "repair", truck: j, spent: 0, wheelsBack: [] });
-    if (e.wr && !t.wrecked) { wreckedBy[j] = e.by ?? -1; wreck(c, j, wreckedBy[j]); takeOut(j); }
-    if (e.q && !t.quit && quit(c, j)) takeOut(j);
   }
 
   /** The race is over: the places are fixed and every truck is done. */
@@ -291,34 +144,20 @@ export function createCombatRuntime(payload, env) {
     id: payload.mode,
     keepsRace: true,
     held: () => false,
-    debug: { combat: c, per, loose },
-    /** A truck that has lost a wheel drives on the ground that hides it (combat-ground.js); MTM2's model only. */
-    groundFor(i, ground) {
-      const p = trucks[i].params;
-      if (!p?.hubs || !(p.tireRadiusFt > 0) || trucks[i].cprCar || trucks[i].state.evo) return null;
-      return lostWheelGround(ground, () => trucks[i].state, p, per[i].lost);
-    },
-    movableBoxes: () => wheelsLoose.boxes(),
+    debug: { combat: c, per, loose: core.loose },
+    groundFor: core.groundFor,
+    movableBoxes: core.movableBoxes,
     heliAllowed: (i) => running(c.trucks[i]),
     /** A computer truck gets itself out of a jam (game/racer-recovery.js); the helicopter is its last resort. */
     selfRecovery: () => true,
-    touch(a, b) {
-      recordTouch(fights, trucks[a].state, trucks[b].state, per[a], per[b], a, b, clock());
-    },
+    touch: core.touch,
     tick() {
       if (decided) { decided.forEach((place, i) => { race.trucks[i].place = place; }); return; }
-      measure();
+      core.measure();
       progress();
       backToCheckpoint();
-      const now = clock();
       // The computer trucks repair when they need to and can, unless the settings say not.
-      trucks.forEach((t, i) => {
-        if (!t.autopilot || !judgedHere(i) || !c.credits || payload.cpuRepairs === false) return;
-        if (wantsRepair(combatTruckView(c, i))) {
-          const done = repair(c, i, now);
-          for (const wheel of done.wheelsBack ?? []) per[i].lost[wheel] = false;
-        }
-      });
+      if (payload.cpuRepairs !== false) core.cpuRepairs(wantsRepair);
       combatPlaces(c, race.trucks).forEach((place, i) => { race.trucks[i].place = place; });
       // Online, the owner decides the end; the others take it (`applyNet`).
       const last = following() ? -1 : lastStanding(c, race.trucks);
@@ -340,34 +179,8 @@ export function createCombatRuntime(payload, env) {
         if (d.winner >= 0) winner = d.winner;
       }
     },
-    /** The state of the trucks judged here, for the others; `mark` changes when something they must hear at once does. */
-    netOwn() {
-      const list = trucks.map((_, i) => {
-        if (!judgedHere(i)) return null;
-        const t = c.trucks[i], full = c.full;
-        return {
-          g: t.global / full.global, e: t.engine / full.engine, b: t.gearbox / full.gearbox, w: t.wheels.map((x) => x / full.wheel),
-          l: [...t.lost], cr: Math.floor(t.credits), d: Math.round(t.dealt), wk: t.wrecks, rp: t.repairs, wr: t.wrecked, q: t.quit, by: wreckedBy[i],
-        };
-      });
-      const mark = list.map((x) => (x ? `${x.l.map(Number).join("")}${+x.wr}${+x.q}${x.rp}` : "-")).join(",")
-        + owed.map((o) => o.wrecks).join("");
-      return { mark, trucks: list, owed: owed.map((o) => ({ ...o })) };
-    },
-    /** Another machine's trucks (`trucks[i]`, null for the others), and what it owes this machine's (`owed`); `from` its truck. */
-    applyNetOwn({ from = -1, trucks: list = [], owed: theirs = [] } = {}) {
-      list.forEach((e, j) => { if (e && !judgedHere(j)) adopt(j, e); });
-      const seen = owedSeen.get(from) ?? new Map();
-      owedSeen.set(from, seen);
-      theirs.forEach((o, j) => {
-        if (!o || !judgedHere(j)) return;
-        const before = seen.get(j) ?? { hp: 0, wrecks: 0 };
-        const hp = o.hp - before.hp, wrecks = o.wrecks - before.wrecks;
-        if (hp > 0) creditDamage(c, j, hp, false);
-        for (let k = 0; k < wrecks; k++) creditDamage(c, j, 0, true);
-        seen.set(j, { hp: Math.max(before.hp, o.hp), wrecks: Math.max(before.wrecks, o.wrecks) });
-      });
-    },
+    netOwn: core.netOwn,
+    applyNetOwn: core.applyNetOwn,
     /** A wrecked truck stops; a computer truck races, or rams one ahead when it pays (combat-ai.js). */
     drive(truck, i) {
       const s = truck.state;
@@ -380,7 +193,7 @@ export function createCombatRuntime(payload, env) {
       const self = {
         pos: s.pos, heading: s.euler[2], hp: c.trucks[i].global / c.full.global, engine: c.trucks[i].engine / c.full.engine,
       };
-      const target = ramStep(per[i].driver, self, others(i), { now: clock(), dt: step, roll: per[i].rand(), aggression });
+      const target = ramStep(drivers[i], self, others(i), { now: clock(), dt: step, roll: per[i].rand(), aggression });
       if (target < 0) return false;
       const o = trucks[target].state;
       const point = ramPoint(s.pos, { pos: o.pos, vel: worldVelocity(o), heading: o.euler[2] });
@@ -391,51 +204,17 @@ export function createCombatRuntime(payload, env) {
       watchHeadway?.(truck);
       return true;
     },
-    /** Before each truck's step: a lost wheel has no grip, a stub drags, a hurt engine and gearbox hold the truck back. */
-    afterTruckStep(truck) {
-      const i = trucks.indexOf(truck);
-      if (i < 0 || truck.remote) return;
-      const s = truck.state, ctl = s.controls, p = per[i];
-      if (!running(c.trucks[i])) {
-        ctl.throttle = 0;
-        ctl.brakeFront = ctl.brakeRear = 1;
-        // A wreck stays where it lies: no helicopter, no turning it back over.
-        truck.recovery.autopilot = false;
-        truck.recovery.player = false;
-        truck.recovery.racing = false;
-        return;
-      }
-      stubStep(s, p.lost, step);
-      ctl.throttle = Math.min(ctl.throttle, enginePower(c, i));
-      gearboxStep(c, i, ctl, S.GEAR, p.gearbox, clock(), p.rand());
-      // A dead engine or gearbox: a crawl, held under its top speed.
-      if (crawling(c, i)) {
-        ctl.throttle = Math.min(ctl.throttle, CRAWL.throttle);
-        if (Math.hypot(s.bvel[0], s.bvel[2]) > CRAWL.topFtS) ctl.throttle = 0;
-      }
-    },
+    afterTruckStep: core.afterTruckStep,
     /** The repair key and leaving the fight (the player's, truck 0, unless told). */
     action(name, i = 0) {
-      if (name === "repair") {
-        const done = repair(c, i, clock());
-        for (const wheel of done.wheelsBack ?? []) per[i].lost[wheel] = false;
-        return done;
-      }
-      if (name === "quit" && quit(c, i)) { takeOut(i); return { quit: true }; }
+      if (name === "repair") return core.repair(i);
+      if (name === "quit" && core.quit(i)) return { quit: true };
       return null;
     },
     view() {
-      const stubs = stubsOf(trucks, (i) => per[i].lost);
       return {
-        mode: payload.mode, credits: c.credits,
-        trucks: trucks.map((_, i) => combatTruckView(c, i)),
-        lost: per.map((p) => [...p.lost]),
-        log: c.log.map((e) => ({ ...e })), events: c.events,
-        hits: hits.map((h) => ({ ...h })),
-        loose: wheelsLoose.view(),
-        stubs,
+        mode: payload.mode, ...core.view(),
         over: !!decided, winner: decided ? winner : -1, places: decided ? [...decided] : null,
-        out: c.trucks.map((t) => !running(t)),
       };
     },
     /** The Points column: hit points dealt by tens, and 50 a wreck. */

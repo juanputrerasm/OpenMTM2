@@ -4,7 +4,7 @@
   after lightning, the music from `MUSIC.POD`, and the checkpoint and lap sounds. Ambient
   one-shots are heard from a random spot around the listener, as the file gives no positions.
 */
-import { RAIN_UNDERWATER_PITCH, nextDelay, objectHitSound, rainJitter, rainOnRoof, roofGain, underwaterMix } from "../game/sound-model.js";
+import { RAIN_UNDERWATER_PITCH, UNDERWATER_PITCH, nextDelay, objectHitSound, truckCrashSound, rainJitter, rainOnRoof, roofGain, underwaterMix } from "../game/sound-model.js";
 import { weatherMaskIncludes } from "../vendor/openphotex/mtm/sound.js";
 
 /**
@@ -45,7 +45,7 @@ export function createWorldAudio(audio, { ambient, cues = ambient, weather, musi
     if (name === STOCK_CUES[key] || !audio.sample) continue;
     audio.sample(name).then((data) => { if (!data) cueNames[key] = STOCK_CUES[key]; }).catch(() => { cueNames[key] = STOCK_CUES[key]; });
   }
-  audio.preload?.([...new Set([cueNames.checkpoint, cueNames.lap, STOCK_CUES.checkpoint, STOCK_CUES.lap])]);
+  audio.preload?.([...new Set([cueNames.checkpoint, cueNames.lap, STOCK_CUES.checkpoint, STOCK_CUES.lap, "CRASH1"])]);
   let current = weather, disposed = false;
   const loops = [];
   let ambientShot = null, ambientLeft = Infinity, ambientVoice = null, ambientPending = false;
@@ -218,6 +218,15 @@ export function createWorldAudio(audio, { ambient, cues = ambient, weather, musi
       audio.play(sound.name, { gain: Math.min(2.5, sound.gain) * mix.gain, rate: mix.rate, position })
         .then((voice) => { if (voice?.done) voice.done.finally(quiet); else quiet(); })
         .catch(quiet);
+    },
+    /**
+     * Two trucks met (0x429cb0): `crash1` from `position` (null: the player's own truck, heard in the cab), at the
+     * world one-shots' under-water mix; its pitch is the game's random one, lower when heard from under water.
+     */
+    crash(position, { sourceUnder = false } = {}) {
+      const sound = truckCrashSound(random);
+      const mix = underwaterMix(sourceUnder, place.underwater);
+      audio.play(sound.name, { gain: sound.gain * mix.gain, rate: sound.rate * (place.underwater ? UNDERWATER_PITCH : 1), position });
     },
     /** The jukebox started or stopped: the track's music stops for it, or comes back after it. */
     refreshMusic() {

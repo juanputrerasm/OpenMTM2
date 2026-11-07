@@ -17,6 +17,7 @@ import * as THREE from "three";
 import { toSceneMatrix } from "../../shared/scene-frame.js";
 import { debrisShards, seeded, stepShard } from "../../game/extensions/combat-debris.js";
 import { axlesLost } from "../../game/extensions/combat.js";
+import { usesCombatDamage } from "../../game/extensions/loader.js";
 
 /** Most debris shards, smoke puffs and flying parts drawn at once. */
 const MOST_SHARDS = 700, MOST_PUFFS = 160, MOST_PARTS = 24;
@@ -167,8 +168,8 @@ export function createCombatScene(scene) {
      * point; `floorAt(x, z, y)` the ground under a point.
      */
     update({ state, poses, drawn, dt, effects, flags, near, floorAt }) {
-      // Combat's state, or Loose Wheels' in Combat's shape (game/extensions/loose-wheels.js `wheelView`).
-      if (!state || (state.mode !== "combat" && state.mode !== "loose-wheels") || !poses) return;
+      // A mode with Combat's damage (Combat, Deathmatch), or Loose Wheels' state in Combat's shape (game/extensions/loose-wheels.js `wheelView`).
+      if (!state || (!usesCombatDamage(state.mode) && state.mode !== "loose-wheels") || !poses) return;
       clock += dt;
       effectsNow = effects;
       flagsNow = flags;
@@ -208,6 +209,9 @@ export function createCombatScene(scene) {
         if (e.kind === "wheel") {
           const l = [...(state.loose ?? [])].reverse().find((x) => x.truck === e.truck && x.wheel === e.wheel);
           wheelOff(l ? near(l.pos) : pose?.pos ?? [0, 0, 0], e.id * 97 + 13, e.truck);
+        } else if (e.kind === "revive") {
+          // Back whole (Deathmatch's respawn): the wreck smokes no more.
+          wrecks.delete(e.truck);
         } else if (e.kind === "wreck" && pose) {
           wrecks.set(e.truck, clock);
           throwDebris({ id: e.id * 131 + 7, truck: e.truck, force: 260, vel: [0, 0, 0] }, pose.pos, [0, 1, 0]);

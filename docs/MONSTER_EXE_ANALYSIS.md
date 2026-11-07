@@ -1245,7 +1245,7 @@ CPU trucks and the player's autopilot use the same code.
   repairs every truck (`0x4c17f0`, `0x4c1490`: the vertices go back to their stored copies).
 - **Level.** `damageCode` (`+0x1764`) holds 12 zones x 2 bits, zone *n* at bits `2n` to `2n+1`.
   The level is 0 for a force of 0 or less, 1 up to 10000, 2 up to 30000 and 3 above. A zone's
-  level only rises. A truck with any bit set is "damaged": its hull impacts play `suspen1` or
+  level only rises. A truck with any bit set is "damaged": its suspension knocks play `suspen1` or
   `suspen3` instead of `suspen5` or `suspen6` (section 8).
 - **Damageable vertices.** When a truck's models load (`0x532fa0`) each of the three levels of
   detail of the body (16, 10 and 08) gets, per zone, the list of its vertices that lie within
@@ -1749,12 +1749,20 @@ stereo separation, `UseRedBook` and `UseModMusic`.
 - **Winner's Circle crowd** (`0x519212`): when the race's first place is the player's own truck, the Results window
   shows the art with the first frame lit (`ResWin1.bmp`) and starts `crowd.wav` looping on its KLP (flags 0x1f, as
   the interface sounds); with the player second it shows `ResWin2.bmp` and no crowd.
-- **Hull impacts** (`0x429080`, called from the contact response at `0x46ba80`): `suspen5` or
-  `suspen6` (random) while the truck is undamaged (`damageCode` 0), `suspen1` or `suspen3` once
-  it is not, at x1.8 from the truck's emitter, and only when the truck's previous impact sound
-  has finished (`0x464450` asks whether a handle still plays). The exe has no other truck crash
-  sample: `crash_01`, `05`, `08` and `11` are announcer voice clips (referenced at `0x42452c`),
-  so they must never play as impact sounds.
+- **Suspension knocks** (`0x429080`, called from the bottoming damper at `0x46ba80`, MTM2_PHYSICS.md 14 step 5: a
+  wheel at full compression still moving into the ground): `suspen5` or `suspen6` (random) while the truck is
+  undamaged (`damageCode` 0), `suspen1` or `suspen3` once it is not, at x1.8 from the truck's emitter, and only when
+  the truck's previous knock has finished (`0x464450` asks whether a handle still plays). An earlier reading of this
+  section called them hull impacts; the caller is the bottoming damper, not a hull contact.
+- **Truck against truck** (`0x429cb0`, called from the pair test `0x4894a0`, MTM2_PHYSICS.md 14.20, once the pair's
+  response is not zero): `crash1.wav` at volume x1.3 (`0x463dd0(1.3)`), from the `ipos` (`+0xfe0`) of the player's
+  truck when it is one of the two, else of the pair's second truck. Its under-water mix is the world one-shots' (above:
+  1, 1, 0.2 or 1.2 by where source and listener are; the source is under water when `ipos.y` is below the water
+  level, never in Snow). Its pitch is set to 0.9 for a sunk source and then replaced by a random one,
+  `(rand() / 16384 - 1) x 0.1 + 1` (`0x6082c0` = 1/16384, `0x6082c8` = 1, `0x6082d0` = 0.1): 0.9 to 1.1. Nothing asks
+  whether the last one still plays, so the game starts one every step the trucks push on each other. `crash1` is also
+  a type 10 object's (a train's) hit sound. `crash_01`, `05`, `08` and `11` are announcer voice clips (referenced at
+  `0x42452c`), never impact sounds.
 - **World**: crashes, suspension, rollover, horn, YeeHaw, splash (`splash1` only), underwater, trains
   (`tr-horn`, `train22.wav`), helicopter (`huey`), blimp, crowd, and object-specific hits by
   model name (`strike`, `hickz`, `flush`, `barn1`, `cowpain`, `doctor`, `coffin`).
