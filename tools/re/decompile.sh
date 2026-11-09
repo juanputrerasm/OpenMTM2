@@ -8,6 +8,7 @@
 #   EVO1_DIR=~/games/evo1 tools/re/decompile.sh evo1       (4x4 Evo 1, into re/evo1/)
 #   CPR_DIR=~/games/cpr tools/re/decompile.sh cpr          (CART Precision Racing, into re/cpr/)
 #   CP3_DIR=~/games/mtm2 tools/re/decompile.sh cp3         (Community Patch 3's monster.exe, x64, into re/cp3/)
+#   CP4_DIR=~/games/cp4beta052 tools/re/decompile.sh cp4  (Community Patch 4 beta 0.52, x64, into re/cp4/)
 # Needs Ghidra (brew install ghidra) and Python 3. Takes a few minutes.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -49,6 +50,13 @@ elif [ "$TARGET" = cp3 ]; then
   # (docs/MONSTER_EXE_ANALYSIS.md 14.5). Its author published no source code.
   GAME_DIR=${CP3_DIR:-$HOME/games/mtm2}
   WORK="$REPO/re/cp3"
+  EXE=monster.exe
+  SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
+elif [ "$TARGET" = cp4 ]; then
+  # Community Patch 4 beta 0.52 (monster.exe 2.0.52.2, x64, DX11/Vulkan only): 16-bit terrain, lakes,
+  # vegetation, fog volumes, surface meshes, 3D cockpits (docs/CP4_EXE_ANALYSIS.md). No source code.
+  GAME_DIR=${CP4_DIR:-$HOME/games/cp4beta052}
+  WORK="$REPO/re/cp4"
   EXE=monster.exe
   SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
 else

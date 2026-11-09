@@ -48,11 +48,13 @@ import { mergeBindings } from "../../game/input/bindings.js";
 import { SunFlare, sunBlocked } from "../../render/sun-flare.js";
 import { enableSunShadows } from "../../render/sun-shadows.js";
 import * as mtm2Sim from "../../vendor/openphotex/sim/mtm2/index.js";
-import { cameraSystem, COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, CAMERA_PITCH_MAX, CAMERA_PITCH_RATE, CAMERA_PITCH_MIN, CAMERA_TILT_RATE, INERTIA_MODE, cameraMode, modeForShortcut, systemShortcut, systemViews, blimpCamera, blimpCameraNoCourse, courseCentroid, chaseMirrorRect, createChaseCamera, fovBase, fovFor, groundHeightFn, nextInList, nextMode, raceCamera, shortViews, zoomToFov } from "../../game/cameras.js";
+import { cameraSystem, COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, CAMERA_PITCH_MAX, CAMERA_PITCH_RATE, CAMERA_PITCH_MIN, CAMERA_TILT_RATE, INERTIA_MODE, cameraMode, modeForShortcut, systemShortcut, systemViews, blimpCamera, blimpCameraNoCourse, courseCentroid, chaseMirrorFigures, chaseMirrorRect, createChaseCamera, fovBase, fovFor, groundHeightFn, nextInList, nextMode, raceCamera, shortViews, zoomToFov } from "../../game/cameras.js";
 import { createBlimp, hasBlimp } from "../../game/blimp.js";
 import { soundRange, surfaceFamily } from "../../game/sound-model.js";
 import { createTireEffects } from "../../render/tire-effects.js";
 import { createStartLamps } from "../../render/start-lamps.js";
+import { createDragTreeLamps } from "../../render/drag-tree-lamps.js";
+import { createDragBeams } from "../../render/drag-beams.js";
 import { createTrackLights } from "../../render/track-lights.js";
 import { createHelicopters } from "../../render/heli-object.js";
 import { createNameTags } from "../../render/name-tags.js";
@@ -69,7 +71,7 @@ import { WEATHER_LOOK, WEATHER_NAMES, isUnderwater, resolveWeather, waterOffsetF
 import { beamAir, headlightPool, lampsAtStart, toggleLamps } from "../../game/truck-lights.js";
 import { createRaceLine } from "../../render/race-line.js";
 import { createGoldMode } from "../gold-mode.js";
-import { createGamepadInput } from "../../game/input/gamepad.js";
+import { createGamepadInput, padDeadZone } from "../../game/input/gamepad.js";
 import { createTouchControls } from "../touch-controls.js";
 import { createRumble } from "../../game/input/rumble.js";
 import { createRumbleReadout } from "../rumble-readout.js";
@@ -135,6 +137,8 @@ const DEMO_CAPTION = msg("Demo mode. Press any key to begin"), DEMO_CAMERA_S = 1
 const WARM_FRAMES = 6, WARM_FRAME_S = 0.08, WARM_LIMIT_MS = 15000;
 /** A simulation step not answered in this long is reported: the simulation is stuck or gone. */
 const STALL_MS = 10000;
+/** A step this late is noted in the console, so a shorter hold-up (the controls seeming to lock for a few seconds) shows. */
+const STALL_WARN_MS = 3000;
 
 /** How much of the race the pause menu's instant replay shows: as much as the recorder keeps, an hour. */
 const INSTANT_REPLAY_S = 3600;
@@ -399,7 +403,9 @@ async function mountRace(container, context, params, owned = []) {
   // The Names key (game/names.js): what the course map and the labels over the trucks say. A party mode starts with the
   // drivers' names on, so who is It, on which team, racing or blocking, can be told at once.
   // An extension's race starts with the drivers' names over the trucks, unless its "names" setting is off.
-  let namesMode = extension && settingsForExtension(raceRules, extension).names !== false ? NAMES_DRIVERS : 0;
+  // Otherwise the race starts with the mode the Names key last left (settings.names).
+  const savedNames = Number.isInteger(context.settings.names) && context.settings.names >= 0 && context.settings.names <= 3 ? context.settings.names : 0;
+  let namesMode = extension && settingsForExtension(raceRules, extension).names !== false ? NAMES_DRIVERS : savedNames;
   const enterVr = vrButton(context, "race-vr");
   const view = el("section", { class: "race-view" }, canvas, ...(cockpit ? [cockpit.dashboard, cockpit.mirror, cockpit.finder] : []), hud.element, flyHud.element, driveHud.element, dragTree.element, fpsCounter.element, rumbleReadout.element, gauges.element, caption.element, enterVr.element, pauseMenu, loading);
   container.append(view);
@@ -724,6 +730,11 @@ async function mountRace(container, context, params, owned = []) {
     aiBehaviour: resolveAiBehaviour(raceRules.aiBehaviour, physics),
     evoLine: build.sim.evoLine ?? null,
     steeringResponse: context.settings.steeringResponse ?? 10,
+    // Community Patch 3's steering model (Options, Keys, Gamepad; CP3_EXE_ANALYSIS.md "Steering model").
+    steerCurveMode: context.settings.steerModel === "expo" ? 1 : 0,
+    steerRange: context.settings.steerRange ?? 90,
+    steerExpo: context.settings.steerExpo ?? 100,
+    steerSpeedSens: context.settings.steerSpeedSens ?? 35,
     trucks: entrants.map((e) => {
       const model = build.truckModels[e.file];
       return {
@@ -821,7 +832,7 @@ async function mountRace(container, context, params, owned = []) {
   cleanups.push(() => vr.dispose());
 
   const keys = createKeyboardInput(window, context.settings.bindings);
-  const pad = createGamepadInput(navigator, () => context.settings.padPedals, () => context.settings.padBindings);
+  const pad = createGamepadInput(navigator, () => context.settings.padPedals, () => context.settings.padBindings, () => padDeadZone(context.settings.padDeadZone));
   // The game's force feedback as the pad's rumble (game/input/rumble.js), while the player drives their own truck.
   const rumble = createRumble();
   let rumbleAt = 0;
@@ -852,9 +863,25 @@ async function mountRace(container, context, params, owned = []) {
   const handPresses = { shiftUp: false, shiftDown: false, helicopter: false };
   const sampleInput = () => {
     const held = keys.sample();
+    // Gamepad steering "Digital (1998)": the retail game's gamepad mode (MONSTER_EXE_ANALYSIS.md section 7, 0x585da0),
+    // the stick past its dead zone pressing Turn Left, Turn Right, Accelerate and Brake, the keyboard routine doing
+    // the rest with its ramps and its return to the centre.
+    if (context.settings.padSteering === "digital") {
+      const pressed = pad.sample();
+      if (pressed) {
+        const n = pressed.deadZone;
+        if (pressed.x < -n) held.left = true;
+        if (pressed.x > n) held.right = true;
+        if (pressed.y < -n) held.accelerate = true;
+        if (pressed.y > n) held.brake = true;
+        if (pressed.handbrake) held.handbrake = true;
+        if (pressed.shiftUp) held.shiftUp = true;
+        if (pressed.shiftDown) held.shiftDown = true;
+      }
+    }
     const driving = held.accelerate || held.brake || held.left || held.right;
     // A gamepad at rest leaves the driving to the controllers in the player's hands.
-    const stick = pad.sample();
+    const stick = context.settings.padSteering === "digital" ? null : pad.sample();
     const stickBusy = stick && (Math.abs(stick.x) > stick.deadZone || Math.abs(stick.y) > stick.deadZone || stick.shiftUp || stick.shiftDown);
     // A gamepad in use comes first, then the touch stick and pedals while a finger is on them.
     const touchStick = stickBusy ? null : touch.joystick();
@@ -1107,7 +1134,11 @@ async function mountRace(container, context, params, owned = []) {
       else context.settings.dashboard = gauges.toggle();
       saveSettings(context.settings);
     }
-    if (keyMap.names.includes(e.code) && !e.repeat) namesMode = nextNamesMode(namesMode);
+    if (keyMap.names.includes(e.code) && !e.repeat) {
+      namesMode = nextNamesMode(namesMode);
+      context.settings.names = namesMode;
+      saveSettings(context.settings);
+    }
     // The Timing display key (O) hides the times, laps and place, in every view.
     if (keyMap.hud.includes(e.code) && !e.repeat) {
       context.settings.timingHud = context.settings.timingHud === false;
@@ -1143,6 +1174,15 @@ async function mountRace(container, context, params, owned = []) {
       context.settings.crashDamage = on;
       saveSettings(context.settings);
       flash(t(crashDamageMessage(on, entrants.length)), performance.now(), 3);
+    }
+    // The Drag beam lines key: shows or hides the strip's beams, kept for the next races. Only on a drag strip.
+    if (keyMap.dragBeams?.includes(e.code) && !e.repeat && dragBeams) {
+      context.settings.dragBeams = context.settings.dragBeams === false;
+      saveSettings(context.settings);
+      dragBeams.object.visible = context.settings.dragBeams;
+      const words = context.settings.dragBeams ? t("Drag beam lines on") : t("Drag beam lines off");
+      caption.show(words, 2);
+      vrMessage.set([words]);
     }
     if (keyMap.finder.includes(e.code) && !e.repeat) {
       context.settings.finder = context.settings.finder === false;
@@ -1273,6 +1313,9 @@ async function mountRace(container, context, params, owned = []) {
   // The start gantry's lamps as lamps, with "Truck lamps" (render/start-lamps.js); else the game's coloured faces.
   const startLamps = richLamps ? createStartLamps({ world, scene, dark: !!WEATHER_LOOK[weatherId]?.headlights }) : null;
   if (startLamps) cleanups.push(() => startLamps.dispose());
+  // The Christmas tree model beside a drag strip, lit as MTM1 lights it (render/drag-tree-lamps.js).
+  const treeLamps = dragRace ? createDragTreeLamps(world, build.dragTreeColours) : null;
+  if (treeLamps) cleanups.push(() => treeLamps.dispose());
   // Ice over the water in Snow, and the spray and ripples of wheels in water (render/water-effects.js).
   // Every copy of the world has its own water plane (render/track-scene.js): they bob and are surfaced together.
   const waters = [];
@@ -1329,6 +1372,14 @@ async function mountRace(container, context, params, owned = []) {
   const raceLine = context.settings.raceLine && !net && (track.raceType === "circuit" || track.raceType === "rally") && straights?.length
     ? createRaceLine(straights, (x, z) => ground(x, z)) : null;
   if (raceLine) { world.add(raceLine.object); cleanups.push(() => { raceLine.object.removeFromParent(); raceLine.dispose(); }); }
+  // A drag strip's beams on the ground (render/drag-beams.js; Options, Drag beam lines). Built on every drag strip, so
+  // the Drag beam lines key can show and hide them mid-race.
+  const dragBeams = dragRace ? createDragBeams(build.sim.checkpoints, (x, z) => ground(x, z)) : null;
+  if (dragBeams) {
+    dragBeams.object.visible = context.settings.dragBeams !== false;
+    world.add(dragBeams.object);
+    cleanups.push(() => { dragBeams.object.removeFromParent(); dragBeams.dispose(); });
+  }
   // The blimp flies the course (game/blimp.js); the BlimpCam hangs over the course's centre (game/cameras.js).
   const blimp = build.blimp && hasBlimp({ detailLevel: context.settings.detailLevel ?? 2, raceType: track.raceType }) && straights.length
     ? createBlimp(straights, ground) : null;
@@ -1396,7 +1447,7 @@ async function mountRace(container, context, params, owned = []) {
     const on = !!context.settings.chaseMirror && !splitPose && !host.presenting && !replaying && !!cameraMode(viewMode)?.dist && !!chaseMirrorPose && !flyer?.enabled;
     chaseMirrorFrame.hidden = !on;
     if (!on) return;
-    const rect = chaseMirrorRect(renderer.getSize(chaseMirrorSize), dragRace);
+    const rect = chaseMirrorRect(renderer.getSize(chaseMirrorSize), dragRace, chaseMirrorFigures(context.settings.chaseMirrorSize));
     Object.assign(chaseMirrorFrame.style, { left: `${rect.x}px`, top: `${rect.top}px`, width: `${rect.w}px`, height: `${rect.h}px` });
     const p = chaseMirrorPose;
     const body = new THREE.Matrix4().fromArray(toSceneMatrix(p.matrix, p.pos));
@@ -1738,6 +1789,7 @@ async function mountRace(container, context, params, owned = []) {
         slip[race.drag.lane[i]] = { reaction: row.reaction, et: row.finished && !row.dq && !row.rerun ? row.raceTime : null, out: row.rerun ? "RERUN" : row.dq ? "DQ" : null };
       });
       dragTree.set(byLane, entrants[0].player ? race.drag.lane[0] : null, slip);
+      treeLamps?.set(byLane);
       setHud([
         [t("Clock:"), formatRaceTime(me.finished && !me.dq ? me.raceTime : race.clock)],
         [t("Reaction:"), me.reaction === null ? "--.--" : me.reaction.toFixed(2)],
@@ -1900,7 +1952,7 @@ async function mountRace(container, context, params, owned = []) {
     pitShown = pit !== null;
   };
   /** When the step in flight was asked for, and whether its silence was reported (the watchdog in `loop`). */
-  let tickSentAt = 0, stallReported = false;
+  let tickSentAt = 0, stallReported = false, stallWarned = false;
   // Held until the frames come steadily: `WARM_FRAMES` in a row each shorter than `WARM_FRAME_S`, or `WARM_LIMIT_MS` at most.
   let ready = false, steadyFrames = 0;
   const warmStart = performance.now();
@@ -1969,6 +2021,10 @@ async function mountRace(container, context, params, owned = []) {
     }
     // The watchdog: a step the simulation has not answered in 10 s (it is stuck, or gone without a word) would leave the
     // trucks frozen with nothing said. A hidden page's worker may be held back, so only while the page is seen.
+    if (busy && !stallWarned && now - tickSentAt > STALL_WARN_MS && document.visibilityState === "visible") {
+      stallWarned = true;
+      console.warn(`OpenMTM2: the simulation has not answered a step for ${Math.round((now - tickSentAt) / 1000)} s`);
+    }
     if (busy && !stallReported && now - tickSentAt > STALL_MS && document.visibilityState === "visible") {
       stallReported = true;
       reportError(Object.assign(new Error(`The simulation has not answered a step for ${Math.round((now - tickSentAt) / 1000)} s`), { kind: "stalled" }), { where: "simulation step", fatal: !net });
@@ -1976,6 +2032,7 @@ async function mountRace(container, context, params, owned = []) {
     if (ready && !busy && !paused && !finishing) {
       busy = true;
       const sentAt = tickSentAt = performance.now();
+      stallWarned = false;
       sim.call("tick", { tMs: now, input: sampleInput(), net: netRace?.commands() })
         .then((r) => {
           latest = r;

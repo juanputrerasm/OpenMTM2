@@ -3,7 +3,8 @@
   list: the track's own race, driving alone (Free Roam), a camera-only visit (Fly-by), or a mode
   supplied by the extension loader.
 */
-import { startDragWeekend } from "../../app/drag-weekend.js";
+import { rosterSlot, startDragWeekend } from "../../app/drag-weekend.js";
+import { CPU_NAME_MAX, cpuNames } from "../../game/race-setup.js";
 import { MAX_FIELD, MIN_FIELD } from "../../game/events/drag-event.js";
 import { el } from "../dom.js";
 import { currentDriver, getProfiles } from "../../app/profile-store.js";
@@ -133,11 +134,15 @@ export default async function mount(container, context) {
     context.tournament ? t("Resume tournament") : t("Tournament"));
   weekendButton.addEventListener("click", async () => {
     if (!context.dragWeekend) {
-      const size = await chooseField(t);
-      if (!size) return;
+      const playerTruck = (trucks.find((item) => item.file === driver.lastTruck) ?? trucks[0]).file;
+      const picked = await chooseField(t, { trucks, settings, playerName: driver.name, playerTruck });
+      if (!picked) return;
+      settings.dragRosterSize = picked.size;
+      settings.dragRoster = picked.roster;
+      saveSettings(settings);
       const chosen = remember();
       startDragWeekend(context, {
-        track, trucks, playerTruck: (trucks.find((item) => item.file === driver.lastTruck) ?? trucks[0]).file, playerName: driver.name, size,
+        track, trucks, playerTruck, playerName: driver.name, size: picked.size, roster: picked.roster,
         difficulty: chosen.difficulty, weather: chosen.weather,
       });
     }
@@ -439,18 +444,63 @@ function openZoomMap(track, url, text, t) {
   dialog.showModal();
 }
 
-/** The Drag weekend dialog: how many drivers, 2 to 16. Returns the number, or null when cancelled. */
-async function chooseField(t) {
+/**
+ * The Drag weekend dialog: how many drivers, 2 to 16, and who they are. Each computer driver's place has a name (blank:
+ * the Computer drivers' name for it, Options, Game) and a truck (Random: one nobody picked). Returns
+ * `{ size, roster: [{ name, truck }] }`, or null when cancelled.
+ */
+async function chooseField(t, { trucks, settings, playerName, playerTruck }) {
   return new Promise((resolve) => {
-    const size = el("select", { "aria-label": t("Drivers") }, ...Array.from({ length: MAX_FIELD - MIN_FIELD + 1 }, (_, k) => k + MIN_FIELD).map((n) => el("option", { value: n, selected: n === 8 }, t("<<1>> drivers", n))));
-    const dialog = el("dialog", { class: "opponents-modal", "aria-label": t("Drag weekend") },
+    const defaults = cpuNames(settings.aiNames);
+    const defaultName = (i) => `${defaults[i % defaults.length]}${i >= defaults.length ? " II" : ""}`;
+    const known = new Set(trucks.map((item) => item.file));
+    let roster = Array.from({ length: MAX_FIELD - 1 }, (_, i) => rosterSlot(settings.dragRoster?.[i], known));
+    const startSize = Math.min(MAX_FIELD, Math.max(MIN_FIELD, Number(settings.dragRosterSize) || 8));
+    const size = el("select", { "aria-label": t("Drivers") }, ...Array.from({ length: MAX_FIELD - MIN_FIELD + 1 }, (_, k) => k + MIN_FIELD).map((n) => el("option", { value: n, selected: n === startSize }, t("<<1>> drivers", n))));
+    const sorted = [...trucks].sort((a, b) => a.name.localeCompare(b.name));
+    const rows = el("tbody");
+    const draw = () => {
+      const n = Number(size.value);
+      const playerItem = trucks.find((item) => item.file === playerTruck);
+      rows.replaceChildren(
+        el("tr", {}, el("td", {}, "1"), el("td", {}, playerName ?? t("You")), el("td", {}, playerItem?.name ?? playerTruck)),
+        ...roster.slice(0, n - 1).map((slot, i) => {
+          const name = el("input", { type: "text", value: slot.name, placeholder: defaultName(i), maxlength: CPU_NAME_MAX, "aria-label": t("Driver <<1>>", i + 2),
+            oninput: (event) => { roster[i] = { ...roster[i], name: event.target.value }; } });
+          const truck = el("select", { "aria-label": t("Truck <<1>>", i + 2), onchange: (event) => { roster[i] = { ...roster[i], truck: event.target.value }; } },
+            el("option", { value: "", selected: !slot.truck }, t("Random")),
+            ...sorted.map((item) => el("option", { value: item.file, selected: item.file === slot.truck }, item.name)));
+          return el("tr", {}, el("td", {}, String(i + 2)), el("td", {}, name), el("td", {}, truck));
+        }));
+    };
+    size.addEventListener("change", draw);
+    // Fill: a random truck for every place left on Random, none picked twice while the catalogue lasts.
+    const fill = () => {
+      const n = Number(size.value) - 1;
+      const taken = new Set(roster.slice(0, n).map((slot) => slot.truck).filter(Boolean));
+      const pool = sorted.map((item) => item.file).filter((file) => file !== playerTruck && !taken.has(file));
+      for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+      roster = roster.map((slot, i) => (i < n && !slot.truck && pool.length ? { ...slot, truck: pool.shift() } : slot));
+      draw();
+    };
+    const clear = () => { roster = roster.map(() => ({ name: "", truck: "" })); draw(); };
+    const dialog = el("dialog", { class: "opponents-modal drag-roster-modal", "aria-label": t("Drag weekend") },
       el("h1", {}, t("Drag weekend")),
       el("p", {}, t("Qualifying, then an elimination bracket on this strip. You qualify alone; the order seeds the bracket, and a field short of 2, 4, 8 or 16 gives the best seeds a bye.")),
-      el("div", { class: "form-row" }, el("label", {}, `${t("Field")} `, size)),
+      el("div", { class: "form-row" }, el("label", {}, `${t("Field")} `, size),
+        el("button", { type: "button", onclick: fill }, t("Fill")),
+        el("button", { type: "button", onclick: clear }, t("Clear"))),
+      el("p", { class: "opp-note" }, t("A blank name is the driver's name from Options, Game, Computer drivers; Random draws a truck nobody picked.")),
+      el("div", { class: "drag-roster" }, el("table", {},
+        el("thead", {}, el("tr", {}, el("th", {}, "#"), el("th", {}, t("Driver")), el("th", {}, t("Truck")))), rows)),
       el("div", { class: "screen-actions" },
         el("button", { onclick: () => dialog.close() }, t("Cancel")),
         el("button", { class: "primary", onclick: () => dialog.close("start") }, t("Start"))));
-    dialog.addEventListener("close", () => { dialog.remove(); resolve(dialog.returnValue === "start" ? Number(size.value) : null); }, { once: true });
+    draw();
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      resolve(dialog.returnValue === "start" ? { size: Number(size.value), roster: roster.map((slot) => rosterSlot(slot, known)) } : null);
+    }, { once: true });
     document.body.append(dialog);
     dialog.showModal();
   });

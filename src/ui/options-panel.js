@@ -830,11 +830,35 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       el("h3", {}, t("Gamepad buttons")), padNote, padRows, el("div", { class: "opt-actions" }, button(msg("Reset gamepad"), () => {
         stopPadListen(); settings.padBindings = {}; save(); padNote.textContent = t("Gamepad buttons reset."); showPad();
       })),
+      // A pad as the game's joystick (analog) or as its gamepad, whose stick presses the keys (MONSTER_EXE_ANALYSIS.md section 7).
+      choose(msg("Gamepad steering"), "padSteering", [msg("Analog"), msg("Digital (1998 gamepad)")], ["analog", "digital"]),
+      // Community Patch 3's steering models (CP3_EXE_ANALYSIS.md "Steering model"; OpenPhotex controls `joystickSteer`).
+      choose(msg("Steering model"), "steerModel", [msg("Original (1998)"), msg("Expo")], ["original", "expo"]),
       // The game's steering response (MONSTER.INI [Control]): a stick's curve is x ^ (1 + 2r), the keys' x ^ (1 + r / 4), r a tenth of it.
       slider(msg("Steering response"), {
-        min: 0, max: 10, step: 1, value: settings.steeringResponse ?? 10, format: (v) => String(v),
+        min: 0, max: 20, step: 1, value: settings.steeringResponse ?? 10, format: (v) => String(v),
         set: (v) => { settings.steeringResponse = v; save(); },
-        title: msg("How steep the steering is. 10 is the game's own: a gamepad stick or wheel turns little near the centre and fast near the edge. Lower makes a stick turn more evenly; 0 is straight. From the next race"),
+        title: msg("Original (1998) model: how gently a stick steers near the centre. 10 is the game's own; higher is softer near the centre (up to 20, as Community Patch 3 allows), lower turns more evenly and feels twitchier; 0 is straight. From the next race"),
+      }),
+      slider(msg("Steering range"), {
+        min: 50, max: 100, step: 5, value: settings.steerRange ?? 90, format: (v) => `${v}%`,
+        set: (v) => { settings.steerRange = v; save(); },
+        title: msg("How far the stick goes to reach full lock: 90% is the game's. More spreads the steering over more of the stick. From the next race"),
+      }),
+      slider(msg("Steering expo"), {
+        min: 0, max: 100, step: 5, value: settings.steerExpo ?? 100, format: (v) => `${v}%`,
+        set: (v) => { settings.steerExpo = v; save(); },
+        title: msg("Expo model: 100% is a cubic curve (Community Patch 3's for a gamepad), soft near the centre; 0% is straight. From the next race"),
+      }),
+      slider(msg("Steering speed ease-off"), {
+        min: 0, max: 100, step: 5, value: settings.steerSpeedSens ?? 35, format: (v) => `${v}%`,
+        set: (v) => { settings.steerSpeedSens = v; save(); },
+        title: msg("Expo model: how much the steering eases off as you gain speed. 0% is full lock at any speed; Community Patch 3's is 35%. From the next race"),
+      }),
+      slider(msg("Gamepad dead zone"), {
+        min: 0, max: 25, step: 1, value: settings.padDeadZone ?? 12, format: (v) => `${v}%`,
+        set: (v) => { settings.padDeadZone = v; save(); },
+        title: msg("How far the stick moves before it steers or works the pedals: 12% is the port's. More stops a worn stick drifting"),
       }),
       // The game's force feedback (MONSTER.INI useForceFeedback, forceFeedbackStrength) as the pad's rumble (game/input/rumble.js).
       toggle(msg("Gamepad rumble"), "padRumble", msg("The gamepad shakes with crashes, hard landings and rough ground, as the game's force feedback pushed a joystick. Needs a browser and pad with rumble (Chrome, Edge or Safari, and an Xbox or PlayStation pad)")),
@@ -894,7 +918,10 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         msg("Community Patch 3's HD skies for Rain, Dusk and Night and the older levels' clouds: the pictures in the game folder's WeatherArt folder, or the port's own copy of the community's set. Off: the game's own sky art")),
       toggle(msg("CP3 Reflections"), "reflections", msg("Community Patch 3 materials: the sky reflected in glass and paint (Enhanced look)")),
       toggle(msg("Chase mirror"), "chaseMirror", msg("Community Patch 3's rear-view mirror over the top of the external views: a look back from the cab")),
+      choose(msg("Chase mirror size"), "chaseMirrorSize", [msg("Original"), msg("Smaller")], ["original", "small"]),
       toggle(msg("Racing line"), "raceLine", msg("Community Patch 3's racing line: the course the computer trucks follow, drawn on the ground ahead in a race")),
+      row(msg("Drag beam lines"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.dragBeams !== false, "aria-label": t("Drag beam lines"), "data-opt": "Drag beam lines", onchange: (event) => { settings.dragBeams = event.target.checked; save(); } }),
+        msg("The drag strip's lines as Monster Truck Madness 1 draws them: the prestage, stage, start and finish beams across the strip and the lane lines down it, so you can see where to stage. The Drag beam lines key (I) shows and hides them in a race")),
       toggle(msg("Drag split screen"), "dragSplitScreen", msg("Community Patch 3's drag split screen: in a drag race against a truck, both lanes at once, side by side, in the same chase view")),
       sub(msg("OMTM2")),
       row(msg("Terrain overlap"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.terrainOverlap !== false, "aria-label": t("Terrain overlap"), "data-opt": "Terrain overlap", onchange: (event) => { settings.terrainOverlap = event.target.checked; save(); } }),

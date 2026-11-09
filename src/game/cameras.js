@@ -408,6 +408,10 @@ export function raceCamera(straights, truckPos, segment, height, viewCells = 32)
  * set), its height that percentage of its width, centred, its top a 32nd of the screen down. In screen pixels.
  */
 export const CHASE_MIRROR = Object.freeze({ pct: 25, aspect: 30, dragPct: 16 });
+/** The port's smaller mirror (Options, Chase mirror size): about two thirds of CP3's, so less of a climb is hidden. */
+export const CHASE_MIRROR_SMALL = Object.freeze({ pct: 16, aspect: 30, dragPct: 12 });
+/** The figures for the `chaseMirrorSize` setting: "small" or anything else (CP3's). */
+export const chaseMirrorFigures = (size) => (size === "small" ? CHASE_MIRROR_SMALL : CHASE_MIRROR);
 export function chaseMirrorRect(size, drag = false, figures = CHASE_MIRROR) {
   const pct = drag && figures.dragPct > 0 ? figures.dragPct : figures.pct;
   const w = Math.round((pct * size.x) / 100);

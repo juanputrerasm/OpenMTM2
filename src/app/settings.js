@@ -108,7 +108,13 @@ export const DEFAULT_SETTINGS = Object.freeze({
   looseWheels: false,         // Loose Wheels (game/extensions/loose-wheels.js): wheels and axles come off in every race
   looseWheelsRepairS: 8,      // seconds before they come back on by themselves; 0 never (the pit crew, X, only)
   autoShift: true,            // automatic gears (the game's default)
-  steeringResponse: 10,       // MONSTER.INI [Control] steeringResponse, 0 to 10 (the game's default 10): lower makes a stick's steering less steep
+  steeringResponse: 10,       // MONSTER.INI [Control] steeringResponse, 0 to 20 (the game's default 10; above 10 is Community Patch 3's): higher makes a stick softer near the centre
+  steerModel: "original",     // a stick's steering curve: "original" (the game's, CP3's "Original (1998)") or "expo" (CP3's Expo; CP3_EXE_ANALYSIS.md "Steering model")
+  steerRange: 90,             // CP3's steerRange, 50 to 100: the share of the stick's throw that reaches full lock
+  steerExpo: 100,             // CP3's steerExpo, 0 to 100: the Expo curve's share of x³ (100, CP3's for a gamepad, is all x³)
+  steerSpeedSens: 35,         // CP3's steerSpeedSens, 0 to 100: how much the Expo curve eases off with speed
+  padSteering: "analog",      // a gamepad's steering: "analog" (the game's joystick mode) or "digital" (the game's gamepad mode: the stick presses the keys)
+  padDeadZone: 12,            // a gamepad stick's dead zone, 0 to 25 % of its throw (CP3's dead zone slider)
   installTipSeen: false,      // the phone tip on fullscreen (Add to Home Screen, Install) was closed (ui/display-mode.js)
   padRumble: true,            // the gamepad rumbles with the game's force feedback (MONSTER.INI useForceFeedback; game/input/rumble.js)
   padRumbleStrength: 70,      // MONSTER.INI forceFeedbackStrength, 0 to 100 (the game's default 70)
@@ -126,6 +132,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   mapStyle: "openmtm2",       // the course map: "openmtm2" (a strip on the right, render/open-map.js; the port's) or "classic" (MTM2's, render/minimap.js)
   openMapMode: 1,             // the OpenMTM2 map: 1 no names, 3 driver names, 2 truck names, 0 off (the Map key cycles it; game/course-map-labels.js)
   openMapZoom: 2,             // the OpenMTM2 map's zoom, kept for the next races (the Map zoom keys; render/open-map.js OPEN_MAP_ZOOMS)
+  names: 0,                   // the Names key's mode, kept for the next races: 0 off, 1 trucks, 2 drivers, 3 both (game/names.js)
   nameTransparency: 0.5,      // how see-through the names over the trucks and on the map are, 0 to 0.9 (render/name-tag-style.js; the port's)
   systemFont: false,          // every in-game text in OpenMTM2's own font instead of the game's bitmap fonts (render/bitmap-text.js useSystemFont)
   soloChat: true,             // a single-player race's chat box: the log of the commentary and the race's messages (game/chat.js soloChatOn)
@@ -151,6 +158,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   shortViewCycle: false,      // the Camera key steps through `shortViews` only
   shortViews: Object.freeze([0, 1, 2]), // the short cycle's views (game/cameras.js `shortViews`): the cockpit, Chase Near and Chase Far
   cameraClearance: true,      // the chase camera keeps a few feet over the ground, where the game lets it touch it (game/cameras.js)
+  dragRoster: Object.freeze([]), // the Drag weekend's computer drivers by place, [{ name, truck }], "" for the default (app/drag-weekend.js)
+  dragRosterSize: 8,          // the Drag weekend's field, 2 to 16
   aiNames: Object.freeze([]), // the computer drivers' own names, by place; an empty one is the game's (game/race-setup.js `cpuNames`)
   zModeCameras: false,        // Z mode's zoom and cameras in any race, without GOLD or slew mode, and the Inertia view
   fullAutopilot: false,       // the game's "Full Autopilot": the player's truck drives itself
@@ -162,7 +171,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   chaseFov: 90,               // the external views' field of view, degrees across a 4:3 screen; 90 is the game's lens (game/cameras.js `fovBase`)
   cameraTiltSwap: false,
   chaseMirror: false,         // Community Patch 3's mirror in the external views (on in CP3; off here unless chosen)
+  chaseMirrorSize: "original", // the chase mirror's size: "original" (CP3's 25 % of the width) or "small" (game/cameras.js CHASE_MIRROR_SMALL)
   raceLine: false,            // Community Patch 3's racing line drawn on the ground (render/race-line.js)
+  dragBeams: true,            // the drag strip's lines on the ground, as MTM1 draws them: beams and lane lines (render/drag-beams.js)
   dragSplitScreen: false,     // Community Patch 3's drag split screen: both lanes at once      // keypad plus raises the chase camera and minus lowers it (the game's keys do the opposite)
   aiHorn: true,               // Community Patch 3: computer trucks high in the air may honk (game/air-calls.js)
   aiYeeHaw: true,             // ... or whoop

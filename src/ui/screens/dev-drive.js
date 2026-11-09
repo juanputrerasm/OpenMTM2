@@ -7,7 +7,7 @@ import * as THREE from "three";
 import { el } from "../dom.js";
 import { WorkerClient } from "../../shared/worker-client.js";
 import { createKeyboardInput } from "../../game/input/keyboard.js";
-import { createGamepadInput } from "../../game/input/gamepad.js";
+import { createGamepadInput, padDeadZone } from "../../game/input/gamepad.js";
 import { createTrackWorld, disposeObject, moveObjects, placeBlocks, skyColor, placeSky } from "../../render/track-scene.js";
 import { createTruckObject, interpolatePose } from "../../render/truck-object.js";
 import { toSceneMatrix } from "../../shared/scene-frame.js";
@@ -75,7 +75,7 @@ export default async function mount(container, context, { track, truckFile }) {
   status.textContent = `${build.trackName}: ${truck.name}. Arrows or a gamepad drive, Q / Z shift, H helicopter, C camera, R restart.`;
 
   const keys = createKeyboardInput(window, context.settings.bindings);
-  const pad = createGamepadInput(navigator, () => context.settings.padPedals, () => context.settings.padBindings);
+  const pad = createGamepadInput(navigator, () => context.settings.padPedals, () => context.settings.padBindings, () => padDeadZone(context.settings.padDeadZone));
   // A held drive key wins over a connected pad, so both can be used (the game picks one in setup).
   const sampleInput = () => {
     const held = keys.sample();

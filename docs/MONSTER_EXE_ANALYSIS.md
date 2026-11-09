@@ -597,7 +597,9 @@ remnants of it run:
 tree timer are only cleared by the level loader (`0x5523d6`, `0x552482`, `0x55341e`).
 
 The port rebuilds drag racing as an addition (`src/game/drag-race.js`), from these remnants, the
-strips' data, and the rules below.
+strips' data, and the rules below. The tree model beside the strip (`TREE.BIN`) is lit as MTM1
+lights it (`MTM1_MONSTER_EXE_ANALYSIS.md` 5.6: `TRLFACE.RAW` cleared to index 0, a rectangle of each
+lit lamp's colour, slot 0 at x 36-63 and slot 1 at x 0-27; `src/game/drag-tree-face.js`).
 
 **Source of the rules.** The pass's rules, numbers and codes are not read from `MONSTER.EXE`
 2.00.42, where nothing drives them. They come from a description of drag racing that the author

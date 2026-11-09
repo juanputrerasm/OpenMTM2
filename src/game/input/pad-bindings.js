@@ -4,7 +4,7 @@
   those stay fixed. The options screen stores only what the player changed, in `settings.padBindings`.
 
   The defaults are the layout the port has always had: RB / LB shift, D-pad down is the Emergency Brake, Y the
-  helicopter, X the camera, A the dashboard, B the map, Start pauses, D-pad up is Drive Mode, D-pad left and right zoom.
+  helicopter, X the camera, A the dashboard, B the map, Start pauses, D-pad up is Drive Mode, D-pad left and right zoom, Back shows the drag beam lines.
 */
 import { msg } from "../strings.js";
 import { ACTIONS } from "./bindings.js";
@@ -48,6 +48,7 @@ export const DEFAULT_PAD_BINDINGS = Object.freeze({
   driveMode: Object.freeze([PAD.UP]),
   zoomOut: Object.freeze([PAD.LEFT]),
   zoomIn: Object.freeze([PAD.RIGHT]),
+  dragBeams: Object.freeze([PAD.BACK]),
 });
 
 const isButton = (b) => Number.isInteger(b) && b >= 0 && b < 32;

@@ -367,6 +367,7 @@ export async function buildTvTrackRender(vfs, lvlPath, { truckFiles = [], tileOv
     backdrops: [], truckModels, trucks: [],
     sky, skyReachable: true,
     startLightColours: null,
+    dragTreeColours: null,
     sim: {
       // No surface table is read for these games: one tile slot, Dirt, and `dirtEverywhere` keeps MTM2's level rules off
       // the ground (worker/sim-worker.js): its ground at exactly 0 ft is Default and its ground under the level water.

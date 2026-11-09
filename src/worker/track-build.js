@@ -6,6 +6,7 @@
   turns each SIT box into a scene transform. Pure apart from the VFS reads; the result is
   plain data with typed arrays, listed by `transferablesOf` for postMessage.
 */
+import { TREE_FACE_INDICES } from "../game/drag-tree-face.js";
 import { rumbleGrid } from "../game/race-setup.js";
 import { loadHdSky, loadWeatherArt } from "./weather-art.js";
 import { weatherSkyStem } from "../game/weather.js";
@@ -734,6 +735,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
      * (off), 1 (the red lamps' colour) and 2 (the green lamps'), as RGB.
      */
     startLightColours: level.palette ? [0, 1, 2].map((i) => Array.from(level.palette.subarray(i * 3, i * 3 + 3))) : null,
+    /** The drag tree's lamp colours (game/drag-tree-face.js `TREE_FACE_INDICES`): level palette index to RGB. */
+    dragTreeColours: level.palette ? Object.fromEntries(TREE_FACE_INDICES.map((i) => [i, Array.from(level.palette.subarray(i * 3, i * 3 + 3))])) : null,
     /** For the simulation worker (copies; the render arrays are transferred separately). */
     sim: {
       clr: level.clr.slice(),

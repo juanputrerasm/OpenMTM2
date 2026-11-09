@@ -4,6 +4,38 @@ What was built, milestone by milestone and stage by stage, as the plan recorded 
 current state and everything still open are in [PLAN.md](PLAN.md); a "Not done", "Left" or "Pending" line below is
 as it stood when it was written, and the plan's open items list is the one kept up to date.
 
+## v0.7.1
+
+Testers' requests and bugs (stick steering, rumble, the drag strip, the drag weekend's field, the chase mirror, the
+names over the trucks):
+
+- **Steering models** (CP3_EXE_ANALYSIS.md 11; OpenPhotex controls `joystickSteer`): Options, Keys, Gamepad has
+  Community Patch 3's "Steering model" (Original (1998), the default, or Expo, its cubic curve with an ease-off with
+  speed), "Steering range", "Steering expo" and "Steering speed ease-off". "Steering response" now goes to 20, as
+  CP3's own range does: higher is softer near the centre. Turning it down had made the stick twitchier, the opposite
+  of what its wording suggested. "Gamepad dead zone" (0 to 25 %, 12 % as before) and "Gamepad steering: Digital (1998
+  gamepad)", the retail game's gamepad mode, in which the stick presses the keys and the keyboard ramps steer.
+- **Rumble and stalled controls** (`game/input/gamepad.js` `RUMBLE_TIMING`): rumble is sent at most every 120 ms,
+  in longer effects resent less often. On Windows the browser hands a rumble to the pad on the thread that reads it,
+  and a steady stream of sends to a Bluetooth pad could leave the stick and triggers unread for seconds. A simulation
+  step not answered in 3 s is now noted in the console (the report stays at 10 s).
+- **The drag strip's tree, lit** (`game/drag-tree-face.js`, `render/drag-tree-lamps.js`): the tree model beside the
+  strip (`TREE.BIN`) shows the lamps as MTM1 paints `TRLFACE.RAW` (MTM1_MONSTER_EXE_ANALYSIS.md 5.6, now with the
+  columns and the clear). **Drag beam lines** (`render/drag-beams.js`, Options, Advanced, CP3, on by default): the
+  strip's lines as MTM1 draws them in a drag race (MTM1_MONSTER_EXE_ANALYSIS.md 5.6, `0x438b50`), every checkpoint
+  in white: the prestage, stage, start and finish beams across the strip and the lane lines down it. The **Drag beam lines
+  key** (bindings.js `dragBeams`: I on the keyboard, Back on a gamepad) shows and hides them mid-race and keeps the
+  choice.
+- **Drag weekend roster** (ui/screens/race-select.js `chooseField`, app/drag-weekend.js `roster`): the dialog lists
+  every place of the field with a driver's name (blank: the Computer drivers' name) and a truck (Random: one nobody
+  picked), with Fill and Clear; the roster and the field size are kept for the next weekend (`settings.dragRoster`,
+  `dragRosterSize`).
+- **Chase mirror size** (game/cameras.js `CHASE_MIRROR_SMALL`, Options, Advanced, CP3): Original (CP3's, 25 % of the
+  width) or Smaller (16 %, 12 % in a drag race).
+- **Names over the trucks kept** (`settings.names`): the Names key's mode carries over to the next races instead of
+  starting off every time. An extension that starts with the drivers' names still does, without changing the saved
+  mode.
+
 ## v0.7.0 (begun as the v0.6.6 test build)
 
 Deathmatch and the truck crash sound, added to this build:

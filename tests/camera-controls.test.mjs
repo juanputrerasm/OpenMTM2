@@ -40,3 +40,11 @@ test("CP3's chase mirror: a quarter of the width, 30% of that high, centred, a 3
   assert.deepEqual(chaseMirrorRect({ x: 1280, y: 720 }), { x: 480, top: 22, w: 320, h: 96 });
   assert.equal(chaseMirrorRect({ x: 1000, y: 720 }, true).w, 160);
 });
+
+test("The smaller chase mirror: 16% of the width (12% in a drag race), same shape and place", async () => {
+  const { chaseMirrorRect, chaseMirrorFigures, CHASE_MIRROR } = await import("../src/game/cameras.js");
+  assert.equal(chaseMirrorFigures("original"), CHASE_MIRROR);
+  assert.equal(chaseMirrorFigures(undefined), CHASE_MIRROR);
+  assert.deepEqual(chaseMirrorRect({ x: 1000, y: 640 }, false, chaseMirrorFigures("small")), { x: 420, top: 20, w: 160, h: 48 });
+  assert.equal(chaseMirrorRect({ x: 1000, y: 640 }, true, chaseMirrorFigures("small")).w, 120);
+});

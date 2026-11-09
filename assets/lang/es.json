@@ -7362,5 +7362,101 @@
  {
   "tag": "When stuck",
   "text": "Al quedar atascado"
+ },
+ {
+  "tag": "Gamepad steering",
+  "text": "Dirección del mando"
+ },
+ {
+  "tag": "Analog",
+  "text": "Analógica"
+ },
+ {
+  "tag": "Digital (1998 gamepad)",
+  "text": "Digital (mando de 1998)"
+ },
+ {
+  "tag": "Steering model",
+  "text": "Modelo de dirección"
+ },
+ {
+  "tag": "Original (1998)",
+  "text": "Original (1998)"
+ },
+ {
+  "tag": "Expo",
+  "text": "Expo"
+ },
+ {
+  "tag": "Original (1998) model: how gently a stick steers near the centre. 10 is the game's own; higher is softer near the centre (up to 20, as Community Patch 3 allows), lower turns more evenly and feels twitchier; 0 is straight. From the next race",
+  "text": "Modelo Original (1998): con qué suavidad gira la palanca cerca del centro. 10 es el del juego; más alto es más suave cerca del centro (hasta 20, como permite Community Patch 3), más bajo gira de forma más pareja y se siente más nervioso; 0 es lineal. Desde la próxima carrera"
+ },
+ {
+  "tag": "Steering range",
+  "text": "Recorrido de la dirección"
+ },
+ {
+  "tag": "How far the stick goes to reach full lock: 90% is the game's. More spreads the steering over more of the stick. From the next race",
+  "text": "Cuánto hay que mover la palanca para girar al máximo: 90% es el del juego. Más reparte la dirección en más recorrido de la palanca. Desde la próxima carrera"
+ },
+ {
+  "tag": "Steering expo",
+  "text": "Expo de la dirección"
+ },
+ {
+  "tag": "Expo model: 100% is a cubic curve (Community Patch 3's for a gamepad), soft near the centre; 0% is straight. From the next race",
+  "text": "Modelo Expo: 100% es una curva cúbica (la de Community Patch 3 para mando), suave cerca del centro; 0% es lineal. Desde la próxima carrera"
+ },
+ {
+  "tag": "Steering speed ease-off",
+  "text": "Suavizado con la velocidad"
+ },
+ {
+  "tag": "Expo model: how much the steering eases off as you gain speed. 0% is full lock at any speed; Community Patch 3's is 35%. From the next race",
+  "text": "Modelo Expo: cuánto se suaviza la dirección al ganar velocidad. 0% gira al máximo a cualquier velocidad; el de Community Patch 3 es 35%. Desde la próxima carrera"
+ },
+ {
+  "tag": "Gamepad dead zone",
+  "text": "Zona muerta del mando"
+ },
+ {
+  "tag": "How far the stick moves before it steers or works the pedals: 12% is the port's. More stops a worn stick drifting",
+  "text": "Cuánto se mueve la palanca antes de girar o accionar los pedales: 12% es el de OpenMTM2. Más evita que una palanca gastada se desvíe"
+ },
+ {
+  "tag": "Chase mirror size",
+  "text": "Tamaño del espejo de persecución"
+ },
+ {
+  "tag": "Original",
+  "text": "Original"
+ },
+ {
+  "tag": "Smaller",
+  "text": "Más pequeño"
+ },
+ {
+  "tag": "Drag beam lines",
+  "text": "Líneas de los haces de arrancones"
+ },
+ {
+  "tag": "Truck <<1>>",
+  "text": "Camión <<1>>"
+ },
+ {
+  "tag": "A blank name is the driver's name from Options, Game, Computer drivers; Random draws a truck nobody picked.",
+  "text": "Un nombre vacío usa el del piloto en Opciones, Juego, Pilotos de la computadora; Al azar sortea un camión que nadie eligió."
+ },
+ {
+  "tag": "Drag beam lines on",
+  "text": "Líneas de los haces activadas"
+ },
+ {
+  "tag": "Drag beam lines off",
+  "text": "Líneas de los haces desactivadas"
+ },
+ {
+  "tag": "The drag strip's lines as Monster Truck Madness 1 draws them: the prestage, stage, start and finish beams across the strip and the lane lines down it, so you can see where to stage. The Drag beam lines key (I) shows and hides them in a race",
+  "text": "Las líneas de la pista de arrancones como las dibuja Monster Truck Madness 1: los haces de preposición, posición, salida y llegada a lo ancho de la pista y las líneas de los carriles a lo largo, para ver dónde colocarse. La tecla Líneas de los haces (I) las muestra y oculta en carrera"
  }
 ]

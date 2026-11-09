@@ -668,6 +668,7 @@ export async function buildEvoTrackRender(vfs, sitPath, sitBytes, { truckFiles =
     backdrops: [], truckModels, trucks: [],
     sky: await loadEvoSky(vfs, lvl, weather, { hdWeather }),
     startLightColours: null,
+    dragTreeColours: null,
     sim: {
       // Each texture's surface from its .TEX record (4.1); a level without one is Dirt.
       clr, textureValues: tex.ordinary.length ? Int32Array.from(tex.ordinary, (r) => r.surfaceValue ?? r.param0 ?? DIRT) : Int32Array.of(DIRT),

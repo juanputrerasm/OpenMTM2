@@ -57,6 +57,24 @@ function gateFrame(cp) {
   return { pos, heading: psi, f: [Math.sin(psi), Math.cos(psi)], r: [Math.cos(psi), -Math.sin(psi)], half: (g.size?.[0] ?? 0) / 2, depth: g.size?.[2] ?? 1 };
 }
 
+/**
+ * The strip's lines as MTM1 draws them in a drag race (MTM1_MONSTER_EXE_ANALYSIS.md 5.6, `0x438b50`; render/drag-beams.js):
+ * every checkpoint a line through its centre, along its local x when its x size is the larger, else along its local
+ * z, half the size each way. The beams (0 to 3) lie across the strip, the lane checkpoints (4 to 7) run down it.
+ * Each `{ a, b, across }`: the two ends and the unit vector across the line (x, z feet).
+ */
+export function dragStripLines(checkpoints) {
+  return (checkpoints ?? []).map((cp) => {
+    const g = gateFrame(cp);
+    if (!g.pos) return null;
+    const gate = cp.gate ?? cp, sx = gate.size?.[0] ?? 0, sz = gate.size?.[2] ?? 0;
+    const along = sx > sz ? g.r : g.f, half = Math.max(sx, sz) / 2;
+    if (!(half > 0)) return null;
+    const end = (side) => [g.pos[0] + along[0] * half * side, g.pos[2] + along[1] * half * side];
+    return { a: end(-1), b: end(1), across: sx > sz ? g.f : g.r };
+  }).filter(Boolean);
+}
+
 /** A point in a gate's frame: `z` along its forward axis, `x` across it. */
 function local(gate, p) {
   const dx = p[0] - gate.pos[0], dz = p[2] - gate.pos[2];

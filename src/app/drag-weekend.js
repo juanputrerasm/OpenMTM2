@@ -3,7 +3,7 @@
   run with, the strip, the trucks, the difficulty and the weather. It hosts the event: it picks the field, sets up each
   pass for the race screen and hands the pass's results back to the event. It lives for the session only.
 */
-import { cpuNames } from "../game/race-setup.js";
+import { CPU_NAME_MAX, cpuNames } from "../game/race-setup.js";
 import { PERSONALITIES, closeQualifying, createDragEvent, currentPairing, recordPass, stageDepth } from "../game/events/drag-event.js";
 import { currentDriver, getProfiles } from "./profile-store.js";
 
@@ -13,9 +13,15 @@ export const LEFT = 0, RIGHT = 1;
 /**
  * Start a weekend on `track` with `size` drivers (2 to 16): the player in their truck, and computer drivers in trucks
  * drawn from `trucks` (the catalogue's, not hidden), each with a personality drawn for the weekend.
+ * `roster` (the Drag weekend dialog's, `settings.dragRoster`) names the computer drivers in order, `[{ name, truck }]`:
+ * a blank name is the Computer drivers' name for that place, a blank or unknown truck one drawn at random from those
+ * nobody picked.
  */
-export function startDragWeekend(context, { track, trucks, playerTruck, playerName, size, difficulty, weather, aiSpeed = null, random = Math.random, field: given = null }) {
-  const others = trucks.filter((t) => t.file !== playerTruck);
+export function startDragWeekend(context, { track, trucks, playerTruck, playerName, size, difficulty, weather, aiSpeed = null, random = Math.random, field: given = null, roster = null }) {
+  const known = new Set(trucks.map((t) => t.file));
+  const slots = Array.from({ length: Math.max(0, size - 1) }, (_, i) => rosterSlot(roster?.[i], known));
+  const picked = new Set(slots.map((s) => s.truck).filter(Boolean));
+  const others = trucks.filter((t) => t.file !== playerTruck && !picked.has(t.file));
   for (let i = others.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
     [others[i], others[j]] = [others[j], others[i]];
@@ -24,15 +30,24 @@ export function startDragWeekend(context, { track, trucks, playerTruck, playerNa
   // A tournament brings its own drivers (app/tournament.js): they keep their trucks and are given a personality each.
   const field = given ? given.map((d) => (d.player ? { ...d } : { ...d, personality: kinds[Math.floor(random() * kinds.length)] })) : [{ name: playerName, truck: playerTruck, player: true }];
   const names = cpuNames(context.settings?.aiNames);
-  for (let i = 0; !given && i < size - 1; i++) {
+  for (let i = 0, drawn = 0; !given && i < size - 1; i++) {
+    const slot = slots[i];
     field.push({
       // Past the game's eight names a second round of them is numbered.
-      name: `${names[i % names.length]}${i >= names.length ? " II" : ""}`, truck: (others[i % Math.max(1, others.length)] ?? trucks[0]).file,
+      name: slot.name || `${names[i % names.length]}${i >= names.length ? " II" : ""}`,
+      truck: slot.truck || (others[drawn++ % Math.max(1, others.length)] ?? trucks[0]).file,
       player: false, personality: kinds[Math.floor(random() * kinds.length)],
     });
   }
   context.dragWeekend = { event: createDragEvent({ strip: { file: track.file, name: track.name }, field }), track, trucks, difficulty, weather, aiSpeed, seen: null };
   return context.dragWeekend;
+}
+
+/** One roster place, tidied: a name of up to `CPU_NAME_MAX` characters and a truck in the catalogue, either "" for the default. */
+export function rosterSlot(entry, known = null) {
+  const name = typeof entry?.name === "string" ? entry.name.trim().slice(0, CPU_NAME_MAX) : "";
+  const truck = typeof entry?.truck === "string" && (!known || known.has(entry.truck)) ? entry.truck : "";
+  return { name, truck };
 }
 
 /**

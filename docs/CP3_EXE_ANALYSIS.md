@@ -42,6 +42,7 @@ has the feature.
 
 | Feature | INI key or label | What it does | Port |
 |---|---|---|---|
+| Steering model | `[Control] steerCurveMode`, `steerRange`, `steerExpo`, `steerSpeedSens`, `steeringResponse`, `nullZone` ("Steering Model", "Steering Sensitivity", "Steering Expo", "Steering Range") | A choice of stick curves, "Original (1998)" or Expo, with its own figures (section 11) | Yes (Options, Keys, Gamepad) |
 | AI Speed | `[Game] aiSpeed` | Scales computer trucks' speed and torque (section 5) | Added with this doc |
 | Commentary pacing | `[Sound] commentarySilence` | Scales the announcer's pauses (section 4.1) | Added (CP3 voice commentary) |
 | Centre commentary | `[Sound] centreCommentary`, "Commentary from Center" | Plays the announcer on the centre channel, **default on**; `lfeLevel` (0 to 200) beside it. How the DLL routes it is not traced | Yes (section 7) |
@@ -251,3 +252,36 @@ photo is read the same way (`FUN_140110810`, then `FUN_14010d5b0`), so it is BMP
 Its notes say a later CP3 engine takes those first and falls back to the BMP (Traxx `TrackPOD.h`, "HD TRACK ART",
 2026-09-28, citing cursh2 `MenuDraw.cpp` `hdSiblingName`). This build has no such step. OpenMTM2 follows the later
 rule for the picture as an addition: the PNG, then the TGA, then the BMP (`worker/track-picture.js`).
+
+## 11. Steering model
+
+The analog stick routine (`FUN_140186d30`, which writes the front steer at `+0x298` once a
+sub-step) keeps the retail joystick routine (`MONSTER_EXE_ANALYSIS.md` 7) and adds a second curve.
+With `x` the stick's position with the dead zone taken out (the retail formula, the dead zone
+`nullZone / 65536`), times 0.75 on Rookie outside a drag race:
+
+    m  = min(1, |x| * k)          k = 100 / steerRange for steerRange 5 to 100, else 1.11
+    Original (1998), steerCurveMode 0:
+       s = m ^ e,  e = (1 + 2 r) * clamp(|bvel.z| * 0.025, 1.0, 1.1)   (the retail curve)
+    Expo, steerCurveMode 1:
+       s = (1 - min(1, |bvel.z| / 88) * min(1, steerSpeedSens / 100) * 0.6)
+           * (m^3 * expo + (1 - expo) * m),   expo = clamp(steerExpo / 100, 0, 1)
+    front steer = sign(x) * 0.45 * s
+
+| Figure | Range | Default | Notes |
+|---|---|---|---|
+| `steerCurveMode` | 0 or 1 | 1 (Expo) | 0 is "Original (1998)" |
+| `steerRange` | 5 to 100 | 90 | so the retail 1.11 gain is the default either way |
+| `steerExpo` | 0 to 100 | 100 for a gamepad, 0 for any other device | the default is picked by the device's type when the INI has none |
+| `steerSpeedSens` | 0 to 100 | 35 | "How much steering eases off as you gain speed. 0% = full lock at any speed" |
+| `steeringResponse` | INI value / 10 gives `r` | `r` = 1 | the options screen's "Steering Sensitivity" slider runs 0 to 20 and sets `r = (20 - v) / 10`, so `r` reaches 2 (exponent 5 at low speed) and a higher sensitivity is a lower `r` |
+| dead zone | 0 to 100 % | | the slider's percentage times 16384 / 100 raw units, so up to a quarter of the throw |
+
+The keyboard routine uses the same `r` (`e = 1 + r / 4`), so it too goes to 1.5.
+
+OpenMTM2: Options, Keys, Gamepad. "Steering model" (Original (1998), the default, or Expo),
+"Steering response" 0 to 20 (`r` a tenth of it; higher is softer near the centre, the opposite way
+round from CP3's Sensitivity slider), "Steering range", "Steering expo", "Steering speed ease-off"
+and "Gamepad dead zone" (0 to 25 %, the port's 12 % by default). "Gamepad steering: Digital (1998
+gamepad)" is the retail game's gamepad mode (`MONSTER_EXE_ANALYSIS.md` 7, `0x585da0`), where the
+stick presses the keys and the keyboard ramps steer.

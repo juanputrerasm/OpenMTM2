@@ -18,9 +18,9 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 RE_DIR = os.path.join(REPO, "re")
 TARGET = os.environ.get("RE_TARGET", "mtm2")
 OUT = os.path.join(RE_DIR, "out") if TARGET == "mtm2" else os.path.join(RE_DIR, TARGET, "out")
-GAME_DIR = os.path.expanduser(os.environ.get(TARGET.upper() + "_DIR", {"cp3": "~/games/mtm2", "mtm1beta": "~/Downloads/mtm_beta"}.get(TARGET, "~/games/" + TARGET)))
+GAME_DIR = os.path.expanduser(os.environ.get(TARGET.upper() + "_DIR", {"cp3": "~/games/mtm2", "cp4": "~/games/cp4beta052", "mtm1beta": "~/Downloads/mtm_beta"}.get(TARGET, "~/games/" + TARGET)))
 MTM2_DIR = GAME_DIR
-EXE = os.path.join(GAME_DIR, {"evo2": "4x42.exe", "evo1": "4x4LE.exe", "cpr": "CART.EXE", "cp3": "monster.exe"}.get(TARGET, "MONSTER.EXE"))
+EXE = os.path.join(GAME_DIR, {"evo2": "4x42.exe", "evo1": "4x4LE.exe", "cpr": "CART.EXE", "cp3": "monster.exe", "cp4": "monster.exe"}.get(TARGET, "MONSTER.EXE"))
 
 
 def _image_base():
@@ -35,7 +35,7 @@ def _image_base():
         return 0x400000
 
 
-IMAGE_BASE = _image_base() if TARGET == "cp3" else 0x400000
+IMAGE_BASE = _image_base() if TARGET in ("cp3", "cp4") else 0x400000
 
 _pe = None
 

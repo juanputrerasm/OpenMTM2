@@ -628,6 +628,20 @@ with labels.
 Rows in the texture, top to bottom: y 0-6, 9-16, 19-26, 30-36, 39-46, 49-54, 57-63. Palette
 colours 0x69, 0x69, 0x6f, 0x6f, 0x6f, 0xd6, 0x9c.
 
+How `0x41d490` paints it, each frame of a drag race: the whole texture is cleared to palette index 0
+(unlit), then each lit lamp is a filled rectangle of its colour over its row: the first truck's
+lamps (`0x833ae0`, grid slot 0) at x 36-63, the second truck's (`0x833ae4`, slot 1) at x 0-27. The
+middle columns 28-35 stay 0. The model is `TREE.BIN` (in `GAME.POD`, MTM1 and MTM2 both): seven
+quads a side, mapped onto u 0-16 and u 47-63 of the texture, so each face shows one lamp row of
+one lane.
+
+**The strip's lines.** In a drag race the frame (`0x418e80`, `0x403000`) also calls `0x438b50`,
+which draws every checkpoint of the strip as one white line (colour slot 0 of the line colour
+table): through the checkpoint's centre, along its local x when its x size is the larger, else
+along its local z, from minus half that size to plus half. So the prestage, stage, start and
+finish beams lie across the strip, and the lane checkpoints (4 to 7: each lane's centre line and
+outer edge) run down it. Single lines, one pixel wide, at the checkpoint's own height.
+
 Circuit and rally starts use the two textures `STRTRED.RAW` and `STRTGRN.RAW` instead
 (`0x41d830`): red (0x9c) for the first 3 s, then green (0xd6).
 

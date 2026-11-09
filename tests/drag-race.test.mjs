@@ -263,3 +263,13 @@ test("the 1996 rules (MTM1 physics): no backing-up rule, and the Disqualify lamp
   hold(now, [2147.5, 2147.5], DRAG_MAX_S + 2 * DT);
   assert.equal(dragLamps(now, 0), LAMP.DQ);
 });
+
+test("the strip's lines as MTM1 draws them: every checkpoint, along its x when x is the larger size, else along its z", async () => {
+  const { dragStripLines } = await import("../src/game/drag-race.js");
+  const beam = (z) => ({ gate: { position: [10, 0, z], angles: [0, 0, 0], size: [40, 10, 1] } });
+  const lane = (x) => ({ gate: { position: [x, 0, 150], angles: [0, 0, 0], size: [1, 10, 300] } });
+  const lines = dragStripLines([beam(0), beam(1.5), beam(4), beam(300), lane(10), lane(-10), lane(10), lane(30)]);
+  assert.equal(lines.length, 8);
+  assert.deepEqual([lines[2].a, lines[2].b, lines[2].across], [[-10, 4], [30, 4], [0, 1]]);
+  assert.deepEqual([lines[5].a, lines[5].b, lines[5].across.map((v) => v + 0)], [[-10, 0], [-10, 300], [1, 0]]);
+});

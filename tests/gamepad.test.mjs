@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { choosePad, createGamepadInput, motorLevel, padPedalAxis } from "../src/game/input/gamepad.js";
+import { choosePad, createGamepadInput, motorLevel, RUMBLE_TIMING, padPedalAxis } from "../src/game/input/gamepad.js";
 import { PAD, pickInDirection } from "../src/ui/gamepad-nav.js";
 import { bindPadButton, mergePadBindings, padConflictFor, padKeyButtons, newPress } from "../src/game/input/pad-bindings.js";
 import { applyJoystick } from "../src/vendor/openphotex/sim/mtm2/truck/controls.js";
@@ -111,10 +111,36 @@ test("gamepad rumble: a level starts where the motor turns, and a steady one is 
   input.rumble(0.51, 0, 16);
   input.rumble(0.51, 0, 33);
   assert.equal(played.length, 1);
+  // A level that moves is sent again, but never sooner than MIN_GAP_MS after the last.
   input.rumble(0.9, 0, 50);
+  assert.equal(played.length, 1);
+  input.rumble(0.9, 0, 130);
   assert.equal(played.length, 2);
-  input.rumble(0.9, 0, 250);
+  // A steady one is sent again before the effect runs out.
+  input.rumble(0.9, 0, 300);
+  assert.equal(played.length, 2);
+  input.rumble(0.9, 0, 440);
   assert.equal(played.length, 3);
-  input.rumble(0, 0, 260);
+  assert.ok(played.every((e) => e === "reset" || e.duration > RUMBLE_TIMING.RESEND_MS + RUMBLE_TIMING.MIN_GAP_MS));
+  input.rumble(0, 0, 450);
   assert.equal(played.at(-1), "reset");
+});
+
+test("gamepad rumble: a level that moves every frame is sent at most every MIN_GAP_MS", () => {
+  const played = [];
+  const p = pad();
+  p.vibrationActuator = { playEffect: (type, params) => { played.push(params); return Promise.resolve("complete"); } };
+  const input = createGamepadInput({ getGamepads: () => [p] });
+  for (let f = 0; f < 60; f++) input.rumble(f % 2 ? 0.2 : 0.9, f % 2 ? 0.9 : 0.2, f * (1000 / 60));
+  assert.ok(played.length <= Math.ceil(1000 / RUMBLE_TIMING.MIN_GAP_MS), `${played.length} sends in a second`);
+});
+
+test("the Gamepad dead zone option: percent of the throw, 0 to 25, 12 % when unset, and the sample carries it", async () => {
+  const { padDeadZone } = await import("../src/game/input/gamepad.js");
+  assert.equal(padDeadZone(12), 0.12);
+  assert.equal(padDeadZone(40), 0.25);
+  assert.equal(padDeadZone(-3), 0);
+  assert.equal(padDeadZone(undefined), 0.12);
+  const input = createGamepadInput({ getGamepads: () => [pad()] }, undefined, undefined, () => 0.2);
+  assert.equal(input.sample().deadZone, 0.2);
 });

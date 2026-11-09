@@ -4,7 +4,7 @@
 */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LEFT, RIGHT, passEntrants, startDragWeekend, takePass } from "../src/app/drag-weekend.js";
+import { LEFT, RIGHT, passEntrants, rosterSlot, startDragWeekend, takePass } from "../src/app/drag-weekend.js";
 import { PERSONALITIES, chooseLane, currentPairing } from "../src/game/events/drag-event.js";
 
 const trucks = Array.from({ length: 20 }, (_, i) => ({ file: `T${i}.TRK`, name: `Truck ${i}` }));
@@ -20,6 +20,20 @@ test("the field: the player first, computer drivers in other trucks, each with a
   assert.equal(new Set(event.drivers.map((d) => d.truck)).size, 16);
   assert.equal(new Set(event.drivers.map((d) => d.name)).size, 16);
   assert.ok(event.drivers.slice(1).every((d) => d.personality in PERSONALITIES));
+});
+
+test("the roster: named places keep their name and truck, blank ones take the Computer drivers' name and a truck nobody picked", () => {
+  const roster = [{ name: "  Penda  ", truck: "T5.TRK" }, { name: "", truck: "" }, { name: "Snake Bite", truck: "NOPE.TRK" }];
+  const { event } = startDragWeekend({ settings: { aiNames: ["", "Greg2"] } }, {
+    track: { file: "DRAG3.SIT", name: "B.C. Place" }, trucks, playerTruck: "T0.TRK", playerName: "You", size: 4, difficulty: 1, weather: 0, roster,
+  });
+  assert.deepEqual(event.drivers.map((d) => d.name), ["You", "Penda", "Greg2", "Snake Bite"]);
+  assert.equal(event.drivers[1].truck, "T5.TRK");
+  const drawn = [event.drivers[2].truck, event.drivers[3].truck];
+  assert.ok(drawn.every((f) => f !== "T5.TRK" && f !== "T0.TRK" && trucks.some((t) => t.file === f)));
+  assert.notEqual(drawn[0], drawn[1]);
+  assert.deepEqual(rosterSlot({ name: "x".repeat(40), truck: 3 }), { name: "x".repeat(16), truck: "" });
+  assert.deepEqual(rosterSlot(undefined), { name: "", truck: "" });
 });
 
 test("qualifying: the player in their lane, the measurement truck beside them leaving on the green; its time is the baseline", () => {

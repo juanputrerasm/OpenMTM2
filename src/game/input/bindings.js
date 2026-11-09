@@ -35,6 +35,7 @@ export const ACTIONS = Object.freeze([
   { id: "mapZoomOut", label: msg("Map zoom out") },
   { id: "names", label: msg("Names") },
   { id: "finder", label: msg("Finder") },
+  { id: "dragBeams", label: msg("Drag beam lines") },
   { id: "headlights", label: msg("Headlights") },
   { id: "crashDamage", label: msg("Crash Damage") },
   { id: "pause", label: msg("Pause") },
@@ -76,6 +77,8 @@ export const DEFAULT_BINDINGS = Object.freeze({
   mapZoomOut: Object.freeze(["BracketLeft"]),
   names: Object.freeze(["KeyN"]),
   finder: Object.freeze(["KeyF"]),
+  // Shows and hides the drag strip's beam lines mid-race (render/drag-beams.js; the port's key, L is Headlights).
+  dragBeams: Object.freeze(["KeyI"]),
   headlights: Object.freeze(["KeyL"]),
   crashDamage: Object.freeze(["KeyX"]),
   pause: Object.freeze(["Escape", "KeyP"]),

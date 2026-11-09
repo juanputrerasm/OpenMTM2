@@ -25,6 +25,14 @@ import { mergePadBindings, padHeld } from "./pad-bindings.js";
 const TRIGGER_LEFT = 6, TRIGGER_RIGHT = 7;
 const RIGHT_STICK_Y = 3;
 const DEAD_ZONE = 0.12;
+/**
+ * The Gamepad dead zone option (percent, 0 to 25; Community Patch 3's dead zone slider reaches a quarter of the throw)
+ * as a fraction of the throw. The port's default is 12 %.
+ */
+export const padDeadZone = (percent) => {
+  const v = Number(percent);
+  return Number.isFinite(v) ? Math.min(25, Math.max(0, v)) / 100 : DEAD_ZONE;
+};
 /** The right stick's dead zone for the camera's tilt: larger, so a thumb resting on it does not drift the camera. */
 const TILT_DEAD_ZONE = 0.25;
 
@@ -60,7 +68,14 @@ export function choosePad(pads) {
 
 /** A motor barely turns below about this; any level asked for is lifted over it, so a soft rumble is still felt. */
 const MOTOR_START = 0.12;
-const EFFECT_MS = 250, RESEND_MS = 150, LEVEL_STEP = 0.05;
+/**
+ * Each effect plays `EFFECT_MS` and is sent again `RESEND_MS` in when its levels hold. Two sends are never closer than
+ * `MIN_GAP_MS`, however the levels move: on Windows the browser hands a rumble to the pad on the thread that reads it,
+ * and a pad on Bluetooth can hold that thread up, so a steady stream of sends left the stick and triggers unread for
+ * seconds at a time.
+ */
+const EFFECT_MS = 450, RESEND_MS = 300, MIN_GAP_MS = 120, LEVEL_STEP = 0.08;
+export const RUMBLE_TIMING = Object.freeze({ EFFECT_MS, RESEND_MS, MIN_GAP_MS, LEVEL_STEP });
 
 /** The level sent to a motor for one asked for (0..1): 0 stays 0, anything else starts where the motor turns. */
 export const motorLevel = (v) => (v > 0.01 ? MOTOR_START + (1 - MOTOR_START) * Math.min(1, v) : 0);
@@ -86,7 +101,7 @@ export async function testRumble(nav = navigator) {
  * `pedals` gives the Gamepad pedals choice and `bindings` the player's button changes (`settings.padBindings`), both read
  * at every sample so that a change in the options takes effect at once.
  */
-export function createGamepadInput(nav = navigator, pedals = () => PAD_PEDALS[0], bindings = () => null) {
+export function createGamepadInput(nav = navigator, pedals = () => PAD_PEDALS[0], bindings = () => null, deadZone = () => DEAD_ZONE) {
   let upHeld = false, downHeld = false, rumbling = false, sentStrong = 0, sentWeak = 0, sentAt = 0;
   const sends = [];
   const padNow = () => choosePad(nav.getGamepads ? [...nav.getGamepads()] : []);
@@ -104,7 +119,7 @@ export function createGamepadInput(nav = navigator, pedals = () => PAD_PEDALS[0]
       // Shifts are edges, like the keys.
       const shiftUp = up && !upHeld, shiftDown = down && !downHeld;
       upHeld = up; downHeld = down;
-      return { x: pad.axes[0] ?? 0, y, deadZone: DEAD_ZONE, shiftUp, shiftDown, handbrake: padHeld(pad, b.handbrake) };
+      return { x: pad.axes[0] ?? 0, y, deadZone: deadZone(), shiftUp, shiftDown, handbrake: padHeld(pad, b.handbrake) };
     },
     /**
      * The pad's two motors, 0..1 (game/input/rumble.js), for the next tenth of a second, or off with both 0. A browser or
@@ -118,8 +133,9 @@ export function createGamepadInput(nav = navigator, pedals = () => PAD_PEDALS[0]
     },
     /**
      * The pad's two motors, 0..1 (game/input/rumble.js), or off with both 0. A level is lifted to where a motor turns
-     * (`motorLevel`). An effect plays for a quarter second and is sent again only when a level moves or it is about to
-     * end: sent every frame, a pad on Bluetooth drops them or starts over before its motors spin up. A browser or pad
+     * (`motorLevel`). An effect is sent again only when a level moves or it is about to end, and never sooner than
+     * `MIN_GAP_MS` after the last (`RUMBLE_TIMING`): sent every frame, a pad on Bluetooth drops them or starts over before
+     * its motors spin up, and its input can stall. A browser or pad
      * without rumble (Firefox, most adapters) is left alone.
      */
     rumble(strong, weak, now = performance.now()) {
@@ -132,6 +148,7 @@ export function createGamepadInput(nav = navigator, pedals = () => PAD_PEDALS[0]
         (actuator.reset?.() ?? actuator.playEffect("dual-rumble", { startDelay: 0, duration: 0, strongMagnitude: 0, weakMagnitude: 0 }))?.catch?.(() => {});
         return;
       }
+      if (rumbling && now - sentAt < MIN_GAP_MS) return;
       if (rumbling && Math.abs(s - sentStrong) < LEVEL_STEP && Math.abs(w - sentWeak) < LEVEL_STEP && now - sentAt < RESEND_MS) return;
       rumbling = true; sentStrong = s; sentWeak = w; sentAt = now; sends.push(now);
       actuator.playEffect("dual-rumble", { startDelay: 0, duration: EFFECT_MS, strongMagnitude: s, weakMagnitude: w })?.catch?.(() => {});

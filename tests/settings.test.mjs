@@ -274,3 +274,18 @@ test("the OpenMTM2 map and names at 50% are the default and the OpenMTM2 preset'
   assert.equal(s.mapStyle, "openmtm2");
   assert.equal(s.nameTransparency, 0.5);
 });
+
+test("settings kept across races: the Names key's mode, the chase mirror's size, the drag roster, the steering figures", async () => {
+  const { DEFAULT_SETTINGS, migrateSettings } = await import("../src/app/settings.js");
+  assert.equal(DEFAULT_SETTINGS.names, 0);
+  assert.equal(DEFAULT_SETTINGS.chaseMirrorSize, "original");
+  assert.deepEqual(DEFAULT_SETTINGS.dragRoster, []);
+  assert.equal(DEFAULT_SETTINGS.steerModel, "original");
+  assert.equal(DEFAULT_SETTINGS.steerRange, 90);
+  assert.equal(DEFAULT_SETTINGS.padSteering, "analog");
+  // Older saves gain the new keys from the defaults and keep what they had.
+  const old = migrateSettings({ version: 13, view: 2 });
+  assert.equal(old.names, 0);
+  assert.equal(old.dragBeams, true);
+  assert.equal(migrateSettings({ version: 13, names: 2 }).names, 2);
+});
