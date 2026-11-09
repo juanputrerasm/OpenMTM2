@@ -2223,6 +2223,12 @@ for DirectPlay's system messages:
 
 Clients hear of a join only through the host's 0x81 and 0x82 (14.2, "The host's player list").
 
+**Later finding: the game layer does change in CP3 and CP4.** The transport is as described here,
+but the packets are not all retail's. CP3 sends version 0x3400 in 0x03, a 65-byte 0x02 and two new
+packets, 0x26 (progress, 24 bytes) and 0x27 (collision, 44 bytes). CP4 beta 0.52 (version 0x3402)
+grows 0x02 to 116 bytes with f32 angles and two redundant poses, adds a raceId to 0x14 (40 bytes) and
+adds the 0x28/0x29 load barrier. 0x25 stays retail's. See `CP4_EXE_ANALYSIS.md` section 9.
+
 **Reliability.** The game's send mode picks it:
 
 | Mode | Sent |

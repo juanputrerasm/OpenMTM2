@@ -367,7 +367,7 @@ export function buildTerrainMesh({ heights, heightsFt = null, clr, lte, atlas, f
  * cell as on the coarse mesh. Normals by central differences over the fine grid. The same shape of result as
  * `buildTerrainMesh`.
  */
-export function buildFineTerrainMesh({ fineFt, sub = 4, clr, atlas, tileInset = 2 }) {
+export function buildFineTerrainMesh({ fineFt, sub = 4, clr, lte = null, atlas, tileInset = 2 }) {
   const side = GRID * sub, mask = side - 1, step = CELL_FT / sub, n = sub + 1;
   const perCell = n * n, cells = GRID * GRID;
   const positions = new Float32Array(cells * perCell * 3);
@@ -376,6 +376,10 @@ export function buildFineTerrainMesh({ fineFt, sub = 4, clr, atlas, tileInset = 
   const shade = new Float32Array(cells * perCell).fill(1);
   const indices = new Uint32Array(cells * sub * sub * 6);
   const h = (r, c) => fineFt[(r & mask) * side + (c & mask)];
+  // A Community Patch 4 Spline or Full Map track's 256 x 256 .LTE lights the fine grid as it does the coarse one's corners
+  // (`buildTerrainMesh`): each fine point takes it between the four corners of its cell, bilinearly.
+  const hasLte = !!lte && lte.length >= cells * LTE_BYTES_PER_POINT;
+  const lit = (r, c) => lte[((r & 255) * GRID + (c & 255)) * LTE_BYTES_PER_POINT] / 255;
   const tile = new Float32Array(8);
   let ii = 0;
   for (let row = 0; row < GRID; row++) {
@@ -392,6 +396,9 @@ export function buildFineTerrainMesh({ fineFt, sub = 4, clr, atlas, tileInset = 
           const dx = (h(r, c + 1) - h(r, c - 1)) / (2 * step), dz = (h(r + 1, c) - h(r - 1, c)) / (2 * step);
           const len = Math.hypot(dx, 1, dz);
           normals[v * 3] = -dx / len; normals[v * 3 + 1] = 1 / len; normals[v * 3 + 2] = dz / len;
+          if (hasLte) {
+            shade[v] = (lit(row, col) * (1 - a) + lit(row, col + 1) * a) * (1 - b) + (lit(row + 1, col) * (1 - a) + lit(row + 1, col + 1) * a) * b;
+          }
           for (let k = 0; k < 2; k++) {
             const top = tile[k] * (1 - a) + tile[2 + k] * a, bottom = tile[6 + k] * (1 - a) + tile[4 + k] * a;
             uvs[v * 2 + k] = top * (1 - b) + bottom * b;
@@ -413,7 +420,7 @@ export function buildFineTerrainMesh({ fineFt, sub = 4, clr, atlas, tileInset = 
     }
   }
   return {
-    positions, normals, uvs, shade, indices, hasLte: false, indicesPerCell: sub * sub * 6,
+    positions, normals, uvs, shade, indices, hasLte, indicesPerCell: sub * sub * 6,
     // The levels drawn further off (render/track-scene.js): a sub-cell of 2 x 2 in the middle distance, the cell far off.
     levels: sub % 2 === 0 ? { mid: fineTerrainLevel({ sub, step: sub / 2 }), coarse: fineTerrainLevel({ sub, step: sub }) } : null,
   };

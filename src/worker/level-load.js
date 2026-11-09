@@ -12,6 +12,10 @@ import { decodeActPalette } from "../vendor/openphotex/texture/act.js";
 import { parseMtmLvl, parseMtmSit, parseTexList, parseTty } from "../vendor/openphotex/mtm/sit.js";
 import { podPathTitle } from "../vendor/openphotex/pod/paths.js";
 import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
+import { decodeMtm2Heights, decodeMtm2HeightPng, mtm2EngineHeightsFt } from "../vendor/openphotex/mtm/heights.js";
+import { readTxvInfo } from "../vendor/openphotex/mtm/txv.js";
+import { parseWtr } from "../vendor/openphotex/mtm/wtr.js";
+import { parseMtm2Veg, isMtm2Veg } from "../vendor/openphotex/mtm/veg.js";
 
 const GRID = 256;
 
@@ -19,6 +23,16 @@ function stemOf(name) {
   const title = podPathTitle(name);
   const dot = title.lastIndexOf(".");
   return dot >= 0 ? title.slice(0, dot) : title;
+}
+
+/** A Community Patch 4 extra the track may carry: a damaged or newer one is left out with a warning, never fatal. */
+function safely(read, what) {
+  try {
+    return read();
+  } catch (err) {
+    console.warn(`Track ${what} skipped: ${err.message}`);
+    return null;
+  }
 }
 
 /** Read `name` from `folder`, by its file name only (the LVL writes bare names). */
@@ -56,12 +70,45 @@ export async function loadLevel(vfs, sitPath, sitBytes = null) {
     either(`DATA\\${stemOf(lvlTitle)}.CL0`, `DATA\\${stem}.CL0`),
   ]);
 
-  // MTM: a byte a corner, 2 ft steps. CART Precision Racing: 16 bits a corner, sixteenths of a foot (the road's
-  // own altitudes, in feet, then lie a median 2 ft over the ground at Laguna).
-  const wide = rawHeights?.length === GRID * GRID * 2;
-  if (!rawHeights || (rawHeights.length !== GRID * GRID && !wide)) throw new Error(`${lvl.rawName}: not a 256 x 256 heightfield.`);
-  const heights = wide ? null : rawHeights;
-  const heightsFt = wide ? Float32Array.from({ length: GRID * GRID }, (_, i) => (rawHeights[i * 2] | (rawHeights[i * 2 + 1] << 8)) / 16) : null;
+  // The Community Patch 4 records beside the level (docs/CP4_EXE_ANALYSIS.md): DATA\<stem>.TXV says which terrain grid the
+  // heights are on and may name a height PNG; WORLD\<stem>.WTR adds lakes, WORLD\<stem>.VEG vegetation. Each is optional.
+  const cpr = sit.origin === "CPR";
+  const [txvBytes, wtrBytes, vegBytes] = cpr ? [null, null, null] : await Promise.all([
+    either(`DATA\\${stemOf(lvlTitle)}.TXV`, `DATA\\${stem}.TXV`),
+    either(`WORLD\\${stemOf(lvlTitle)}.WTR`, `WORLD\\${stem}.WTR`),
+    either(`WORLD\\${stemOf(lvlTitle)}.VEG`, `WORLD\\${stem}.VEG`),
+  ]);
+  const txv = txvBytes ? readTxvInfo(txvBytes) : null;
+
+  let heights = null, heightsFt = null, fineFt = null, terrainMode = "classic8", terrainWarning = null;
+  if (cpr) {
+    // CART Precision Racing: 16 bits a corner, sixteenths of a foot (the road's own altitudes, in feet, then lie a median
+    // 2 ft over the ground at Laguna).
+    if (rawHeights?.length !== GRID * GRID * 2) throw new Error(`${lvl.rawName}: not a 256 x 256 16-bit heightfield.`);
+    heightsFt = Float32Array.from({ length: GRID * GRID }, (_, i) => (rawHeights[i * 2] | (rawHeights[i * 2 + 1] << 8)) / 16);
+    terrainMode = "cpr";
+  } else {
+    // MTM2: a byte a corner, 2 ft steps; or Community Patch 4's 16-bit grids, 1/128 ft a step: 256 x 256 at 32 ft, the
+    // same expanded by the engine's spline to 8 ft, or a 1024 x 1024 Full Map at 8 ft (OpenPhotex mtm/heights.ts).
+    const pngName = txv?.terrainHeights;
+    const pngBytes = pngName ? await vfs.read(pngName.includes("\\") ? pngName : `DATA\\${podPathTitle(pngName)}`) : null;
+    if (pngName && !pngBytes && !rawHeights) throw new Error(`${pngName} (the track's .TXV terrainHeights) is missing.`);
+    if (!pngBytes && !rawHeights) throw new Error(`${lvl.rawName} is missing.`);
+    let decoded;
+    try {
+      decoded = pngBytes ? decodeMtm2HeightPng(pngBytes, txv?.terrainGrid) : decodeMtm2Heights(rawHeights, txv?.terrainGrid);
+    } catch (err) {
+      throw new Error(`${pngBytes ? pngName : lvl.rawName}: ${err.message}`);
+    }
+    terrainMode = decoded.mode;
+    terrainWarning = decoded.warning;
+    if (decoded.mode === "classic8" && rawHeights?.length === GRID * GRID) heights = rawHeights;
+    else {
+      // As the engine holds them: v >> 1, 1/64 ft (docs/CP4_EXE_ANALYSIS.md 1), after the spline.
+      heightsFt = mtm2EngineHeightsFt(decoded.coarse);
+      if (decoded.fine) fineFt = mtm2EngineHeightsFt(decoded.fine);
+    }
+  }
   const clr = new Uint16Array(GRID * GRID);
   if (clrBytes && clrBytes.length >= GRID * GRID * 2) {
     for (let i = 0; i < clr.length; i++) clr[i] = clrBytes[i * 2] | (clrBytes[i * 2 + 1] << 8);
@@ -82,6 +129,15 @@ export async function loadLevel(vfs, sitPath, sitBytes = null) {
     title, stem, sit, lvl,
     /** `heights`: the MTM byte heightfield; `heightsFt`: corner heights in feet where the level's is finer (then `heights` is null). */
     heights, heightsFt, clr, lte,
+    /**
+     * `fineFt`: Community Patch 4's 8 ft grid (1024 x 1024 heights in feet, rows along z) for a Spline or Full Map track,
+     * else null. `terrainMode`: "classic8", "classic16", "spline", "fine" or "cpr"; `terrainWarning` as Traxx reports a
+     * .TXV that disagrees with the height file.
+     */
+    fineFt, terrainMode, terrainWarning, txv,
+    /** Community Patch 4 lakes (OpenPhotex `parseWtr`) and vegetation (`parseMtm2Veg`), or null. */
+    lakes: wtrBytes ? safely(() => parseWtr(wtrBytes), "lakes") : null,
+    vegetation: vegBytes && isMtm2Veg(vegBytes) ? safely(() => parseMtm2Veg(vegBytes), "vegetation") : null,
     textureNames, tty, textureValues,
     palette,
     groundBoxes,

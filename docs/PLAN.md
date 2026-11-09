@@ -90,6 +90,10 @@ behaviour the port adds is named as an addition, never passed off as the game's.
   it with the port's own fixes for computer trucks on rough ground; the tournament driver personalities and form
   (multipliers), formats, scoring tables and the save's fields; `commentarySilence` as a setting; the mirror and
   racing line keys (`keyMirror`, `keyRaceLine`, `keySplitScreen`); the racing line's colour.
+- **Community Patch 4's 3D cockpit** (VISUALS.md, "The 3D cockpit"): to be tested in the browser with CP4's
+  `cockpit.pod`; quad lamps (their colour, `CP4_EXE_ANALYSIS.md` 6); the 3D cab in a headset (VR.md, "The cab");
+  OpenPhotex `parseCpt` reading FOV and the engine's range checks itself (the port checks them in
+  `game/cockpit3d.js` `checkLayout`).
 - **Evolution trees:** how hard a tree pushes a truck (its figures in the truck-against-object response,
   `EVO2_EXE_ANALYSIS.md` 2.5) and the tree object's `k`.
 - **Wheels damage:** online play (each machine sends its trucks' wheels, a room protocol addition), replays, and the

@@ -15,7 +15,8 @@ test("the mirror's picture is asked for and not waited for, and no second one is
   assert.match(race, /if \(mirrorTick\+\+ % 2 \|\| mirrorReading\) return;/);
   // It is shown when it comes, if the mirror is still shown (the cockpit, facing forward, switched on).
   assert.match(race, /\.then\(\(\) => \{ if \(!disposed && mirrorShown\(\)\) cockpit\.setMirror\(/);
-  assert.match(race, /const mirrorShown = \(\) => viewMode === 0 && dashMode\(\) === 0 && !!context\.cockpitMirror && cockpitTurn\(\) === 0;/);
+  // The 3D cockpit (render/cockpit3d.js) draws its own mirror in place of this one.
+  assert.match(race, /const mirrorShown = \(\) => viewMode === 0 && dashMode\(\) === 0 && mirrorOn\(\) && cockpitTurn\(\) === 0 && !cockpit3dShown\(\);/);
 });
 
 test("the mirror's shaders are built when it is first drawn, the dust's among them", () => {

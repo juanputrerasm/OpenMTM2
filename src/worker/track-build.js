@@ -10,7 +10,9 @@ import { TREE_FACE_INDICES } from "../game/drag-tree-face.js";
 import { rumbleGrid } from "../game/race-setup.js";
 import { loadHdSky, loadWeatherArt } from "./weather-art.js";
 import { weatherSkyStem } from "../game/weather.js";
-import { BOX_LIGHT, BOX_MOVING } from "../vendor/openphotex/mtm/sit.js";
+import { BOX_FOG, BOX_LIGHT, BOX_MOVING } from "../vendor/openphotex/mtm/sit.js";
+import { buildLakeSheets, buildVegetation, vegetationWalls } from "./cp4-world.js";
+import { fogVolumesOf } from "../game/fog-volumes.js";
 import { decodeActPalette } from "../vendor/openphotex/texture/act.js";
 import { decodeRawTexture, rawTextureSide } from "../vendor/openphotex/texture/raw.js";
 import { isEvoSit } from "../vendor/openphotex/evo/sit.js";
@@ -20,7 +22,7 @@ import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
 import { buildEvoSky, buildEvoTrackRender } from "./evo-track-build.js";
 import { toSceneMatrix } from "../shared/scene-frame.js";
 import { loadLevel, loadTextureSource } from "./level-load.js";
-import { TILE_STACK_BUDGET, buildTerrainAtlas, buildTerrainMesh, buildTileStacks, decodeTerrainTextures, slotsInUse } from "./terrain-mesh.js";
+import { TILE_STACK_BUDGET, buildFineTerrainMesh, buildTerrainAtlas, buildTerrainMesh, buildTileStacks, decodeTerrainTextures, slotsInUse } from "./terrain-mesh.js";
 import { buildReliefMesh } from "./relief-mesh.js";
 import { buildReliefData, createRelief } from "../game/terrain-relief.js";
 import { COVER_MIN_WIDTH_FT, GROUND_MAP_SIDE, buildCoverMap, buildGroundMap, buildPuddleMap, buildShelterMap } from "../game/ground-maps.js";
@@ -32,6 +34,32 @@ import { buildTvSky, buildTvTrackRender } from "./tv-track-build.js";
 import { buildTruckRender, buildTrucks, cachedTruckRender } from "./truck-build.js";
 import { loadVehicleModels } from "./vehicle-models.js";
 import { artStem, hdTextureLimit, loadAoMap, loadArtTexture, loadNormalMap, loadPlainImage, shrinkImage } from "./art-texture.js";
+
+/**
+ * A level's usable Community Patch 4 lakes (docs/CP4_EXE_ANALYSIS.md 2): those with a height in 1..4096 half-feet and
+ * a surface above the track's own water, as the engine keeps them (it skips the rest with BELOW_BODY0 / HEIGHT_RANGE).
+ */
+function lakesOf(level) {
+  const wtr = level.lakes;
+  if (!wtr?.tileMap) return null;
+  const levelFt = new Float32Array(256);
+  const tileMap = new Uint8Array(wtr.tileMap);
+  const bodies = [];
+  for (const lake of wtr.lakes) {
+    const ok = lake.height >= 1 && lake.height <= 4096 && (level.waterLevelFt === null || lake.heightFt > level.waterLevelFt);
+    if (ok) {
+      levelFt[lake.id] = lake.heightFt;
+      bodies.push({ id: lake.id, levelFt: lake.heightFt, reflective: lake.reflective, box: lake.box });
+    }
+  }
+  for (let i = 0; i < tileMap.length; i++) if (tileMap[i] && !levelFt[tileMap[i]]) tileMap[i] = 0;
+  return bodies.length ? { tileMap, levelFt, bodies } : null;
+}
+
+/** A level's lakes with each body's water sheet (worker/cp4-world.js `buildLakeSheets`). */
+function withSheets(lakes) {
+  return lakes ? { ...lakes, bodies: buildLakeSheets(lakes) } : null;
+}
 
 /** A mask's red channel alone, as RGBA (the mask is greyscale; one channel is read). */
 function greyMask(image) {
@@ -368,7 +396,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   // console's `overlap`) says which for this race, whatever the track; unsaid, a track draws as its own game did.
   const tileInset = (tileOverlap ?? sit.origin !== "MTM1") ? 2 : 0;
   const groundBoxes = cpr ? null : buildGroundBoxMesh(level.groundBoxes, atlas, level.lte, level.heights, cells,
-    { drawn: sit.origin === "MTM1" && !cells ? mtm1EdgeBoxDrawn() : null, tileInset });
+    { drawn: sit.origin === "MTM1" && !cells ? mtm1EdgeBoxDrawn() : null, tileInset, heightsFt: level.heights ? null : level.heightsFt });
   const road = cpr ? await buildCprRoadLayer(vfs, level) : null;
   // The ground of a CPR track as the simulation has it: the terrain, and the road layer over it.
   const cprTerrain = cpr ? mtm2Sim.createTerrainGround(mtm2Sim.createTerrainFt(level.heightsFt), null, 0, null) : null;
@@ -416,7 +444,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   // MTM1 draws its ramps' models, where MTM2 leaves them unseen; its checkpoint banners it draws as an old MTM level's.
   const mtm1Track = sit.origin === "MTM1";
   const objects = [];
-  const drawnBox = (box) => !!box.modelName && (box.type !== RAMP_TYPE || mtm1Track) && boxIsDrawn(box, { levelType: level.lvl.levelType, raceType, detailLevel });
+  // A Community Patch 4 fog volume (type 14) is drawn as fog (`fogVolumes` below), never as its model, and meets nothing.
+  const drawnBox = (box) => !!box.modelName && box.type !== BOX_FOG && (box.type !== RAMP_TYPE || mtm1Track) && boxIsDrawn(box, { levelType: level.lvl.levelType, raceType, detailLevel });
   // Every model the boxes draw is read and decoded at once; the loop below takes them in the SIT's order.
   await Promise.all([...new Set(sit.boxes.filter(drawnBox).map((box) => podPathTitle(box.modelName)))].map(decodeNamed));
   for (const [sitIndex, box] of sit.boxes.entries()) {
@@ -439,6 +468,18 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     });
   }
 
+  // Community Patch 4's vegetation (WORLD\<stem>.VEG, docs/CP4_EXE_ANALYSIS.md 3): each species' model and far card, read
+  // as the boxes' are, its instances by species (worker/cp4-world.js), and the trees the trucks run into. A tree above
+  // the scenery detail is neither drawn nor met.
+  let vegetation = null, vegWalls = null;
+  if (level.vegetation) {
+    const names = new Set(level.vegetation.species.flatMap((spec) => [spec.model, spec.farModel]).filter(Boolean).map(podPathTitle));
+    await Promise.all([...names].map(loadModel));
+    const modelOf = (name) => models[podPathTitle(name)] ?? null;
+    vegetation = buildVegetation(level.vegetation, { detail: detailLevel, hasModel: (name) => !!modelOf(name), titleOf: podPathTitle });
+    vegWalls = vegetationWalls(level.vegetation, modelOf, { detail: detailLevel });
+  }
+
   // Backdrops are ordinary BIN assets with a special camera-centred draw policy.
   const backdrops = (sit.backdropModelNames ?? []).map(podPathTitle).filter(Boolean);
   // "Original backdrops" (Options, Advanced): the game's own backdrop, passed over an HD one (a model naming PNG art,
@@ -458,7 +499,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   const collisionBoxes = [];
   for (const [sitIndex, box] of sit.boxes.entries()) {
     // A top-crush car's two parts are not boxes: the car has its own test (`topCrush` below).
-    if (box.type === RAMP_TYPE || box.crushRole || !box.positionFt || !mtm2Sim.levelBoxCollides(box, detailLevel)) continue;
+    if (box.type === RAMP_TYPE || box.type === BOX_FOG || box.crushRole || !box.positionFt || !mtm2Sim.levelBoxCollides(box, detailLevel)) continue;
     const name = box.modelName ? podPathTitle(box.modelName) : "";
     if (name && !(name in boundsOf)) {
       const model = name in models ? models[name] : await loadModel(name);
@@ -554,7 +595,14 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   // A CART Precision Racing level (finer than the byte heightfield, its heights in feet) takes Smooth terrain only, and its
   // road keeps the ground under it the game's (the road layer is drawn over the terrain at the game's heights).
   if (cpr) visuals = { smoothing: !!visuals.smoothing };
-  let mesh, reliefData = null, snowData = null, drawnGround = createRelief({ heights: level.heights ?? level.heightsFt });
+  // A Community Patch 4 Spline or Full Map track is already on an 8 ft grid that the game drives on (docs/CP4_EXE_ANALYSIS.md):
+  // it is drawn as that grid, with no Smooth terrain or snow cover over it, and its drawn ground is the game's.
+  const fineTerrain = level.fineFt ? mtm2Sim.createTerrainFt(level.heightsFt, level.waterLevelFt, level.fineFt) : null;
+  if (fineTerrain) visuals = { ...visuals, smoothing: false, snow: false };
+  let mesh, reliefData = null, snowData = null;
+  let drawnGround = fineTerrain
+    ? { heightAt: (x, z) => mtm2Sim.terrainHeightAt(fineTerrain, x, z), simAt: (x, z) => mtm2Sim.terrainHeightAt(fineTerrain, x, z), offsetAt: () => 0 }
+    : createRelief({ heights: level.heights ?? level.heightsFt });
   // What stands over the ground and keeps the rain and the snow off it (game/ground-maps.js): the ground boxes, and
   // every placed model that stays where it is and is wide enough to be a roof. Camera-facing pictures are not.
   let cover = null, sampledGround = null;
@@ -591,6 +639,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     mesh = { relief: { fine: relief.fine, coarse: relief.coarse }, hasLte: relief.hasLte };
     // The ground map's samples lie on the mesh's own: it reads the heights the mesh was cut from.
     sampledGround = relief.heightAtSample;
+  } else if (level.fineFt) {
+    mesh = buildFineTerrainMesh({ fineFt: level.fineFt, sub: 4, clr: level.clr, lte: level.lte, atlas, tileInset });
   } else {
     mesh = buildTerrainMesh({ heights: level.heights, heightsFt: level.heightsFt, clr: level.clr, lte: cpr ? null : level.lte, atlas, footprint: cells, tileInset });
   }
@@ -604,7 +654,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     const name = podPathTitle(sit.arena.modelName);
     models[name] = await loadModel(name);
     if (models[name]) {
-      const terrain = mtm2Sim.createTerrain(level.heights, level.waterLevelFt);
+      const terrain = level.heights ? mtm2Sim.createTerrain(level.heights, level.waterLevelFt) : mtm2Sim.createTerrainFt(level.heightsFt, level.waterLevelFt, level.fineFt);
       const xFt = sit.arena.x * 32, zFt = sit.arena.y * 32;
       if (!mtm1Stadium) {
         const y = mtm2Sim.groundHeightAt(terrain, xFt - sit.arena.sx * 16, zFt - sit.arena.sy * 16);
@@ -708,6 +758,18 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     heights: level.heights ? level.heights.slice() : null,
     /** Corner heights in feet, on a level whose heightfield is finer than MTM2's (then `heights` is null). */
     heightsFt: level.heightsFt,
+    /** Community Patch 4's 8 ft grid in feet (a Spline or Full Map track), which the simulation drives on, or null. */
+    fineFt: level.fineFt,
+    terrainMode: level.terrainMode,
+    /**
+     * Community Patch 4's lakes: `tileMap` (65536 tile ids, x + z * 256), `levelFt[id]` each lake's surface in feet,
+     * and `bodies` for drawing ({ id, levelFt, reflective, box }). Null for none.
+     */
+    lakes: withSheets(lakesOf(level)),
+    /** Community Patch 4's fog volumes (game/fog-volumes.js `fogVolumeOf`): the SIT's type 14 boxes, at most 64. */
+    fogVolumes: cpr ? [] : fogVolumesOf(sit.boxes),
+    /** Community Patch 4's vegetation by species (worker/cp4-world.js `buildVegetation`), or null. */
+    vegetation,
     waterLevelFt: level.waterLevelFt,
     /** A stadium level: no sky, no wrap, only the stadium's cells drawn. */
     stadium: cells,
@@ -771,7 +833,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       /** The start grid in file order (game feet), each with its truck file. */
       /** CPR: the road's triangles with their surface values, and its walls as boxes (worker/cpr-road.js). */
       road: road?.sim.road ?? null,
-      walls: road?.sim.walls ?? null,
+      // Community Patch 4's trees as static walls (worker/cp4-world.js `vegetationWalls`) on an MTM2 track.
+      walls: road?.sim.walls ?? (vegWalls?.length ? vegWalls : null),
       cprLine: road?.sim.line ?? null,
       // A Summit Rumble whose slots all stand far from its zone starts inside the zone (game/race-setup.js `rumbleGrid`).
       grid: sit.trackTypeCode === 4 && !cpr ? rumbleGrid(grid, checkpoints[0]?.gate) : grid,

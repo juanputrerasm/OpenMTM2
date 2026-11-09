@@ -217,11 +217,11 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
   };
   // Which setting each list shows, for the same reason.
   const chooseKeys = new Map();
-  const choose = (label, key, names, values = names.map((_, index) => index)) => chooseKeys.set(label, key) && row(label,
+  const choose = (label, key, names, values = names.map((_, index) => index), title = null) => chooseKeys.set(label, key) && row(label,
     el("select", { "aria-label": t(label), "data-opt": label, onchange: (event) => {
       settings[key] = typeof values[0] === "number" ? Number(event.target.value) : event.target.value;
       save();
-    } }, ...names.map((name, index) => el("option", { value: values[index], selected: values[index] === settings[key] }, t(name)))));
+    } }, ...names.map((name, index) => el("option", { value: values[index], selected: values[index] === settings[key] }, t(name)))), title);
   const sliderFormats = new Map();
   const slider = (label, { min, max, step, value, format, set, title = null }) => {
     sliderFormats.set(label, format);
@@ -704,6 +704,9 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       msg("When you host: start the race even if a player chose a truck you do not have installed; it is drawn as another truck. Off, every player must choose a truck you have")),
       row(msg("Latency display"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.net?.latencyDisplay !== false, "aria-label": t("Latency display"),
         onchange: (event) => setNet({ latencyDisplay: event.target.checked }) }), msg("The lobby's Latency column, with the round trip in milliseconds, and each player's latency in the corner of a network race")),
+      row(msg("CP4 cross-play"), el("input", { type: "checkbox", class: "opt-switch", checked: !!settings.net?.cp4CrossPlay, "aria-label": t("CP4 cross-play"),
+        onchange: (event) => setNet({ cp4CrossPlay: event.target.checked }) }),
+      msg("Experimental: join and make Community Patch 4 rooms on an online server. In those rooms OpenMTM2 speaks CP4's own race packets; the race is not yet driven by CP4's netcode")),
       el("h3", {}, t("Muted players")),
       mutedList,
       el("p", { class: "muted" }, t("In a race: Enter (Chat) types a line, K (Team chat) types one to your team. Tab changes who it goes to, Page Up and Page Down scroll back, /help lists the commands. With a gamepad, hold View and point the right stick for a quick message.")),
@@ -747,8 +750,8 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       }), msg("Textures filtered smooth and the world lit by the sun (the enhanced look). Off: the game's own sharp texels and baked light")),
       toggle(msg("Lens flare"), "sunFlare", msg("With Smooth textures: the sun's flare across the screen. Off keeps the sun and moon")),
       choose(msg("Detail"), "detailLevel", [msg("Low"), msg("Medium"), msg("High")]),
-      choose(msg("Texture size"), "textureSize", [msg("Full"), msg("Half (512)"), msg("Quarter (256)")], [1024, 512, 256]),
-      el("p", { class: "muted" }, t("The largest HD textures and ground tiles a track and the trucks keep (Community Patch 3 and HD tracks such as Valparaíso Racing). Half or Quarter for graphics with little memory, built into the processor: the game then needs a quarter or a sixteenth of the video memory for them. The game's own textures are not changed. From the next race")),
+      choose(msg("Texture size"), "textureSize", [msg("Full"), msg("Half (512)"), msg("Quarter (256)")], [1024, 512, 256],
+        msg("Largest size kept for HD textures and ground tiles. Half or Quarter uses less video memory. From the next race")),
       row(msg("Anti-aliasing"), el("select", {
         "aria-label": t("Anti-aliasing"), "data-opt": "Anti-aliasing", title: t(AA_HINT),
         onchange: (event) => { settings.aa = event.target.value; save(); },
@@ -897,6 +900,8 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       toggle(msg("MTM1 sounds"), "mtm1Sounds", msg("Monster Truck Madness 1's skids from MTM2's SOUND.POD: its corner, wheelspin and brake skids. MTM1's engine is not in MTM2's archives; the engine stays MTM2's")),
       toggle(msg("MTM1 sky"), "mtm1EarthSky", msg("Monster Truck Madness 1's flat sky on every track: an MTM1 track's own, and EARTHSKY on the others, in the weathers without a sky of their own. Needs MTM1's sky files mounted (EARTHSKY.ACT and ALIENSKY.RAW, in MTM1's GAME.POD). From the next race")),
       toggle(msg("Keep MTM1 trucks apart"), "mtm1TrucksApart", msg("Monster Truck Madness 1 trucks named like MTM2's (BIGFOOT.TRK and the rest) are listed too, as \"Bigfoot (MTM1)\", and drawn from MTM1's own files. Off, a name goes to the archive mounted first, MTM2's, as in the game")),
+      row(msg("Drag beam lines"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.dragBeams !== false, "aria-label": t("Drag beam lines"), "data-opt": "Drag beam lines", onchange: (event) => { settings.dragBeams = event.target.checked; save(); } }),
+        msg("The drag strip's lines as Monster Truck Madness 1 draws them: the prestage, stage, start and finish beams across the strip and the lane lines down it, so you can see where to stage. The Drag beam lines key (I) shows and hides them in a race")),
       sub(msg("MTM2")),
       toggle(msg("Original backdrops"), "originalBackdrops", msg("The game's own backdrops in place of HD ones (Community Patch 3's backdropsHD.pod), wherever an archive still has the original. From the next race")),
       // MTM2's own two (MONSTER.INI reflectionFlag and truckReflectionFlag), for the game's water and every truck.
@@ -920,9 +925,10 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       toggle(msg("Chase mirror"), "chaseMirror", msg("Community Patch 3's rear-view mirror over the top of the external views: a look back from the cab")),
       choose(msg("Chase mirror size"), "chaseMirrorSize", [msg("Original"), msg("Smaller")], ["original", "small"]),
       toggle(msg("Racing line"), "raceLine", msg("Community Patch 3's racing line: the course the computer trucks follow, drawn on the ground ahead in a race")),
-      row(msg("Drag beam lines"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.dragBeams !== false, "aria-label": t("Drag beam lines"), "data-opt": "Drag beam lines", onchange: (event) => { settings.dragBeams = event.target.checked; save(); } }),
-        msg("The drag strip's lines as Monster Truck Madness 1 draws them: the prestage, stage, start and finish beams across the strip and the lane lines down it, so you can see where to stage. The Drag beam lines key (I) shows and hides them in a race")),
       toggle(msg("Drag split screen"), "dragSplitScreen", msg("Community Patch 3's drag split screen: in a drag race against a truck, both lanes at once, side by side, in the same chase view")),
+      sub(msg("CP4")),
+      toggle(msg("3D cockpit"), "cockpit3d", msg("Community Patch 4's 3D cockpit in the cockpit view, where the install has its cockpit.pod: a modelled cab with moving needles, wheel and shifter, gear lamps and a rear-view mirror. A truck gets it if its TRK names a cockpit or its instrument cluster is powerbig or richford; the others keep the 2D cockpit. From the next race")),
+      toggle(msg("Smooth cockpit look"), "cockpitLook", msg("Community Patch 4's smooth cockpit look: in the 3D cockpit a gamepad's right stick looks round the cab, up to 150 degrees to each side and 35 up or down, and the view eases back ahead when it is let go")),
       sub(msg("OMTM2")),
       row(msg("Terrain overlap"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.terrainOverlap !== false, "aria-label": t("Terrain overlap"), "data-opt": "Terrain overlap", onchange: (event) => { settings.terrainOverlap = event.target.checked; save(); } }),
         msg("The ground tiles overlap by two pixels, as Monster Truck Madness 2 draws them. Off, they meet edge to edge, as MTM1 draws them. Some HD texture packs need it on. From the next race")),

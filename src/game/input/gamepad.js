@@ -23,7 +23,7 @@
 import { mergePadBindings, padHeld } from "./pad-bindings.js";
 
 const TRIGGER_LEFT = 6, TRIGGER_RIGHT = 7;
-const RIGHT_STICK_Y = 3;
+const RIGHT_STICK_X = 2, RIGHT_STICK_Y = 3;
 const DEAD_ZONE = 0.12;
 /**
  * The Gamepad dead zone option (percent, 0 to 25; Community Patch 3's dead zone slider reaches a quarter of the throw)
@@ -37,15 +37,18 @@ export const padDeadZone = (percent) => {
 const TILT_DEAD_ZONE = 0.25;
 
 /**
- * A pad's camera input: `tilt` -1..1 (the right stick pushed up is +1, tilting up as the Camera up key does), `zoom`
- * -1 (D-pad left, out), +1 (right, in) or 0. A pad without the standard mapping has none.
+ * A pad's camera input: `tilt` -1..1 (the right stick pushed up is +1, tilting up as the Camera up key does), `turn`
+ * -1..1 (the right stick pushed right is +1), `zoom` -1 (D-pad left, out), +1 (right, in) or 0. A pad without the
+ * standard mapping has none.
  */
 export function padCamera(pad, bindings = mergePadBindings(null)) {
-  if (!pad || pad.mapping !== "standard") return { tilt: 0, zoom: 0 };
-  const y = pad.axes[RIGHT_STICK_Y] ?? 0;
+  if (!pad || pad.mapping !== "standard") return { tilt: 0, zoom: 0, turn: 0 };
+  const y = pad.axes[RIGHT_STICK_Y] ?? 0, x = pad.axes[RIGHT_STICK_X] ?? 0;
   const tilt = Math.abs(y) < TILT_DEAD_ZONE ? 0 : -Math.sign(y) * (Math.abs(y) - TILT_DEAD_ZONE) / (1 - TILT_DEAD_ZONE);
+  // The right stick's left and right: Community Patch 4's smooth cockpit look (game/cockpit3d.js), right positive.
+  const turn = Math.abs(x) < TILT_DEAD_ZONE ? 0 : Math.sign(x) * (Math.abs(x) - TILT_DEAD_ZONE) / (1 - TILT_DEAD_ZONE);
   const zoom = (padHeld(pad, bindings.zoomIn) ? 1 : 0) - (padHeld(pad, bindings.zoomOut) ? 1 : 0);
-  return { tilt, zoom };
+  return { tilt, zoom, turn };
 }
 
 /** The Gamepad pedals choices, the first the default. */

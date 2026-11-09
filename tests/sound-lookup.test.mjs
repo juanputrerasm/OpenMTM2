@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SOUND_EXTENSIONS, findSound, soundStem } from "../src/worker/sound-file.js";
+import { SOUND_EXTENSIONS, findSound, namedExtension, soundStem } from "../src/worker/sound-file.js";
 import { loopSeconds } from "../src/game/sound-model.js";
 
 const text = (s) => [...s].map((c) => c.charCodeAt(0));
@@ -55,4 +55,13 @@ test("sound lookup: KLP loop points count the file's own samples, whatever rate 
   assert.deepEqual(loopSeconds({ loops: [{ start: 22050, end: null }] }, 2, 22050, 44100), { start: 1, end: 2 });
   assert.equal(loopSeconds(null, 2, 22050, 44100), null);
   assert.equal(loopSeconds({ loops: [{ start: 0, end: 90000 }] }, 2, 22050, 44100), null);
+});
+
+test("sound lookup: a name that says MP3 or OGG is played in that format first (CP4_EXE_ANALYSIS.md 8)", async () => {
+  assert.equal(namedExtension("ROCK.MP3"), "MP3");
+  assert.equal(namedExtension("sound\\rock.ogg"), "OGG");
+  assert.equal(namedExtension("ROCK.WAV"), null);
+  const all = vfsOf({ "SOUND\\ROCK.OGG": OGG, "SOUND\\ROCK.MP3": MP3, "SOUND\\ROCK.WAV": WAV });
+  assert.equal((await findSound(all, "ROCK", { prefer: namedExtension("ROCK.MP3") })).format, "mp3");
+  assert.equal((await findSound(all, "ROCK", { prefer: namedExtension("ROCK.WAV") })).format, "ogg");
 });

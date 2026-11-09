@@ -18,11 +18,22 @@ export const SOUND_EXTENSIONS = Object.freeze(["OGG", "MP3", "WAV"]);
 export const soundStem = (name) => String(name ?? "").toUpperCase().replace(/^.*[\\/]/, "").replace(/\.(WAV|MP3|OGG)$/, "");
 
 /**
+ * The extension a name gives explicitly when it is a replacement format ("ROCK.MP3" -> "MP3"), else null. Community
+ * Patch 4 plays exactly the music file the .LVL names, with no fallback to another format (docs/CP4_EXE_ANALYSIS.md 8),
+ * so a name that says MP3 or OGG is looked for in that format first.
+ */
+export const namedExtension = (name) => {
+  const m = /\.(MP3|OGG)$/.exec(String(name ?? "").toUpperCase());
+  return m ? m[1] : null;
+};
+
+/**
  * The first usable file for a stem: `{ bytes, format, extension, sourceRate }`, or null when no archive has one.
  * @param {{ read(path: string): Promise<Uint8Array | null> }} vfs
  */
-export async function findSound(vfs, stem, { only = null } = {}) {
-  for (const extension of only ? [only] : SOUND_EXTENSIONS) {
+export async function findSound(vfs, stem, { only = null, prefer = null } = {}) {
+  const order = only ? [only] : prefer ? [prefer, ...SOUND_EXTENSIONS.filter((e) => e !== prefer)] : SOUND_EXTENSIONS;
+  for (const extension of order) {
     const bytes = await vfs.read(`SOUND\\${stem}.${extension}`);
     if (!bytes) continue;
     const format = detectAudioFormat(bytes);

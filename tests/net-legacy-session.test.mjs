@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createLoopbackNetwork } from "./helpers/loopback-transport.mjs";
 import { createLegacySession, statusText, latencyText, versionText, LOCATION } from "../src/net/legacy-session.js";
-import { decodePacket, encodePacket, BARRIER } from "../src/net/vendor/mtmnet/mtm2-packets.js";
+import { decodePacket, encodePacket, BARRIER, PROFILES, stateFields } from "../src/net/vendor/mtmnet/mtm2-packets.js";
 
 function lobby(names, options = {}, net = {}) {
   const network = createLoopbackNetwork(net);
@@ -215,4 +215,109 @@ test("the host's player list (0x81, 0x82): people, not computers; in a star, how
   ben.leave();
   flush();
   assert.deepEqual(names(host), ["Ann", "Host"]);
+});
+
+/**
+ * A Community Patch host, played by hand over the loopback (docs/MULTIPLAYER.md "Packet profiles"): it announces its
+ * version in 0x03 and talks in its own profile. Returns the joiner's session and what the host heard.
+ */
+function cpHost(profile) {
+  const network = createLoopbackNetwork({ star: true });
+  const hostT = network.join("CP Host");
+  const heard = [];
+  const clock = { ms: 0 };
+  hostT.on("message", (from, bytes) => heard.push(decodePacket(bytes, profile)));
+  const ann = createLegacySession({ transport: network.join("Ann"), me: { name: "Ann", truck: "BIGFOOT.TRK", skill: 1 }, hasTrack: () => true, trackCrc: async () => 0x1234, now: () => clock.ms });
+  network.flush();
+  const version = PROFILES[profile].version;
+  hostT.send(null, encodePacket("info", { truck: "GRAVE.TRK", version, location: 5, skill: 2 }, hostT.self, profile), { reliable: true });
+  network.flush();
+  return { network, hostT, ann, heard, version, clock, flush: () => network.flush() };
+}
+/** The host seats both players and starts (0x87 slots, 0x14 in its profile). */
+function cpStart({ hostT, ann, flush }, profile, extra = {}) {
+  hostT.send(null, encodePacket("slot", { dpid: hostT.self, slot: 1 }, hostT.self, profile));
+  hostT.send(null, encodePacket("slot", { dpid: ann.state().self, slot: 2 }, hostT.self, profile));
+  hostT.send(null, encodePacket("start", { sit: "TPARK.SIT", laps: 3, weather: 0, ...extra }, hostT.self, profile), { reliable: true });
+  flush();
+  return ann.raceLink();
+}
+const cpState = { pos: [100, 5, -40], bvel: [0, 0, 30], euler: [0.2, -0.1, 2.5], steer: 0.15, throttle: 1, brakeRear: 0, gear: 4, autoShift: true, vehicle: 1, score: 0 };
+
+test("a CP3 host's trucks: its 65-byte 0x02 is read in the CP3 profile (radians), and Ann sends CP3's", () => {
+  const s = cpHost("cp3");
+  assert.equal(s.ann.state().players.find((p) => p.dpid === s.hostT.self).version, 0x3400);
+  const link = cpStart(s, "cp3");
+  const got = [];
+  link.on("event", (e) => got.push(e));
+  s.hostT.send(null, encodePacket("state", stateFields({ ...cpState, tick: 50 }, "cp3"), s.hostT.self, "cp3"));
+  s.hostT.send(null, encodePacket("progress", { truck: 0, segments: 12, total: 33.5 }, s.hostT.self, "cp3"));
+  s.flush();
+  assert.equal(got[0].kind, "state");
+  assert.equal(got[0].vehicle, 1);
+  assert.deepEqual(got[0].pos, [100, 5, -40]);
+  assert.ok(Math.abs(got[0].euler[2] - 2.5) < 1e-6, "radians, not byte values");
+  assert.ok(Math.abs(got[0].steer - 0.15) < 1e-6);
+  assert.equal(got[0].tick, undefined, "the sim gets retail's fields");
+  assert.deepEqual([got[1].kind, got[1].segments, got[1].total], ["progress", 12, 33.5]);
+  link.outgoing({ kind: "state", ...cpState, vehicle: 2 });
+  s.flush();
+  const sent = s.heard.filter((p) => p.type === 0x02);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].kind, "state", "Ann's 0x02 is CP3's 65 bytes");
+  assert.ok(sent[0].tick > 0);
+  assert.ok(Math.abs(sent[0].psi - 2.5) < 1e-6);
+});
+
+test("a CP4 host: 116-byte 0x02 with the newest pose, the raceId and the 0x28 / 0x29 load barrier", async () => {
+  const s = cpHost("cp4");
+  const raceId = 0x2468ace1;
+  const link = cpStart(s, "cp4", { raceId });
+  assert.equal(link.raceId, raceId);
+  const got = [];
+  link.on("event", (e) => got.push(e));
+  const synced = link.sync();
+  s.flush();
+  const loaded = s.heard.find((p) => p.kind === "raceLoaded");
+  assert.equal(loaded?.raceId, raceId, "Ann says she loaded this race");
+  s.hostT.send(null, encodePacket("raceRelease", { raceId: raceId + 2 }, s.hostT.self, "cp4"), { reliable: true });
+  s.hostT.send(null, encodePacket("raceRelease", { raceId }, s.hostT.self, "cp4"), { reliable: true });
+  s.flush();
+  const r = await synced;
+  assert.equal(r.complete, true);
+  s.flush();
+  assert.ok(s.heard.some((p) => p.kind === "barrier" && p.code === BARRIER.SYNC), "a sync code still goes once");
+
+  const older = [{ age: 3, pos: [99, 5, -41], euler: [0.2, -0.1, 2.4] }];
+  s.hostT.send(null, encodePacket("state", stateFields({ ...cpState, tick: 900, poses: older }, "cp4"), s.hostT.self, "cp4"));
+  s.flush();
+  assert.equal(got.length, 1);
+  assert.deepEqual(got[0].pos, [100, 5, -40], "the packet's own pose, the newest");
+  assert.ok(Math.abs(got[0].euler[0] - 0.2) < 1e-6);
+
+  link.outgoing({ kind: "state", ...cpState, vehicle: 2 });
+  s.clock.ms += 250;
+  link.outgoing({ kind: "state", ...cpState, pos: [101, 5, -40], vehicle: 2 });
+  s.clock.ms += 250;
+  link.outgoing({ kind: "state", ...cpState, pos: [102, 5, -40], vehicle: 2 });
+  s.flush();
+  const sent = s.heard.filter((p) => p.type === 0x02);
+  assert.deepEqual(sent.map((p) => p.kind), ["state", "state", "state"], "Ann's 0x02 are CP4's 116 bytes");
+  assert.equal(sent[0].poseCount, 0);
+  assert.equal(sent[1].poseCount, 1);
+  // 250 ms is 6 ticks of 0xa3d / 65536 s; the older poses come newest first.
+  assert.deepEqual([sent[2].poseCount, sent[2].poseAges], [2, [6, 12]]);
+  assert.deepEqual(sent[2].posePos, [[101, 5, -40], [100, 5, -40]]);
+  assert.equal(sent[2].tick - sent[0].tick, 12);
+});
+
+test("a retail host is read and answered in retail's layout", () => {
+  const s = cpHost("retail");
+  const link = cpStart(s, "retail");
+  assert.equal(link.raceId, null);
+  link.outgoing({ kind: "state", ...cpState, vehicle: 2 });
+  s.flush();
+  const sent = s.heard.filter((p) => p.type === 0x02);
+  assert.equal(sent[0].kind, "state");
+  assert.equal(sent[0].psi, 101, "byte-coded: 2.5 rad is byte 101");
 });

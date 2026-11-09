@@ -21,6 +21,8 @@ import { createCaption } from "../../render/caption.js";
 import { createNameTags } from "../../render/name-tags.js";
 import { nameLabel, nextNamesMode } from "../../game/names.js";
 import { createWaterEffects, createWaterSurface } from "../../render/water-effects.js";
+import { lakeMeshes } from "../../render/lakes.js";
+import { waterLevelAt } from "../../game/lakes.js";
 import { createTireEffects } from "../../render/tire-effects.js";
 import { surfaceFamily } from "../../game/sound-model.js";
 import { standOnFt } from "../../game/ice.js";
@@ -250,6 +252,9 @@ export default async function mount(container, context, { replay, namesMode: sta
   let filmClock = null;
   const waterSurface = scenery.water ?? createWaterSurface(waters, effectsArt, look);
   if (!scenery.water) cleanups.push(() => waterSurface?.dispose());
+  // Community Patch 4's lakes take the game's frames too where the port's own water is off (render/lakes.js); they do not bob.
+  const lakeSurface = scenery.water ? null : createWaterSurface(lakeMeshes(world), effectsArt, look);
+  if (lakeSurface) cleanups.push(() => lakeSurface.dispose());
   const caption = createCaption(messageFont);
   view.append(caption.element);
   // The toggleable FPS counter, in the top right.
@@ -609,11 +614,13 @@ export default async function mount(container, context, { replay, namesMode: sta
     const water = waters[0];
     const bob = waterOffsetFt(waterClock, weatherScene.weather);
     for (const plane of waters) plane.position.y = bob;
-    const under = isUnderwater(camera.position.y, water ? water.userData.levelFt + water.position.y : null, weatherScene.weather);
+    // Over a Community Patch 4 lake the eye's water is the lake's (game/lakes.js); elsewhere the track's, bob and all.
+    const eyeWater = waterLevelAt(build.lakes, camera.position.x, -camera.position.z, water ? water.userData.levelFt + water.position.y : null);
+    const under = isUnderwater(camera.position.y, eyeWater, weatherScene.weather);
     weatherScene.setUnderwater(under);
     // How far under the eye is, for the lens: it comes on over the first half foot (docs/VISUALS.md, "Under water").
-    scenery.underwater(under && water ? (water.userData.levelFt + water.position.y - camera.position.y) / 0.5 : 0, {
-      dt: playing ? dt * Math.abs(rate) : 0, levelFt: water ? water.userData.levelFt + water.position.y : null, viewHeight: canvas.height,
+    scenery.underwater(under && eyeWater !== null ? (eyeWater - camera.position.y) / 0.5 : 0, {
+      dt: playing ? dt * Math.abs(rate) : 0, levelFt: eyeWater, viewHeight: canvas.height,
     });
     trackLights?.update(camera, !!WEATHER_LOOK[weatherScene.weather]?.headlights);
     startLamps?.update(camera, { daylight: WEATHER_LOOK[weatherScene.weather]?.light ?? 1 });
@@ -625,6 +632,7 @@ export default async function mount(container, context, { replay, namesMode: sta
     // The wheels stir the water and the puddles (render/water-ripples.js), as the film runs.
     scenery.stir(state.trucks.map((pose, i) => (pose && drawn[i] ? { hubs: pose.tires.map((_, k) => drawn[i].tireHub(k)), radiusFt: drawn[i].tireRadius } : null)), filmDt);
     waterSurface?.update(dt, weatherScene.weather, { sun, light: weatherScene.lightLevel(), sky, fog: scene.fog, background, levelFt: water ? water.userData.levelFt + water.position.y : null });
+    lakeSurface?.update(dt, weatherScene.weather);
     updateTrackWorld(world, camera, dt);
     if (shadows) {
       shadows.setupMaterials();

@@ -12,6 +12,9 @@ import { connectBridge } from "../net/bridge-transport.js";
 import { createLegacySession, LOCATION } from "../net/legacy-session.js";
 import { connectRooms } from "../net/room-transport.js";
 import { createRoomSession } from "../net/room-session.js";
+import { createRelayTransport } from "../net/relay-transport.js";
+import { PROFILES } from "../net/vendor/mtmnet/mtm2-packets.js";
+import { CAPS } from "../net/vendor/mtmnet/room-messages.js";
 import { cpuNames } from "../game/race-setup.js";
 import { resolveGameMode } from "./flow.js";
 import { extensionById, soloExtension } from "../game/extensions/loader.js";
@@ -110,15 +113,20 @@ export async function joinClassic(context, instance) {
 /** The room server at `url`, connected once per page (again when the address changes or the connection dropped). */
 export async function roomServer(context, url) {
   const held = context.netRooms;
-  if (held?.server.alive && (!url || held.typed === url)) return held.server;
+  // "CP4 cross-play" (Options, experimental): declare the relay capability, so CP4's relay rooms can be joined and made.
+  const caps = crossPlay(context) ? [CAPS.CP3_RELAY] : [];
+  if (held?.server.alive && (!url || held.typed === url) && held.server.caps?.length === caps.length) return held.server;
   held?.server.close();
   const me = await whoAmI(context);
-  const server = await connectRooms({ url: url ?? held?.typed, name: me.name, client: "OpenMTM2" });
+  const server = await connectRooms({ url: url ?? held?.typed, name: me.name, client: "OpenMTM2", caps });
   const holder = { server, typed: url ?? held?.typed };
   server.on("closed", () => { if (context.netRooms === holder) context.netRooms = null; });
   context.netRooms = holder;
   return server;
 }
+
+/** Whether this player turned on CP4 cross-play (relay rooms, docs/MULTIPLAYER.md "Relay rooms"). */
+export const crossPlay = (context) => !!context.settings.net?.cp4CrossPlay;
 
 /** The public rooms on the connected server. */
 export async function listRooms(context) {
@@ -126,10 +134,12 @@ export async function listRooms(context) {
 }
 
 /** Make a room and enter it: `{ name, password, maxPlayers, public, classic }` (classic: open to MTM2 itself through the server's gateway). */
-export async function createRoom(context, { name, password = "", maxPlayers = 8, public: listed = true, classic = false }) {
+export async function createRoom(context, { name, password = "", maxPlayers = 8, public: listed = true, classic = false, relay = false }) {
   const server = await roomServer(context);
   const me = await whoAmI(context);
-  const { room } = await server.request("create", { name, maxPlayers, public: listed, ...(password ? { password } : {}), ...(classic ? { classic: true } : {}) });
+  // With the relay capability declared the server makes a relay room unless told otherwise.
+  const kind = server.caps?.includes(CAPS.CP3_RELAY) ? { relay: !!relay && !classic } : {};
+  const { room } = await server.request("create", { name, maxPlayers, public: listed, ...(password ? { password } : {}), ...(classic ? { classic: true } : {}), ...kind });
   return attachRoom(context, server, room, me);
 }
 
@@ -144,6 +154,19 @@ export async function joinRoom(context, code, password = "") {
 function attachRoom(context, server, room, me) {
   leaveNet(context);
   const tracks = trackLookup(me);
+  if (room.relay) {
+    // A CP4 relay room: the game's own lobby and race protocol inside the relay, in CP4's layouts (docs/MULTIPLAYER.md
+    // "Relay rooms"), as with a CP3/CP4 host over direct connect. Leaving tells the server too.
+    const transport = createRelayTransport(server, room);
+    const close = transport.close;
+    transport.close = () => { close(); server.request("leave").catch(() => {}); };
+    const session = createLegacySession({
+      transport, me, profile: PROFILES.cp4,
+      hasTrack: (sit) => tracks.has(String(sit).toUpperCase()),
+      trackCrc: (sit) => context.assets.call("trackChecksum", { sit }),
+    });
+    return attach(context, "rooms", session, transport, me);
+  }
   const session = createRoomSession({
     server, room, me,
     hasTrack: (sit) => tracks.has(String(sit).toUpperCase()),

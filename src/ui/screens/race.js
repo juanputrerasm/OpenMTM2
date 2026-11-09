@@ -78,6 +78,8 @@ import { createRumbleReadout } from "../rumble-readout.js";
 import { createTextPanel, hudFontScale, loadFont, useSystemFont } from "../../render/bitmap-text.js";
 import { createRaceGauges, gearLabel } from "../../render/race-gauges.js";
 import { createWaterEffects, createWaterSurface } from "../../render/water-effects.js";
+import { lakeMeshes } from "../../render/lakes.js";
+import { waterLevelAt } from "../../game/lakes.js";
 import { createReplayRecorder } from "../../game/replay.js";
 import { createRaceEnd } from "../../game/race-end.js";
 import { createDragTree } from "../drag-tree.js";
@@ -91,6 +93,8 @@ import { createBoxSolid } from "../../game/ground-boxes.js";
 import { createSummitSounds } from "../../game/summit-sounds.js";
 import { coveredAt } from "../../game/ground-maps.js";
 import { createCockpit, finderAngle } from "../../render/cockpit.js";
+import { createCockpit3d } from "../../render/cockpit3d.js";
+import { stepCockpitLook } from "../../game/cockpit3d.js";
 import { cpuNames, fillGrid, formatRaceTime, raceDrivers, seatDrivers, summitBoard } from "../../game/race-setup.js";
 import {
   addFallingTree, createModelLibrary, createTrackWorld, disposeObject, moveObjects, poseFallingTree, removeFallingTree, setForestTree,
@@ -344,6 +348,9 @@ async function mountRace(container, context, params, owned = []) {
   });
   // Awaited below; marked as handled now, so a failure while the fonts load is not reported as unhandled first.
   buildRequest.catch(() => {});
+  // Community Patch 4's 3D cockpit for the player's truck (worker/cockpit3d.js), where the install has it and Options wants it.
+  const cockpit3dRequest = context.settings.cockpit3d !== false && playerTruck
+    ? context.assets.call("cockpit3d", { truck: playerTruck }).catch(() => null) : Promise.resolve(null);
   // The HUD is drawn with the game's own fonts (ART\FNT1_480 for rows, FNT2_480 for messages).
   const [hudFont, messageFont, lcdFont, needle, cockpitArt, effectsArt] = await Promise.all([
     loadFont(context.assets, "FNT1_480"), loadFont(context.assets, "FNT2_480"), loadFont(context.assets, "FNTO_480"), context.assets.call("needle").catch(() => null),
@@ -668,6 +675,10 @@ async function mountRace(container, context, params, owned = []) {
     scene.add(object.object);
     return object;
   });
+  // The 3D cockpit (render/cockpit3d.js), shown in the cockpit view in place of the 2D one (`cockpit3dShown`).
+  const cockpit3dBuild = await cockpit3dRequest;
+  const cockpit3d = cockpit3dBuild ? createCockpit3d(cockpit3dBuild, look) : null;
+  if (cockpit3d) { scene.add(cockpit3d.root); cleanups.push(() => cockpit3d.dispose()); }
 
   // Crash damage (game/crash-damage.js): the hull contacts the simulation reports dent the bodies.
   // A mode that owns the Crash Damage key (Combat's repairs) always has damage on.
@@ -1156,7 +1167,9 @@ async function mountRace(container, context, params, owned = []) {
     const zModeX = gold?.state.zMode && e.code === "KeyX";
     // View Forward in the full cockpit, facing forward, switches the rear-view mirror (0x4ed1c0).
     if (keyMap.cameraUp.includes(e.code) && !e.repeat && viewMode === 0 && dashMode() === 0 && cockpitTurn() === 0 && !gold?.zooming) {
-      context.cockpitMirror = !context.cockpitMirror;
+      // Kept for the next races, as CP4 keeps it (monster.ini mirrorOn, CP4_EXE_ANALYSIS.md 6).
+      context.settings.mirrorOn = !mirrorOn();
+      saveSettings(context.settings);
     }
     if (keyMap.crashDamage.includes(e.code) && !e.repeat && !zModeX && extension?.damageKey) {
       // The mode's own use of the key (Combat: repair with the credits).
@@ -1354,6 +1367,9 @@ async function mountRace(container, context, params, owned = []) {
   // The water's surface: the port's own (render/water-surface.js) or the game's frames.
   const waterSurface = scenery.water ?? createWaterSurface(waters, effectsArt, look);
   if (!scenery.water) cleanups.push(() => waterSurface?.dispose());
+  // Community Patch 4's lakes take the game's frames too where the port's own water is off (render/lakes.js); they do not bob.
+  const lakeSurface = scenery.water ? null : createWaterSurface(lakeMeshes(world), effectsArt, look);
+  if (lakeSurface) cleanups.push(() => lakeSurface.dispose());
   // MTM2's water reflections (Options, Advanced; render/water-mirror.js), on the game's own water: "Reflective water" has
   // its own. Not in Snow, where the water is ice.
   const waterMirror = context.settings.waterReflections && !scenery.water && waterSurface?.material && waters.length
@@ -1590,7 +1606,14 @@ async function mountRace(container, context, params, owned = []) {
     return 0;
   };
   /** The rear-view mirror: the full cockpit facing forward, once View Forward has switched it on (it starts off, as in the game). */
-  const mirrorShown = () => viewMode === 0 && dashMode() === 0 && !!context.cockpitMirror && cockpitTurn() === 0;
+  /** The rear-view mirror's switch (View Forward in the cockpit), off until switched on, kept across races. */
+  const mirrorOn = () => !!context.settings.mirrorOn;
+  const mirrorShown = () => viewMode === 0 && dashMode() === 0 && mirrorOn() && cockpitTurn() === 0 && !cockpit3dShown();
+  /** The 3D cockpit in place of the 2D one: the cockpit view of the player's own truck, with the cockpit drawn, not in a headset. */
+  const cockpit3dShown = () => !!cockpit3d && viewMode === 0 && dashMode() === 0 && !host.presenting && !watching && cameraTarget === 0;
+  /** The 3D cockpit's view: the head's turn (radians, right) and the smooth look (game/cockpit3d.js `stepCockpitLook`). */
+  let cockpit3dView = { turn: 0, yaw: 0, pitch: 0 }, cockpit3dFov = false;
+  const cockpit3dBody = new THREE.Matrix4();
   /** Tilt the chase camera while Camera up or down is held, at the game's rate, held within the pitches it allows. */
   const tiltCamera = (dt) => {
     const base = cameraMode(viewMode)?.pitch;
@@ -1653,6 +1676,12 @@ async function mountRace(container, context, params, owned = []) {
     }
     tiltCamera(dt);
     turnCamera(dt);
+    // Community Patch 4's smooth cockpit look ([Control] cockpitLook): the right stick, in the 3D cockpit only.
+    if (cockpit3dShown() && context.settings.cockpitLook) {
+      const stick = padDriving() ? pad.camera() : null;
+      const look = stepCockpitLook(cockpit3dView, stick ? { x: stick.turn, y: stick.tilt } : null, dt);
+      cockpit3dView = { ...cockpit3dView, ...look };
+    } else cockpit3dView = { ...cockpit3dView, yaw: 0, pitch: 0 };
     mouseLook.setBack(held.has(LOOK_BACK_KEY) && !paused);
     mouseLook.step(dt);
     // The BlimpCam and RaceCam set their own zoom each frame, from their distance to the truck.
@@ -1668,6 +1697,18 @@ async function mountRace(container, context, params, owned = []) {
       // The cockpit: the eye 4 ft up and 1 ft ahead of the truck's origin, turning with the whole body (0x553cf0).
       const body = new THREE.Matrix4().fromArray(toSceneMatrix(p.matrix, p.pos));
       body.decompose(cockpitEye.position, cockpitEye.quaternion, scratchScale);
+      // The 3D cockpit: its own eye and lens, and the head turned by the View keys and the smooth look.
+      if (cockpit3dShown()) {
+        cockpit3dBody.copy(body);
+        cockpit3dView.turn = (cockpitTurn() / 65536) * Math.PI * 2;
+        cockpit3d.pose(body);
+        cockpit3d.placeCamera(camera, body, cockpit3dView);
+        cockpitEye.position.copy(camera.position);
+        if (Math.abs(camera.fov - cockpit3d.verticalFov) > 1e-3) { camera.fov = cockpit3d.verticalFov; camera.updateProjectionMatrix(); }
+        cockpit3dFov = true;
+        return null;
+      }
+      if (cockpit3dFov) { cockpit3dFov = false; camera.fov = fovFor(0, fovBase(context.settings)); camera.updateProjectionMatrix(); }
       camera.position.set(COCKPIT_EYE[0], COCKPIT_EYE[1], -COCKPIT_EYE[2]).applyMatrix4(body);
       camera.quaternion.copy(cockpitEye.quaternion);
       // The head turned by the View keys (or Backspace): back, right or left out of the cab. The camera's x is the truck's right.
@@ -2212,9 +2253,13 @@ async function mountRace(container, context, params, owned = []) {
       }
       gauges.setVisible(viewMode === 0 ? dashMode() === 1 : context.settings.dashboard !== false);
       gauges.set(mine);
+      if (cockpit3d) {
+        cockpit3d.setVisible(cockpit3dShown());
+        if (cockpit3dShown()) cockpit3d.update(mine);
+      }
       if (cockpit) {
         cockpit.setDashboard({
-          visible: viewMode === 0 && dashMode() === 0 && !host.presenting, speed: mine.speed, rpm: mine.rpm, gear: mine.gear, steer: mine.steer,
+          visible: viewMode === 0 && dashMode() === 0 && !host.presenting && !cockpit3dShown(), speed: mine.speed, rpm: mine.rpm, gear: mine.gear, steer: mine.steer,
           look: cockpitTurn(), mirror: mirrorShown(),
         });
         const next = build.sim.checkpoints[latest.race?.trucks[0].checkpoint ?? 0];
@@ -2281,14 +2326,16 @@ async function mountRace(container, context, params, owned = []) {
     const bob = waterOffsetFt(waterClock, weatherScene.weather);
     for (const plane of waters) plane.position.y = bob;
     waterLevelNow = water ? water.userData.levelFt + bob : null;
-    const under = isUnderwater(camera.position.y, water ? water.userData.levelFt + water.position.y : null, weatherScene.weather);
+    // Over a Community Patch 4 lake the eye's water is the lake's (game/lakes.js); elsewhere the track's, bob and all.
+    const eyeWater = waterLevelAt(build.lakes, camera.position.x, -camera.position.z, water ? water.userData.levelFt + water.position.y : null);
+    const under = isUnderwater(camera.position.y, eyeWater, weatherScene.weather);
     weatherScene.setUnderwater(under);
     // The sound under water (game/sound-model.js): the master level drops, and the trucks and the world are heard muffled.
     listenerUnderwater = under;
     audio.setUnderwater?.(under);
     // How far under the eye is, for the lens: it comes on over the first half foot (docs/VISUALS.md, "Under water").
-    scenery.underwater(under && water ? (water.userData.levelFt + water.position.y - camera.position.y) / 0.5 : 0, {
-      dt: paused ? 0 : dt, levelFt: water ? water.userData.levelFt + water.position.y : null, viewHeight: host.presenting ? HEADSET_VIEW_HEIGHT : canvas.height,
+    scenery.underwater(under && eyeWater !== null ? (eyeWater - camera.position.y) / 0.5 : 0, {
+      dt: paused ? 0 : dt, levelFt: eyeWater, viewHeight: host.presenting ? HEADSET_VIEW_HEIGHT : canvas.height,
     });
     tireFx.setWater(water ? water.userData.levelFt + water.position.y : null);
     if (latest && shownPoses) {
@@ -2307,6 +2354,7 @@ async function mountRace(container, context, params, owned = []) {
     // How fast each wheel turns, as the simulation says: its tread beats the water white (game/water.js `wheelStir`).
     if (shownPoses) scenery.stir(shownPoses.map((p, i) => (p && drawn[i] ? { hubs: p.tires.map((_, k) => drawn[i].tireHub(k)), radiusFt: seats[i].radius, spins: latest?.poses[i]?.sound?.tires?.map((tire) => tire.spin) ?? null } : null)), paused ? 0 : dt);
     waterSurface?.update(dt, weatherScene.weather, { sun, light: weatherScene.lightLevel(), sky, fog: scene.fog, background, levelFt: water ? water.userData.levelFt + water.position.y : null });
+    lakeSurface?.update(dt, weatherScene.weather);
     // A headset draws everything twice: terrain past the fog's end, which nothing can be seen of, is left out.
     const sight = vr.sight(scene.fog);
     if (falls.length) {
@@ -2337,7 +2385,8 @@ async function mountRace(container, context, params, owned = []) {
     if (flare) {
       // A headset has no frame to draw the flare over: it stands in the scene instead.
       flare.setStereo(host.presenting);
-      flare.update(camera, sunTravel, true, weatherScene.weather <= 1 && context.settings.sunFlare !== false, flareBlocked);
+      flare.update(camera, sunTravel, true, weatherScene.weather <= 1 && context.settings.sunFlare !== false, flareBlocked,
+        cockpit3dShown() ? (o, d) => cockpit3d.covers(o, d) : null);
     }
     // The lens is the flat screen's (render/lens.js): a headset draws each eye straight to its display.
     truckReflections?.update(camera, weatherScene.weather);
@@ -2353,6 +2402,8 @@ async function mountRace(container, context, params, owned = []) {
     // before a rescue or the Headlights key needs them (render/weather-scene.js `warmPools`).
     if (!poolsWarmed) { poolsWarmed = true; weatherScene.warmPools(() => scenery.compile(camera)); }
     if (!host.presenting) renderMirror();
+    // The 3D cockpit's mirror, once View Forward has switched it on (render/cockpit3d.js `drawMirror`).
+    if (cockpit3dShown() && mirrorOn()) cockpit3d.drawMirror(renderer, scene, camera, cockpit3dBody, { ...cockpit3dView, drawOver: (c) => scenery.drawOver(c) });
     flare?.render(renderer, camera);
     renderSplit();
     renderChaseMirror();

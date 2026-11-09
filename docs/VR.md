@@ -272,6 +272,11 @@ The modelled cab belongs to the truck, so it pitches and rolls with it also when
 locked; a frame that stays still against the truck is also what makes a moving view
 comfortable. It is built from the four pictures, as follows.
 
+Community Patch 4's 3D cockpit (VISUALS.md, "The 3D cockpit") is not used in the headset yet:
+its cab is modelled around the layout's EYE, while the headset's seat comes from the body
+(`game/vr/seat.js`), and the two would have to be brought together first (the seat moved to
+EYE, or the cab placed against the seat). Until then the headset keeps the cab above.
+
 #### Reading the pictures
 
 **The camera.** The four panels (`pbig480.raw`, `pbigl480.raw`, `pbigr480.raw`, `pbigb480.raw`,

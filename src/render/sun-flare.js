@@ -128,15 +128,20 @@ export class SunFlare {
    * @param {boolean} showDiscs
    * @param {boolean} showFlare
    * @param {(origin: THREE.Vector3, direction: THREE.Vector3) => boolean} blocked
+   * @param {((origin: THREE.Vector3, direction: THREE.Vector3) => boolean) | null} covered what stands at the eye
+   *   itself (the 3D cockpit's cab), asked every frame, outside the ground's cached share: true hides the sun or moon
+   *   disc and the flare
    */
-  update(camera, lightDirection, showDiscs, showFlare, blocked) {
+  update(camera, lightDirection, showDiscs, showFlare, blocked, covered = null) {
     const toSun = _toSun.copy(lightDirection).negate().normalize();
     const distance = camera.far * 0.85;
     const disc = this._mode === "moon" ? this._moonDisc : this._sunDisc;
     const discRadius = this._mode === "moon" ? MOON_DISC_RADIUS : SUN_DISC_RADIUS;
     this._sunDisc.visible = false;
     this._moonDisc.visible = false;
-    if (this._mode !== "none" && showDiscs) {
+    // The disc and the flare are drawn without a depth test; what stands at the eye (the 3D cab) hides both.
+    const cover = !!covered?.(camera.position, toSun);
+    if (this._mode !== "none" && showDiscs && !cover) {
       disc.visible = true;
       disc.position.copy(camera.position).addScaledVector(toSun, distance);
       // A camera-facing quad whose half-size subtends atan(r / master radius), as the layers do.
@@ -147,6 +152,7 @@ export class SunFlare {
     if (this._mode !== "sun" || !showFlare) return;
     camera.getWorldDirection(_forward);
     if (_forward.dot(toSun) <= 0) return;
+    if (cover) return;
     _screen.copy(camera.position).addScaledVector(toSun, distance).project(camera);
     const outside = Math.max(Math.abs(_screen.x), Math.abs(_screen.y)) - 1;
     const edge = outside <= 0 ? 1 : Math.max(0, 1 - outside / EDGE_FADE);

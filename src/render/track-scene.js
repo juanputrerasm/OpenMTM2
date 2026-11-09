@@ -39,6 +39,9 @@ import { bleedCutout } from "../game/cutouts.js";
 import { fadesToBackdrop, installAtmosphere, screenColor, veilBackdropShader, veilSky } from "./atmosphere.js";
 import { BACKDROP_HAZED } from "../game/atmosphere.js";
 import { addShaderHook } from "./shader-hooks.js";
+import { createLakes } from "./lakes.js";
+import { createVegetation } from "./vegetation.js";
+import { createFogVolumes } from "./fog-volumes.js";
 import { SHARED_NOISE_GLSL, detailNoise } from "./noise-textures.js";
 import { terrainMaskShares } from "../shared/terrain-mask.js";
 
@@ -1500,6 +1503,8 @@ export function updateTrackWorld(world, camera, dt, { viewRange = Infinity, fine
     // The camera where the copies are, for the ground's chunks.
     const localX = camera.position.x - parts.lattice.position.x, localZ = camera.position.z - parts.lattice.position.z;
     if ((parts.forest || parts.falling.length) && placeForest(parts, camera, viewRange, parts.copies.length > 1)) bumpShadowStatic(world);
+    if (parts.vegetation?.update(camera, viewRange, parts.copies.length > 1)) bumpShadowStatic(world);
+    parts.fogVolumes?.update(camera);
     for (const chunk of parts.chunks) {
       const dx = Math.abs(chunk.x - localX), dz = Math.abs(chunk.z - localZ);
       const seen = Math.hypot(dx, dz) < viewRange + chunk.radius;
@@ -1825,6 +1830,9 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
   if (animated) tile.add(animated);
   const water = createWater(build.waterLevelFt, build.noWrap ? 5 : 1);
   if (water) tile.add(water);
+  // Community Patch 4's lakes, each copy of the world its own (render/lakes.js).
+  const lakes = createLakes(build.lakes);
+  if (lakes) tile.add(lakes);
   // The copies and the placed objects, moved together by whole worlds to stay around the camera (`centreCopies`).
   const lattice = new THREE.Group();
   lattice.name = "copies";
@@ -1846,6 +1854,12 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
   lattice.add(objects);
   const forest = createForest(library, build.objects.filter((o) => o.forest), { rounded: naturalLight });
   if (forest) world.add(forest);
+  // Community Patch 4's trees and grass (render/vegetation.js) and fog volumes (render/fog-volumes.js), placed each frame
+  // at the copy of the world nearest the camera.
+  const vegetation = build.vegetation ? createVegetation(library, build.vegetation, { grass: grassRadius > 0 }) : null;
+  if (vegetation) world.add(vegetation.group);
+  const fogVolumes = createFogVolumes(build.fogVolumes, { drawDistance, wraps: copies.length > 1 });
+  if (fogVolumes) world.add(fogVolumes.group);
   const backdrops = createBackdrops(build, look);
   if (backdrops && showBackdrops && !build.stadium) world.add(backdrops);
   if (!build.stadium) {
@@ -1862,7 +1876,7 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
   if (grass) world.add(grass.mesh);
   if (backdrops && showBackdrops && !build.stadium) drawBackdropFirst(world);
   const parts = {
-    grass, forest, falling: [], library, lattice,
+    grass, forest, falling: [], library, lattice, vegetation, fogVolumes,
     objects, byName: new Map(), placed: [], morphing: [], chunks: [], backdrops: backdrops && !build.stadium ? backdrops : null,
     copies: tiles.map((group) => ({
       group, shown: true,

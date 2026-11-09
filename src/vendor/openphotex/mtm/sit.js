@@ -39,6 +39,38 @@ export function parseSitLight(line) {
         bright: Math.min(3.75, Math.max(0.25, Math.round(bright * 4) / 4)), aimOff,
     };
 }
+export const BOX_FOG = 14;
+/** The F block's header line, exactly as Traxx writes it (the engine reads it with an 80-character fgets). */
+export const SIT_FOG_HEADER = "Ffog w,l,h,base,vis,r,g,b,half,edge,top,maxOp,wmask,round,wisp,wsize,wspd,bot";
+/** The engine's defaults for a missing field (Traxx FOGDEF_*); a new Traxx object differs only in round 1, wisp 0.5. */
+const FOG_DEFAULTS = [0, 0, 0, 0, 300, 0.75, 0.78, 0.82, 8, 20, 5, 1, 511, 0, 0, 40, 3, 0];
+const FOG_RANGES = [
+    [0, 100000], [0, 100000], [0, 100000], [-10000, 10000], [1, 100000], [0, 1], [0, 1], [0, 1],
+    [0, 100000], [0, 100000], [0, 100000], [0, 1], null, [0, 1], [0, 1], [1, 100000], [0, 100000], null,
+];
+/** The `F` block's data line, read tolerantly (missing trailing fields keep their defaults) and clamped as Traxx's ClampFog. */
+export function parseSitFog(line) {
+    const values = [...FOG_DEFAULTS];
+    if (line)
+        line.split(",").slice(0, values.length).forEach((part, i) => {
+            const v = i === 12 ? Number.parseInt(part, 10) : Number.parseFloat(part);
+            if (Number.isFinite(v))
+                values[i] = v;
+        });
+    values.forEach((v, i) => {
+        const r = FOG_RANGES[i];
+        if (r)
+            values[i] = !(v >= r[0]) ? r[0] : v > r[1] ? r[1] : v;
+    });
+    const [w, l, h, base, vis, r, g, b, half, edge, top, maxOp, wmask, round, wisp, wsize, wspd, bot] = values;
+    return { w, l, h, base, vis, color: [r, g, b], half, edge, top, maxOp, wmask, round, wisp, wsize, wspd, bot };
+}
+/** The F block's data line as Traxx writes it: C's %f for every field but wmask (%d). */
+export function formatSitFogLine(fog) {
+    const f = (v) => Math.fround(v).toFixed(6);
+    return [fog.w, fog.l, fog.h, fog.base, fog.vis, ...fog.color, fog.half, fog.edge, fog.top, fog.maxOp].map(f).join(",")
+        + `,${Math.trunc(fog.wmask)},` + [fog.round, fog.wisp, fog.wsize, fog.wspd, fog.bot].map(f).join(",");
+}
 /*
   Which game a SIT came from.
 
@@ -300,6 +332,12 @@ function parseBoxBlock(lines, blockStart, isRamp) {
         box.lightFields = lines[lightIdx + 1].split(",").map((v) => parseLeadingFloat(v));
     if (box.type === BOX_LIGHT)
         box.light = parseSitLight(lightIdx >= 0 ? lines[lightIdx + 1] : null);
+    // Community Patch 4's fog block sits where a light block would: "Ffog w,l,h,..." then its values.
+    const fogIdx = indexOfLinePrefix(lines, "Ffog", blockStart, endIndex);
+    if (fogIdx >= 0 && fogIdx + 1 < endIndex)
+        box.fogFields = lines[fogIdx + 1].split(",").map((v) => parseLeadingFloat(v));
+    if (box.type === BOX_FOG)
+        box.fog = parseSitFog(fogIdx >= 0 ? lines[fogIdx + 1] : null);
     const ratesIdx = indexOfLinePrefix(lines, "p,q,r", blockStart, endIndex);
     if (ratesIdx >= 0 && ratesIdx + 1 < endIndex)
         box.rates = parseFloatTriplet(lines[ratesIdx + 1]);

@@ -7,7 +7,7 @@
 import { el } from "../dom.js";
 import { frame } from "../frame.js";
 import { saveSettings } from "../../app/settings.js";
-import { roomServer, listRooms, createRoom, joinRoom, rememberServer } from "../../app/net.js";
+import { roomServer, listRooms, createRoom, joinRoom, rememberServer, crossPlay } from "../../app/net.js";
 import { getProfiles } from "../../app/profile-store.js";
 import { currentDriver } from "../../game/profile.js";
 import { msg } from "../../game/strings.js";
@@ -57,7 +57,7 @@ export default async function mount(container, context, params = {}) {
         const b = el("button", { "data-menu-sound": "STARTOFF", disabled: r.state !== "lobby" || r.players >= r.maxPlayers }, t("Join"));
         b.addEventListener("click", busy(b, () => join(r.code, r.locked)));
         return el("tr", {},
-          el("td", { title: r.classic ? t("Owner: <<1>>. Open to classic MTM2 players.", r.owner) : t("Owner: <<1>>", r.owner) }, `${r.locked ? "🔒 " : ""}${r.name}${r.classic ? ` (${t("Classic")})` : ""}`),
+          el("td", { title: r.classic ? t("Owner: <<1>>. Open to classic MTM2 players.", r.owner) : t("Owner: <<1>>", r.owner) }, `${r.locked ? "🔒 " : ""}${r.name}${r.classic ? ` (${t("Classic")})` : ""}${r.relay ? ` (${t("CP4")})` : ""}`),
           el("td", {}, `${r.players}/${r.maxPlayers}`),
           el("td", {}, r.track?.name ?? t("Not chosen")),
           el("td", {}, STATE_TEXT[r.state] ? t(STATE_TEXT[r.state]) : r.state),
@@ -90,14 +90,20 @@ export default async function mount(container, context, params = {}) {
   const classic = el("input", { type: "checkbox", "aria-label": t("Open to classic MTM2 players") });
   const classicRow = el("label", { class: "net-check", hidden: true, title: t("Players of the original game join with the server's address, as with any host. Up to 8 players, no computer opponents.") },
     classic, ` ${t("Open to classic MTM2 players (up to 8)")}`);
+  // A CP4 relay room (docs/MULTIPLAYER.md "Relay rooms"), when CP4 cross-play is on and the server has relay rooms.
+  const relay = el("input", { type: "checkbox", "aria-label": t("A CP4 room") });
+  const relayRow = el("label", { class: "net-check", hidden: true, title: t("Community Patch 4 players race here with their own netcode; OpenMTM2 joins in with CP4's race packets. Experimental.") },
+    relay, ` ${t("A CP4 room (Community Patch 4 players, experimental)")}`);
+  relay.addEventListener("change", () => { if (relay.checked) classic.checked = false; });
   classic.addEventListener("change", () => {
+    if (classic.checked) relay.checked = false;
     if (classic.checked && Number(maxPlayers.value) > 8) maxPlayers.value = "8";
     for (const o of maxPlayers.options) o.disabled = classic.checked && Number(o.value) > 8;
   });
   const createButton = el("button", { class: "primary", "data-menu-sound": "STARTOFF" }, t("Create Room"));
   createButton.addEventListener("click", busy(createButton, async () => {
     say(t("Making the room…"));
-    await createRoom(context, { name: roomName.value.trim() || defaultName, password: password.value.trim(), maxPlayers: Number(maxPlayers.value), public: listed.checked, classic: classic.checked });
+    await createRoom(context, { name: roomName.value.trim() || defaultName, password: password.value.trim(), maxPlayers: Number(maxPlayers.value), public: listed.checked, classic: classic.checked, relay: relay.checked });
     enter();
   }));
 
@@ -123,6 +129,7 @@ export default async function mount(container, context, params = {}) {
         el("label", { class: "net-field" }, `${t("Players")} `, maxPlayers),
         el("label", { class: "net-check" }, listed, ` ${t("Show it in the list (otherwise by code only)")}`),
         classicRow,
+        relayRow,
         el("div", { class: "screen-actions" }, createButton),
         el("h3", {}, t("Join by code")),
         el("div", { class: "net-field" }, code, codePassword, codeButton)),
@@ -148,6 +155,7 @@ export default async function mount(container, context, params = {}) {
     serverLine.textContent = `${info.name} (${server.url.replace(/^wss?:\/\//, "").replace(/\/play$/, "")})`;
     if (info.motd) { motd.textContent = info.motd; motd.hidden = false; }
     classicRow.hidden = !server.info.features?.includes("classic");
+    relayRow.hidden = !crossPlay(context) || !server.info.features?.includes("cp3-relay/1");
     const limit = server.info.limits?.maxPlayers ?? 8;
     maxPlayers.replaceChildren(...Array.from({ length: limit - 1 }, (_, i) => i + 2).map((n) => el("option", { value: n, selected: n === Math.min(8, limit) }, String(n))));
     if (invite?.server && context.settings.net?.serverUrl !== invite.server) {

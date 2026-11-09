@@ -86,7 +86,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   opponents: 3,               // MONSTER.INI defaultOpponents (built-in default 3)
   // Multiplayer (docs/MULTIPLAYER.md): the classic helper's port and pairing token, the last host typed, the room server and
   // the room servers used before.
-  net: Object.freeze({ helperPort: 47650, helperToken: "", lastHost: "", serverUrl: "", recentServers: Object.freeze([]), latencyDisplay: true, chat: "all", chatLines: 6, chatFadeS: 8, muted: Object.freeze([]), allowMissingTrucks: false, classicKind: "dplay", cp3Port: 2350 }),
+  net: Object.freeze({ helperPort: 47650, helperToken: "", lastHost: "", serverUrl: "", recentServers: Object.freeze([]), latencyDisplay: true, chat: "all", chatLines: 6, chatFadeS: 8, muted: Object.freeze([]), allowMissingTrucks: false, classicKind: "dplay", cp3Port: 2350, cp4CrossPlay: false }),
   opponentTrucks: Object.freeze([]), // explicitly selected CPU truck files from the Races dialog
   gameMode: "default",        // a core mode id, or an id registered by the extension loader
   extensions: Object.freeze(extensionSettingDefaults()), // settings owned by shipped extensions
@@ -172,6 +172,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   cameraTiltSwap: false,
   chaseMirror: false,         // Community Patch 3's mirror in the external views (on in CP3; off here unless chosen)
   chaseMirrorSize: "original", // the chase mirror's size: "original" (CP3's 25 % of the width) or "small" (game/cameras.js CHASE_MIRROR_SMALL)
+  cockpit3d: true,            // Community Patch 4's 3D cockpit where the install has it (cockpit.pod; ini cockpit3d), else the 2D one
+  mirrorOn: false,            // the cockpit's rear-view mirror, View Forward in the cockpit; kept as CP4 keeps monster.ini mirrorOn
+  cockpitLook: false,         // Community Patch 4's "Smooth Cockpit Look" ([Control] cockpitLook): the right stick looks round the 3D cockpit
   raceLine: false,            // Community Patch 3's racing line drawn on the ground (render/race-line.js)
   dragBeams: true,            // the drag strip's lines on the ground, as MTM1 draws them: beams and lane lines (render/drag-beams.js)
   dragSplitScreen: false,     // Community Patch 3's drag split screen: both lanes at once      // keypad plus raises the chase camera and minus lowers it (the game's keys do the opposite)

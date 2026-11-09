@@ -352,6 +352,8 @@ export function createSession(init) {
   const terrain = init.heightsFt
     ? S.createTerrainFt(new Float32Array(init.heightsFt), init.waterLevelFt ?? null, init.fineFt ? new Float32Array(init.fineFt) : null)
     : S.createTerrain(new Uint8Array(init.heights), init.waterLevelFt ?? null);
+  // Community Patch 4's lakes: per 32 ft tile, deep water below the lake's surface (docs/CP4_EXE_ANALYSIS.md 2).
+  if (init.lakes) S.setTerrainLakes(terrain, new Uint8Array(init.lakes.tileMap), new Float32Array(init.lakes.levelFt));
   // `dirtEverywhere` (a Terminal Velocity, Fury3 or Hellbender level): no surface map, so the ground is Dirt everywhere
   // (OpenPhotex `createTerrainGround`), with no MTM2 level rule over it.
   const surfaces = !init.dirtEverywhere && init.clr && init.textureValues

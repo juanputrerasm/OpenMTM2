@@ -34,6 +34,8 @@ import { createRelief } from "../../game/terrain-relief.js";
 import { createWaterMirror } from "../../render/water-mirror.js";
 import { createTrackWorld, disposeObject, moveObjects, skyColor, skyOf, updateSky, updateTrackWorld, placeSky } from "../../render/track-scene.js";
 import { createWaterSurface } from "../../render/water-effects.js";
+import { lakeMeshes } from "../../render/lakes.js";
+import { waterLevelAt } from "../../game/lakes.js";
 import { toSceneMatrix, wrapFt } from "../../shared/scene-frame.js";
 import { createWeatherScene } from "../../render/weather-scene.js";
 import { terrainOfBuild } from "../../shared/build-terrain.js";
@@ -168,6 +170,9 @@ export default async function mount(container, context, params) {
   const water = waters[0] ?? null;
   const waterSurface = scenery.water ?? createWaterSurface(waters, effectsArt, look);
   if (!scenery.water) cleanups.push(() => waterSurface?.dispose());
+  // Community Patch 4's lakes take the game's frames too where the port's own water is off (render/lakes.js); they do not bob.
+  const lakeSurface = scenery.water ? null : createWaterSurface(lakeMeshes(world), effectsArt, look);
+  if (lakeSurface) cleanups.push(() => lakeSurface.dispose());
   let waterClock = 0, waterLevelNow = build.waterLevelFt ?? null;
   // MTM2's water reflections (Options, Advanced), on the game's own water, as in the race.
   const waterMirror = context.settings.waterReflections && !scenery.water && waterSurface?.material && waters.length
@@ -402,16 +407,19 @@ export default async function mount(container, context, params) {
       waterLevelNow = water ? water.userData.levelFt + bob : null;
       weatherScene.update(dt, [], { floorFt: waterLevelNow, viewHeight: canvas.height });
     }
-    const under = isUnderwater(camera.position.y, water ? water.userData.levelFt + water.position.y : null, weatherScene.weather);
+    // Over a Community Patch 4 lake the eye's water is the lake's (game/lakes.js); elsewhere the track's, bob and all.
+    const eyeWater = waterLevelAt(build.lakes, camera.position.x, -camera.position.z, water ? water.userData.levelFt + water.position.y : null);
+    const under = isUnderwater(camera.position.y, eyeWater, weatherScene.weather);
     weatherScene.setUnderwater(under);
     // How far under the eye is, for the lens: it comes on over the first half foot (docs/VISUALS.md, "Under water").
-    scenery.underwater(under && water ? (water.userData.levelFt + water.position.y - camera.position.y) / 0.5 : 0);
+    scenery.underwater(under && eyeWater !== null ? (eyeWater - camera.position.y) / 0.5 : 0);
     // The sky goes with the camera, up and down too: however high it flies, the dome is never reached.
     const sky = skyOf(world);
     // A sky fixed in the world (a Terminal Velocity or Hellbender level's ceiling) stays where it is: it can be reached.
     if (sky) { placeSky(sky, camera); sky.visible = weatherScene.skyShown; }
     // After the sky is placed: the port's water shows it.
     waterSurface?.update(paused ? 0 : dt, weatherScene.weather, { sun, light: weatherScene.lightLevel(), sky, fog: scene.fog, background, levelFt: water ? water.userData.levelFt + water.position.y : null });
+    lakeSurface?.update(paused ? 0 : dt, weatherScene.weather);
     updateTrackWorld(world, camera, paused ? 0 : dt);
     if (shadows) {
       shadows.setupMaterials();

@@ -16,7 +16,7 @@
   - Inside a ground box, the box's top texture is used, with no water rule (callers pass it).
 */
 import { AIR_DENSITY, CUT_FACTORS, DEEP_WATER_TYPE, FROZEN_WATER_TYPE, SURFACE_MU, TERRAIN_CELLS, TIRE_GRIP_K, WATER_DRAG_DENSITY, WATER_TYPES, weatherGrip, } from "../constants.js";
-import { terrainHeightAt } from "./terrain.js";
+import { terrainHeightAt, terrainLakeAt } from "./terrain.js";
 /** Type values per texture index, from the `.TEX` names and the parsed `.TTY` entries. */
 export function textureTypeValues(textureNames, tty) {
     const out = new Int32Array(textureNames.length);
@@ -48,7 +48,12 @@ export function textureWordValue(map, word) {
  */
 export function terrainSurfaceValue(terrain, map, x, z, waterLevelFt, snow = false, deepWater = true) {
     if (deepWater) {
-        const height = terrainHeightAt(terrain, x, z), level = waterLevelFt ?? 0;
+        const height = terrainHeightAt(terrain, x, z);
+        // A Community Patch 4 lake tile is deep water below the lake's surface (FUN_140203ed0, CP4_EXE_ANALYSIS.md 2).
+        const lake = terrainLakeAt(terrain, x, z);
+        if (lake && height < terrain.lakes.levelFt[lake])
+            return (snow ? FROZEN_WATER_TYPE : DEEP_WATER_TYPE) * 100;
+        const level = waterLevelFt ?? 0;
         // In the game's units (1/256 ft, floored): ground at 0 is Default, before the water test.
         if (Math.floor((snow && height < level ? level : height) * 256) === 0)
             return 0;

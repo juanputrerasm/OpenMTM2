@@ -15,12 +15,18 @@
   The host's player list (MONSTER_EXE_ANALYSIS.md 14.2): the host announces every player with 0x81
   and 0x82, which is all a Community Patch 3 direct connect client hears of the others (14.5). The
   truck name's form (H) is used as the analysis guesses it.
+
+  Packet profiles (docs/MULTIPLAYER.md "Packet profiles", CP4_EXE_ANALYSIS.md 9): each player's packets
+  are read in the layout its 0x03 version names (retail 0x0201, CP3 0x3400, CP4 0x3402); before its
+  0x03 arrives, in the session's. This machine sends retail's, or the host's when it joins a CP3 or
+  CP4 host. In a CP4 session the race start carries a raceId and the post-load barrier (0x28, 0x29)
+  stands in for the sync barrier.
 */
 import { createEmitter } from "./transport.js";
 import { msg } from "../game/strings.js";
 import {
-  encodePacket, decodePacket, TYPES, GUARANTEED, MTM2_NET_VERSION, BARRIER, EXIT_CANCELLED,
-  stateFields, stateFromPacket, pingTime, pingMs,
+  encodePacket, decodePacket, TYPES, MTM2_NET_VERSION, BARRIER, EXIT_CANCELLED,
+  stateFields, stateFromPacket, pingTime, pingMs, PROFILES, profileForVersion, CP_TICK_S, CP4_MAX_POSES,
 } from "./vendor/mtmnet/mtm2-packets.js";
 
 /** Locations (the Status column, 0x514175). */
@@ -55,17 +61,26 @@ export function versionText(version) {
 
 /** The sync barrier waits up to 120 s, the results barrier 30 s; both resend every second. */
 export const SYNC_WAIT_S = 120, RESULTS_WAIT_S = 30;
+/** A CP4 client waits up to 300 s for the host's 0x29 after loading (CP4_EXE_ANALYSIS.md 9). */
+export const RELEASE_WAIT_S = 300;
+/** CP4 sends older poses less than 256 ticks old; we keep the last 16 we sent per truck, as its ring. */
+const POSE_RING = 16, POSE_MAX_AGE = 256;
 /** The lobby pings the next human every 5 s for the Latency column. */
 export const PING_EVERY_MS = 5000;
 
-export function createLegacySession({ transport, me, hasTrack = () => true, trackCrc = async () => -1, now = () => Date.now(), random = Math.random }) {
+/**
+ * `profile`: a fixed packet profile (PROFILES.cp4 in a relay room, docs/MULTIPLAYER.md "Relay rooms"): this machine
+ * announces that profile's version and sends its layouts whether it hosts or joins, and reads every player in it until
+ * their 0x03 says otherwise. Without it, retail, or the host's profile when joined to a CP3 or CP4 host.
+ */
+export function createLegacySession({ transport, me, hasTrack = () => true, trackCrc = async () => -1, now = () => Date.now(), random = Math.random, profile = null }) {
   const events = createEmitter();
   const self = transport.self;
   /** Every player by DPID, this machine's included. */
   const players = new Map();
   const local = {
     dpid: self, name: me.name, truck: me.truck ?? "", skill: me.skill ?? 1, location: LOCATION.MULTIPLAYER, ready: false,
-    team: 0, version: MTM2_NET_VERSION, latency: 0, local: true, computer: false, slot: null, barrier: 0, setup: [1, 1, 600, 1, 0],
+    team: 0, version: profile?.version ?? MTM2_NET_VERSION, latency: 0, local: true, computer: false, slot: null, barrier: 0, setup: [1, 1, 600, 1, 0],
   };
   players.set(self, local);
   let hostId = transport.host?.() ?? (transport.isHost?.() ? self : null);
@@ -74,12 +89,19 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
   let pingTurn = 0, lastPing = 0;
   let race = null;
   let closed = false;
+  /** Each player's packet profile, from its 0x03 version. */
+  const profiles = new Map();
 
   const isHost = () => hostId === self;
+  /** What this machine sends: retail's, or a CP3 or CP4 host's profile when it joined one. */
+  const sendProfile = () => profile ?? ((!isHost() && profiles.get(hostId)) || PROFILES.retail);
+  /** How a player's packets are read: its own profile once its 0x03 came, else the session's. */
+  const profileOf = (dpid) => profiles.get(dpid) ?? (profile ?? (dpid === hostId ? PROFILES.retail : sendProfile()));
   const send = (to, kind, fields = {}) => {
     if (closed) return;
-    const bytes = encodePacket(kind, fields, self);
-    transport.send(to ?? null, bytes, { reliable: GUARANTEED.has(TYPES[kind]) });
+    const prof = sendProfile();
+    const bytes = encodePacket(kind, fields, self, prof);
+    transport.send(to ?? null, bytes, { reliable: prof.guaranteed.has(TYPES[kind]) });
   };
   const changed = () => events.emit("change", state());
   const notice = (code, text, extra = {}) => events.emit("notice", { code, text, ...extra });
@@ -106,7 +128,7 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
   /** What a newcomer is told (MONSTER_EXE_ANALYSIS.md 14.3): our info, and from the host the game's settings. */
   function greet(dpid) {
     send(dpid, "info", {
-      truck: local.truck, status: local.ready ? 1 : 0, version: MTM2_NET_VERSION, location: local.location,
+      truck: local.truck, status: local.ready ? 1 : 0, version: local.version, location: local.location,
       skill: local.skill, setup: local.setup, team: local.team, unknown1: 1, unknown2: 0,
     });
     if (!isHost()) return;
@@ -153,7 +175,9 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
     transport.on("lost", (reason) => end(typeof reason === "string" ? reason : reason?.reason ?? "lost")),
     transport.on("message", (from, bytes) => {
       let p;
-      try { p = decodePacket(bytes); } catch { return; }
+      // The game takes the sender from the packet's header (+8); its profile says how to read the rest.
+      const header = bytes?.length >= 12 ? new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(8, true) : 0;
+      try { p = decodePacket(bytes, profileOf(header || from)); } catch { return; }
       // The game takes the sender from the packet, not from DirectPlay (14.1).
       receive(p.sender || from, p);
     }),
@@ -164,9 +188,10 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
     switch (p.kind) {
       case "info":
         Object.assign(who, { truck: p.truck, ready: !!p.status, version: p.version, location: p.location, skill: p.skill, setup: p.setup, team: p.team });
-        if (p.version !== MTM2_NET_VERSION) {
-          notice(p.version < MTM2_NET_VERSION ? "olderVersion" : "newerVersion",
-            `${who.name || "A player"} runs ${p.version < MTM2_NET_VERSION ? "an older" : "a newer"} version of the game${versionText(p.version)}.`);
+        profiles.set(from, profileForVersion(p.version));
+        if (p.version !== local.version) {
+          notice(p.version < local.version ? "olderVersion" : "newerVersion",
+            `${who.name || "A player"} runs ${p.version < local.version ? "an older" : "a newer"} version of the game${versionText(p.version)}.`);
         }
         break;
       case "truck": who.truck = p.truck; break;
@@ -251,7 +276,7 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
         if (p.dpid !== self) gone(p.dpid);
         break;
       case "start":
-        startRace({ sit: p.sit, laps: p.laps, weather: p.weather, host: from });
+        startRace({ sit: p.sit, laps: p.laps, weather: p.weather, host: from, raceId: p.raceId ?? null });
         break;
       default:
         if (race) race.packet(from, p);
@@ -265,6 +290,7 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
     const p = players.get(id);
     if (!p) return;
     players.delete(id);
+    profiles.delete(id);
     if (race) race.leaver(p);
     notice("left", `${p.name} has left the game.`, { name: p.name });
   }
@@ -368,15 +394,17 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
       send(null, "slot", { dpid: p.dpid, slot: p.slot });
     });
     const resolved = weather < 0 ? resolveWeather() : weather;
-    send(null, "start", { sit: game.track.sit, laps: game.laps, weather: resolved });
-    startRace({ sit: game.track.sit, laps: game.laps, weather: resolved, host: self });
+    // A CP4 host's race id (CP4_EXE_ANALYSIS.md 9, FUN_1401f32b0): GetTickCount() ^ (id << 20) | 1, odd and never 0.
+    const raceId = sendProfile() === PROFILES.cp4 ? ((Math.floor(now()) ^ (self << 20)) | 1) >>> 0 : null;
+    send(null, "start", { sit: game.track.sit, laps: game.laps, weather: resolved, ...(raceId ? { raceId } : {}) });
+    startRace({ sit: game.track.sit, laps: game.laps, weather: resolved, host: self, raceId });
   }
 
-  function startRace({ sit, laps, weather }) {
+  function startRace({ sit, laps, weather, raceId = null }) {
     local.location = LOCATION.RACING;
     const entrants = [...players.values()].filter((p) => p.slot).sort((a, b) => a.slot - b.slot)
       .map((p) => ({ dpid: p.dpid, vehicle: p.slot, name: p.name, truck: p.truck, computer: p.computer, local: p.local }));
-    race = createRaceLink(entrants);
+    race = createRaceLink(entrants, raceId);
     events.emit("start", { sit, track: game.track, laps, weather, entrants, host: isHost() });
   }
 
@@ -386,12 +414,82 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
    * The race's network side for the race screen: barriers, start positions, the race start, every truck's packets in
    * and out (as net-race.js events), results.
    */
-  function createRaceLink(entrants) {
+  function createRaceLink(entrants, raceId) {
     const link = createEmitter();
     const byDpid = new Map(entrants.map((e) => [e.dpid, e]));
     const vehicleOfDpid = (dpid) => byDpid.get(dpid)?.vehicle;
     let barrier = null;
     const results = new Map();
+    // CP3 and CP4: this machine's 25 Hz tick, counted from the race start (never 0, which reads as "no tick"), and
+    // the poses last sent per vehicle, for CP4's older poses.
+    const tickStart = now();
+    const tickNow = () => Math.floor((now() - tickStart) / (CP_TICK_S * 1000)) + 1;
+    const sentPoses = new Map();
+    let released = null, releaseWait = null;
+
+    /** The 0x02 fields for an outgoing state in the profile we send. */
+    function outgoingState(e) {
+      const prof = sendProfile();
+      if (prof === PROFILES.retail) return stateFields(e);
+      const tick = tickNow();
+      const ring = sentPoses.get(e.vehicle) ?? [];
+      // Newest first: the first two sent before this tick and less than 256 ticks old.
+      const poses = ring.filter((q) => q.tick < tick && tick - q.tick < POSE_MAX_AGE).slice(-CP4_MAX_POSES).reverse()
+        .map((q) => ({ age: tick - q.tick, pos: q.pos, euler: q.euler }));
+      ring.push({ tick, pos: [...e.pos], euler: [...e.euler] });
+      if (ring.length > POSE_RING) ring.shift();
+      sentPoses.set(e.vehicle, ring);
+      return stateFields({ ...e, tick, poses }, prof);
+    }
+
+    /**
+     * CP4's post-load barrier as a client (CP4_EXE_ANALYSIS.md 9): 0x28 with the raceId, then wait for the host's 0x29
+     * with it; give up after 300 s, when the host is lost or when this machine becomes the host.
+     */
+    function loadBarrier() {
+      send(null, "raceLoaded", { raceId });
+      return new Promise((resolve) => {
+        const deadline = now() + RELEASE_WAIT_S * 1000;
+        const host = () => players.get(hostId);
+        const done = (complete) => { clearInterval(barrier); barrier = null; releaseWait = null; resolve({ complete, missing: complete ? [] : [host()?.name ?? ""] }); };
+        releaseWait = () => done(true);
+        const tick = () => {
+          if (released === raceId) return done(true);
+          if (closed || isHost() || !host() || now() >= deadline) return done(false);
+          link.emit("waiting", { code: "release", left: [host()?.name ?? ""] });
+        };
+        clearInterval(barrier);
+        barrier = setInterval(tick, 250);
+        tick();
+      });
+    }
+
+    /**
+     * CP4's post-load barrier as the host (CP4_EXE_ANALYSIS.md 9): everyone broadcasts 0x28 with the raceId; the host
+     * waits for every human's (or 120 s) and broadcasts 0x29. A late 0x28 for a released race gets 0x29 back at once.
+     */
+    const loadedFrom = new Set();
+    function hostLoadBarrier() {
+      send(null, "raceLoaded", { raceId });
+      return new Promise((resolve) => {
+        const deadline = now() + SYNC_WAIT_S * 1000;
+        const humans = () => [...players.values()].filter((p) => !p.local && !p.computer && byDpid.has(p.dpid));
+        const tick = () => {
+          const waiting = humans().filter((p) => !loadedFrom.has(p.dpid));
+          link.emit("waiting", { code: "loaded", left: waiting.map((p) => p.name) });
+          if (!waiting.length || now() >= deadline || closed) {
+            clearInterval(barrier);
+            barrier = null;
+            released = raceId;
+            send(null, "raceRelease", { raceId });
+            resolve({ complete: !waiting.length, missing: waiting.map((p) => p.name) });
+          }
+        };
+        clearInterval(barrier);
+        barrier = setInterval(tick, 250);
+        tick();
+      });
+    }
 
     function waitBarrier(code, seconds) {
       local.barrier = code;
@@ -418,14 +516,26 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
     return {
       entrants,
       on: link.on,
-      /** Wait for everyone to have loaded (the `sync` barrier). */
-      sync: () => waitBarrier(BARRIER.SYNC, SYNC_WAIT_S),
+      /**
+       * Wait for everyone to have loaded (the `sync` barrier). In a CP4 session the post-load barrier stands in for it:
+       * CP4's race loop skips the sync barrier when it ran (INFERRED, CP4_EXE_ANALYSIS.md 9); our 0x15 `sync` still
+       * goes once, for a host that does wait for it.
+       */
+      async sync() {
+        if (sendProfile() !== PROFILES.cp4 || !raceId) return waitBarrier(BARRIER.SYNC, SYNC_WAIT_S);
+        const r = isHost() ? await hostLoadBarrier() : await loadBarrier();
+        local.barrier = BARRIER.SYNC;
+        send(null, "barrier", { code: BARRIER.SYNC });
+        return r;
+      },
+      /** The CP4 race's id (from its 0x14), or null. */
+      raceId,
       /** The host's start positions, by vehicle number (0x17, index 0 unused). */
       sendPositions(positions) { if (isHost()) send(null, "positions", { positions }); },
       /** One net-race.js event from this machine, as the game's packet. */
       outgoing(e) {
         switch (e.kind) {
-          case "state": send(null, "state", { ...stateFields(e), vehicle: e.vehicle }); break;
+          case "state": send(null, "state", { ...outgoingState(e), vehicle: e.vehicle }); break;
           case "split": send(null, "split", { truck: e.vehicle, next: e.next, split: e.split }); break;
           case "damage": send(null, "damage", { vehicle: e.vehicle, code: e.code }); break;
           case "lights": send(null, "lights", { vehicle: e.vehicle, lamps: e.lamps }); break;
@@ -442,7 +552,24 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
           case "barrier": { const q = players.get(from); if (q) q.barrier = p.code; break; }
           case "positions": link.emit("event", { kind: "positions", positions: p.positions }); break;
           case "go": link.emit("event", { kind: "go" }); break;
-          case "state": link.emit("event", { kind: "state", ...stateFromPacket(p) }); break;
+          case "state": {
+            // The packet's own pose is the newest; the sim takes retail's fields (tick and older poses are not used yet).
+            const { tick, poses, ...s } = stateFromPacket(p, profileOf(from));
+            link.emit("event", { kind: "state", ...s });
+            break;
+          }
+          // CP3 and CP4: the owner's progress (0x26) and a hit on our truck (0x27). Passed on as is; net-race.js does
+          // not apply them yet (docs/MULTIPLAYER.md, "Packet profiles").
+          case "progress": link.emit("event", { kind: "progress", truck: p.truck, segments: p.segments, total: p.total }); break;
+          case "collision": link.emit("event", { kind: "collision", target: p.target, source: p.source, linear: p.linear, angular: p.angular }); break;
+          case "raceRelease":
+            if (raceId && p.raceId === raceId) { released = raceId; releaseWait?.(); }
+            break;
+          case "raceLoaded":
+            if (!raceId || p.raceId !== raceId) break;
+            loadedFrom.add(from);
+            if (isHost() && released === raceId) send(from, "raceRelease", { raceId });
+            break;
           case "split": link.emit("event", { kind: "split", vehicle: p.truck, next: p.next, split: p.split }); break;
           case "damage": link.emit("event", { kind: "damage", vehicle: p.vehicle, code: p.code }); break;
           case "lights": link.emit("event", { kind: "lights", vehicle: p.vehicle, lamps: p.lamps }); break;

@@ -9,7 +9,7 @@
       server.on("chat", (m) => ...);  server.on("state", (s) => ...);   // binary truck state, decoded
 */
 import { createEmitter } from "./transport.js";
-import { ROOM_PROTOCOL, ROOM_PATH, encodeState, decodeState } from "./vendor/mtmnet/room-messages.js";
+import { ROOM_PROTOCOL, ROOM_PATH, encodeState, decodeState, encodeRelay, decodeRelay, RELAY_TAG } from "./vendor/mtmnet/room-messages.js";
 
 /** The default port of openmtm2d. */
 export const ROOM_PORT = 47660;
@@ -43,8 +43,12 @@ export function roomServerUrl(text) {
  * `request(type, fields)` (resolves to the result; rejects with an Error carrying `code`), `send(type, fields)` (no
  * answer wanted), `sendState(state)`, `ping()`, `clock()`, `on(type, fn)` for the server's messages, "state" for truck
  * state and "closed" ({ code, reason }), `close()`, and `alive`.
+ *
+ * `caps`: the capabilities declared in `hello` (PROTOCOL.md). With "cp3-relay/1" the client may be in a relay room, where
+ * `sendRelay(member, bytes, flags)` sends one game packet (member 0: every other member) and "relay" ({ from, flags,
+ * payload }) brings the others', the sender written by the server.
  */
-export function connectRooms({ url, name, client = "OpenMTM2", WebSocketImpl = globalThis.WebSocket, now = () => Date.now() }) {
+export function connectRooms({ url, name, client = "OpenMTM2", caps = [], WebSocketImpl = globalThis.WebSocket, now = () => Date.now() }) {
   const href = roomServerUrl(url);
   return new Promise((resolve, reject) => {
     let ws;
@@ -69,6 +73,8 @@ export function connectRooms({ url, name, client = "OpenMTM2", WebSocketImpl = g
       request,
       send(type, fields = {}) { if (ws.readyState === 1) ws.send(JSON.stringify({ type, ...fields })); },
       sendState(s) { if (ws.readyState === 1) ws.send(encodeState(s)); },
+      sendRelay(member, payload, flags = 0) { if (ws.readyState === 1) ws.send(encodeRelay({ member, payload, flags })); },
+      caps: [...caps],
       on: events.on,
       /** Measure the round trip; returns it in ms. */
       async ping() {
@@ -88,7 +94,7 @@ export function connectRooms({ url, name, client = "OpenMTM2", WebSocketImpl = g
     ws.onopen = async () => {
       opened = true;
       try {
-        server.info = await request("hello", { protocol: ROOM_PROTOCOL, name: String(name ?? "Driver").slice(0, 24) || "Driver", client });
+        server.info = await request("hello", { protocol: ROOM_PROTOCOL, name: String(name ?? "Driver").slice(0, 24) || "Driver", client, ...(caps.length ? { caps } : {}) });
         helloDone = true;
         keepalive = setInterval(() => { if (ws.readyState === 1) request("ping", { t: now() }).catch(() => {}); }, KEEPALIVE_MS);
         await server.ping().catch(() => {});
@@ -111,7 +117,13 @@ export function connectRooms({ url, name, client = "OpenMTM2", WebSocketImpl = g
     };
     ws.onmessage = (e) => {
       if (typeof e.data !== "string") {
-        const s = decodeState(new Uint8Array(e.data));
+        const bytes = new Uint8Array(e.data);
+        if (bytes[0] === RELAY_TAG) {
+          const r = decodeRelay(bytes);
+          if (r) events.emit("relay", { from: r.member, flags: r.flags, payload: r.payload.slice() });
+          return;
+        }
+        const s = decodeState(bytes);
         if (s) events.emit("state", s);
         return;
       }

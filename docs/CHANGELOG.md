@@ -6,9 +6,35 @@ as it stood when it was written, and the plan's open items list is the one kept 
 
 ## v0.7.1
 
-Testers' requests and bugs (stick steering, rumble, the drag strip, the drag weekend's field, the chase mirror, the
-names over the trucks):
+Community Patch 4 (beta 0.52) and Traxx 1.7.0 support, OpenPhotex 1.7.0 and OpenMTM2 Server 0.4.1, then testers' requests and bugs (stick steering, rumble, the drag strip, the drag weekend's field, the chase mirror, the names over the trucks):
 
+- **3D cockpit fixes:** the view is 90 degrees top to bottom, as CP4 draws it (the FOV key is degrees across a 4:3
+  frame), and its centre sits at 208/480 of the screen's height as CP4 places it, so the whole cab and the wheel's
+  centre show; the sun, the moon and the lens flare are hidden when the cab stands in front
+  of them; the mirror's switch (View Forward in the cockpit) is kept across races, as CP4 keeps `mirrorOn`.
+- **Options:** Drag beam lines moved to the MTM1 section (it is MTM1's look, not CP3's); Texture size's note is now a
+  short tooltip.
+- **CP4 cross-play, experimental** (docs/MULTIPLAYER.md, "Relay rooms"): Options, Network, CP4 cross-play declares the
+  room server's relay capability; OpenMTM2 then lists, joins and makes CP4 relay rooms and plays the game's own lobby
+  and race protocol inside them in Community Patch 4's packet layouts, hosting included (CP4's raceId and its
+  0x28 / 0x29 post-load barrier). The race is still smoothed by OpenMTM2's own netcode.
+- **Community Patch 4's 3D cockpit** (CP4_EXE_ANALYSIS.md 6; docs/VISUALS.md, "The 3D cockpit"): with CP4's
+  `cockpit.pod` mounted, the cockpit view draws the modelled cab of `DATA\_DEFAULT_CP.CPT` or the layout a truck's
+  .TRK names (`COCKPIT`, `<name>.CPT`), with the engine's fallbacks (`game/cockpit3d.js` `resolveCockpit`): needles,
+  wheel and shifter turned by the layout's formulas, the current gear's lamp, the shift light, the EYE and FOV, and
+  the rear-view mirror drawn where its corners fall on the screen. `worker/cockpit3d.js` reads the files,
+  `render/cockpit3d.js` draws them. Options, Advanced, CP4: "3D cockpit" (on) and "Smooth cockpit look" (off; a
+  gamepad's right stick looks round the cab, `stepCockpitLook`). Not yet: quad lamps, the 3D cab in a headset.
+- **Community Patch 4's lakes, vegetation and fog volumes** (CP4_EXE_ANALYSIS.md 2 to 4; docs/VISUALS.md, "Lakes,
+  vegetation and fog volumes"): a track's .WTR lakes are drawn as water sheets at their own levels over their tiles
+  (no bob; they freeze in Snow; the land in them only within 10 ft of the base plane; under one the eye is under
+  water), its .VEG trees and grass as instanced models by species with the engine's model and far-card distances,
+  grass distance and density and the scenery detail's tiers, and its trees as walls the trucks run into (trunk or
+  model, as upright boxes). Type 14 boxes are fog volumes, drawn in the weathers their mask names (the density an
+  approximation of the renderer's, which is not in the CP4 beta), and no longer drawn as models or met. A Spline or
+  Full Map track's fine ground takes the .LTE's light. `worker/cp4-world.js`, `game/lakes.js`, `game/vegetation.js`,
+  `game/fog-volumes.js`, `render/lakes.js`, `render/vegetation.js`, `render/fog-volumes.js`. Not yet: a lake's own
+  reflection pass, the wisps, the classic ice overlay on lakes.
 - **Steering models** (CP3_EXE_ANALYSIS.md 11; OpenPhotex controls `joystickSteer`): Options, Keys, Gamepad has
   Community Patch 3's "Steering model" (Original (1998), the default, or Expo, its cubic curve with an ease-off with
   speed), "Steering range", "Steering expo" and "Steering speed ease-off". "Steering response" now goes to 20, as
@@ -21,7 +47,7 @@ names over the trucks):
   step not answered in 3 s is now noted in the console (the report stays at 10 s).
 - **The drag strip's tree, lit** (`game/drag-tree-face.js`, `render/drag-tree-lamps.js`): the tree model beside the
   strip (`TREE.BIN`) shows the lamps as MTM1 paints `TRLFACE.RAW` (MTM1_MONSTER_EXE_ANALYSIS.md 5.6, now with the
-  columns and the clear). **Drag beam lines** (`render/drag-beams.js`, Options, Advanced, CP3, on by default): the
+  columns and the clear). **Drag beam lines** (`render/drag-beams.js`, Options, Advanced, MTM1, on by default): the
   strip's lines as MTM1 draws them in a drag race (MTM1_MONSTER_EXE_ANALYSIS.md 5.6, `0x438b50`), every checkpoint
   in white: the prestage, stage, start and finish beams across the strip and the lane lines down it. The **Drag beam lines
   key** (bindings.js `dragBeams`: I on the keyboard, Back on a gamepad) shows and hides them mid-race and keeps the

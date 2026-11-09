@@ -7244,8 +7244,8 @@
   "text": "Cuarto (256)"
  },
  {
-  "tag": "The largest HD textures and ground tiles a track and the trucks keep (Community Patch 3 and HD tracks such as Valparaíso Racing). Half or Quarter for graphics with little memory, built into the processor: the game then needs a quarter or a sixteenth of the video memory for them. The game's own textures are not changed. From the next race",
-  "text": "El tamaño máximo de las texturas HD y las baldosas del suelo de una pista y de los camiones (Community Patch 3 y pistas HD como Valparaíso Racing). Mitad o Cuarto para gráficos con poca memoria, integrados en el procesador: el juego necesita entonces un cuarto o un dieciseisavo de la memoria de video para ellas. Las texturas propias del juego no cambian. Desde la próxima carrera"
+  "tag": "Largest size kept for HD textures and ground tiles. Half or Quarter uses less video memory. From the next race",
+  "text": "Tamaño máximo de las texturas HD y de las baldosas del terreno. Mitad o Cuarto usa menos memoria de video. Desde la próxima carrera"
  },
  {
   "tag": "Deathmatch",
@@ -7458,5 +7458,45 @@
  {
   "tag": "The drag strip's lines as Monster Truck Madness 1 draws them: the prestage, stage, start and finish beams across the strip and the lane lines down it, so you can see where to stage. The Drag beam lines key (I) shows and hides them in a race",
   "text": "Las líneas de la pista de arrancones como las dibuja Monster Truck Madness 1: los haces de preposición, posición, salida y llegada a lo ancho de la pista y las líneas de los carriles a lo largo, para ver dónde colocarse. La tecla Líneas de los haces (I) las muestra y oculta en carrera"
+ },
+ {
+  "tag": "CP4",
+  "text": "CP4"
+ },
+ {
+  "tag": "3D cockpit",
+  "text": "Cabina 3D"
+ },
+ {
+  "tag": "Community Patch 4's 3D cockpit in the cockpit view, where the install has its cockpit.pod: a modelled cab with moving needles, wheel and shifter, gear lamps and a rear-view mirror. A truck gets it if its TRK names a cockpit or its instrument cluster is powerbig or richford; the others keep the 2D cockpit. From the next race",
+  "text": "La cabina 3D de Community Patch 4 en la vista de cabina, si la instalación tiene su cockpit.pod: una cabina modelada con agujas, volante y palanca que se mueven, luces de marcha y un espejo retrovisor. Un camión la tiene si su TRK nombra una cabina o si su tablero es powerbig o richford; los demás conservan la cabina 2D. Desde la próxima carrera"
+ },
+ {
+  "tag": "Smooth cockpit look",
+  "text": "Mirada suave en la cabina"
+ },
+ {
+  "tag": "Community Patch 4's smooth cockpit look: in the 3D cockpit a gamepad's right stick looks round the cab, up to 150 degrees to each side and 35 up or down, and the view eases back ahead when it is let go",
+  "text": "La mirada suave de Community Patch 4: en la cabina 3D la palanca derecha del mando mira alrededor de la cabina, hasta 150 grados a cada lado y 35 hacia arriba o abajo, y la vista vuelve suavemente al frente al soltarla"
+ },
+ {
+  "tag": "CP4 cross-play",
+  "text": "Juego cruzado con CP4"
+ },
+ {
+  "tag": "Experimental: join and make Community Patch 4 rooms on an online server. In those rooms OpenMTM2 speaks CP4's own race packets; the race is not yet driven by CP4's netcode",
+  "text": "Experimental: entra y crea salas de Community Patch 4 en un servidor en línea. En esas salas OpenMTM2 usa los propios paquetes de carrera de CP4; la carrera aún no usa el código de red de CP4"
+ },
+ {
+  "tag": "A CP4 room",
+  "text": "Una sala de CP4"
+ },
+ {
+  "tag": "Community Patch 4 players race here with their own netcode; OpenMTM2 joins in with CP4's race packets. Experimental.",
+  "text": "Aquí corren jugadores de Community Patch 4 con su propio código de red; OpenMTM2 se une con los paquetes de carrera de CP4. Experimental."
+ },
+ {
+  "tag": "A CP4 room (Community Patch 4 players, experimental)",
+  "text": "Una sala de CP4 (jugadores de Community Patch 4, experimental)"
  }
 ]

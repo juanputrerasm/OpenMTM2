@@ -132,7 +132,8 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
   const fogState = volume && renderer ? createFogState({ renderer }) : null;
   const drawing = new THREE.Vector2();
   // What fills the water about the eye while it is under it: motes and the sun's shafts (render/underwater.js).
-  const underwaterLook = water && hasWater ? createUnderwater({ scene, water, random }) : null;
+  // Community Patch 4's lakes have it too (the screen gives the lake's level when the eye is over one, game/lakes.js).
+  const underwaterLook = water && (hasWater || build.lakes?.bodies?.length) ? createUnderwater({ scene, water, random }) : null;
   // Where the snow has depth (a race that began in Snow), the same depth the terrain's mesh was built with.
   const snowCover = groundSurface?.snowHasDepth ? settled : null;
   /*

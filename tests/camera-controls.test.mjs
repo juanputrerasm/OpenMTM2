@@ -3,18 +3,22 @@ import assert from "node:assert/strict";
 import { padCamera } from "../src/game/input/gamepad.js";
 import { lookOptions, looksWith } from "../src/game/camera-look.js";
 
-const pad = ({ ry = 0, left = false, right = false, mapping = "standard" } = {}) => ({
-  mapping, axes: [0, 0, 0, ry], buttons: Array.from({ length: 16 }, (_, i) => ({ pressed: (i === 14 && left) || (i === 15 && right), value: 0 })),
+const pad = ({ rx = 0, ry = 0, left = false, right = false, mapping = "standard" } = {}) => ({
+  mapping, axes: [0, 0, rx, ry], buttons: Array.from({ length: 16 }, (_, i) => ({ pressed: (i === 14 && left) || (i === 15 && right), value: 0 })),
 });
 
 test("a pad's right stick tilts the camera (up raises it) past a dead zone, and its D-pad left and right zoom", () => {
-  assert.deepEqual(padCamera(pad()), { tilt: 0, zoom: 0 });
+  assert.deepEqual(padCamera(pad()), { tilt: 0, zoom: 0, turn: 0 });
   assert.equal(padCamera(pad({ ry: -0.2 })).tilt, 0, "a resting thumb does not drift the camera");
   assert.equal(padCamera(pad({ ry: -1 })).tilt, 1);
   assert.equal(padCamera(pad({ ry: 1 })).tilt, -1);
   assert.equal(padCamera(pad({ left: true })).zoom, -1);
   assert.equal(padCamera(pad({ right: true })).zoom, 1);
-  assert.deepEqual(padCamera(pad({ ry: -1, mapping: "" })), { tilt: 0, zoom: 0 }, "no standard mapping, no camera");
+  assert.deepEqual(padCamera(pad({ ry: -1, mapping: "" })), { tilt: 0, zoom: 0, turn: 0 }, "no standard mapping, no camera");
+  // Its left and right turn the smooth cockpit look (CP4_EXE_ANALYSIS.md 6), right positive, past the same dead zone.
+  assert.equal(padCamera(pad({ rx: 0.2 })).turn, 0);
+  assert.equal(padCamera(pad({ rx: 1 })).turn, 1);
+  assert.equal(padCamera(pad({ rx: -1 })).turn, -1);
 });
 
 test("Click to look: the mouse looks round only with a button held", () => {

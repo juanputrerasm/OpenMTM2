@@ -1,11 +1,12 @@
-// Generated from openmtm2-server 0.4.0 protocol/room-messages.js. Do not edit; run its tools/vendor.mjs.
+// Generated from openmtm2-server 0.4.1 protocol/room-messages.js. Do not edit; run its tools/vendor.mjs.
 /*
   The online room protocol, version 1 (docs/PROTOCOL.md): what OpenMTM2 and the room server
   (openmtm2d) say to each other over one WebSocket.
 
   - Text frames hold one JSON object each, with a `type`. A request may carry an `id`; its answer
     is `{ type: "result", id, ... }` or `{ type: "error", id, code, message }`.
-  - Binary frames hold truck state (`encodeState` / `decodeState`), 68 bytes, little-endian.
+  - Binary frames hold truck state (`encodeState` / `decodeState`), 68 bytes, little-endian, or, in a relay room,
+    an opaque relay frame (`encodeRelay` / `decodeRelay`) whose first byte is RELAY_TAG (0xC3).
 
   `checkClient(message)` validates a client's message against the tables below and returns
   `{ ok: true, message }` (unknown fields dropped) or `{ ok: false, code, message }`. The server
@@ -27,8 +28,17 @@ export const LIMITS = Object.freeze({
 export const ERROR = Object.freeze({
   BAD_REQUEST: "bad-request", PROTOCOL: "protocol", HELLO_FIRST: "hello-first", NOT_FOUND: "not-found", FULL: "full",
   PASSWORD: "password", NOT_OWNER: "not-owner", STATE: "state", NOT_IN_ROOM: "not-in-room", RATE: "rate-limited",
-  LIMIT: "limit", SHUTDOWN: "shutting-down",
+  LIMIT: "limit", SHUTDOWN: "shutting-down", CAPABILITY: "capability",
 });
+
+/** Capabilities a client may declare in `hello.caps`, and the server in its `features`. */
+export const CAPS = Object.freeze({
+  /** The opaque relay channel (docs/PROTOCOL.md "Relay rooms"), for Community Patch 3 and 4's own game packets. */
+  CP3_RELAY: "cp3-relay/1",
+});
+/** How many capabilities `hello.caps` may hold, and how long each may be. */
+export const CAPS_MAX = 16, CAP_LENGTH = 32;
+const CAP_PATTERN = /^[a-z0-9./-]{1,32}$/;
 
 /** WebSocket close codes the server uses (besides 1000 and 1001). */
 export const CLOSE = Object.freeze({ PROTOCOL: 4000, BANNED: 4003, KICKED: 4004, RATE: 4008, TOO_MANY: 4009, IDLE: 4010 });
@@ -62,20 +72,25 @@ const any = (opt) => ["any", opt];
 const freeObj = (opt) => ["freeobj", opt];
 /** A flat object of rules: names of letters, digits, dots, underscores and hyphens, values text, number or boolean only, LIMITS.rules bytes as JSON at most. */
 const rulesObj = (opt) => ["rules", opt];
+/** A capability name: 1 to 32 of a to z, 0 to 9, dot, slash, hyphen. */
+const cap = () => ["cap"];
 const OPT = true;
 
 const TRACK = obj({ sit: str(1, LIMITS.sit), name: str(0, LIMITS.trackName, OPT), crc: int(-1, 0xffffffff) }, OPT);
 
 /** Every message a client may send, by type. */
 export const CLIENT_MESSAGES = Object.freeze({
-  hello: { protocol: int(1, 0xffff), name: str(1, LIMITS.playerName), client: str(0, 40, OPT) },
+  hello: { protocol: int(1, 0xffff), name: str(1, LIMITS.playerName), client: str(0, 40, OPT), caps: list(cap(), CAPS_MAX, OPT) },
   list: {},
-  create: { name: str(1, LIMITS.roomName), password: str(0, LIMITS.password, OPT), maxPlayers: int(2, LIMITS.maxPlayers, OPT), public: bool(OPT), classic: bool(OPT) },
+  // `relay`: a relay room (docs/PROTOCOL.md "Relay rooms"); by default when the creator declared CAPS.CP3_RELAY.
+  create: { name: str(1, LIMITS.roomName), password: str(0, LIMITS.password, OPT), maxPlayers: int(2, LIMITS.maxPlayers, OPT), public: bool(OPT), classic: bool(OPT), relay: bool(OPT) },
   join: { room: str(1, 16), password: str(0, LIMITS.password, OPT) },
   leave: {},
   profile: {
     truck: str(0, LIMITS.truck, OPT), skill: int(0, 2, OPT), location: int(0, 99, OPT), ready: bool(OPT), team: int(0, 15, OPT),
     latency: int(0, 60000, OPT), content: obj({ sit: str(1, LIMITS.sit), crc: int(-1, 0xffffffff) }, OPT),
+    // The checksum of the POD that holds `truck`, as the track's (CRC-32/MPEG-2 over the whole archive); -1 unknown.
+    truckCrc: int(-1, 0xffffffff, OPT),
   },
   // `to` one member (private); `team` the sender's teammates, as its race decides them (a team line; `to` wins over it).
   chat: { text: str(1, LIMITS.chat), to: int(1, 0x7fffffff, OPT), team: list(int(1, 0x7fffffff), LIMITS.maxPlayers, OPT) },
@@ -89,8 +104,10 @@ export const CLIENT_MESSAGES = Object.freeze({
     rules: rulesObj(OPT),
   },
   kick: { member: int(1, 0x7fffffff) },
-  start: { weather: int(0, 15), computers: list(obj({ name: str(1, LIMITS.playerName), truck: str(0, LIMITS.truck) }), LIMITS.computers, OPT) },
+  start: { weather: int(0, 15), computers: list(obj({ name: str(1, LIMITS.playerName), truck: str(0, LIMITS.truck), truckCrc: int(-1, 0xffffffff, OPT) }), LIMITS.computers, OPT) },
   loaded: {},
+  // A relay room's owner ends its race: the room is back in the lobby (relay rooms run their own results).
+  finish: {},
   race: { e: any() },
   result: { laps: int(0, 10000), total: num(0, 1e7), best: num(-1e7, 1e7), lapsLed: int(0, 10000, OPT) },
   ping: { t: num(-1e15, 1e15) },
@@ -137,6 +154,9 @@ function checkValue(spec, v, path) {
       return { ok: true, value: out };
     }
     case "any":
+      return { ok: true, value: v };
+    case "cap":
+      if (typeof v !== "string" || !CAP_PATTERN.test(v)) return { ok: false, why: `${path} must be 1 to ${CAP_LENGTH} of a-z, 0-9, ".", "/", "-"` };
       return { ok: true, value: v };
     case "rules": {
       if (typeof v !== "object" || Array.isArray(v)) return { ok: false, why: `${path} must be an object` };
@@ -259,3 +279,40 @@ export function decodeState(bytes) {
 
 /** Whether sequence number `a` is newer than `b` (u16, wrapping). */
 export const seqNewer = (a, b) => ((a - b) & 0xffff) !== 0 && ((a - b) & 0xffff) < 0x8000;
+
+// ---- Relay frames, binary (relay rooms only) ----
+
+/** A relay frame's first byte; a state frame's is STATE_FRAME (1). */
+export const RELAY_TAG = 0xc3;
+/** A relay frame's header: tag, flags, a u16 member id. */
+export const RELAY_HEADER = 4;
+/** The most payload bytes one relay frame may carry. */
+export const RELAY_MAX_PAYLOAD = 1200;
+/** The relay's rate per connection, in bytes of whole frames (header included): sustained per second, and the burst. */
+export const RELAY_RATE = Object.freeze({ bytesPerSecond: 32768, burst: 65536 });
+
+/**
+ * A relay frame:
+ *
+ *   0 u8 tag (0xC3)   1 u8 flags (the client's own; the server passes them on)   2 u16 member   4 payload (0 to 1200 bytes)
+ *
+ * From a client, `member` is the member it is for, 0 for every other member of the room. From the server, it is
+ * the member who sent it, which the server writes over whatever the sender put there.
+ */
+export function encodeRelay({ flags = 0, member = 0, payload = new Uint8Array(0) } = {}) {
+  const body = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+  if (body.byteLength > RELAY_MAX_PAYLOAD) throw new RangeError(`A relay payload is at most ${RELAY_MAX_PAYLOAD} bytes.`);
+  const bytes = new Uint8Array(RELAY_HEADER + body.byteLength);
+  bytes[0] = RELAY_TAG;
+  bytes[1] = flags & 0xff;
+  bytes[2] = member & 0xff;
+  bytes[3] = (member >>> 8) & 0xff;
+  bytes.set(body, RELAY_HEADER);
+  return bytes;
+}
+
+/** `{ flags, member, payload }` (the payload a view into `bytes`), or null when it is not a valid relay frame. */
+export function decodeRelay(bytes) {
+  if (!bytes || bytes.byteLength < RELAY_HEADER || bytes.byteLength > RELAY_HEADER + RELAY_MAX_PAYLOAD || bytes[0] !== RELAY_TAG) return null;
+  return { flags: bytes[1], member: bytes[2] | (bytes[3] << 8), payload: bytes.subarray(RELAY_HEADER) };
+}

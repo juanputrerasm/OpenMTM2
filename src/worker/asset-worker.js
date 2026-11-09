@@ -14,12 +14,14 @@ import { buildCatalog } from "./catalog.js";
 import { buildJukeboxList } from "./jukebox-list.js";
 import { buildSky, buildTrackRender, transferablesOf } from "./track-build.js";
 import { lenientKlp } from "../game/sound-model.js";
-import { SOUND_EXTENSIONS, findSound, soundStem } from "./sound-file.js";
+import { SOUND_EXTENSIONS, findSound, namedExtension, soundStem } from "./sound-file.js";
 import { buildTruckPreview } from "./preview-build.js";
 import { readTrackPicture } from "./track-picture.js";
 import { loadingScreen } from "./screen-art.js";
 import { truckEnvMap } from "./env-map.js";
 import { loadCockpit, cockpitArt } from "./cockpit-art.js";
+import { buildCockpit3d } from "./cockpit3d.js";
+import { createPaletteResolver } from "./palette-resolver.js";
 import { loadEffectsArt } from "./effects-art.js";
 import { decodeActPalette } from "../vendor/openphotex/texture/act.js";
 import { decodeRawTexture } from "../vendor/openphotex/texture/raw.js";
@@ -402,7 +404,7 @@ const handlers = {
     if (only !== null && !SOUND_EXTENSIONS.includes(only)) throw new Error(`Bad sound format "${only}"`);
     const stem = soundStem(name);
     const vfs = await mounted();
-    const found = await findSound(vfs, stem, { only });
+    const found = await findSound(vfs, stem, { only, prefer: namedExtension(name) });
     if (!found) return null;
     const klp = await vfs.read(`SOUND\\${stem}.KLP`);
     const copy = ownBytes(found.bytes).buffer;
@@ -459,6 +461,13 @@ const handlers = {
   async cockpitPanel() {
     const art = await cockpitArt(await mounted());
     return art ? withTransfer(art, [art.panel.rgba.buffer]) : null;
+  },
+
+  /** Community Patch 4's 3D cockpit for a truck (worker/cockpit3d.js), or null where it keeps the 2D cockpit. */
+  async cockpit3d({ truck } = {}) {
+    const vfs = await mounted();
+    const built = await buildCockpit3d(vfs, truck, createPaletteResolver(vfs, "MTM2", null));
+    return built ? withTransfer(built, transferablesOf(built)) : null;
   },
 };
 

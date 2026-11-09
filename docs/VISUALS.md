@@ -2136,6 +2136,120 @@ longer switches every weather's fog off: they are seen through the haze.
 Not changed: what Rain, Snow, the fogs and the dark weathers hide. Those distances are the
 game's.
 
+## The 3D cockpit (Community Patch 4)
+
+Not the port's own: Community Patch 4's modelled cockpit, drawn as its engine draws it
+(CP4_EXE_ANALYSIS.md 6), with "3D cockpit" (Options, Advanced, CP4; on by default, CP4's ini
+`cockpit3d`). It needs CP4's `cockpit.pod`, which holds the 2D cockpit's art as well and so
+takes the place of the retail `COCKPIT.POD`; without its `DATA\_DEFAULT_CP.CPT` and that
+layout's cab model every truck keeps the 2D cockpit.
+
+- Which trucks: `src/game/cockpit3d.js` `resolveCockpit`. A truck whose .TRK ends with the two
+  lines `COCKPIT` and `<name>.CPT` gets that layout over the default's, key by key (a part whose
+  model is missing is the default's); one that names a missing file gets the default; one that
+  names none gets the default when its Instrument Cluster is `powerbig` or `richford`, else the
+  2D cockpit. Another game's vehicle and an MTM1 truck kept apart keep the 2D cockpit.
+- The files: `src/worker/cockpit3d.js` reads the layouts and the models (`MODELS\`, as a truck's)
+  and their art (`ART\`, PNG first, as a truck's), and the asset worker hands them over
+  (`cockpit3d`).
+- The drawing: `src/render/cockpit3d.js`. The cab and the lamps hang from the player's truck in
+  its body frame; each needle, the wheel and the shifter turn about their pivots by the layout's
+  formulas; only the current gear's lamp is drawn, and the shift light above its rpm, both
+  self-lit. The cab is lit by the scene like the truck. The camera stands at the layout's EYE
+  with its FOV, and the View keys still turn the head.
+- "Smooth cockpit look" (Options, Advanced, CP4; off by default, CP4's `[Control]
+  cockpitLook`): a gamepad's right stick looks round the 3D cockpit at 180 degrees a second, held
+  to 150 degrees each way and 35 up or down, easing back ahead when let go.
+- The mirror: switched by View Forward as the 2D one. Drawn where the mirror's corners fall on
+  the screen when it faces the eye within 60 degrees of the view: the scene from the eye looking
+  back, without the cab, drawn to a texture and laid over the frame flipped left to right.
+- Not drawn yet: lamps given as quads (their colour is not known), and the 3D cab in a headset,
+  which keeps its own cab (VR.md, "The cab").
+- The cockpit view's G key goes round as before: the cockpit (3D or 2D), no cockpit with the
+  gauges, neither.
+
+## Lakes, vegetation and fog volumes (Community Patch 4)
+
+Not the port's own either: what a Community Patch 4 track adds beside its level, drawn by its
+engine's rules (CP4_EXE_ANALYSIS.md 2, 3 and 4), in both looks. The files are read by OpenPhotex
+(`mtm/wtr.ts`, `mtm/veg.ts`, the SIT's `Ffog` block), the drawing data built in
+`src/worker/cp4-world.js` and `src/game/fog-volumes.js`.
+
+### Lakes
+
+- Each lake is a flat sheet at its own surface over the 32 ft tiles of the .WTR's tile map, a
+  row's run of tiles one quad (`buildLakeSheets`; `src/render/lakes.js` draws them, in every copy
+  of the world). A lake does not bob: the track's water rises and falls, a lake stays where it is.
+- It looks as the track's water does. With "Reflective water" it is that water
+  (render/water-surface.js): waves, the sky, the sun's glint and the light through the depth to
+  its bed (the ground map gives the depth). Without, it wears the game's animated frames, as the
+  track's water does (render/water-effects.js `createWaterSurface`).
+- The land in it: a lake mirrors the land with the track's water only within 10 ft of the base
+  plane (the track's water, else the lowest lake), as the engine shares that pass
+  (`waterLakeOwnPass`, game/lakes.js `lakeReflectionPlan`). A higher lake would have a pass of
+  its own (two at most, `waterMirrorExtra`); the port draws none, and such a lake, or one the
+  file marks not reflective, mirrors the sky alone. MTM2's own reflections ("Water reflections",
+  the classic mirror) stay on the track's water.
+- In Snow a lake freezes as the track's water does: the ice of "Reflective water", or the game's
+  opacity for the frames. The game's ice overlay (`SNOW0-3`) lies on the track's water only. The
+  simulation makes a lake tile ice as well (OpenPhotex `world/surface.ts`).
+- Under a lake: the eye's water is the lake's wherever the eye is over one of its tiles
+  (game/lakes.js `waterLevelAt`, the engine's `FUN_140205570`), so the lens, the fog under water,
+  the motes and the shafts (render/underwater.js) come on below its surface. The bed of a lake is
+  not dressed as the track water's bed is (wet shore, dancing light): that takes one level.
+
+### Vegetation
+
+- The .VEG's trees and grass, by species (`buildVegetation`): each species' model
+  (`MODELS\<model>`) and far card, read as a box's model is. A tree whose detail tier is above the
+  scenery detail level is neither drawn nor met. Grass is thinned per tile by `vegGrassDensity`
+  (100 %, all of it) and drawn when the grass slider is not None.
+- `src/render/vegetation.js`: one InstancedMesh a chunk of the world and model part, the chunk
+  moved to the copy nearest the eye each frame (as 4x4 Evolution's forest). Each instance is
+  shown by its own distance from the eye (game/vegetation.js `vegDistances`): a tree's model to
+  951 ft and its card from 950 ft; with the crossfade flag the model fading out and the card in
+  over 900..1000 ft; grass to 1000 ft, fading out from 750 ft. A fade is a dither of the
+  instance's pixels. A species with no far card (flag 0x08, none named, or one that cannot be
+  read) keeps its model at every distance: the engine's rule for that case is not traced. The
+  distances the SPEC may carry (+0x88..+0x90) are not read by OpenPhotex, so the engine's
+  defaults for a zero hold; `vegLodScale` is 100.
+- Shadows, where the sun casts them: a species' model with its "cast shadow" flag (1), its card
+  with "far shadow" (2), as Traxx 1.7 writes them; the engine was not seen reading either.
+  Flag 8 is read as the engine reads it, no far card; Traxx calls it "facing", and the port does
+  not turn anything to the camera for it.
+- Collision (`vegetationWalls`): a trunk (collide 1) by the engine's sizes, a model (collide 2) by
+  its bounds, each times the tree's scale, as the simulation's static walls. The simulation
+  (OpenPhotex) has no upright cylinder against a truck, so a trunk is the upright square box as
+  wide as the cylinder, turned with the tree. The engine's pool of 128 slots and 24 trees a truck
+  is not kept: the walls are found by their cells.
+
+### Fog volumes
+
+- A track's type 14 boxes with an `Ffog` block (at most 64): not drawn as their model and never
+  met, but drawn as fog (`src/render/fog-volumes.js`). Each frame the nearest 16 the weather's mask
+  allows are drawn, those beyond the draw distance and a tile left out (game/fog-volumes.js
+  `fogVolumesShown`), at the copy of the world nearest the eye.
+- Each is drawn on its box's faces (from inside, the far faces, over everything in front of
+  them): every pixel sums the fog along its line of sight through the box in 24 steps. The
+  engine gives its renderer the extinction 3 / vis a foot, the height falloff 1 / half, the soft
+  edge, top and bottom, the max opacity and the roundness; how its renderer (`trid3d11.dll`,
+  not in the CP4 beta) turns those into a density is not known. **An approximation pending the
+  renderer's RE**, after Fila's own description of the feature: the density is the extinction at
+  the bottom and halves every `half` ft upward; it eases in over `edge` from the sides (the
+  footprint a rectangle at roundness 0, an ellipse at 1, between them a mix of the two distances),
+  over `top` from the top and `bot` from the bottom; the opacity is 1 - e^-sum, held to maxOp.
+  The colour is the volume's times the weather's light (Cloudy 0.7, Rain 0.3, Dusk 0.375, Night
+  0.25, Pitch Black 0.05), and the scene's fog veils the volume as it does everything else.
+- Not drawn: the wisps. The line of sight stops at the box, not at what stands in it: the ground
+  inside a volume is fogged by the depth of the box behind it.
+
+### The Spline and Full Map terrain
+
+- A Spline or Full Map track's ground is drawn as its 8 ft grid (worker/terrain-mesh.js
+  `buildFineTerrainMesh`), lit by the level's .LTE as the classic grid is: each fine point takes
+  the light between its 32 ft cell's four corners. The engine builds two shading maps of its own
+  for these grids (CP4_EXE_ANALYSIS.md 1.5), which are not traced.
+
 ## Cost
 
 Measured on a desktop card (Radeon RX 9070 XT), Voodoo Island, at 2560 x 1440, from the chase

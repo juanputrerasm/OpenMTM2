@@ -49,6 +49,7 @@ import { ATMOSPHERE_FRAGMENT_GLSL, atmosphere, atmosphereUniforms, screenColor }
 import { WATER_WAVES, WATER_WAVE_LAYOUT, waveLoopSeconds } from "../game/water-waves.js";
 import { cloudNoise, waveFieldTexture, waveNoise } from "./noise-textures.js";
 import { RAIN_RINGS_GLSL, mirrorSky, skyAlongGlsl } from "./water-common.js";
+import { lakeReflectionPlan } from "../game/lakes.js";
 
 const RAIN = 4, SNOW = 5;
 /** The game's opacity for the frozen water of Snow. */
@@ -760,7 +761,10 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
   const meshes = [];
   let level = null;
   world.traverse((object) => { if (object.name === "water") { meshes.push(object); level ??= object.userData.levelFt ?? null; } });
-  if (!meshes.length) return null;
+  // Community Patch 4's lakes (render/lakes.js): the same water at their own levels, which do not bob.
+  const lakes = [];
+  world.traverse((object) => { if (object.name === "lake") lakes.push(object); });
+  if (!meshes.length && !lakes.length) return null;
   // The marks the trucks leave in the ice, which the graphics card reads as two small pictures of numbers.
   const ice = createIceMarks();
   const uniforms = {
@@ -788,10 +792,21 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
   // The open water and the ice, two programs over the one set of uniforms: the planes wear one or the other.
   const made = (fragmentShader) => new THREE.ShaderMaterial({ uniforms, vertexShader: VERTEX, fragmentShader, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false, lights: true });
   const material = made(WATER_FRAGMENT), iceMaterial = made(ICE_FRAGMENT);
+  /*
+    A lake mirrors the land with the track's water only where the engine lets it share that reflection
+    (docs/CP4_EXE_ANALYSIS.md 2, game/lakes.js `lakeReflectionPlan`): within 10 ft of the base plane. One higher would
+    need a pass of its own, which the port does not draw: it mirrors the sky alone, as does a lake the file marks not
+    reflective. The same program over the same uniforms, without the land.
+  */
+  const plan = lakeReflectionPlan(lakes.map((mesh) => ({ levelFt: mesh.userData.levelFt })), level);
+  const skyOnly = lakes.some((mesh) => !mesh.userData.reflective || !plan.shared.includes(mesh.userData.levelFt))
+    ? new THREE.ShaderMaterial({ uniforms: { ...uniforms, uLandOn: { value: 0 } }, vertexShader: VERTEX, fragmentShader: WATER_FRAGMENT, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false, lights: true })
+    : null;
+  for (const mesh of lakes) mesh.userData.openWater = mesh.userData.reflective && plan.shared.includes(mesh.userData.levelFt) ? material : skyOnly;
   let worn = material;
   const replaced = new Set();
   // The water takes the shadows of the hills and of what stands round it; it casts none.
-  for (const mesh of meshes) { replaced.add(mesh.material); mesh.material = material; mesh.receiveShadow = true; mesh.castShadow = false; }
+  for (const mesh of [...meshes, ...lakes]) { replaced.add(mesh.material); mesh.material = mesh.userData.openWater ?? material; mesh.receiveShadow = true; mesh.castShadow = false; }
   for (const old of replaced) old.dispose();
   // The ground as the water's bed.
   const bed = { uBed: { value: new THREE.Vector4(level ?? -1e6, 0, 1, 0) }, uBedWaves: { value: waveNoise() } };
@@ -848,6 +863,8 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
       if (worn !== (frozen ? iceMaterial : material)) {
         worn = frozen ? iceMaterial : material;
         for (const mesh of meshes) mesh.material = worn;
+        // A lake freezes in Snow as the track's water does (the simulation makes it ice too, OpenPhotex world/surface.ts).
+        for (const mesh of lakes) mesh.material = frozen ? iceMaterial : mesh.userData.openWater ?? material;
       }
       // The marks the ice has taken, each star as far as its cracks have run; a thaw heals them.
       if (!frozen && ice.count) ice.clear();
@@ -954,6 +971,7 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
     dispose() {
       material.dispose();
       iceMaterial.dispose();
+      skyOnly?.dispose();
       uniforms.uIceMarks.value.dispose();
       uniforms.uIceGrid.value.dispose();
       dressed.clear();
