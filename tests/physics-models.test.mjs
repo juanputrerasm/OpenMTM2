@@ -6,8 +6,8 @@ import { DEFAULT_SETTINGS, PHYSICS_MODELS, physicsModel, resolveAiBehaviour, res
 import { cp4Sim as C4, cprSim as Cp, evoSim as E, mtm2Sim as S } from "../src/vendor/openphotex/index.js";
 import { createSession } from "../src/worker/sim-worker.js";
 
-test("the list: Auto (the default), MTM2, CommPatch4, the 1996 game, 4x4 Evolution 2 and 1, CART Precision Racing; an unknown id is MTM2", () => {
-  assert.deepEqual(PHYSICS_MODELS.map((m) => m.id), ["auto", "track", "mtm2", "cp4", "mtm1", "evo2", "evo1", "cpr"]);
+test("the list: Auto (the default), OpenMTM2, MTM2, CommPatch4, the 1996 game, 4x4 Evolution 2 and 1, CART Precision Racing; an unknown id is MTM2", () => {
+  assert.deepEqual(PHYSICS_MODELS.map((m) => m.id), ["auto", "track", "omtm2", "mtm2", "cp4", "mtm1", "evo2", "evo1", "cpr"]);
   assert.equal(physicsModel("cp4").label, "CommPatch4");
   assert.equal(DEFAULT_SETTINGS.physics, "auto");
   assert.equal(physicsModel("mtm1").label, "Monster Truck Madness");
@@ -18,16 +18,19 @@ test("the list: Auto (the default), MTM2, CommPatch4, the 1996 game, 4x4 Evoluti
     // Auto and Auto (by track) pick one of the others for each race.
     if (m.id === "auto" || m.id === "track") continue;
     const rules = E.isEvoRules(m.id) ? E.evoRules(m.id) : Cp.isCprRules(m.id) ? Cp.CPR_RULES : C4.isCp4Rules(m.id) ? C4.CP4_RULES : S.simRules(m.id);
-    assert.equal(rules.id, m.id, `the simulation has rules for ${m.id}`);
+    // OpenMTM2 is MTM2's model (with a CP4 track's triangles, sim-worker.js `trackTriangles`), so MTM2's rules.
+    assert.equal(rules.id, m.id === "omtm2" ? "mtm2" : m.id, `the simulation has rules for ${m.id}`);
   }
 });
 
-test("Auto picks the model of the player's vehicle's game; a set model stays", () => {
+test("Auto picks the model of the player's vehicle's game, OpenMTM2 for MTM2's on an MTM2 track; a set model stays", () => {
   assert.equal(resolvePhysics("auto", "EVO2:CBLS24.TRK"), "evo2");
   assert.equal(resolvePhysics("auto", "EVO1:CBLS24.TRK"), "evo1");
   assert.equal(resolvePhysics("auto", "MTM1:BIGFOOT.TRK"), "mtm1");
   assert.equal(resolvePhysics("auto", "CPR:DAVIS.CAR"), "cpr", "a CART Precision Racing car on its own game's model");
-  assert.equal(resolvePhysics("auto", "BIGFOOT.TRK"), "mtm2");
+  assert.equal(resolvePhysics("auto", "BIGFOOT.TRK"), "omtm2", "an MTM2 truck on an MTM2 track: OpenMTM2");
+  assert.equal(resolvePhysics("auto", "BIGFOOT.TRK", "MTM1"), "mtm2", "on another game's track: MTM2");
+  assert.equal(resolvePhysics("auto", "BIGFOOT.TRK", "CPR"), "mtm2");
   assert.equal(resolvePhysics("evo1", "BIGFOOT.TRK"), "evo1");
   assert.equal(resolvePhysics("mtm2", "EVO2:CBLS24.TRK"), "mtm2");
 });
@@ -44,8 +47,8 @@ test("Auto by track picks the model of the track's game", () => {
   assert.equal(resolvePhysics("track", "BIGFOOT.TRK", "EVO2"), "evo2");
   assert.equal(resolvePhysics("track", "EVO2:CBLS24.TRK", "EVO1"), "evo1");
   assert.equal(resolvePhysics("track", "EVO2:CBLS24.TRK", "MTM1"), "mtm1");
-  assert.equal(resolvePhysics("track", "EVO2:CBLS24.TRK", "MTM2"), "mtm2");
-  assert.equal(resolvePhysics("track", "EVO2:CBLS24.TRK", null), "mtm2");
+  assert.equal(resolvePhysics("track", "EVO2:CBLS24.TRK", "MTM2"), "omtm2");
+  assert.equal(resolvePhysics("track", "EVO2:CBLS24.TRK", null), "omtm2");
   assert.equal(resolvePhysics("track", "BIGFOOT.TRK", "CPR"), "cpr");
 });
 
@@ -78,8 +81,9 @@ test("a session takes its rules from the race: rain cuts the grip under MTM2's, 
 });
 
 test("CommPatch4: never picked by Auto, and its computer trucks drive as MTM2's", () => {
-  assert.equal(resolvePhysics("auto", "BIGFOOT.TRK", "MTM2"), "mtm2");
-  assert.equal(resolvePhysics("track", "BIGFOOT.TRK", "MTM2"), "mtm2");
+  assert.equal(resolvePhysics("auto", "BIGFOOT.TRK", "MTM2"), "omtm2");
+  assert.equal(resolvePhysics("track", "BIGFOOT.TRK", "MTM2"), "omtm2");
+  assert.equal(resolveAiBehaviour("physics", "omtm2"), "omtm2");
   assert.equal(resolvePhysics("cp4", "EVO2:CBLS24.TRK"), "cp4");
   assert.equal(resolveAiBehaviour("physics", "cp4"), "mtm2");
   assert.equal(DEFAULT_SETTINGS.cp4Collision, "triangles");

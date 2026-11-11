@@ -18,7 +18,7 @@ import { MPH_PER_FTS } from "./tire-effects.js";
 
 const RAIN = 4, SNOW = 5;
 /** The `.TTY` ground types that are what they are in any weather (MTM2_PHYSICS.md 2.3). */
-const TYPE_MUD = 4, TYPE_SAND = 5, TYPE_GRASS = 6, TYPE_ICE = 8, TYPE_SNOW = 9;
+const TYPE_CEMENT = 1, TYPE_MUD = 4, TYPE_SAND = 5, TYPE_GRASS = 6, TYPE_ICE = 8, TYPE_SNOW = 9;
 
 /** How many of each the scene holds at once; a headset throws `LITE_SHARE` of the puffs. */
 export const PUFF_POOL = 1536, STREAK_POOL = 4096, LITE_SHARE = 0.5;
@@ -121,7 +121,9 @@ export function mistSpacingFt(speedFtS, stood = "wet") {
  * type, MTM2_PHYSICS.md 2.3): dirt and sand the most, gravel, rocks and grass some, mud a little.
  * Anything else is not soft ground and gives none.
  */
-export const DUST_BY_TYPE = Object.freeze({ 2: 1, 4: 0.3, 5: 1, 6: 0.35, 7: 0.6, 12: 0.45 });
+export const DUST_BY_TYPE = Object.freeze({ 1: 0.3, 2: 1, 4: 0.3, 5: 1, 6: 0.35, 7: 0.6, 12: 0.45 });
+/** The grey of the dust off Cement (concrete, asphalt), which takes nothing of the ground's colour. */
+export const CEMENT_DUST_TONE = Object.freeze([0.4, 0.4, 0.41]);
 
 const smoothstep = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
 
@@ -137,7 +139,8 @@ const smoothstep = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b
  */
 export function groundDust(tone, type) {
   const byType = DUST_BY_TYPE[type] ?? 0;
-  if (!tone) return byType;
+  // Cement's dust is the game's, whatever the texture looks like (dark asphalt included).
+  if (!tone || type === TYPE_CEMENT) return byType;
   const [r, g, b] = tone, light = 0.2126 * r + 0.7152 * g + 0.0722 * b;
   if (!(light > 0)) return 0;
   const most = Math.max(r, g, b), chroma = most - Math.min(r, g, b);
@@ -162,7 +165,7 @@ export const DUST_WEATHER = Object.freeze([1, 1, 0.5, 0.35, 0, 0, 1, 0.8, 0.8, 1
  */
 export function dustColour(ground, family, type = 0) {
   const own = dustTone(family, type), share = PUFF_KINDS.dust.ground;
-  if (!ground) return own;
+  if (!ground || type === TYPE_CEMENT) return own;
   return own.map((c, k) => c + (Math.min(1, ground[k] * DUST.paler + 0.02) - c) * share);
 }
 
@@ -361,6 +364,7 @@ export function footing({ family, type = 0, weather = 0, snowFt = 0, inWater = f
 
 /** The colour of the dust a ground type gives, before the level's own ground colour is mixed in: sand is pale, mud dark, gravel and rock grey. */
 export function dustTone(family, type = 0) {
+  if (type === TYPE_CEMENT) return CEMENT_DUST_TONE;
   if (type === TYPE_SAND) return [0.52, 0.44, 0.31];
   if (type === TYPE_MUD) return [0.24, 0.18, 0.12];
   if (type === TYPE_GRASS) return [0.34, 0.29, 0.19];

@@ -830,6 +830,11 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       boxes: collisionBoxes,
       /** Each collidable model's triangles and .SRF surface types, for the CommPatch4 physics (`collisionSoups` above). */
       collisionSoups,
+      /**
+       * A track made for Community Patch 4: it has a DATA\<stem>.TXV record (worker/level-load.js). Its placed models
+       * collide by their triangles under the OpenMTM2 physics too (ui/screens/race.js), not only under CommPatch4.
+       */
+      cp4Track: !!level.txv,
       /** The top-crush cars (MTM2_PHYSICS.md 14.27), each with its two models' bounds. */
       topCrush,
       ramps,

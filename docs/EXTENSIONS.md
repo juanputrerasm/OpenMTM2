@@ -703,8 +703,9 @@ it harder, a turn in about 4 s, which the 4.5 s window counts. The game's rotati
 `q_bar` at least 26.74) stops a spin in the air within about half a second: without Trick physics no run turned more
 than 224 degrees of pitch or 263 of roll, and only in crashes.
 
-**Trick physics** (the run's setting, on by default; `freestyle.js` `TRICK_PHYSICS`, `freestyleRules`): under MTM2's
-physics model only, the run drives on OpenPhotex's optional handling (its docs/SIM_MTM2.md, "Optional handling"),
+**Trick physics** (the run's setting, on by default; `freestyle.js` `TRICK_PHYSICS`, `freestyleRules`): under every
+physics model (since 0.7.2; MTM2's, MTM1's, CommPatch4's and OpenMTM2's, which share MTM2's step, and 4x4 Evolution's
+and CART's, OpenPhotex sim/mtm2/truck/trick.ts), the run drives on OpenPhotex's optional handling (its docs/SIM_MTM2.md, "Optional handling"),
 which neither game has. In the air the throttle pitches the nose up and the brakes pitch it down (5 rad/s² a full
 pedal) and spins are damped a quarter as hard; with the wheels down the yaw is damped half as hard. The worker asks
 the extension for its rules before it builds the ground (`session-loader.js` `extensionSimRules`). Measured on the
@@ -714,7 +715,7 @@ truck in the air kept ordinary jumps at a 4% crash rate (3% without), and flip a
 
 **Freestyle options** (0.6.6; the run's settings): Trick physics' three strengths, held to `TRICK_LIMITS` (air pitch
 control 0 to 10, air spin damping 0.05 to 1, ground yaw damping 0.1 to 1; the defaults are the tuned ones above);
-"Trick physics with MTM1 and Evo physics too" (`trickAnyPhysics`; CART's model never has it); and a weight of 0 to 2x
+and a weight of 0 to 2x
 for each judged category (`weight_<category>`, `judgingWeights`), which scales that category's share of the 10 points.
 The total is still held to 0 to 10.
 

@@ -15,6 +15,7 @@
   the pause menu is a board too, and the controllers drive (game/vr/controls.js). The renderer
   is the app's one shared renderer, so a headset session carries over from race to race.
 */
+import { clearStandingView, meshGroundFromBuild, viewBlocked, viewGroundOn } from "../../game/mesh-ground.js";
 import { createMtm1Particles } from "../../render/mtm1-particles.js";
 import { createEvoParticles } from "../../render/evo-particles.js";
 import { createEvoLifeScene } from "../../render/evo-life.js";
@@ -48,7 +49,7 @@ import { mergeBindings } from "../../game/input/bindings.js";
 import { SunFlare, sunBlocked } from "../../render/sun-flare.js";
 import { enableSunShadows } from "../../render/sun-shadows.js";
 import * as mtm2Sim from "../../vendor/openphotex/sim/mtm2/index.js";
-import { cameraSystem, COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, CAMERA_PITCH_MAX, CAMERA_PITCH_RATE, CAMERA_PITCH_MIN, CAMERA_TILT_RATE, INERTIA_MODE, cameraMode, modeForShortcut, systemShortcut, systemViews, blimpCamera, blimpCameraNoCourse, courseCentroid, chaseMirrorFigures, chaseMirrorRect, createChaseCamera, fovBase, fovFor, groundHeightFn, nextInList, nextMode, raceCamera, shortViews, zoomToFov } from "../../game/cameras.js";
+import { cameraSystem, COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, CAMERA_PITCH_MAX, CAMERA_PITCH_RATE, CAMERA_PITCH_MIN, CAMERA_TILT_RATE, INERTIA_MODE, cameraMode, modeForShortcut, systemShortcut, systemViews, blimpCamera, blimpCameraNoCourse, courseCentroid, chaseMirrorFigures, chaseMirrorRect, createChaseCamera, fovBase, fovFor, groundHeightFn, nextInList, nextMode, raceCamera, shortViews, zoomToFov, distanceZoom } from "../../game/cameras.js";
 import { createBlimp, hasBlimp } from "../../game/blimp.js";
 import { soundRange, surfaceFamily } from "../../game/sound-model.js";
 import { createTireEffects } from "../../render/tire-effects.js";
@@ -637,6 +638,13 @@ async function mountRace(container, context, params, owned = []) {
   cleanups.push(() => scenery.dispose());
   // What follows the ground (cameras, lights, dust, tracks, spray) follows what is drawn: the drawn ground, and the snow lying on it.
   const ground = scenery.surfaceAt;
+  // On a track made for CP4 the views stand on its meshes near what they watch, not on the terrain under the city
+  // (game/mesh-ground.js): the chase, BlimpCam and RaceCam views and the tire effects.
+  const viewMesh = meshGroundFromBuild(build, { terrainHeight: (x, z) => ground(x, z), wrapDelta: (d) => d - 8192 * Math.round(d / 8192) });
+  let viewRefY = 0;
+  const viewGround = viewGroundOn(viewMesh, ground, () => viewRefY);
+  // What the external views see through on meshes: nothing (game/mesh-ground.js `viewBlocked`).
+  const viewSight = viewBlocked(viewMesh);
   const weatherScene = createWeatherScene({
     scene, camera, world, sun, ambient: ambientLight, skyAverage: background, look, drawDistance, backdrops: !!context.settings.backdrops, art: effectsArt,
     onSun: (_, shadow) => shadows?.follow(sun, shadow), onLightning: () => worldAudio.thunder(),
@@ -701,6 +709,7 @@ async function mountRace(container, context, params, owned = []) {
 
   // Crash damage (game/crash-damage.js): the hull contacts the simulation reports dent the bodies.
   // A mode that owns the Crash Damage key (Combat's repairs) always has damage on.
+  const cp4TrackTriangles = !!build.sim.cp4Track && physics === "omtm2" && raceRules.cp4Collision !== "classic";
   const crash = createCrashDamage(entrants.length, { enabled: (extension?.damageKey ? true : context.settings.crashDamage !== false) && physics !== "mtm1" });
   // Instant replay (game/replay.js): a frame every quarter second, kept for the results screen.
   const recorder = createReplayRecorder({
@@ -756,7 +765,11 @@ async function mountRace(container, context, params, owned = []) {
     // triangles from the track build, and whether the 40 ms tick is split into 10 ms steps offline too.
     cp4Collision: raceRules.cp4Collision === "classic" ? "classic" : "triangles",
     cp4SubstepsOffline: !!context.settings.cp4SubstepsOffline,
-    collisionSoups: physics === "cp4" ? build.sim.collisionSoups ?? null : null,
+    collisionSoups: physics === "cp4" || cp4TrackTriangles ? build.sim.collisionSoups ?? null : null,
+    // A track made for CP4 (build.sim.cp4Track) is built as meshes: its models collide by their triangles under the
+    // OpenMTM2 physics too, unless CP4 collisions is Classic boxes. The MTM2 and MTM1 physics keep the game's boxes, as
+    // do stock and CP3 tracks.
+    cp4TrackTriangles,
     difficulty,
     autoShift: context.settings.autoShift !== false,
     shiftInAuto: raceRules.shiftInAuto !== false,
@@ -1375,7 +1388,8 @@ async function mountRace(container, context, params, owned = []) {
   /** The ground under a point, as the effects find it (a deck, a rock, else the terrain), world feet. */
   const plainGround = groundHeightFn(terrain);
   const tireFloor = (x, z, y) => (scenery.floorAt ? scenery.floorAt(x, z, y) : plainGround(x, z));
-  const tireFx = createTireEffects({ scene, art: effectsArt, ground, floor: scenery.floorAt, count: entrants.length, rich: scenery.particles, greyDust: !!context.settings.greyDust, dark: !!WEATHER_LOOK[weatherId]?.headlights });
+  const meshFloor = viewMesh ? (x, z, y) => viewMesh.surfaceBelow(x, (y ?? viewRefY) + 3, z, 40) ?? (scenery.floorAt ? scenery.floorAt(x, z, y) : ground(x, z)) : null;
+  const tireFx = createTireEffects({ scene, art: effectsArt, ground, floor: meshFloor ?? scenery.floorAt, count: entrants.length, rich: scenery.particles, greyDust: !!context.settings.greyDust, dark: !!WEATHER_LOOK[weatherId]?.headlights });
   cleanups.push(() => tireFx.dispose());
   // MTM1 particles (Options, Advanced; render/mtm1-particles.js) take the place of the dust, the spray and the tracks.
   const mtm1Particles = context.settings.mtm1Particles
@@ -1542,8 +1556,9 @@ async function mountRace(container, context, params, owned = []) {
       if (camera.view?.enabled) { camera.clearViewOffset(); camera.aspect = w / h; camera.updateProjectionMatrix(); }
       return;
     }
-    const v = splitChase.update(viewMode, splitPose.pos, splitPose.euler[2], ground, dt, {
-      pitchBy, clearFt: context.settings.cameraClearance ? CAMERA_CLEAR_FT : 0, solid: boxSolid,
+    viewRefY = splitPose.pos[1];
+    const v = splitChase.update(viewMode, splitPose.pos, splitPose.euler[2], viewGround, dt, {
+      pitchBy, clearFt: context.settings.cameraClearance ? CAMERA_CLEAR_FT : 0, solid: boxSolid, blocked: viewSight,
     });
     splitCamera.position.set(v.position[0], v.position[1], -v.position[2]);
     splitCamera.lookAt(v.target[0], v.target[1], -v.target[2]);
@@ -1786,16 +1801,17 @@ async function mountRace(container, context, params, owned = []) {
     // The BlimpCam and the RaceCam stand by the course, which is in the simulation's world: found there, then moved by
     // the whole worlds the picture is from it.
     const sim = inWorld(p.pos), off = [p.pos[0] - sim[0], 0, p.pos[2] - sim[2]];
-    const stood = mode === 3 ? (centroid ? blimpCamera(sim, centroid) : blimpCameraNoCourse(sim, yaw, ground))
-      : mode === 4 ? (raceCamera(straights, sim, p.course ?? 0, ground) ?? blimpCameraNoCourse(sim, yaw, ground)) : null;
-    const placed = stood && { ...stood, position: stood.position.map((v, k) => v + off[k]), target: stood.target.map((v, k) => v + off[k]) };
+    viewRefY = p.pos[1];
+    const stood = mode === 3 ? (centroid ? blimpCamera(sim, centroid) : blimpCameraNoCourse(sim, yaw, viewGround))
+      : mode === 4 ? (raceCamera(straights, sim, p.course ?? 0, viewGround) ?? blimpCameraNoCourse(sim, yaw, viewGround)) : null;
+    const placed = clearStandingView(viewSight, p.pos, stood && { ...stood, position: stood.position.map((v, k) => v + off[k]), target: stood.target.map((v, k) => v + off[k]) }, distanceZoom);
     // These two stand still and frame the truck: the wheel changes their lens.
     const special = placed && { ...placed, target: turnedTarget(placed.position, placed.target, mouseLook.yaw, mouseLook.pitch), zoom: placed.zoom * mouseLook.zoom(mode) };
     // Z mode's orbit swings the chase views; the Inertia view follows the watched truck's speed; the mouse looks round.
-    const view = special ?? chase.update(mode, p.pos, yaw, ground, dt, {
+    const view = special ?? chase.update(mode, p.pos, yaw, viewGround, dt, {
       turn: headingBy, speedFt: latest?.poses[cameraTarget]?.current.speed ?? latest?.poses[0]?.current.speed ?? 0,
       pitchBy, clearFt: context.settings.cameraClearance ? CAMERA_CLEAR_FT : 0,
-      look: { yaw: mouseLook.yaw, pitch: mouseLook.pitch }, scale: mouseLook.zoom(mode), solid: boxSolid,
+      look: { yaw: mouseLook.yaw, pitch: mouseLook.pitch }, scale: mouseLook.zoom(mode), solid: boxSolid, blocked: viewSight,
       inertiaLens: !!context.settings.inertiaLens,
     });
     // Game feet to the scene: z is mirrored.

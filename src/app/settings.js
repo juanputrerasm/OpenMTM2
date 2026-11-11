@@ -25,8 +25,9 @@ export const SETTINGS_VERSION = 13;
  * vehicle. "auto" picks one by the player's vehicle, "track" by the track's game (`resolvePhysics`).
  */
 export const PHYSICS_MODELS = Object.freeze([
-  Object.freeze({ id: "auto", label: msg("Auto (by vehicle)"), note: msg("The model of the player's vehicle's game: 4x4 Evolution 2 or 4x4 Evolution for their vehicles, CART Precision Racing for its cars, Monster Truck Madness for MTM1 trucks, Monster Truck Madness 2 for the rest. A 4x4 Evolution track always runs its own game's model") }),
-  Object.freeze({ id: "track", label: msg("Auto (by track)"), note: msg("The model of the track's game: 4x4 Evolution 2 or 4x4 Evolution on their tracks, CART Precision Racing on its tracks, Monster Truck Madness on MTM1 tracks, Monster Truck Madness 2 on the rest") }),
+  Object.freeze({ id: "auto", label: msg("Auto (by vehicle)"), note: msg("The model of the player's vehicle's game: 4x4 Evolution 2 or 4x4 Evolution for their vehicles, CART Precision Racing for its cars, Monster Truck Madness for MTM1 trucks, OpenMTM2 for the rest on MTM2 tracks (Monster Truck Madness 2 on other games' tracks). A 4x4 Evolution track always runs its own game's model") }),
+  Object.freeze({ id: "track", label: msg("Auto (by track)"), note: msg("The model of the track's game: 4x4 Evolution 2 or 4x4 Evolution on their tracks, CART Precision Racing on its tracks, Monster Truck Madness on MTM1 tracks, OpenMTM2 on the rest") }),
+  Object.freeze({ id: "omtm2", label: msg("OpenMTM2"), note: msg("Monster Truck Madness 2's, with the port's own additions: on a track made for Community Patch 4, its placed models collide by their triangles, so the trucks drive on the streets, decks and ramps they are built of") }),
   Object.freeze({ id: "mtm2", label: msg("Monster Truck Madness 2"), note: msg("The 1998 game's") }),
   Object.freeze({ id: "cp4", label: msg("CommPatch4"), note: msg("Community Patch 4's: MTM2's trucks on a fixed 25 Hz tick (100 Hz online), props that collide by their own shapes instead of their boxes, a gentler suspension, computer trucks that grip 30% harder offline") }),
   Object.freeze({ id: "mtm1", label: msg("Monster Truck Madness"), note: msg("The 1996 game's: tires that touch throw trucks twice as hard, water stops a truck, no deep water, weather does not change the grip, no crash damage, and its own drag rules") }),
@@ -41,23 +42,24 @@ export const physicsModel = (id) => PHYSICS_MODELS.find((m) => m.id === id) ?? P
  * The model a race runs: on a 4x4 Evolution track always that game's, whatever the setting, so an Evo track drives as
  * in Evo (with its smoothed ground, worker/evo-track-build.js). Elsewhere the setting; with "auto" the one of the
  * player's vehicle (its `<GAME>:<file>` name), with "track" the one of the track's game (`trackGame`, the build's
- * `game`: "EVO2", "MTM1"...).
+ * `game`: "EVO2", "MTM1"...). Either picks OpenMTM2's where it would pick MTM2's on an MTM2 track (stock, Community
+ * Patch 3 or 4, or a track of no other game): MTM2's physics with a CP4 track's meshes drivable.
  */
 export function resolvePhysics(id, vehicle, trackGame = null) {
   const model = physicsModel(id).id;
   const byGame = (game) => (game === "EVO2" ? "evo2" : game === "EVO1" ? "evo1" : game === "MTM1" ? "mtm1" : game === "CPR" ? "cpr" : "mtm2");
   const track = String(trackGame ?? "").toUpperCase();
   if (track === "EVO1" || track === "EVO2") return byGame(track);
-  if (model === "track") return byGame(track);
-  if (model !== "auto") return model;
-  return byGame(/^([A-Z0-9]+):/i.exec(String(vehicle ?? ""))?.[1]?.toUpperCase());
+  if (model !== "auto" && model !== "track") return model;
+  const picked = byGame(model === "track" ? track : /^([A-Z0-9]+):/i.exec(String(vehicle ?? ""))?.[1]?.toUpperCase());
+  return picked === "mtm2" && (track === "" || track === "MTM2") ? "omtm2" : picked;
 }
 
 /** "Computer trucks drive as" choices; "physics" picks by the race's physics model (`resolveAiBehaviour`). */
 export const AI_BEHAVIOURS = Object.freeze(["omtm2", "physics", "mtm2", "mtm1", "evo"]);
 /** Each behaviour as Options names it. */
 export const AI_BEHAVIOUR_NAMES = Object.freeze({ omtm2: msg("OMTM2"), physics: msg("Same as physics"), mtm2: msg("MTM2"), mtm1: msg("MTM1"), evo: msg("EVO") });
-const AI_BY_PHYSICS = Object.freeze({ mtm1: "mtm1", mtm2: "mtm2", cp4: "mtm2", evo1: "evo", evo2: "evo", cpr: "mtm2" });
+const AI_BY_PHYSICS = Object.freeze({ omtm2: "omtm2", mtm1: "mtm1", mtm2: "mtm2", cp4: "mtm2", evo1: "evo", evo2: "evo", cpr: "mtm2" });
 /**
  * How a race's computer trucks drive: the setting, or with "Same as physics" the one of the race's physics model
  * (`resolvePhysics`'s): MTM1 for MTM1, EVO for either 4x4 Evolution, MTM2 for MTM2 and CART; OMTM2 for anything else.

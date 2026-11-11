@@ -1477,8 +1477,11 @@ The game raises no dust in Rain or Snow, and neither does this: in Rain soft gro
 and in Snow it is under snow or frozen. A headset throws half the puffs.
 
 **Dust** (`DUST`, `groundDust`, `DUST_WEATHER`, `dustColour`). Whether a tire raises dust is
-still the game's rule: over 10 mph on dusty ground, and a second puff with even odds over
-20 mph. How much is the port's:
+still the game's rule: over 10 mph on ground with the game's dust flag (`0x4de180`: Cement, Dirt
+and Sand; game/tire-effects.js `raisesDust`), dry, and a second puff with even odds over 20 mph.
+Cement's dust is grey (concrete, asphalt) and a tire raises a third of the game's puffs there
+(`dustShare`), in both the classic and the rich particles; grass,
+mud and gravel raise none, as in the game. How much is the port's:
 
 - *The trail.* A tire raising dust lays it along the way it rolled since the last tick, a puff
   every 6 ft for each of the game's puffs that tick, spread evenly along that way. Each puff is
@@ -1487,8 +1490,9 @@ still the game's rule: over 10 mph on dusty ground, and a second puff with even 
   fell 7 to 15 ft apart, and showed as a row of balls. A truck further than 400 ft from the eye
   lays half as many, each 1.3 times the size.
 - *The ground.* How dusty ground is, 0 to 1, follows what it is and how it looks. Its `.TTY` type
-  gives the most it can (`DUST_BY_TYPE`): dirt and sand 1, gravel 0.6, rocks 0.45, grass 0.35,
-  mud 0.3, and anything else none. The mean colour of the terrain's texture under the wheel says
+  gives the most it can (`DUST_BY_TYPE`): dirt and sand 1, cement 0.3 whatever its texture looks
+  like (dark asphalt included), gravel 0.6, rocks 0.45, grass 0.35, mud 0.3, and anything else
+  none. The mean colour of the terrain's texture under the wheel says
   how much of that it gives (each of the level's ground textures is read once, from the
   terrain's atlas):
   - dark ground is damp, or rich with what grows in it, and gives less: none at a luminance of
@@ -1503,7 +1507,8 @@ still the game's rule: over 10 mph on dusty ground, and a second puff with even 
   the dark dirt of the arenas and the graveyard about half, rocks about 0.45, olive grass about
   a fifth, and green grass none. Ground that gives less than 0.1 raises no dust at all, and dust
   that is raised is as thick as the ground there gives it. Where the terrain's texture is not
-  what the wheel stands on (a ground box over it), the type alone says.
+  what the wheel stands on (a ground box over it, or a street's mesh over the terrain of a track
+  made for CP4: the texture's type is not the tire's), the type alone says.
 - *The weather* (`DUST_WEATHER`): Rain soaks the ground and Snow freezes it, so neither raises
   any; fog damps it to half (Foggy) and a third (Dense Fog), and a night's dew to 0.8 (Night,
   Pitch Black).
@@ -1820,6 +1825,10 @@ second (Mesa on an Intel HD 630).
 Before, a track lasted 70 s and faded over the last 25, in a ring of 30 000 pieces each 3 ft
 long. Eight trucks filled that ring in about 66 s, so in a full field the oldest tracks went
 before their time was up, all at once and at full strength.
+
+Which ground keeps a track is the game's own flag (`0x4de180`, flag 4: Dirt, Mud, Grass, Gravel
+and Snow; game/tire-effects.js `keepsTread`), in the classic tracks and the rich ones alike: dry
+Sand keeps none, nor does Cement unless a tire slides on it (rubber, below).
 
 It is drawn as the rut it stands for, by what the tire did to the ground:
 

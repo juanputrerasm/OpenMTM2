@@ -1,75 +1,89 @@
-// Surfaces over the terrain (a bridge's deck, a rock: 4x4 Evolution's `meshGround`): a truck must stand on one on its
-// wheels. The wheels once measured the terrain under the deck while the hull met the deck, so the truck lay on its
-// belly with the wheels hanging and could not be driven (a player's report, Deja Voodoo's bridges).
-
+/*
+  The ground of a track built of meshes (src/game/mesh-ground.js): the drivable surface under a point, walls and drops
+  down a computer racer's way, and the ground the views stand on.
+*/
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createSession } from "../src/worker/sim-worker.js";
+import { clearStandingView, meshGroundFromBuild, meshObstacles, viewBlocked, viewGroundOn, VIEW_MARGIN_FT } from "../src/game/mesh-ground.js";
+import { createChaseCamera, distanceZoom } from "../src/game/cameras.js";
 
-const deck = (y) => ({
-  positions: new Float32Array([400, y, 400, 400, y, 700, 600, y, 700, 400, y, 400, 600, y, 700, 600, y, 400]), surfaceValues: new Int32Array([1100, 1100]),
-});
-const session = (meshGround, y) => createSession({
-  heights: new Uint8Array(65536).fill(50).buffer, weather: 0, difficulty: 1, boxes: [], ramps: [], course: [], meshGround,
-  trucks: [{ truck: {}, start: { pos: [500, y, 450], heading: 0 }, autopilot: false }],
-});
+/** A closed box's triangles, half sizes `h`, centred on the origin. */
+function boxSoup(h) {
+  const c = (x, y, z) => [x * h[0], y * h[1], z * h[2]];
+  const quads = [
+    [c(-1, 1, -1), c(-1, 1, 1), c(1, 1, 1), c(1, 1, -1)], [c(-1, -1, -1), c(1, -1, -1), c(1, -1, 1), c(-1, -1, 1)],
+    [c(-1, -1, -1), c(-1, 1, -1), c(1, 1, -1), c(1, -1, -1)], [c(-1, -1, 1), c(1, -1, 1), c(1, 1, 1), c(-1, 1, 1)],
+    [c(-1, -1, -1), c(-1, -1, 1), c(-1, 1, 1), c(-1, 1, -1)], [c(1, -1, -1), c(1, 1, -1), c(1, 1, 1), c(1, -1, 1)],
+  ];
+  return Float32Array.from(quads.flatMap(([a, b, d, e]) => [...a, ...b, ...d, ...a, ...d, ...e]));
+}
+const placed = (name, pos, half) => ({ positionFt: pos, theta: 0, phi: 0, psi: 0, mass: 0, type: 0, modelName: name, bounds: { min: half.map((v) => -v), max: half } });
 
-test("on a deck 30 ft over the ground a truck rests on its wheels, as high over it as over the terrain, and drives", () => {
-  const plain = session(null, 106);
-  for (let i = 0; i < 120; i++) plain.step({});
-  const ride = plain.state.pos[1] - 100;
-  const up = session(deck(130), 136);
-  for (let i = 0; i < 120; i++) up.step({});
-  assert.ok(up.state.tires.every((t) => t.onGround), "all four wheels on the deck");
-  assert.ok(Math.abs(up.state.pos[1] - 130 - ride) < 0.05, `rides ${up.state.pos[1] - 130} ft over the deck, ${ride} over the terrain`);
-  for (let i = 0; i < 180; i++) up.step({ accelerate: true });
-  assert.ok(up.state.pos[2] > 480, `drove to z ${up.state.pos[2]}`);
-  assert.ok(Math.abs(up.state.pos[1] - 130 - ride) < 0.5);
-  assert.equal(up.state.heliTimer, 0, "not fetched by the helicopter as a truck that is stuck");
-});
+// A 400 ft long deck 20 ft over flat terrain at 100 ft (its top at 122), and a wall standing on it.
+const build = {
+  sim: {
+    cp4Track: true,
+    collisionSoups: { DECK: { positions: boxSoup([20, 2, 200]) }, WALL: { positions: boxSoup([20, 10, 2]) } },
+    boxes: [placed("DECK", [1000, 120, 1000], [20, 2, 200]), placed("WALL", [1000, 132, 1150], [20, 10, 2])],
+  },
+};
+const mesh = meshGroundFromBuild(build, { terrainHeight: () => 100 });
 
-test("dropped hard onto a deck a truck stays on it; under the deck, the deck is not its ground", () => {
-  const dropped = session(deck(130), 160);
-  for (let i = 0; i < 300; i++) dropped.step({});
-  assert.ok(dropped.state.pos[1] > 133 && dropped.state.pos[1] < 138, `at ${dropped.state.pos[1]}`);
-  const under = session(deck(130), 106);
-  for (let i = 0; i < 120; i++) under.step({});
-  assert.ok(under.state.pos[1] > 104 && under.state.pos[1] < 108, `at ${under.state.pos[1]}: on the terrain, under the deck`);
-  assert.ok(under.state.tires.every((t) => t.onGround));
+test("the surface under a point: the deck's top, else the terrain", () => {
+  assert.ok(Math.abs(mesh.surfaceBelow(1000, 130, 1000, 60) - 122) < 0.01);
+  assert.equal(mesh.surfaceBelow(1100, 130, 1000, 60), 100);
 });
 
-test("driving off the end of a deck a truck falls to the ground under it", () => {
-  const off = session(deck(110), 116);
-  for (let i = 0; i < 60; i++) off.step({});
-  for (let i = 0; i < 900 && off.state.pos[2] < 760; i++) off.step({ accelerate: true });
-  for (let i = 0; i < 240; i++) off.step({});
-  assert.ok(off.state.pos[2] > 700, `left the deck at z ${off.state.pos[2]}`);
-  assert.ok(off.state.pos[1] < 109, `on the terrain at ${off.state.pos[1]}`);
+test("on the deck: a drop off its side, and the wall ahead", () => {
+  // Heading +x across the deck: its edge is 20 ft away.
+  const across = meshObstacles(mesh, [1000, 127, 1000], 122, Math.PI / 2, 100, 11);
+  assert.ok(across.some((o) => o.pos[0] > 1015 && o.pos[0] < 1045), JSON.stringify(across));
+  // Heading +z along it: the wall at z = 1148.
+  const along = meshObstacles(mesh, [1000, 127, 1000], 122, 0, 220, 11);
+  assert.ok(along.some((o) => Math.abs(o.pos[2] - 1148) < 2), JSON.stringify(along));
 });
 
-test("a truck whose state blows up is put back as it last stood, and the race goes on", async () => {
-  const { copyState, restoreState, stateIsSane } = await import("../src/worker/sim-worker.js");
-  const s = session(null, 106);
-  for (let i = 0; i < 90; i++) s.step({});
-  const stood = [...s.state.pos];
-  assert.ok(stateIsSane(s.state));
-  // A copy holds its own numbers; putting it back keeps the live objects.
-  const copy = copyState(s.state), tires = s.state.tires, pos = s.state.pos;
-  s.state.pos[0] = 1; s.state.tires[0].spin = 99;
-  restoreState(s.state, copy);
-  assert.equal(s.state.pos, pos);
-  assert.equal(s.state.tires, tires);
-  assert.equal(s.state.pos[0], stood[0]);
-  assert.notEqual(s.state.tires[0].spin, 99);
-  for (const broken of [(st) => { st.bvel[1] = Infinity; }, (st) => { st.pos[0] = NaN; }, (st) => { st.bvel[2] = 1e9; }, (st) => { st.pos[1] = 1e30; }]) {
-    broken(s.state);
-    assert.equal(stateIsSane(s.state), false);
-    const began = Date.now();
-    s.step({});
-    assert.ok(Date.now() - began < 1000, "the step returns");
-    assert.ok(stateIsSane(s.state));
-    assert.ok(Math.hypot(s.state.pos[0] - stood[0], s.state.pos[1] - stood[1], s.state.pos[2] - stood[2]) < 2, `back at ${[...s.state.pos]}`);
-    for (let i = 0; i < 30; i++) s.step({});
-  }
-  assert.equal(s.trucks[0].rescued, 4);
+test("a view stands on the deck near what it watches, not on the terrain under it", () => {
+  const view = viewGroundOn(mesh, () => 100, () => 124);
+  assert.ok(Math.abs(view(1000, 1000) - 122) < 0.01);
+  assert.equal(view(1200, 1000), 100);
+});
+
+test("no mesh ground on a track not made for CP4", () => {
+  assert.equal(meshGroundFromBuild({ sim: { ...build.sim, cp4Track: false } }, { terrainHeight: () => 100 }), null);
+});
+
+// A tunnel: a floor at 230 and a roof 26 ft over it (Beaver City's), 400 ft long down z, 60 ft wide.
+const tunnel = meshGroundFromBuild({
+  sim: {
+    cp4Track: true,
+    collisionSoups: { SLAB: { positions: boxSoup([30, 1, 200]) } },
+    boxes: [placed("SLAB", [2000, 229, 2000], [30, 1, 200]), placed("SLAB", [2000, 257, 2000], [30, 1, 200])],
+  },
+}, { terrainHeight: () => 200 });
+
+test("a view's ground is the tunnel's floor, never its roof, even with the truck bounced up", () => {
+  for (const truckY of [235, 241]) assert.ok(Math.abs(viewGroundOn(tunnel, () => 200, () => truckY)(2000, 1950) - 230) < 0.01, `truck at ${truckY}`);
+});
+
+test("Chase Far stays under a tunnel's roof and in front of what stands behind the truck", () => {
+  const truck = [2000, 235.5, 2000];
+  const ground = viewGroundOn(tunnel, () => 200, () => truck[1]);
+  const v = createChaseCamera().update(14, truck, 0, ground, 1 / 60, { clearFt: 3, blocked: viewBlocked(tunnel) });
+  assert.ok(v.position[1] < 256 - 1 && v.position[1] > 230, `camera y ${v.position[1]}`);
+  assert.equal(tunnel.segmentHit(truck, v.position), null);
+  // A wall 10 ft behind the truck: the camera stops in front of it.
+  const walled = meshGroundFromBuild({ sim: { cp4Track: true, collisionSoups: { WALL: { positions: boxSoup([20, 20, 1]) } }, boxes: [placed("WALL", [2000, 245, 1990], [20, 20, 1])] } }, { terrainHeight: () => 230 });
+  const w = createChaseCamera().update(14, truck, 0, () => 230, 1 / 60, { blocked: viewBlocked(walled) });
+  assert.ok(w.position[2] > 1991 && w.position[2] < 2000, `camera z ${w.position[2]}`);
+});
+
+test("a standing view moves in front of a face between it and the truck, its lens widened for the nearer distance", () => {
+  const truck = [2000, 235.5, 2000];
+  const view = { position: [2000, 300, 1800], target: [2000, 235.5, 2000], zoom: 2 };
+  const moved = clearStandingView(viewBlocked(tunnel), truck, view, distanceZoom);
+  assert.ok(moved.position[1] < 256, `camera y ${moved.position[1]}`);
+  assert.ok(moved.zoom >= view.zoom, "nearer, the lens is as wide as the game makes it at that distance");
+  assert.equal(clearStandingView(null, truck, view, distanceZoom), view);
+  assert.ok(VIEW_MARGIN_FT > 0);
 });

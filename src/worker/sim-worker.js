@@ -27,6 +27,7 @@ import { cpuAvoidStep, cpuControlBefore, cpuControlStep, createCpuControl } from
 import { cpuPaceFactor, cpuPaceObserve, createCpuPace, isSliding, isSpun, segmentCurvature, segmentHeading } from "../game/cpu-pace.js";
 import { createEvoDriver, evoAiLine, evoDriveStep } from "../game/evo-driver.js";
 import { AVOID, boxObstacles, groundBoxWalls } from "../game/obstacle-avoid.js";
+import { createMeshGround, meshObstacles } from "../game/mesh-ground.js";
 import { replyError, sendWorkerFaults } from "../shared/worker-faults.js";
 import { aiSpeedFactor } from "../game/ai-speed.js";
 import { LOADING_BAR } from "../game/loading-bar.js";
@@ -327,6 +328,9 @@ export function usableCourse(course) {
 /** A ground box this near a course segment's edge is on the course's way (a deck, a ramp's top): never avoided, feet. */
 const COURSE_ROOM_FT = 24;
 
+/** A computer racer this far under its course line for this long has fallen off the meshes it races on (`fellOffCourse`). */
+const FALL_FT = 15, FALL_S = 3;
+
 /** A computer truck that stays within this many feet for this long is stuck. */
 const NO_HEADWAY_FT = 12, NO_HEADWAY_S = 6;
 
@@ -385,8 +389,15 @@ export function createSession(init) {
   /** Optional rules loaded over the race's countdown and clock. */
   const extensionPayload = init.extension && init.race ? init.extension : null;
   // An extension may change the model's handling (Freestyle's Trick physics, OpenPhotex `Mtm2Rules`).
-  const rules = extensionSimRules(extensionPayload, evoModel ? E.evoRules(init.rules) : cprModel ? Cp.CPR_RULES
+  const baseRules = extensionSimRules(extensionPayload, evoModel ? E.evoRules(init.rules) : cprModel ? Cp.CPR_RULES
     : cp4Model ? C4.cp4Rules(init.cp4Collision) : S.simRules(init.rules));
+  // A track made for CP4 under the OpenMTM2 physics (ui/screens/race.js `cp4TrackTriangles`): MTM2's step, with CP4's
+  // triangle collision for its placed models (its [Collision] defaults) and its reading of a tire's surface where the
+  // tire touches (`surfaceAtPoint`; MTM2 reads it from 100 ft over the hub, past the .SRF faces under the tire, so a
+  // street read as the terrain under the city), and none of CP4's other rules. The MTM2 and MTM1 physics keep the
+  // game's boxes.
+  const trackTriangles = init.rules === "omtm2" && !!init.cp4TrackTriangles && !!init.collisionSoups;
+  const rules = trackTriangles ? { ...baseRules, collisionMode: 1, triangles: C4.CP4_TRIANGLES, surfaceAtPoint: true } : baseRules;
   // CP4 steps every 40 ms tick once, or in 10 ms substeps online or with `cp4SubstepsOffline` ([Game] simSubstepOffline),
   // and catches up at most 160 ms (four ticks) a frame (CP4_EXE_ANALYSIS.md 10.2). Every other model steps at 1/60 s.
   const cp4Split = cp4Model && (!!init.net || !!init.cp4SubstepsOffline);
@@ -494,7 +505,7 @@ export function createSession(init) {
   const movingBoxes = new Set();
   // CommPatch4's triangle collision (OpenPhotex sim/cp4; docs/CP4_EXE_ANALYSIS.md 11.2): each model's shape, built once
   // from the track build's triangles, and the static props whose .SRF types the tires grip by (section 5, 11.9).
-  const cp4Triangles = cp4Model && rules.collisionMode === 1 && !!init.collisionSoups;
+  const cp4Triangles = (cp4Model || trackTriangles) && rules.collisionMode === 1 && !!init.collisionSoups;
   const cp4Shapes = new Map();
   const surfaceBoxes = [];
   const shapeOf = (name, shiftY) => {
@@ -529,10 +540,10 @@ export function createSession(init) {
       box.hasModel = !!b.modelName;
       // A 4x4 Evolution object's model stands off its box's centre: its origin, in the box's frame (worker/evo-track-build.js).
       if (b.drawOffset) box.drawOffset = b.drawOffset;
+      // CP4's offCentreCollision (10.6): a model whose vertical centre is further from its origin than its height has its
+      // box moved onto it; drawn at its origin still, and its triangles kept where they are. The CommPatch4 physics only.
+      let shiftY = 0;
       if (cp4Model) {
-        // CP4's offCentreCollision (10.6): a model whose vertical centre is further from its origin than its height has its
-        // box moved onto it; drawn at its origin still, and its triangles kept where they are.
-        let shiftY = 0;
         if (rules.offCentreCollision && b.bounds) {
           const cy = (b.bounds.min[1] + b.bounds.max[1]) / 2, h = b.bounds.max[1] - b.bounds.min[1];
           if (Math.abs(cy) > h) {
@@ -542,11 +553,11 @@ export function createSession(init) {
             box.drawOffset = [o[0], o[1] - cy, o[2]];
           }
         }
-        if (cp4Triangles && b.modelName) {
-          box.shape = shapeOf(b.modelName, shiftY);
-          // Surfaces: static props only, not fog, moving or pushable boxes, nor types 6 to 13 (section 5).
-          if (box.shape?.surfaceTypes && !(b.mass > 0) && !(b.type >= 6 && b.type <= 14)) surfaceBoxes.push(box);
-        }
+      }
+      if (cp4Triangles && b.modelName) {
+        box.shape = shapeOf(b.modelName, shiftY);
+        // Surfaces: static props only, not fog, moving or pushable boxes, nor types 6 to 13 (section 5).
+        if (box.shape?.surfaceTypes && !(b.mass > 0) && !(b.type >= 6 && b.type <= 14)) surfaceBoxes.push(box);
       }
       // Moved by a 4x4 Evolution object path (game/evo-paths.js): the path's object, or what hangs from it (`attach`); a
       // `ghost` is moved but met by nothing (its class does not collide).
@@ -555,7 +566,14 @@ export function createSession(init) {
     }
     if (box && b.bvel) { movingObjects.push({ box, bvel: b.bvel }); movingBoxes.add(box); }
   }
-  if (surfaceBoxes.length) for (const g of new Set([ground, extensionGround])) C4.withSurfaceMeshes(g, surfaceBoxes);
+  // Every surface box counts: CP4 takes only the first 64 (CP4_EXE_ANALYSIS.md 5); OpenMTM2 has no such limit.
+  if (surfaceBoxes.length) for (const g of new Set([ground, extensionGround])) C4.withSurfaceMeshes(g, surfaceBoxes, { limit: Infinity });
+  // The meshes a computer racer drives on (game/mesh-ground.js): the static models that collide by their triangles.
+  // Their boxes are no blocks to steer round; their walls and drops are read from the triangles.
+  const triMeshes = cp4Triangles
+    ? createMeshGround(levelBoxes.filter((b) => b.shape && !(b.mass > 0) && !movingBoxes.has(b)), { terrainHeight: (x, z) => ground.height(x, z), wrapDelta: S.wrapDelta })
+    : null;
+  const meshBoxes = new Set(triMeshes?.boxes ?? []);
   const allRamps = (init.ramps ?? []).map((r) => S.createRamp(r, r.bounds)).filter(Boolean);
   // The course's straights with the arcs built between them, over the ground the probes see
   // (MTM2_PHYSICS.md 12, 14.22).
@@ -643,11 +661,21 @@ export function createSession(init) {
     // `dryOnObjects`: OpenMTM2's own rule, not the game's (docs/MTM2_PHYSICS.md 2.4): a tire held up by a box, ramp, prop or car
     // never stands on the terrain's water under it (OpenPhotex truck/object-support.ts).
     const ctx = { ground: ownGround, human: i === 0 && !autopilot && !remote, difficulty, sonicTrack, recovery, online: !!init.net, dryOnObjects: true };
+    // On meshes the helicopter flies over the mesh (`heliGround`), not the terrain under the city: in the air the
+    // ground's height is the drivable surface under the course height it carries the truck to, so a truck set back on a
+    // freeway is set down on its deck, not on the street below. Only in the air; the wheels never see it.
+    const heliGround = triMeshes ? Object.create(ownGround, {
+      height: { value: (x, z) => {
+        const seg = recovery.segment, prev = recovery.previous;
+        const ref = !seg ? state.pos[1] : !S.isArc(seg) ? seg.start[1] : prev && !S.isArc(prev) ? prev.end[1] : state.pos[1];
+        return triMeshes.surfaceBelow(x, ref + 6, z, 80) ?? ownGround.height(x, z);
+      } },
+    }) : null;
     // Shift gears in automatic (Advanced, OMTM2; OpenPhotex `autoOverride`): the player's box takes LB / RB and the keys.
     if (ctx.human && init.shiftInAuto) state.controls.autoOverride = true;
     const aiSpeed = autopilot && i > 0 && cpuAiSpeed !== null ? cpuAiSpeed : undefined;
     if (aiSpeed !== undefined) ctx.aiSpeed = aiSpeed;
-    return { state, params, autopilot, remote, recovery, ctx, aiSpeed, evoVehicle: !!spec.truck.evo, cprCar, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, bottoming: 0, collide: 0, crash: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
+    return { state, params, autopilot, remote, recovery, ctx, ownGround, heliGround, aiSpeed, evoVehicle: !!spec.truck.evo, cprCar, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, bottoming: 0, collide: 0, crash: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
   });
   const player = trucks[0];
   // Under CPR physics a CPR car drives by CART.EXE's autopilot on the SIT course (game/cpr-driver.js, CPR_PHYSICS.md
@@ -1485,7 +1513,11 @@ export function createSession(init) {
     const vx = m[0] * b[0] + m[1] * b[1] + m[2] * b[2], vz = m[6] * b[0] + m[7] * b[1] + m[8] * b[2];
     const speed = Math.hypot(vx, vz);
     const heading = speed > 5 ? Math.atan2(vx, vz) : s.euler[2];
-    const at = obstacleAhead(s.pos, heading, { height: (x, z) => ground.height(x, z), circles: obstaclesFor(t, { still: true }) });
+    // On meshes, the height ahead is the drivable surface near the truck's level, not the terrain under the city.
+    const height = triMeshes
+      ? (x, z) => triMeshes.surfaceBelow(x, s.pos[1] + 4, z, 60) ?? ground.height(x, z)
+      : (x, z) => ground.height(x, z);
+    const at = obstacleAhead(s.pos, heading, { height, circles: obstaclesFor(t, { still: true }) });
     if (at === null) return false;
     const pick = pickRoute(routes, s.pos);
     if (pick) {
@@ -1504,6 +1536,7 @@ export function createSession(init) {
   function recoverRacer(t, i) {
     const r = t.racerRecovery, s = t.state, rt = race.trucks[i];
     if (s.heliTimer > 0) return;
+    if (fellOffCourse(t)) return;
     const cp = rt.state === 3 && !rt.finished ? race.checkpoints[rt.checkpoint] : null;
     if (!cp) routeStep(t);
     if (s.heliTimer > 0) return;
@@ -1522,6 +1555,36 @@ export function createSession(init) {
     if (verdict === "heli") { t.headway = null; if (cp && Number.isInteger(t.missedSegment)) liftToSegment(t, t.missedSegment); else liftStuck(t); }
     else if (own) t.headway = null;
     else watchHeadway(t);
+  }
+
+  /**
+   * A computer racer that has dropped off the meshes it races on (a deck's edge, a bridge into the river): more than
+   * FALL_FT under the course line beside it for FALL_S, it is lifted back to its segment, as there is seldom a way
+   * back up from a river bed or the street under a freeway. The fall teaches the segment's pace as a spin does
+   * (game/cpu-pace.js). Meshes only; not the game's. Returns whether the helicopter took it.
+   */
+  function fellOffCourse(t) {
+    if (!triMeshes || t.route) return false;
+    const s = t.state;
+    const driven = S.orientedCourse(apOf(t).course, apCtx.reversed);
+    if (!driven.length) return false;
+    let best = null;
+    for (const k of courseWindow(driven.length, s.ap.segment, 2, 3)) {
+      const seg = driven[k];
+      if (S.isArc(seg)) continue;
+      const dx = seg.end[0] - seg.start[0], dz = seg.end[2] - seg.start[2], l2 = dx * dx + dz * dz;
+      if (!(l2 > 1e-9)) continue;
+      const u = Math.min(1, Math.max(0, ((s.pos[0] - seg.start[0]) * dx + (s.pos[2] - seg.start[2]) * dz) / l2));
+      const d = Math.hypot(seg.start[0] + dx * u - s.pos[0], seg.start[2] + dz * u - s.pos[2]);
+      if (!best || d < best.d) best = { d, y: seg.start[1] + (seg.end[1] - seg.start[1]) * u };
+    }
+    if (!best || !(s.pos[1] < best.y - FALL_FT)) { t.fallenFor = 0; return false; }
+    if (!t.fallenFor && t.cpuPace) cpuPaceObserve(t.cpuPace, { segment: s.ap.segment, spin: true });
+    t.fallenFor = (t.fallenFor ?? 0) + STEP;
+    if (t.fallenFor < FALL_S) return false;
+    t.fallenFor = 0;
+    t.headway = null;
+    return liftToSegment(t, s.ap.segment);
   }
 
   /** A computer truck keeping control after the autopilot (game/cpu-control.js), and steering clear of what is ahead. */
@@ -1612,6 +1675,8 @@ export function createSession(init) {
     const reach = AVOID.maxLookFt + 40;
     for (const box of levelBoxes) {
       if (box.ghost || !S.boxIsImmovableFor(box, t.params.massSlug)) continue;
+      // A mesh is driven on: its walls and drops are looked for below, not its box.
+      if (meshBoxes.has(box)) continue;
       // `still`: only what never moves (a moving object, as Castle Nugget's sliding gate, passes).
       if (still && movingBoxes.has(box)) continue;
       const dx = S.wrapDelta(box.pos[0] - s.pos[0]), dz = S.wrapDelta(box.pos[2] - s.pos[2]);
@@ -1638,6 +1703,14 @@ export function createSession(init) {
         return spot && spot.distance < (seg.trackWidth ?? 16) / 2 + COURSE_ROOM_FT;
       });
       out.push(...groundBoxWalls(s.pos, heading, look, { ra0, ra1, stepFt: groundBoxStepFt, onCourse }));
+    }
+    if (triMeshes && !still) {
+      const m = s.matrix, b = s.bvel;
+      const vx = m[0] * b[0] + m[1] * b[1] + m[2] * b[2], vz = m[6] * b[0] + m[7] * b[1] + m[8] * b[2];
+      const speed = Math.hypot(vx, vz);
+      const heading = speed > 5 ? Math.atan2(vx, vz) : s.euler[2];
+      const look = Math.max(AVOID.minLookFt, Math.min(AVOID.maxLookFt, speed * AVOID.lookS));
+      meshObstacles(triMeshes, s.pos, s.pos[1] - AVOID.rideFt, heading, look, AVOID.halfWidthFt + AVOID.marginFt, out);
     }
     return out;
   }
@@ -1850,6 +1923,7 @@ export function createSession(init) {
       if (t.flight) { flyTruck(t); continue; }
       extensionSession?.afterTruckStep?.(t);
       mutator?.afterTruckStep(t);
+      if (t.heliGround) t.ctx.ground = t.state.heliTimer > 0 ? t.heliGround : t.ownGround;
       if (t.cprCar) Cp.stepCprTruck(t.state, t.params, t.ctx, STEP);
       else if (evoModel) E.stepEvoTruck(t.state, t.params, t.ctx, STEP);
       else S.stepTruck(t.state, t.params, t.ctx, STEP);

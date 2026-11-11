@@ -92,6 +92,12 @@ test("dust is the colour of its ground: sand pale, mud dark, gravel grey", () =>
   const gravel = dustTone("gravel", GRAVEL);
   assert.ok(gravel[0] - gravel[2] < 0.06, "grey");
   assert.deepEqual(dustTone("dirt", DIRT), PUFF_KINDS.dust.tone);
+  // Cement's is grey and takes nothing of the ground's colour, and the game's amount whatever the texture's tone.
+  const cement = dustTone("cement", 1);
+  assert.ok(Math.abs(cement[0] - cement[2]) < 0.02, "grey");
+  assert.deepEqual(dustColour([0.5, 0.2, 0.1], "cement", 1), cement);
+  assert.equal(groundDust([0.02, 0.02, 0.02], 1), groundDust(null, 1));
+  assert.ok(groundDust(null, 1) > 0);
 });
 
 test("what a wheel throws each tick follows what it stands on and how fast it goes", () => {
@@ -159,9 +165,11 @@ test("dust is laid as an even trail, as thick as the ground there is dusty", () 
   assert.equal(DUST.least, 0.1);
   // A puff is born wider than the trail's spacing is half of, so the trail has no gaps.
   assert.ok(PUFF_KINDS.dust.sizeFt[0] * 2 > DUST.spacingFt / 2);
-  // By type, where the ground's colour says it is dry and bare: dirt and sand the most, mud a little; hard ground none.
-  assert.deepEqual({ ...DUST_BY_TYPE }, { 2: 1, 4: 0.3, 5: 1, 6: 0.35, 7: 0.6, 12: 0.45 });
-  for (const type of [CEMENT, ICE, SNOW, METAL, 0]) assert.equal(groundDust(null, type), 0, `type ${type}`);
+  // By type, where the ground's colour says it is dry and bare: dirt and sand the most, mud a little, cement 0.3 (the
+  // game's dust flag; grey); other hard ground none. Which wheels raise it is the game's flag (game/tire-effects.js).
+  assert.deepEqual({ ...DUST_BY_TYPE }, { 1: 0.3, 2: 1, 4: 0.3, 5: 1, 6: 0.35, 7: 0.6, 12: 0.45 });
+  assert.equal(groundDust(null, CEMENT), 0.3);
+  for (const type of [ICE, SNOW, METAL, 0]) assert.equal(groundDust(null, type), 0, `type ${type}`);
   assert.equal(groundDust(null, DIRT), 1);
   // By colour: tan earth gives all its type gives; dark earth, damp or rich, little; green ground, grown over, almost none.
   const tan = [0.3, 0.19, 0.09], dark = [0.02, 0.015, 0.01], green = [0.08, 0.155, 0.03], straw = [0.22, 0.205, 0.06], grey = [0.2, 0.2, 0.2];

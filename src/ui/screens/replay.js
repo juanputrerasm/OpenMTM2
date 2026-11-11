@@ -4,6 +4,7 @@
   VCR controls: play, pause, rewind, fast forward, slow, frame step, zoom, rotate, save and open.
   The camera is any of the ten views on any truck. Damage is replayed from the damage codes.
 */
+import { clearStandingView, meshGroundFromBuild, viewBlocked, viewGroundOn } from "../../game/mesh-ground.js";
 import { dustLevel, sparkLevel, treadShare, wheelShare } from "../../game/tire-effects.js";
 import { terrainOfBuild } from "../../shared/build-terrain.js";
 import * as THREE from "three";
@@ -12,7 +13,7 @@ import { mergeBindings } from "../../game/input/bindings.js";
 import { DENT_STEPS, FRAME_SECONDS, RATES, createPlayback, damageZones, levelPath, ringReplay } from "../../game/replay.js";
 import { parseMtmReplay, writeMtmReplay } from "../../vendor/openphotex/mtm/replay.js";
 import * as mtm2Sim from "../../vendor/openphotex/sim/mtm2/index.js";
-import { COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, createChaseCamera, fovBase, fovFor, groundHeightFn, nextMode, raceCamera, zoomToFov } from "../../game/cameras.js";
+import { COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, modeForShortcut, blimpCamera, blimpCameraNoCourse, courseCentroid, createChaseCamera, fovBase, fovFor, groundHeightFn, nextMode, raceCamera, zoomToFov, distanceZoom } from "../../game/cameras.js";
 import { createWeatherScene } from "../../render/weather-scene.js";
 import { WEATHER_LOOK, isUnderwater, waterOffsetFt } from "../../game/weather.js";
 import { beamAir, lampsAtStart } from "../../game/truck-lights.js";
@@ -207,6 +208,12 @@ export default async function mount(container, context, { replay, namesMode: sta
   cleanups.push(() => scenery.dispose());
   // The drawn ground, and the snow lying on it.
   const ground = scenery.surfaceAt;
+  // On a track made for CP4 the views stand on its meshes near what they watch (game/mesh-ground.js).
+  const viewMesh = meshGroundFromBuild(build, { terrainHeight: (x, z) => ground(x, z), wrapDelta: (d) => d - 8192 * Math.round(d / 8192) });
+  let viewRefY = 0;
+  const viewGround = viewGroundOn(viewMesh, ground, () => viewRefY);
+  // What the external views see through on meshes: nothing (game/mesh-ground.js `viewBlocked`).
+  const viewSight = viewBlocked(viewMesh);
   const trackLights = createTrackLights(scene, build.trackLights, ground, { shafts: visualSettings(context.settings).lamps });
   if (trackLights) cleanups.push(() => trackLights.dispose());
   // The start gantry's lamps, with "Truck lamps" (render/start-lamps.js): a replay is of the race, so the green is lit.
@@ -238,7 +245,7 @@ export default async function mount(container, context, { replay, namesMode: sta
     (game/replay-effects.js). What the ground is made of is the level's own.
   */
   // In the dark a shower of sparks lights what is about it.
-  const tireFx = replayFx ? createTireEffects({ scene, art: effectsArt, ground, floor: scenery.floorAt, count: drawn.length, rich: scenery.particles, greyDust: !!context.settings.greyDust, dark: !!WEATHER_LOOK[replay.weather ?? 0]?.headlights }) : null;
+  const tireFx = replayFx ? createTireEffects({ scene, art: effectsArt, ground, floor: viewMesh ? (x, z, y) => viewMesh.surfaceBelow(x, (y ?? viewRefY) + 3, z, 40) ?? (scenery.floorAt ? scenery.floorAt(x, z, y) : ground(x, z)) : scenery.floorAt, count: drawn.length, rich: scenery.particles, greyDust: !!context.settings.greyDust, dark: !!WEATHER_LOOK[replay.weather ?? 0]?.headlights }) : null;
   cleanups.push(() => tireFx?.dispose());
   window.__openmtm2Replay = { scene, camera, renderer, tireFx };
   cleanups.push(() => { delete window.__openmtm2Replay; });
@@ -488,13 +495,14 @@ export default async function mount(container, context, { replay, namesMode: sta
     const yaw = pose.euler[2];
     // The course is in the simulation's world: these cameras are found there, then moved to where the picture is.
     const sim = [wrapFt(pose.pos[0]), pose.pos[1], wrapFt(pose.pos[2])], off = [pose.pos[0] - sim[0], 0, pose.pos[2] - sim[2]];
-    const stood = viewMode === 3 ? (centroid ? blimpCamera(sim, centroid) : blimpCameraNoCourse(sim, yaw, ground))
-      : viewMode === 4 ? (raceCamera(straights, sim, pose.course ?? 0, ground) ?? blimpCameraNoCourse(sim, yaw, ground)) : null;
-    const placed = stood && { ...stood, position: stood.position.map((v, k) => v + off[k]), target: stood.target.map((v, k) => v + off[k]) };
+    viewRefY = pose.pos[1];
+    const stood = viewMode === 3 ? (centroid ? blimpCamera(sim, centroid) : blimpCameraNoCourse(sim, yaw, viewGround))
+      : viewMode === 4 ? (raceCamera(straights, sim, pose.course ?? 0, viewGround) ?? blimpCameraNoCourse(sim, yaw, viewGround)) : null;
+    const placed = clearStandingView(viewSight, pose.pos, stood && { ...stood, position: stood.position.map((v, k) => v + off[k]), target: stood.target.map((v, k) => v + off[k]) }, distanceZoom);
     const special = placed && { ...placed, target: turnedTarget(placed.position, placed.target, mouseLook.yaw, mouseLook.pitch), zoom: placed.zoom * mouseLook.zoom(viewMode) };
-    const result = special ?? chase.update(viewMode, pose.pos, yaw, ground, dt, {
+    const result = special ?? chase.update(viewMode, pose.pos, yaw, viewGround, dt, {
       turn, scale: zoom * mouseLook.zoom(viewMode), look: { yaw: mouseLook.yaw, pitch: mouseLook.pitch },
-      clearFt: context.settings.cameraClearance ? CAMERA_CLEAR_FT : 0, solid: boxSolid,
+      clearFt: context.settings.cameraClearance ? CAMERA_CLEAR_FT : 0, solid: boxSolid, blocked: viewSight,
     });
     if (special) {
       const fov = zoomToFov(special.zoom, fovBase(context.settings));

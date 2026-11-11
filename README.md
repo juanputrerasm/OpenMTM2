@@ -94,7 +94,10 @@ Any vehicle races on any track. **Options > Game > Physics** picks the model: by
 drives on its own game's physics; it can also follow the track's game, or use one model for all. A 4x4 Evolution
 track always runs its own game's physics on its own smoothed ground, as in Evo. One of them is
 **CommPatch4**, Community Patch 4's physics: MTM2's trucks on CP4's fixed tick, with props that collide by their
-own triangles (docs/CP4_EXE_ANALYSIS.md 10 and 11).
+own triangles (docs/CP4_EXE_ANALYSIS.md 10 and 11). Another is **OpenMTM2**, the default for an MTM2 truck
+on an MTM2 track: MTM2's physics with drivable meshes, so a track made of models (Carmageddon II's Beaver City
+as converted for CP4) is driven on its streets, decks and tunnels, with the computer trucks and the cameras on
+the meshes too.
 
 ## Requirements
 
@@ -220,7 +223,7 @@ its own storage, so the game files are installed once more inside it. A phone sh
 - Drive a Freestyle run on any track, alone against the clock, as at a Monster Jam show: big air,
   wheelies, donuts, flips, hits and saves are judged out of 10, with the score building live on the
   HUD and its breakdown in the Winner's Circle. Use all the time and keep moving; reversing without a
-  reason and crashes cost points.
+  reason and crashes cost points. Its trick physics works under every physics model.
 - CPU trucks keep control better, get themselves unstuck, and on Professional drive back through a
   missed checkpoint instead of calling the helicopter.
 - CPU trucks contest the zone in Rumble events, while tire tracks, dust, sparks, splashes and moving

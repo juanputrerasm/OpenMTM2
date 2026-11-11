@@ -168,8 +168,8 @@ export function entrantTeamPicks(settings, extensionOrId, entrants) {
  */
 export function looseWheelsFor(settings, { extension = null, physics = "mtm2", online = false } = {}) {
   // Wheels damage is a part of crash damage: off with it.
-  // CommPatch4 is MTM2's model under Community Patch 4's rules: its trucks lose wheels as MTM2's do.
-  if (!settings?.looseWheels || settings.crashDamage === false || online || (physics !== "mtm2" && physics !== "cp4")) return null;
+  // OpenMTM2 and CommPatch4 are MTM2's model with other rules: their trucks lose wheels as MTM2's do.
+  if (!settings?.looseWheels || settings.crashDamage === false || online || !["omtm2", "mtm2", "cp4"].includes(physics)) return null;
   if (extension && !extension.looseWheels) return null;
   const repairS = Number(settings.looseWheelsRepairS);
   return { mode: "loose-wheels", repairS: Number.isFinite(repairS) && repairS >= 0 ? repairS : DEFAULT_REPAIR_S };

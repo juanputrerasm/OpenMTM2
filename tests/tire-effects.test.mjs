@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   CLASSIC_SPARK_MIN_SPEED, CLASSIC_TRACK_POOL, SPARK_HIT_SPEED, SPARK_MIN_SPEED, TRACK_FADE_PIECES, TRACK_FADE_S, TRACK_LIFE_S, TRACK_FADE_SHARE, TRACK_LEDGE_FT, TRACK_LONGEST_FT, TRACK_ORDER, TRACK_POOL, TRACK_PRESS_SAME, TRACK_STEP_FT, TRACK_TRUE_FT,
-  dustPuffs, edgeHolds, keepsTread, puffFrame, puffHalfSize, puffProgress, puffLife, puffSize, raisesDust, scrapeSparks, sparksForHit, sparkLevel, sparkRules, manySparksForHit, dustLevel, CLASSIC_DUST, RICH_DUST, trackLevel, trackOpacity, trackShown,
+  dustPuffs, dustShare, edgeHolds, greyDustOn, keepsTread, puffFrame, puffHalfSize, puffProgress, puffLife, puffSize, raisesDust, scrapeSparks, sparksForHit, sparkLevel, sparkRules, manySparksForHit, dustLevel, CLASSIC_DUST, RICH_DUST, trackLevel, trackOpacity, trackShown,
 } from "../src/game/tire-effects.js";
 
 const near = (a, b, e = 1e-9) => assert.ok(Math.abs(a - b) < e, `${a} is not ${b}`);
@@ -32,12 +32,22 @@ test("dust: only dusty ground, above 10 mph, a second puff above 20 mph with eve
   assert.deepEqual(dustPuffs({ speedFtS: 40, onGround, dusty: true, random: () => 0.9 }), [0, 1, 3]);
 });
 
-test("which surfaces raise dust and keep a tread", () => {
-  assert.equal(raisesDust("dirt"), true);
-  assert.equal(raisesDust("cement"), false);
-  assert.equal(keepsTread("ice", 9), true);
-  assert.equal(keepsTread("ice", 3), false);
-  assert.equal(keepsTread("gravel", 7), true);
+test("which surfaces raise dust and keep a tread: the game's surface flags (0x4de180)", () => {
+  // Flag 8, dust: Cement, Dirt, Sand.
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].filter(raisesDust), [1, 2, 5]);
+  // Flag 4, tracks: Dirt, Mud, Grass, Gravel, Snow.
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].filter(keepsTread), [2, 4, 6, 7, 9]);
+  // Cement's dust is grey (concrete, asphalt).
+  assert.equal(greyDustOn(1), true);
+  assert.equal(greyDustOn(2), false);
+  // Off Cement a third of the puffs, elsewhere all.
+  assert.equal(dustShare(1), 0.3);
+  assert.equal(dustShare(2), 1);
+  let n = 0;
+  const r = () => ((n = (n * 9301 + 49297) % 233280) / 233280);
+  const count = (share) => { let c = 0; for (let i = 0; i < 2000; i++) c += dustPuffs({ speedFtS: 20, onGround: [true, true, true, true], dusty: true, random: r, share }).length; return c; };
+  const full = count(1), cement = count(dustShare(1));
+  assert.ok(Math.abs(cement / full - 0.3) < 0.03, `${cement} of ${full}`);
 });
 
 test("a track lasts until the ring of 65536 pieces comes round to it, fading over its oldest eighth: no clock wipes it", () => {

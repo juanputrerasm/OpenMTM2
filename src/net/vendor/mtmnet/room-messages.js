@@ -1,4 +1,4 @@
-// Generated from openmtm2-server 0.4.1 protocol/room-messages.js. Do not edit; run its tools/vendor.mjs.
+// Generated from openmtm2-server 0.4.2 protocol/room-messages.js. Do not edit; run its tools/vendor.mjs.
 /*
   The online room protocol, version 1 (docs/PROTOCOL.md): what OpenMTM2 and the room server
   (openmtm2d) say to each other over one WebSocket.

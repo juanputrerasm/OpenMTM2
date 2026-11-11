@@ -7,6 +7,7 @@
 */
 import { terrainHeightAt } from "../vendor/openphotex/sim/mtm2/world/terrain.js";
 import { msg } from "./strings.js";
+import { VIEW_MARGIN_FT } from "./mesh-ground.js";
 
 const TURN = 65536;
 const ANGLE = (units) => (units / TURN) * Math.PI * 2;
@@ -224,8 +225,11 @@ export function createChaseCamera() {
      * `solid(x, y, z)`, when given, says a point is inside a ground box (game/ground-boxes.js `createBoxSolid`): the
      * camera is pulled in to stay out of them as out of the ground, so in a tunnel built of ground boxes it stays under
      * the roof and between the walls (an OpenMTM2 addition; the game's camera knows only the terrain).
+     * `blocked(from, to)`, when given, is the share of the line from the truck to the camera at which something solid
+     * stands, or null (game/mesh-ground.js `viewBlocked`): the camera stops `VIEW_MARGIN_FT` short of it, so on a track
+     * of meshes it stays under a tunnel's roof, over the road and out of the buildings (an OpenMTM2 addition).
      */
-    update(mode, pos, yaw, height, dt, { turn = 0, scale = 1, speedFt = 0, pitchBy = 0, clearFt = 0, look = null, solid = null, inertiaLens = false } = {}) {
+    update(mode, pos, yaw, height, dt, { turn = 0, scale = 1, speedFt = 0, pitchBy = 0, clearFt = 0, look = null, solid = null, blocked = null, inertiaLens = false } = {}) {
       const m = cameraMode(mode);
       if (!m?.dist) throw new RangeError(`camera mode ${mode} is not a chase view`);
       // Choosing a view arms a two second timer (0x52b780); nothing else is blended: the distance, pitch
@@ -312,6 +316,10 @@ export function createChaseCamera() {
         if (!solid) continue;
         if (!solid(c[0], c[1], c[2])) clearOfBoxes = true;
         else if (clearOfBoxes) { t = (dist * (i - 1)) / 32; break; }
+      }
+      if (blocked && t > 0) {
+        const f = blocked(pos, at(t, tilt));
+        if (f !== null) t = Math.max(0, f * t - VIEW_MARGIN_FT);
       }
       return zoom === null ? { position: at(t, tilt), target: [...pos] } : { position: at(t, tilt), target: [...pos], zoom };
     },

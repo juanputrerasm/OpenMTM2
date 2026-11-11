@@ -88,12 +88,19 @@ export function parseMtm2Veg(bytes) {
     const count = r32(bytes, 12);
     if (headerSize < 32 || headerSize > bytes.length || count > (bytes.length - headerSize) / 16)
         throw new RangeError("VEG: bad header");
+    // Unknown ids are skipped, so a later format can add chunks old readers pass over. The first entry of an id
+    // wins: when it has a version we do not know or runs past the file, the id is absent and a later duplicate is
+    // never consulted (Traxx TrackPODVegetation.cpp VegFindChunk).
     const chunks = new Map();
+    const seen = new Set();
     for (let i = 0; i < count; i++) {
         const e = headerSize + i * 16;
         const id = latin1.decode(bytes.subarray(e, e + 4));
+        if (seen.has(id))
+            continue;
+        seen.add(id);
         const ver = r32(bytes, e + 4), off = r32(bytes, e + 8), len = r32(bytes, e + 12);
-        if (ver !== 1 || off > bytes.length || len > bytes.length - off || chunks.has(id))
+        if (ver !== 1 || off > bytes.length || len > bytes.length - off)
             continue;
         chunks.set(id, [off, len]);
     }

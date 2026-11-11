@@ -693,7 +693,7 @@ const FREESTYLE = {
     start: (_index, fallback) => fallback,
     // Trick physics is on unless the player turned it off (freestyle.js `freestyleRules`).
     simulation: {
-      mode: extension.id, minutes: length, trickPhysics: settings?.trickPhysics !== false, trickAnyPhysics: !!settings?.trickAnyPhysics,
+      mode: extension.id, minutes: length, trickPhysics: settings?.trickPhysics !== false,
       airPitchControl: settings?.airPitchControl, airRotationDamping: settings?.airRotationDamping, groundYawDamping: settings?.groundYawDamping,
       ...Object.fromEntries(Object.entries(settings ?? {}).filter(([k]) => k.startsWith("weight_"))),
     },

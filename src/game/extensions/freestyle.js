@@ -27,7 +27,6 @@ export const FREESTYLE_EXTENSION = Object.freeze({
     Object.freeze({ key: "minutes", label: msg("Run length"), type: "number", min: 1, max: 10, default: DEFAULT_FREESTYLE_MINUTES, suffix: msg("minutes") }),
     Object.freeze({ key: "trickPhysics", label: msg("Trick physics (throttle and brake tilt the truck in the air)"), type: "boolean", default: true }),
     // Trick physics' strengths (`TRICK_PHYSICS`, `TRICK_LIMITS`): the defaults are the tuned ones.
-    Object.freeze({ key: "trickAnyPhysics", label: msg("Trick physics with MTM1 and Evo physics too"), type: "boolean", default: false }),
     Object.freeze({ key: "airPitchControl", label: msg("Air pitch control (0 to 10)"), type: "number", min: 0, max: 10, step: 0.5, default: 5 }),
     Object.freeze({ key: "airRotationDamping", label: msg("Air spin damping (0 free to 1 the game's)"), type: "number", min: 0.05, max: 1, step: 0.05, default: 0.25 }),
     Object.freeze({ key: "groundYawDamping", label: msg("Ground yaw damping (0.1 loose to 1 the game's)"), type: "number", min: 0.1, max: 1, step: 0.05, default: 0.5 }),
@@ -46,7 +45,9 @@ export const FREESTYLE_EXTENSION = Object.freeze({
 });
 
 /**
- * Trick physics (docs/EXTENSIONS.md, "Trick physics"): OpenPhotex's optional handling, under MTM2's physics model only.
+ * Trick physics (docs/EXTENSIONS.md, "Trick physics"): OpenPhotex's optional handling, under whichever physics model the
+ * run uses (OpenPhotex sim/mtm2/truck/trick.js: MTM2's step, which MTM1, CommPatch4 and OpenMTM2 share, 4x4 Evolution's
+ * and CART's).
  * In the air the pedals pitch the truck (rad/s² a full pedal) and spins are damped a quarter as hard; with the wheels
  * down the yaw is damped half as hard. Measured headless on KF2's Orlando Monster Show.
  */
@@ -64,15 +65,9 @@ export function trickStrengths(payload) {
   return out;
 }
 
-/**
- * The race's physics rules with Trick physics on them when the run asks for it: under MTM2's model (and CommPatch4's), or under MTM1's and
- * the Evo models when the player asks for that too (`trickAnyPhysics`). CART's model has none.
- */
+/** The race's physics rules with Trick physics on them unless the run turned it off; every physics model takes them. */
 export function freestyleRules(payload, rules) {
   if (payload?.trickPhysics === false || !rules) return rules;
-  const any = !!payload?.trickAnyPhysics && rules.id !== "cpr";
-  // CommPatch4 is MTM2's model under Community Patch 4's rules, so it takes them as MTM2 does.
-  if (rules.id !== "mtm2" && rules.id !== "cp4" && !any) return rules;
   return Object.freeze({ ...rules, ...trickStrengths(payload) });
 }
 

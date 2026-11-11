@@ -15,7 +15,7 @@
 import * as THREE from "three";
 import {
   CONTACT_GAP_S, DUST_RANGE_FT, DUST_TICK_S, TRACK_RANGE_FT, SMOKE_AFTER_S, SMOKE_EVERY_S, PUFF_FRAMES, PUFF_POOL, SPARK_POOL, TRACK_BREAK_FT, CLASSIC_TRACK_POOL, TRACK_STEP_FT, TRACK_WIDTH_FT,
-  SPARK_BURST_GAP_S, TIRE_SPARK_SHARE, manySparksForHit, sparkRules, CLASSIC_DUST, RICH_DUST, GREY_DUST_TONE, SPARK_HIT_SPEED, SPARK_MIN_SPEED, CLASSIC_SPARK_MIN_SPEED, TRACK_LIFE_S, TRACK_FADE_S, dustPuffs, keepsTread, puffFrame, puffLife, puffSize, puffsForHit, raisesDust, scrapeSparks, sparksForHit,
+  SPARK_BURST_GAP_S, TIRE_SPARK_SHARE, manySparksForHit, sparkRules, CLASSIC_DUST, RICH_DUST, GREY_DUST_TONE, SPARK_HIT_SPEED, SPARK_MIN_SPEED, CLASSIC_SPARK_MIN_SPEED, TRACK_LIFE_S, TRACK_FADE_S, dustPuffs, dustShare, greyDustOn, keepsTread, puffFrame, puffLife, puffSize, puffsForHit, raisesDust, scrapeSparks, sparksForHit,
 } from "../game/tire-effects.js";
 import { iceHullContacts, standOnFt } from "../game/ice.js";
 import {
@@ -125,7 +125,8 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
   // The puff art is grey on black; it is drawn as a soft brown dust, clear where the art is black, not added to the view.
   // Kinds 0 and 1 are dust, 2 and 3 the dark grey smoke of a collision (denser).
   // MTM2 classic dust (Options, Advanced): both kinds in the art's own grey, as the game draws a wheel's dust and a hit's alike.
-  const tints = greyDust ? [[null, 128], [null, 128]] : [[[128, 112, 92], 128], [[54, 54, 58], 110]];
+  // Kinds 4 and 5 are the art's grey too: the dust off Cement (game/tire-effects.js `greyDustOn`).
+  const tints = greyDust ? [[null, 128], [null, 128], [null, 128]] : [[[128, 112, 92], 128], [[54, 54, 58], 110], [null, 128]];
   // The Dust slider's level (game/tire-effects.js `dustLevel`), as the last `update` was given it; and the sprites alive.
   let dustNow = 2, livePuffs = 0;
   const frames = tints.flatMap(([tint, top]) => [art?.puff2, art?.puff3].map((list) => (list ?? []).map((image) => image && new THREE.SpriteMaterial({
@@ -144,12 +145,12 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
    * Dust from a wheel starts 2.8 times the game's size, swells by 14 ft and lives 2.2 times as long; the smoke of a hit starts
    * 3 times and swells by 10. With "Rich particles" the smoke of a hit is a puff of the port's own, drifting with `vel`.
    */
-  function puff(x, y, z, smoke = false, vel = STILL) {
+  function puff(x, y, z, smoke = false, vel = STILL, grey = false) {
     if (dustNow <= 0) return;
     if (particles) {
       const amount = RICH_DUST[dustNow] ?? RICH_DUST[2];
       particles.puff(smoke ? PUFF_KINDS.smoke : PUFF_KINDS.dust, x, y + 0.5, z, vel[0] * 0.2 + (random() - 0.5) * 3, 1 + random() * 2, vel[2] * 0.2 + (random() - 0.5) * 3,
-        { scale: amount.scale, life: amount.life, ...(greyDust ? { tone: GREY_DUST_TONE } : {}) });
+        { scale: amount.scale, life: amount.life, ...(greyDust || grey ? { tone: GREY_DUST_TONE } : {}) });
       return;
     }
     if (!frames[0].length) return;
@@ -161,7 +162,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
     livePuffs++;
     Object.assign(sprite.userData, {
       age: 0, life: puffLife(random()) * life, size: puffSize(random()) * scale, growth,
-      kind: (smoke ? 2 : 0) + (random() < 0.5 ? 0 : 1), live: true,
+      kind: (smoke ? 2 : grey ? 4 : 0) + (random() < 0.5 ? 0 : 1), live: true,
     });
     sprite.position.set(x, y + 0.5, -z);
     sprite.visible = true;
@@ -341,16 +342,17 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
    * The ground texture under game (x, z) where it is soft ground (render/scenery.js `groundAt`), or null: a ground box,
    * say, which the simulation stands on and the terrain's texture does not show.
    */
-  const softGround = (x, z) => { const under = rich.groundAt?.(x, z) ?? null; return under && DUST_BY_TYPE[under.type] ? under : null; };
+  // Only where it is the ground the tire stands on (the simulation's `type`): not the terrain under a street's mesh.
+  const softGround = (x, z, type) => { const under = rich.groundAt?.(x, z) ?? null; return under && under.type === type && DUST_BY_TYPE[under.type] ? under : null; };
   /**
    * How thick the dust off the ground at game (x, z) is, 0 to 1, of the simulation's ground `type` there: as dusty as
    * the texture under it looks (game/particles.js `groundDust`), or as its type alone says where that is not known, in
    * the weather.
    */
-  const dustOff = (x, z, type) => (softGround(x, z)?.dust ?? groundDust(null, type)) * (DUST_WEATHER[weatherNow] ?? 1);
+  const dustOff = (x, z, type) => (softGround(x, z, type)?.dust ?? groundDust(null, type)) * (DUST_WEATHER[weatherNow] ?? 1);
   /** The colour of dust and clods off ground of `family` and `type` at game (x, z): the ground type's own, half the ground's there (or the level's). */
   const earthTone = (family, type, kind, x = null, z = null) => {
-    const ground = (x !== null ? softGround(x, z)?.tone : null) ?? rich.groundTone ?? null;
+    const ground = (x !== null ? softGround(x, z, type)?.tone : null) ?? rich.groundTone ?? null;
     if (kind !== STREAK_KINDS.clod) return dustColour(ground, family, type);
     const own = kind.tone, share = kind.ground, level = ground ?? own;
     return [own[0] + (level[0] - own[0]) * share, own[1] + (level[1] - own[1]) * share, own[2] + (level[2] - own[2]) * share];
@@ -524,9 +526,11 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
     // How fast the truck goes forward and how fast it slips sideways, and from them and the simulation's tires how
     // hard each tire slides or spins (game/particles.js `slideAmount`).
     const forwardFtS = vel[0] * forward[0] + vel[2] * forward[1], sidewaysFtS = vel[0] * forward[1] - vel[2] * forward[0];
-    // The game's rule for dust: which tires raise it this tick (game/tire-effects.js), counted by what each stands on.
-    const dusty = tick && flags.dust
-      ? dustPuffs({ speedFtS: t.pose.forward ?? t.pose.speed ?? 0, onGround: onGround.map((on, k) => on && state.stood[k] === "dust"), dusty: true, random }) : [];
+    // The game's rule for dust: which tires raise it this tick (game/tire-effects.js), on the types with its dust flag
+    // (Cement, Dirt, Sand), dry: not wet, under water, on snow or ice.
+    const dry = (k) => state.stood[k] === "dust" || state.stood[k] === "hard";
+    const dusty = tick && flags.dust && raisesDust(type)
+      ? dustPuffs({ speedFtS: t.pose.forward ?? t.pose.speed ?? 0, onGround: onGround.map((on, k) => on && dry(k)), dusty: true, random, share: dustShare(type) }) : [];
     // A vehicle on smaller wheels than a stock truck's raises that much less (game/tire-effects.js `wheelShare`).
     const wheels = t.wheels ?? 1;
     hubs.forEach((hub, k) => {
@@ -545,7 +549,8 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       const stood = state.stood[k];
       const sliding = slideAmount({ tire: t.tires?.[k] ?? null, radiusFt: t.radius ?? 2.75, forwardFtS, sidewaysFtS });
       // Every tire leaves its own track. A tire that slides digs deeper into soft ground, and leaves rubber on hard.
-      const kind = flags.tracks && near ? trackKind(stood, sliding) : null;
+      // On dry soft ground only the types with the game's track flag keep one (Dirt, Mud, Grass, Gravel, Snow; not Sand).
+      const kind = flags.tracks && near && !(stood === "dust" && !keepsTread(type)) ? trackKind(stood, sliding) : null;
       if (kind === null) ruts.lift(state.ruts[k]);
       else {
         // Coming to a puddle, a rut runs out into the water.
@@ -723,7 +728,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
         const onGround = t.pose.tires.map((tire) => !!tire.onGround && !t.pose.heli);
         const family = t.surface?.family ?? "cement", type = t.surface?.type ?? 0;
         const nearCamera = Math.hypot(t.pose.pos[0] - listener[0], t.pose.pos[2] - listener[2]) < TRACK_RANGE_FT;
-        if (flags.tracks && nearCamera && keepsTread(family, type)) {
+        if (flags.tracks && nearCamera && keepsTread(type)) {
           hubs.forEach((hub, k) => { if (onGround[k]) mark(i, k, hub[0], hub[2], hub[1], t.tread ?? 1); else state.last[k] = null; });
         } else state.last.fill(null);
         // Water drops: a wheel in water throws them (every tick, more with speed); a wheel meeting the water at speed throws a burst.
@@ -744,8 +749,8 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
         if (state.timer >= DUST_TICK_S) {
           state.timer %= DUST_TICK_S;
           if (flags.dust && !noDust && Math.hypot(hubs[0][0] - listener[0], hubs[0][2] - listener[2]) < DUST_RANGE_FT) {
-            for (const k of dustPuffs({ speedFtS: t.pose.forward ?? t.pose.speed ?? 0, onGround, dusty: raisesDust(family), random, share: t.wheels ?? 1 })) {
-              puff(hubs[k][0] + (random() - 0.5), floorUnder(hubs[k][0], hubs[k][2], hubs[k][1]), hubs[k][2] + (random() - 0.5));
+            for (const k of dustPuffs({ speedFtS: t.pose.forward ?? t.pose.speed ?? 0, onGround, dusty: raisesDust(type), random, share: (t.wheels ?? 1) * dustShare(type) })) {
+              puff(hubs[k][0] + (random() - 0.5), floorUnder(hubs[k][0], hubs[k][2], hubs[k][1]), hubs[k][2] + (random() - 0.5), false, STILL, greyDustOn(type));
             }
           }
         }

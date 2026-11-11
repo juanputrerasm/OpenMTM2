@@ -228,6 +228,10 @@
   "text": "Automático (según la pista)"
  },
  {
+  "tag": "Monster Truck Madness 2's, with the port's own additions: on a track made for Community Patch 4, its placed models collide by their triangles, so the trucks drive on the streets, decks and ramps they are built of",
+  "text": "El de Monster Truck Madness 2, con los añadidos propios del port: en una pista hecha para Community Patch 4, sus modelos colocados chocan por sus triángulos, así que los camiones circulan por las calles, puentes y rampas de los que está hecha"
+ },
+ {
   "tag": "Monster Truck Madness 2",
   "text": "Monster Truck Madness 2"
  },
@@ -4088,12 +4092,12 @@
   "text": "Crear una sala"
  },
  {
-  "tag": "The model of the player's vehicle's game: 4x4 Evolution 2 or 4x4 Evolution for their vehicles, CART Precision Racing for its cars, Monster Truck Madness for MTM1 trucks, Monster Truck Madness 2 for the rest. A 4x4 Evolution track always runs its own game's model",
-  "text": "El modelo del juego del vehículo del jugador: 4x4 Evolution 2 o 4x4 Evolution para sus vehículos, CART Precision Racing para sus coches, Monster Truck Madness para los camiones de MTM1 y Monster Truck Madness 2 para el resto. Una pista de 4x4 Evolution siempre usa el modelo de su propio juego"
+  "tag": "The model of the player's vehicle's game: 4x4 Evolution 2 or 4x4 Evolution for their vehicles, CART Precision Racing for its cars, Monster Truck Madness for MTM1 trucks, OpenMTM2 for the rest on MTM2 tracks (Monster Truck Madness 2 on other games' tracks). A 4x4 Evolution track always runs its own game's model",
+  "text": "El modelo del juego del vehículo del jugador: 4x4 Evolution 2 o 4x4 Evolution para sus vehículos, CART Precision Racing para sus coches, Monster Truck Madness para los camiones de MTM1 y OpenMTM2 para el resto en pistas de MTM2 (Monster Truck Madness 2 en pistas de otros juegos). Una pista de 4x4 Evolution siempre usa el modelo de su propio juego"
  },
  {
-  "tag": "The model of the track's game: 4x4 Evolution 2 or 4x4 Evolution on their tracks, CART Precision Racing on its tracks, Monster Truck Madness on MTM1 tracks, Monster Truck Madness 2 on the rest",
-  "text": "El modelo del juego de la pista: 4x4 Evolution 2 o 4x4 Evolution en sus pistas, CART Precision Racing en sus pistas, Monster Truck Madness en las pistas de MTM1 y Monster Truck Madness 2 en el resto"
+  "tag": "The model of the track's game: 4x4 Evolution 2 or 4x4 Evolution on their tracks, CART Precision Racing on its tracks, Monster Truck Madness on MTM1 tracks, OpenMTM2 on the rest",
+  "text": "El modelo del juego de la pista: 4x4 Evolution 2 o 4x4 Evolution en sus pistas, CART Precision Racing en sus pistas, Monster Truck Madness en las pistas de MTM1 y OpenMTM2 en el resto"
  },
  {
   "tag": "CART Precision Racing",
@@ -6922,10 +6926,6 @@
  {
   "tag": "EVO Chase Far",
   "text": "Cámara lejana EVO"
- },
- {
-  "tag": "Trick physics with MTM1 and Evo physics too",
-  "text": "Física de trucos también con la física de MTM1 y Evo"
  },
  {
   "tag": "Air pitch control (0 to 10)",

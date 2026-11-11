@@ -34,10 +34,26 @@ export const CONTACT_GAP_S = 0.6;
 /** The puff grows by a foot over its life. */
 export const puffHalfSize = (size, age, life) => size + Math.min(1, age / life);
 
-/** The surfaces that raise dust: dirt, grass and gravel (the sound families), not concrete, ice or rock. */
-export const raisesDust = (family) => family === "dirt" || family === "gravel";
-/** The surfaces that keep a tread: the soft ones and snow (type 9). */
-export const keepsTread = (family, type) => family === "dirt" || family === "gravel" || type === 9;
+/*
+  Which ground types raise dust and keep a tread: the game's surface flags (`0x4de180`, MONSTER_EXE_ANALYSIS.md "Dust,
+  tire tracks and sparks"; the table MTM1 shares, MTM1_MONSTER_EXE_ANALYSIS.md 6.6). Flag 8 puffs dust: Cement, Dirt
+  and Sand (types 1, 2, 5). Flag 4 takes tracks: Dirt, Mud, Grass, Gravel and Snow (types 2, 4, 6, 7, 9); MTM2 reads
+  the flag and draws none, the port draws them. Cement's dust is grey (`greyDustOn`), the rest the earth's colour.
+*/
+export const DUST_TYPES = Object.freeze([1, 2, 5]);
+export const TRACK_TYPES = Object.freeze([2, 4, 6, 7, 9]);
+/** Whether ground of `.TTY` type `type` raises dust. */
+export const raisesDust = (type) => DUST_TYPES.includes(type);
+/** Whether ground of `.TTY` type `type` keeps a tread. */
+export const keepsTread = (type) => TRACK_TYPES.includes(type);
+/** Whether the dust off ground of type `type` is grey: Cement's (concrete, asphalt). */
+export const greyDustOn = (type) => type === 1;
+/**
+ * How many of the game's puffs a tire raises off ground of type `type`: off Cement a third (the port's; the game puffs
+ * as on dirt, which on a paved city reads as far too much), elsewhere all.
+ */
+export const CEMENT_DUST_SHARE = 0.3;
+export const dustShare = (type) => (greyDustOn(type) ? CEMENT_DUST_SHARE : 1);
 
 /**
  * MTM2's stock tire, the measure of every other (the simulation's 3 ft radius and 4 ft width, OpenPhotex mtm2Sim TRUCK).

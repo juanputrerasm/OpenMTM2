@@ -148,7 +148,7 @@ test("freestyle: a donut set scores at most five turns, and turning back starts 
   assert.equal(g.raw.tricks, (JUDGE.donutMost + 1) * JUDGE.donutPoints);
 });
 
-test("freestyle: Trick physics is on by default, under MTM2's model only, and can be turned off", () => {
+test("freestyle: Trick physics is on by default, under every physics model, and can be turned off", () => {
   const setting = FREESTYLE_EXTENSION.settings.find((x) => x.key === "trickPhysics");
   assert.equal(setting.default, true);
   const on = freestyleRules({ mode: "freestyle" }, S.MTM2_RULES);
@@ -157,7 +157,7 @@ test("freestyle: Trick physics is on by default, under MTM2's model only, and ca
   assert.equal(on.groundYawDamping, TRICK_PHYSICS.groundYawDamping);
   assert.equal(on.waterDragDensity, S.MTM2_RULES.waterDragDensity);
   assert.equal(freestyleRules({ mode: "freestyle", trickPhysics: false }, S.MTM2_RULES), S.MTM2_RULES);
-  assert.equal(freestyleRules({ mode: "freestyle" }, S.MTM1_RULES), S.MTM1_RULES);
+  assert.equal(freestyleRules({ mode: "freestyle" }, S.MTM1_RULES).airPitchControl, TRICK_PHYSICS.airPitchControl);
   // Through the loader: Freestyle's, and every other mode keeps the race's.
   assert.equal(extensionSimRules({ mode: "freestyle" }, S.MTM2_RULES).airPitchControl, TRICK_PHYSICS.airPitchControl);
   assert.equal(extensionSimRules({ mode: "tag" }, S.MTM2_RULES), S.MTM2_RULES);
@@ -310,14 +310,13 @@ test("Freestyle in the simulation worker: the clock runs out and the run is judg
   assert.equal(session.ground.rules.airPitchControl, TRICK_PHYSICS.airPitchControl);
 });
 
-test("Freestyle options: trick strengths held to their range, other physics only when asked, judging weights", async () => {
+test("Freestyle options: trick strengths held to their range, every physics model, judging weights", async () => {
   const { freestyleRules, judgingWeights, TRICK_PHYSICS } = await import("../src/game/extensions/freestyle.js");
   const mtm2 = { id: "mtm2" }, evo = { id: "evo2" }, cpr = { id: "cpr" };
   assert.equal(freestyleRules({}, mtm2).airPitchControl, TRICK_PHYSICS.airPitchControl);
   assert.equal(freestyleRules({ airPitchControl: 50 }, mtm2).airPitchControl, 10);
-  assert.equal(freestyleRules({}, evo), evo);
-  assert.equal(freestyleRules({ trickAnyPhysics: true }, evo).groundYawDamping, 0.5);
-  assert.equal(freestyleRules({ trickAnyPhysics: true }, cpr), cpr);
+  assert.equal(freestyleRules({}, evo).groundYawDamping, 0.5);
+  assert.equal(freestyleRules({}, cpr).airPitchControl, TRICK_PHYSICS.airPitchControl);
   assert.equal(freestyleRules({ trickPhysics: false }, mtm2), mtm2);
   const w = judgingWeights({ weight_air: 2, weight_saves: -1 });
   assert.equal(w.air, 2);

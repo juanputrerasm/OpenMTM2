@@ -37,9 +37,12 @@ export function surfaceMeshHit(boxes, x, y, z) {
     }
     return best;
 }
-/** Give the ground CP4's surface meshes for the tires' grip (in place; returns it). */
-export function withSurfaceMeshes(ground, boxes) {
-    const list = boxes.filter((b) => shapeUsable(b.shape) && !!b.shape.surfaceTypes).slice(0, MAX_SURFACE_BOXES);
+/**
+ * Give the ground CP4's surface meshes for the tires' grip (in place; returns it). `limit`: how many of the
+ * boxes count, in their order; CP4 takes the first 64 and ignores the rest. A host may pass more.
+ */
+export function withSurfaceMeshes(ground, boxes, { limit = MAX_SURFACE_BOXES } = {}) {
+    const list = boxes.filter((b) => shapeUsable(b.shape) && !!b.shape.surfaceTypes).slice(0, limit);
     delete ground.tireSurface;
     if (!list.length)
         return ground;
