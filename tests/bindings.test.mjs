@@ -7,6 +7,8 @@ test("bindings: defaults, overrides, and bad saved data falls back", () => {
   assert.deepEqual(mergeBindings({}).accelerate, ["ArrowUp", "KeyW"]);
   assert.deepEqual(mergeBindings({}).horn, ["Space"]);
   assert.deepEqual(mergeBindings({}).camera, ["KeyV"]);
+  // The game's Camera key (exe analysis 11): K steps the truck the camera is on.
+  assert.deepEqual(mergeBindings({}).nextTruck, ["KeyK"]);
   assert.deepEqual(mergeBindings({ accelerate: ["KeyI"] }).accelerate, ["KeyI"]);
   assert.deepEqual(mergeBindings({ accelerate: [] }).accelerate, [...DEFAULT_BINDINGS.accelerate]);
   assert.deepEqual(mergeBindings({ brake: "x", bogus: ["KeyZ"] }).brake, [...DEFAULT_BINDINGS.brake]);

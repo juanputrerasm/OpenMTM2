@@ -5,7 +5,7 @@
     R        reverse the course (`0x647564`)
     Ctrl+T   the player's autopilot: off, auto throttle, full autopilot
     Ctrl+B   collision boxes: wireframe, solid, off
-    Ctrl+Y   slew mode: the race stands still and the truck is moved by hand
+    Ctrl+Y   slew mode: the race stands still and the truck the camera is on (K, Shift+K) is moved by hand
              (arrows move, Q and A up and down, End and Page Down yaw, Home and Page Up roll,
              F5 and F8 pitch, Shift faster)
     Z        Z mode, on and off at any time (slew mode or not): the technical overlay (zoom, level,

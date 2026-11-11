@@ -65,13 +65,14 @@ export function trickStrengths(payload) {
 }
 
 /**
- * The race's physics rules with Trick physics on them when the run asks for it: under MTM2's model, or under MTM1's and
+ * The race's physics rules with Trick physics on them when the run asks for it: under MTM2's model (and CommPatch4's), or under MTM1's and
  * the Evo models when the player asks for that too (`trickAnyPhysics`). CART's model has none.
  */
 export function freestyleRules(payload, rules) {
   if (payload?.trickPhysics === false || !rules) return rules;
   const any = !!payload?.trickAnyPhysics && rules.id !== "cpr";
-  if (rules.id !== "mtm2" && !any) return rules;
+  // CommPatch4 is MTM2's model under Community Patch 4's rules, so it takes them as MTM2 does.
+  if (rules.id !== "mtm2" && rules.id !== "cp4" && !any) return rules;
   return Object.freeze({ ...rules, ...trickStrengths(payload) });
 }
 

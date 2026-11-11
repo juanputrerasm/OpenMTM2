@@ -74,6 +74,8 @@ const MTM_SKY = "CLOUDY2";
 /** A course whose last straight ends further than this from its first one's start does not close: a one-way rally. */
 const OPEN_COURSE_GAP_FT = 1000;
 const HEIGHT_DIVISOR = 32;
+/** The .SIT version from which Evo 1 and Evo 2 smooth the ground (0x46ac90, 0x452400; EVO2_EXE_ANALYSIS.md 5a). */
+export const EVO_SMOOTH_SIT_VERSION = 3;
 const WATER_DIVISOR = 2;
 const MAX_GRID = 8;
 /** How high over the ground a truck's body is set on the grid, as on MTM2's own grids. */
@@ -226,7 +228,7 @@ function scaled(matrix, sx, sy, sz) {
  * `lite`: a 4x4 Evolution 1 Lite track (OpenPhotex `parseEvoLte`, docs/EVO2_EXE_ANALYSIS.md 5b), whose heights and tiles
  * stand in for the .RAW and .CLR, and whose base world gives the .TEX.
  */
-export async function buildEvoTrackRender(vfs, sitPath, sitBytes, { truckFiles = [], weather = 0, hdWeather = false, tileOverlap = true, forest = true, sunShadows = false, smoothTerrain = false, lite = null } = {}) {
+export async function buildEvoTrackRender(vfs, sitPath, sitBytes, { truckFiles = [], weather = 0, hdWeather = false, tileOverlap = true, forest = true, sunShadows = false, lite = null } = {}) {
   const { title, stem, sit, lvl } = await loadEvoLevel(vfs, sitPath, sitBytes);
   const game = `EVO${sit.game}`;
   const mtm = vfs.scoped?.("MTM") ?? vfs;
@@ -278,9 +280,9 @@ export async function buildEvoTrackRender(vfs, sitPath, sitBytes, { truckFiles =
   }
   const atlas = buildTerrainAtlas(tiles);
   // The tiles overlap by two pixels at each edge, as MTM2's do.
-  // 4x4 Evolution 2 at its high detail smooths the ground into a 4 x 4 grid a cell, and drives on it too
-  // (docs/EVO2_EXE_ANALYSIS.md 5a): with "Smooth terrain" the port does both.
-  const fineFt = smoothTerrain && sit.game === 2 ? Float32Array.from(evoSim.evoSmoothHeights(rawCorners), (v) => v / HEIGHT_DIVISOR) : null;
+  // Both Evo games smooth the ground of a .SIT with a version line (3 or more) into a 4 x 4 grid a cell and drive on
+  // it, whatever the graphics settings (docs/EVO2_EXE_ANALYSIS.md 5a): drawn and driven alike here too.
+  const fineFt = sit.version >= EVO_SMOOTH_SIT_VERSION ? Float32Array.from(evoSim.evoSmoothHeights(rawCorners), (v) => v / HEIGHT_DIVISOR) : null;
   const tileInset = tileOverlap === false ? 0 : 2;
   const mesh = fineFt
     ? buildFineTerrainMesh({ fineFt, sub: evoSim.EVO_SUB, clr: drawnClr, atlas, tileInset })

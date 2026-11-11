@@ -169,9 +169,18 @@ cross-play** on, OpenMTM2 declares the `cp3-relay/1` capability, lists and joins
   (`now ^ (id << 20) | 1`), broadcasts its own 0x28, waits up to 120 s for every human's, then
   broadcasts 0x29, and answers a late 0x28 with 0x29 at once.
 
-**Assumed, for CP4's developer to confirm** (listed in the reply): the payload is the whole game
-packet with its header; ids are member ids; the whole game protocol, lobby included, runs inside
-the relay; flags bit 0 is "reliable". Not done: the server's `start` / `finish` for the room (the
+**Confirmed by CP4's developers** (OpenMTM2 Server `docs/REPLY_TO_CP4_ONLINE_ROOMS_2.md`, answering
+their reply_to_kmaster_online_rooms_2.md): the payload is the whole game packet with its header; ids
+are member ids; the whole game protocol, lobby included, runs inside the relay; flags bit 0 is
+"reliable", and a reliable payload is at most 1024 bytes (udpnet's `OUTREL_MAXLEN`; the server drops a
+longer one). The retail end-of-race results barrier (`rslt`, 30 s) still runs after CP4's 0x28 / 0x29
+barrier, and OpenMTM2 answers it as in classic play.
+
+**Versions:** a Community Patch version is `(build << 8) | rev` and names exactly that build's layouts,
+with nothing negotiated. OpenMTM2 refuses what it cannot read rather than guess (`knownVersion` in the
+vendored `mtm2-packets.js`): a patch build it has no profile for, and in a relay room any build but
+CP4's 0x3402. Such a player's packets are dropped and a notice says why; when it is the host, the
+session ends ("The host runs a version of the game this one cannot play with."). Not done: the server's `start` / `finish` for the room (the
 room stays in its lobby state during the race, so joiners are not refused mid-race); CP4's
 netcode (jitter buffer, collision lead, hit check, 0x26 / 0x27), so OpenMTM2's trucks still move
 by OpenMTM2's own smoothing in such a race.
@@ -261,7 +270,9 @@ OpenMTM2 Server folder and two browsers (or two computers) at `localhost` or the
 
 With the start the owner sends the room's `rules` setting (`game/host-rules.js` `hostRules`): the physics model, how
 the computer trucks drive and their AI speed, the opponent frame rate, Sonic trucks, shifting in automatic, the Evo
-helicopter, the skill, and the chosen extension's settings as `ext.<id>.<key>`. Every player's race runs by them over
+helicopter, the skill, the CommPatch4 physics' collisions (`cp4Collision`, triangles or classic boxes), and the chosen
+extension's settings as `ext.<id>.<key>`. Under CommPatch4 a network race always steps in CP4's 10 ms substeps and
+its computer trucks get no `aiGrip`, as CP4 online (docs/CP4_EXE_ANALYSIS.md 10.2, 10.4). Every player's race runs by them over
 their own settings, for that race only (`withHostRules`, `ui/screens/race.js` `raceRules`); cameras, keys, the
 gamepad, graphics and sound stay each player's. A server before 0.4.0 refuses the field, and a client before 0.6.6
 ignores it.

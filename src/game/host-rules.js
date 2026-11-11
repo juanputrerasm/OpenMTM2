@@ -10,6 +10,8 @@ import { EXTENSIONS, settingsForExtension } from "./extensions/loader.js";
 /** The settings the owner decides for the room. */
 export const HOST_RULE_KEYS = Object.freeze([
   "physics", "aiBehaviour", "aiSpeed", "opponentFps", "sonicTrucks", "shiftInAuto", "checkpointHeli", "difficulty",
+  // The CommPatch4 physics' collisions, so a room's trucks meet the props the same way (docs/CP4_EXE_ANALYSIS.md 11).
+  "cp4Collision",
 ]);
 
 const ruleValue = (v) => (typeof v === "boolean" || typeof v === "string" || (typeof v === "number" && Number.isFinite(v)) ? v : undefined);

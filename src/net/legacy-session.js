@@ -26,7 +26,7 @@ import { createEmitter } from "./transport.js";
 import { msg } from "../game/strings.js";
 import {
   encodePacket, decodePacket, TYPES, MTM2_NET_VERSION, BARRIER, EXIT_CANCELLED,
-  stateFields, stateFromPacket, pingTime, pingMs, PROFILES, profileForVersion, CP_TICK_S, CP4_MAX_POSES,
+  stateFields, stateFromPacket, pingTime, pingMs, PROFILES, profileForVersion, knownVersion, CP_TICK_S, CP4_MAX_POSES,
 } from "./vendor/mtmnet/mtm2-packets.js";
 
 /** Locations (the Status column, 0x514175). */
@@ -179,7 +179,9 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
       const header = bytes?.length >= 12 ? new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(8, true) : 0;
       try { p = decodePacket(bytes, profileOf(header || from)); } catch { return; }
       // The game takes the sender from the packet, not from DirectPlay (14.1).
-      receive(p.sender || from, p);
+      const sender = p.sender || from;
+      if (p.kind !== "info" && players.get(sender)?.unreadable) return;
+      receive(sender, p);
     }),
   ];
 
@@ -188,6 +190,17 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
     switch (p.kind) {
       case "info":
         Object.assign(who, { truck: p.truck, ready: !!p.status, version: p.version, location: p.location, skill: p.skill, setup: p.setup, team: p.team });
+        // A patch version names exactly that build's layouts, with nothing negotiated: a build we have no layouts
+        // for, or in a relay room any build but the room's, is refused rather than guessed at (CP4's developers,
+        // reply_to_kmaster_online_rooms_2.md section 3). Its packets are dropped; a host we cannot read ends the session.
+        if (!knownVersion(p.version) || (profile && p.version !== profile.version)) {
+          who.unreadable = true;
+          profiles.delete(from);
+          notice("unknownVersion", `${who.name || "A player"} runs a version of the game this one cannot play with${versionText(p.version)}.`);
+          if (from === hostId && !isHost()) end("version");
+          break;
+        }
+        who.unreadable = false;
         profiles.set(from, profileForVersion(p.version));
         if (p.version !== local.version) {
           notice(p.version < local.version ? "olderVersion" : "newerVersion",

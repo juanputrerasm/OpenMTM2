@@ -11,6 +11,7 @@
 */
 import * as E from "../vendor/openphotex/sim/evo/index.js";
 import * as Cp from "../vendor/openphotex/sim/cpr/index.js";
+import * as C4 from "../vendor/openphotex/sim/cp4/index.js";
 import * as S from "../vendor/openphotex/sim/mtm2/index.js";
 import { createCrossingLog, raceGap, recordCrossings } from "../game/timing.js";
 import { buildRumbleField, createRumbleDriver, rumbleControls } from "../game/rumble-ai.js";
@@ -23,6 +24,7 @@ import { courseWindow, createFlight, departVisual, flightVisual, nearestCourseSp
 import { CLOSE_FT, STOPPED_FT_S, joinedSegment, obstacleAhead, offCourse, pickRoute } from "../game/course-route.js";
 import { createRacerRecovery, racerRecovering, racerRecoveryBefore, racerRecoveryStep } from "../game/racer-recovery.js";
 import { cpuAvoidStep, cpuControlBefore, cpuControlStep, createCpuControl } from "../game/cpu-control.js";
+import { cpuPaceFactor, cpuPaceObserve, createCpuPace, isSliding, isSpun, segmentCurvature, segmentHeading } from "../game/cpu-pace.js";
 import { createEvoDriver, evoAiLine, evoDriveStep } from "../game/evo-driver.js";
 import { AVOID, boxObstacles, groundBoxWalls } from "../game/obstacle-avoid.js";
 import { replyError, sendWorkerFaults } from "../shared/worker-faults.js";
@@ -46,6 +48,8 @@ const same = (x, y) => x === y || (x !== x && y !== y);
 const posedAs = (b, out, k) => same(out[k], b.pos[0]) && same(out[k + 1], b.pos[1]) && same(out[k + 2], b.pos[2])
   && same(out[k + 3], b.matrix[2]) && same(out[k + 4], b.matrix[5]) && same(out[k + 5], b.matrix[6]);
 export const MAX_CATCH_UP = 0.25;
+/** The module's step and catch-up, which a CommPatch4 session replaces with its own (`createSession`). */
+const BASE_STEP = STEP, BASE_CATCH_UP = MAX_CATCH_UP;
 
 /** Two trucks' world velocities' closing speed along the line between them (ft/s; going apart is negative). */
 export function closingSpeedOf(a, b) {
@@ -244,16 +248,24 @@ function soundOf(t, ground) {
     slip: s.evo?.slip[i] ?? 0, vLat: x.velocity[0],
   }));
   const m = s.matrix, weather = ground.weather ?? 0;
-  // In water, for its sounds (0x41bbd0): on a level with water, a tire on a water surface or the body under the level;
-  // never in Snow. (A probe's `waterDepth` is no measure of it: it is how deep the probe is in the ground, wet or dry.)
-  const level = ground.waterLevelFt ?? null;
-  const inWater = weather !== 5 && level !== null
-    && (s.tires.some((x) => x.onGround && [3, 13].includes(S.surfaceType(x.surface))) || s.pos[1] < level);
+  // In water, for its sounds (0x41bbd0, OpenPhotex `inWaterForSound`): a tire's hub under the water level there (a CP4
+  // lake's or the track's), or a tire on the ground on water or deep water; never in Snow. A tire held up by an object
+  // reads no water from the terrain (`dryOnObjects`). (A probe's `waterDepth` is no measure of it: it is how deep the
+  // probe is in the ground, wet or dry.)
+  const inWater = S.inWaterForSound(s, ground, weather);
+  // What the truck's effects (dust, tracks, spray) take it to stand on: the type most of its tires on the ground stand
+  // on (each tire's own surface, as its grip reads it: .SRF faces and `dryOnObjects` included; ties to the lower tire),
+  // else the terrain under the body.
+  const counts = new Map();
+  for (const x of s.tires) if (x.onGround && x.surface >= 0) counts.set(S.surfaceType(x.surface), (counts.get(S.surfaceType(x.surface)) ?? 0) + 1);
+  let surface = null, most = 0;
+  for (const [type, n] of counts) if (n > most) { surface = type; most = n; }
+  if (surface === null) surface = S.surfaceType(ground.surface(s.pos[0], s.pos[1] + 100, s.pos[2]));
   const out = {
     weather, inWater, vy: m[3] * s.bvel[0] + m[4] * s.bvel[1] + m[5] * s.bvel[2],
     rpm: s.rpm, throttle: s.controls.throttle, brake: Math.max(s.controls.brakeFront, s.controls.brakeRear), gear: s.controls.gear, airborne: air, forward: s.bvel[2],
     speed: Math.hypot(s.bvel[0], s.bvel[1], s.bvel[2]), vx: s.bvel[0], bottoming: t.snd.bottoming, collide: t.snd.collide ?? 0, crash: t.snd.crash ?? 0, 
-    impact: t.snd.impact, hit: t.snd.hit, clearance: s.pos[1] - ground.height(s.pos[0], s.pos[2]), splash: t.snd.splash, tires, surface: S.surfaceType(ground.surface(s.pos[0], s.pos[1] + 100, s.pos[2])), heli: s.heliTimer > 0, heliTeryl: !!s.heliVisual?.teryl, heliPos: s.heliVisual ? [...s.heliVisual.pos] : null,
+    impact: t.snd.impact, hit: t.snd.hit, clearance: s.pos[1] - ground.height(s.pos[0], s.pos[2]), splash: t.snd.splash, tires, surface, heli: s.heliTimer > 0, heliTeryl: !!s.heliVisual?.teryl, heliPos: s.heliVisual ? [...s.heliVisual.pos] : null,
   };
   t.snd.impact = 0;
   t.snd.bottoming = 0;
@@ -367,10 +379,19 @@ export function createSession(init) {
   const evoModel = E.isEvoRules(init.rules);
   // CART Precision Racing's model (OpenPhotex sim/cpr): its cars drive on it, every other vehicle on MTM2's.
   const cprModel = Cp.isCprRules(init.rules);
+  // Community Patch 4's (OpenPhotex sim/cp4; docs/CP4_EXE_ANALYSIS.md 10, 11): MTM2's step under CP4's rules, props that
+  // collide by their triangles unless `cp4Collision` is "classic", on CP4's fixed tick.
+  const cp4Model = C4.isCp4Rules(init.rules);
   /** Optional rules loaded over the race's countdown and clock. */
   const extensionPayload = init.extension && init.race ? init.extension : null;
   // An extension may change the model's handling (Freestyle's Trick physics, OpenPhotex `Mtm2Rules`).
-  const rules = extensionSimRules(extensionPayload, evoModel ? E.evoRules(init.rules) : cprModel ? Cp.CPR_RULES : S.simRules(init.rules));
+  const rules = extensionSimRules(extensionPayload, evoModel ? E.evoRules(init.rules) : cprModel ? Cp.CPR_RULES
+    : cp4Model ? C4.cp4Rules(init.cp4Collision) : S.simRules(init.rules));
+  // CP4 steps every 40 ms tick once, or in 10 ms substeps online or with `cp4SubstepsOffline` ([Game] simSubstepOffline),
+  // and catches up at most 160 ms (four ticks) a frame (CP4_EXE_ANALYSIS.md 10.2). Every other model steps at 1/60 s.
+  const cp4Split = cp4Model && (!!init.net || !!init.cp4SubstepsOffline);
+  const STEP = cp4Model ? C4.cp4Substeps(rules, cp4Split).dt : BASE_STEP;
+  const MAX_CATCH_UP = cp4Model ? 0x28f4 / 65536 : BASE_CATCH_UP;
   const terrainGround = S.createTerrainGround(terrain, surfaces, weather, init.waterLevelFt ?? null, rules);
   // CPR's road layer lies over the terrain and is the ground where it does (OpenPhotex world/road.ts).
   const ground = init.road ? S.createRoadGround(terrainGround, init.road) : terrainGround;
@@ -471,12 +492,62 @@ export function createSession(init) {
   /** Moving objects: type 10 boxes and their SIT bvel (MTM2_PHYSICS.md 14.18). */
   const movingObjects = [];
   const movingBoxes = new Set();
-  for (const b of init.boxes ?? []) {
+  // CommPatch4's triangle collision (OpenPhotex sim/cp4; docs/CP4_EXE_ANALYSIS.md 11.2): each model's shape, built once
+  // from the track build's triangles, and the static props whose .SRF types the tires grip by (section 5, 11.9).
+  const cp4Triangles = cp4Model && rules.collisionMode === 1 && !!init.collisionSoups;
+  const cp4Shapes = new Map();
+  const surfaceBoxes = [];
+  const shapeOf = (name, shiftY) => {
+    const key = `${name}|${shiftY}`;
+    if (!cp4Shapes.has(key)) {
+      const soup = init.collisionSoups[name];
+      let shape = null;
+      if (soup) {
+        let pos = soup.positions;
+        if (shiftY) { pos = Float32Array.from(pos); for (let k = 1; k < pos.length; k += 3) pos[k] -= shiftY; }
+        shape = C4.buildCollShape(pos, soup.surfaceTypes ? new Int16Array(soup.surfaceTypes) : null);
+      }
+      cp4Shapes.set(key, shape);
+    }
+    return cp4Shapes.get(key);
+  };
+  // MTM2's and CP4's checkpoint footprints (OpenPhotex `checkpointFootprintType`; MTM2_PHYSICS.md 14.15): a type 0 box
+  // inside a checkpoint gate's footprint becomes type 11, which a computer truck does not bring into the frame's object
+  // list (`listBoxes`) and CP4 does not make a surface. Not in Summit Rumble (race mode 4). The gates are the track's
+  // checkpoints whatever the race (the game loads them with the level).
+  const mtm2Listing = rules.id === "mtm2" || rules.id === "cp4";
+  const footprintGates = mtm2Listing && init.race?.mode !== "summit" ? (init.checkpointGates ?? init.race?.checkpoints ?? []) : [];
+  // The count at [0x646c40] + 0xc that lets a computer truck bring in every box: believed to be a network game's
+  // other drivers (MONSTER_EXE_ANALYSIS.md 16), so 1 in a network race.
+  const networkDrivers = init.net ? 1 : 0;
+  for (const b0 of init.boxes ?? []) {
+    const type = footprintGates.length && !b0.checkpointPole ? S.checkpointFootprintType(b0, footprintGates) : b0.type;
+    const b = type === b0.type ? b0 : { ...b0, type };
     const box = S.createLevelBox(b, b.mass >= 1 ? solidBounds(b.bounds) : b.bounds);
     if (box) {
       box.sitIndex = b.sitIndex;
+      box.hasModel = !!b.modelName;
       // A 4x4 Evolution object's model stands off its box's centre: its origin, in the box's frame (worker/evo-track-build.js).
       if (b.drawOffset) box.drawOffset = b.drawOffset;
+      if (cp4Model) {
+        // CP4's offCentreCollision (10.6): a model whose vertical centre is further from its origin than its height has its
+        // box moved onto it; drawn at its origin still, and its triangles kept where they are.
+        let shiftY = 0;
+        if (rules.offCentreCollision && b.bounds) {
+          const cy = (b.bounds.min[1] + b.bounds.max[1]) / 2, h = b.bounds.max[1] - b.bounds.min[1];
+          if (Math.abs(cy) > h) {
+            shiftY = cy;
+            for (let k = 0; k < 3; k++) box.pos[k] += box.matrix[k * 3 + 1] * cy;
+            const o = box.drawOffset ?? [0, 0, 0];
+            box.drawOffset = [o[0], o[1] - cy, o[2]];
+          }
+        }
+        if (cp4Triangles && b.modelName) {
+          box.shape = shapeOf(b.modelName, shiftY);
+          // Surfaces: static props only, not fog, moving or pushable boxes, nor types 6 to 13 (section 5).
+          if (box.shape?.surfaceTypes && !(b.mass > 0) && !(b.type >= 6 && b.type <= 14)) surfaceBoxes.push(box);
+        }
+      }
       // Moved by a 4x4 Evolution object path (game/evo-paths.js): the path's object, or what hangs from it (`attach`); a
       // `ghost` is moved but met by nothing (its class does not collide).
       if (b.pathRoot !== undefined) { box.pathRoot = b.pathRoot; box.attach = b.attach ?? null; box.ghost = !!b.ghost; }
@@ -484,6 +555,7 @@ export function createSession(init) {
     }
     if (box && b.bvel) { movingObjects.push({ box, bvel: b.bvel }); movingBoxes.add(box); }
   }
+  if (surfaceBoxes.length) for (const g of new Set([ground, extensionGround])) C4.withSurfaceMeshes(g, surfaceBoxes);
   const allRamps = (init.ramps ?? []).map((r) => S.createRamp(r, r.bounds)).filter(Boolean);
   // The course's straights with the arcs built between them, over the ground the probes see
   // (MTM2_PHYSICS.md 12, 14.22).
@@ -501,8 +573,10 @@ export function createSession(init) {
   // The computer trucks steer by the game's frame time, not the simulation's step (OpenPhotex AUTOPILOT_FRAME_DT, 1/30 s):
   // `opponentFps` (Options, Advanced) is the frame rate they drive as if the game ran at.
   const opponentFps = Number(init.opponentFps);
-  const apCtx = { course, height: (x, z) => ground.height(x, z), dt: STEP, difficulty, sonicTrack };
+  const apCtx = { course, height: (x, z) => ground.height(x, z), dt: STEP, difficulty, sonicTrack, rules };
   if (opponentFps >= 10 && opponentFps <= 240) apCtx.frameDt = 1 / opponentFps;
+  // CP4 runs the autopilot once a tick with the whole tick as its frame time (10.2).
+  if (cp4Model) apCtx.frameDt = rules.tickS;
   // AI Speed (Community Patch 3, game/ai-speed.js): the computer trucks' target speed and torque, never the player's.
   const cpuAiSpeed = aiSpeedFactor(init.aiSpeed);
 
@@ -565,7 +639,10 @@ export function createSession(init) {
     };
     // A foot under the body's origin: a step up to about a wheel's height is climbed, a taller face is not ground.
     const ownGround = meshGround ? meshGround.below(() => state.pos[1] - 1) : extensionGround;
-    const ctx = { ground: ownGround, human: i === 0 && !autopilot && !remote, difficulty, sonicTrack, recovery };
+    // `online`: CP4's computer-truck grip applies offline only (10.4).
+    // `dryOnObjects`: OpenMTM2's own rule, not the game's (docs/MTM2_PHYSICS.md 2.4): a tire held up by a box, ramp, prop or car
+    // never stands on the terrain's water under it (OpenPhotex truck/object-support.ts).
+    const ctx = { ground: ownGround, human: i === 0 && !autopilot && !remote, difficulty, sonicTrack, recovery, online: !!init.net, dryOnObjects: true };
     // Shift gears in automatic (Advanced, OMTM2; OpenPhotex `autoOverride`): the player's box takes LB / RB and the keys.
     if (ctx.human && init.shiftInAuto) state.controls.autoOverride = true;
     const aiSpeed = autopilot && i > 0 && cpuAiSpeed !== null ? cpuAiSpeed : undefined;
@@ -615,6 +692,8 @@ export function createSession(init) {
       const t = trucks[i];
       t.lane = spec.lane ?? i;
       t.apCtx = { ...apCtx, course: t.lane === 1 ? mirrored : course, dragMode: true, traffic: undefined };
+      // The step knows a drag pass too: CP4's computer trucks grip harder there (OpenPhotex `dragCpuGrip`; MTM2 ignores it).
+      t.ctx.dragMode = true;
       t.recovery.dragRace = true;
       // What breaks the beams: the front tyre's leading point (the bodywork never counts).
       t.frontZ = Math.max(...t.params.hubs.map((q) => q[2])) + t.params.tireRadiusFt;
@@ -631,9 +710,11 @@ export function createSession(init) {
    */
   const apOf = (t) => {
     const base = t.apCtx ?? apCtx;
-    if (t.aiSpeed === undefined) return base;
+    if (t.aiSpeed === undefined && !t.cpuPace) return base;
     if (t.apViewBase !== base) {
-      t.apView = Object.create(base, { aiSpeed: { value: t.aiSpeed, enumerable: true } });
+      // AI Speed (Community Patch 3) times the pace the truck has learnt for its segment (game/cpu-pace.js), read
+      // each step; the pace scales the target speed alone, the torque keeps AI Speed only (the step context's).
+      t.apView = Object.create(base, { aiSpeed: { get: () => (t.aiSpeed ?? 1) * (t.pace ?? 1), enumerable: true } });
       t.apViewBase = base;
     }
     return t.apView;
@@ -822,6 +903,9 @@ export function createSession(init) {
       t.racerRecovery = createRacerRecovery({ returns: true, unsticks: true });
       // Every computer truck on the course keeps control of itself (game/cpu-control.js).
       t.cpuControl = createCpuControl();
+      // And learns the corners it cannot take at the SIT's speed (game/cpu-pace.js).
+      t.cpuPace = createCpuPace(course.length);
+      t.pace = 1;
     });
   }
 
@@ -837,10 +921,14 @@ export function createSession(init) {
       return Math.abs(S.wrapDelta(box.pos[0] - x)) < range && Math.abs(S.wrapDelta(box.pos[2] - z)) < range;
     };
     const nearTruck = (box) => trucks.some((t) => near(t.state.pos[0], t.state.pos[2], t.radius, box));
+    // A truck that is not the player's own does not bring in a type 11 box or one with no model (MTM2 and CP4,
+    // OpenPhotex `listedByComputerTruck`); the player's truck and the listed objects bring in every box.
+    const truckBringsIn = (box) => trucks.some((t, i) => near(t.state.pos[0], t.state.pos[2], t.radius, box)
+      && (i === 0 || !mtm2Listing || S.listedByComputerTruck(box.type, box.hasModel, networkDrivers)));
     for (const box of levelBoxes) {
       if (box.ghost) continue;
       const moving = Math.hypot(box.vel[0], box.vel[1], box.vel[2]) > 0.1;
-      if (moving || nearTruck(box) || listed.some((o) => near(o.pos[0], o.pos[2], o.radius, box))) listed.push(box);
+      if (moving || truckBringsIn(box) || listed.some((o) => near(o.pos[0], o.pos[2], o.radius, box))) listed.push(box);
     }
     // An extension's own loose objects (Combat's lost wheels) are always in the list: every truck meets them.
     for (const box of extensionSession?.movableBoxes?.() ?? []) listed.push(box);
@@ -926,14 +1014,14 @@ export function createSession(init) {
       const near = (thing, test) => S.withNearest(t.state, thing.pos[0], thing.pos[2], test);
       for (const box of t.nearBoxes) {
         if (box.tree) { near(box, () => knockTree(t, box)); continue; }
-        near(box, () => S.collideTruckImmovableBox(t.state, t.params, box, STEP));
+        near(box, () => S.collideTruckImmovableBox(t.state, t.params, box, STEP, rules));
       }
       nearFaces.length = 0;
       facesAround(t.state.pos[0], t.state.pos[2], t.radius, nearFaces);
       for (const face of nearFaces) S.withNearest(t.state, face.centre[0], face.centre[2], () => S.collideTruckFace(t.state, t.params, face, STEP));
       for (const box of listed) {
         const collide = () => {
-          const touch = near(box, () => S.collideTruckBox(t.state, t.params, box, STEP));
+          const touch = near(box, () => S.collideTruckBox(t.state, t.params, box, STEP, rules));
           if (touch) noteObjectHit(t, box, touch);
           return touch;
         };
@@ -953,8 +1041,8 @@ export function createSession(init) {
     // Two boxes that never move never meet (OpenPhotex collideBoxes returns at once): each pair has a moving one first.
     const moving = all.filter((box) => box.dynamic), still = all.filter((box) => !box.dynamic);
     for (let i = 0; i < moving.length; i++) {
-      for (let j = i + 1; j < moving.length; j++) S.collideBoxes(moving[i], moving[j], STEP);
-      for (const box of still) S.collideBoxes(moving[i], box, STEP);
+      for (let j = i + 1; j < moving.length; j++) S.collideBoxes(moving[i], moving[j], STEP, rules);
+      for (const box of still) S.collideBoxes(moving[i], box, STEP, rules);
     }
   }
 
@@ -994,9 +1082,12 @@ export function createSession(init) {
     if (race) race.trucks[0].player = level !== 2;
     return level;
   }
-  /** Slew mode: the simulation stands still and the player's truck is moved by hand. */
+  /**
+   * Slew mode: the simulation stands still and the truck the camera is on (`slew.truck`, the player's when not given)
+   * is moved by hand (MONSTER_EXE_ANALYSIS.md 15).
+   */
   function slewMove(slew) {
-    const s = player.state;
+    const s = (Number.isInteger(slew.truck) ? trucks[slew.truck] : null)?.state ?? player.state;
     const speed = (slew.fast ? 160 : 40) * STEP;
     const sin = Math.sin(s.euler[2]), cos = Math.cos(s.euler[2]);
     s.pos[0] += (sin * slew.forward + cos * slew.right) * speed;
@@ -1478,8 +1569,37 @@ export function createSession(init) {
   function keepControl(t) {
     if (!t.cpuControl || t.state.heliTimer > 0) return;
     const aim = aimOf(t);
-    cpuControlStep(t.cpuControl, t.state, STEP, aim, S.GEAR);
+    const seg = t.route ? t.route.ctx.course[t.route.segment] : recoveryOf(t).segment;
+    cpuControlStep(t.cpuControl, t.state, STEP, aim, S.GEAR, undefined, segmentCurvature(seg));
     cpuAvoidStep(t.cpuControl, t.state, obstaclesFor(t), aim);
+  }
+
+  /**
+   * A computer racer learning its course (game/cpu-pace.js), before the autopilot sets its target: a slide, a spin
+   * or a missed checkpoint on a segment lowers the pace it drives that segment at; the pace reaches the autopilot
+   * through `apOf`. Not on another course (`route`), whose segments are not its own.
+   */
+  function learnPace(t, i) {
+    const m = t.cpuPace, s = t.state;
+    if (!m || t.route) { t.pace = 1; return; }
+    if (s.heliTimer > 0) return;
+    const segment = s.ap.segment;
+    const sliding = isSliding(s);
+    // A spin counts with the wheels down: a truck thrown round in the air (Torture Pit's jumps) is not driving too fast.
+    const down = s.tires.filter((w) => w.onGround).length;
+    const spun = down >= 3 && isSpun(s, segmentHeading(S.orientedCourse(course, apCtx.reversed)[segment], s.pos));
+    // Only what happens while the truck drives the course teaches it: a truck backing out of a jam or turning round
+    // (racer-recovery.js, cpu-control.js) slides and faces every way on purpose.
+    const driving = !racerRecovering(t.racerRecovery) && !t.cpuControl?.turn;
+    if (driving) {
+      cpuPaceObserve(m, {
+        segment, slide: sliding && !t.wasSliding, spin: spun && !t.wasSpun,
+        missed: !!race && race.trucks[i].state === 3 && !race.trucks[i].finished,
+      });
+    }
+    t.wasSliding = sliding;
+    t.wasSpun = spun;
+    t.pace = cpuPaceFactor(m, segment, course);
   }
 
   /**
@@ -1623,6 +1743,7 @@ export function createSession(init) {
         } else if (go && t.racerRecovery) {
           racerRecoveryBefore(t.racerRecovery, t.state.controls);
           if (t.cpuControl) cpuControlBefore(t.cpuControl, t.state.controls);
+          learnPace(t, i);
           if (t.route) driveRoute(t);
           else S.applyAutopilot(t.state, t.params, apOf(t));
           recoverRacer(t, i);

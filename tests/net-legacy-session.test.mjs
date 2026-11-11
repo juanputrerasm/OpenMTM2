@@ -321,3 +321,36 @@ test("a retail host is read and answered in retail's layout", () => {
   assert.equal(sent[0].kind, "state");
   assert.equal(sent[0].psi, 101, "byte-coded: 2.5 rad is byte 101");
 });
+
+test("a patch build we have no layouts for is refused, not read as retail: its host ends the session", () => {
+  const network = createLoopbackNetwork({ star: true });
+  const hostT = network.join("CP Host");
+  const ann = createLegacySession({ transport: network.join("Ann"), me: { name: "Ann", truck: "BIGFOOT.TRK", skill: 1 }, hasTrack: () => true, trackCrc: async () => 0x1234 });
+  const notices = [], left = [];
+  ann.on("notice", (n) => notices.push(n.code));
+  ann.on("left", (e) => left.push(e.reason));
+  network.flush();
+  hostT.send(null, encodePacket("info", { truck: "GRAVE.TRK", version: 0x3403, location: 5, skill: 2 }, hostT.self, "cp4"), { reliable: true });
+  network.flush();
+  assert.ok(notices.includes("unknownVersion"));
+  assert.deepEqual(left, ["version"]);
+});
+
+test("in a relay room only the room's build is played with: a CP3 player there is noticed and not read", () => {
+  const network = createLoopbackNetwork({ star: true });
+  const hostT = network.join("Host");
+  const ann = createLegacySession({ transport: hostT, me: { name: "Ann", truck: "BIGFOOT.TRK", skill: 1 }, hasTrack: () => true, trackCrc: async () => 0x1234, profile: PROFILES.cp4 });
+  const cp3 = network.join("Cp3");
+  const notices = [], left = [];
+  ann.on("notice", (n) => notices.push(n.code));
+  ann.on("left", (e) => left.push(e.reason));
+  network.flush();
+  cp3.send(null, encodePacket("info", { truck: "GRAVE.TRK", version: 0x3400, location: 5, skill: 2 }, cp3.self, "cp3"), { reliable: true });
+  network.flush();
+  assert.ok(notices.includes("unknownVersion"));
+  assert.deepEqual(left, [], "a player we cannot read does not end the host's session");
+  assert.equal(ann.state().players.find((p) => p.dpid === cp3.self)?.unreadable, true);
+  cp3.send(null, encodePacket("ready", { ready: 1 }, cp3.self, "cp3"), { reliable: true });
+  network.flush();
+  assert.notEqual(ann.state().players.find((p) => p.dpid === cp3.self)?.ready, true, "its packets are dropped");
+});

@@ -12,7 +12,7 @@ import { msg } from "./strings.js";
 
 /** The switches as the Options screen lists them: the setting's key, its name and what it does. */
 export const VISUAL_OPTIONS = Object.freeze([
-  Object.freeze({ key: "terrainSmoothing", label: msg("Smooth terrain"), hint: msg("Rounds the ground's 32 ft facets and gives steep slopes and cliffs relief. Trucks drive on the same ground as before, but on a 4x4 Evolution 2 track, which is smoothed as that game smooths it and driven on so.") }),
+  Object.freeze({ key: "terrainSmoothing", label: msg("Smooth terrain"), hint: msg("Rounds the ground's 32 ft facets and gives steep slopes and cliffs relief on MTM1, MTM2 and CART Precision Racing tracks, as a look only: trucks still drive on the game's facets. 4x4 Evolution tracks and Community Patch 4 Spline tracks are always drawn as the smoothed ground their game drives on.") }),
   Object.freeze({ key: "enhancedWater", label: msg("Reflective water"), hint: msg("Wind waves that gust, the sky and the hills mirrored in it, the sun's glint, a shore that shallows, wakes and rings where the trucks stir it, and solid ice in Snow.") }),
   // A slider, not a switch: None (off), Few, Default or Max, how thick the fog is (game/atmosphere.js `FOG_AMOUNTS`).
   Object.freeze({ key: "volumetricWeather", label: msg("Volumetric weather"), hint: msg("Fog that lies in layers and drifts, a sea of cloud in the valleys with a lit top, and rain and snow that fall through the air around you. The slider sets how thick the fog is: None is the game's own fog, Max the thickest."), amountKey: "weatherAmount", levels: WEATHER_LEVEL_NAMES, defaultLevel: DEFAULT_WEATHER_LEVEL, level: weatherLevel }),

@@ -6,8 +6,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  BACK_S, ESCAPE_LIMIT_S, ESCAPE_TRIES, PUSH_S, ROUND_S, STUCK_S, createRacerRecovery, racerRecovering, racerRecoveryBefore, racerRecoveryStep,
-  returnPlan,
+  BACK_S, ESCAPE_LIMIT_S, ESCAPE_TRIES, HELI_COST_S, PUSH_S, ROUND_S, STUCK_S, createRacerRecovery, racerRecovering, racerRecoveryBefore,
+  racerRecoveryStep, returnPlan,
 } from "../src/game/racer-recovery.js";
 import { AROUND_S, createRumbleDriver, driveToPoint } from "../src/game/rumble-ai.js";
 import {
@@ -44,11 +44,15 @@ test("a racer that missed a checkpoint drives back round and through it", () => 
   assert.ok(!racerRecovering(r));
 });
 
-test("the way back to a missed gate: reverse when it is just behind, turn round when it is not, the helicopter when far", () => {
+test("the way back to a missed gate: reverse when it is just behind, turn round when already turned, the helicopter past 6 s", () => {
   const gate = { pos: [0, 0, 0], psi: 0 };
   assert.equal(returnPlan(truck([0, 0, 30], 0), gate).kind, "reverse", "just past it and still facing the course's way");
   assert.equal(returnPlan(truck([0, 0, 30], Math.PI), gate).kind, "turn", "already turned back");
-  assert.equal(returnPlan(truck([90, 0, 200], 0), gate).kind, "turn", "well past it and off to the side");
+  // Well past it, off to the side and still facing the course's way: two U-turns and 280 ft, over the helicopter's
+  // 6 s (HELI_COST_S; measured, a drive back from here took 16 to 30 s).
+  const past = returnPlan(truck([90, 0, 200], 0), gate);
+  assert.equal(past.kind, "heli", "well past it and off to the side");
+  assert.ok(past.cost.turn > HELI_COST_S && past.cost.turn < 15, `the turn would cost ${past.cost.turn} s`);
   assert.equal(returnPlan(truck([0, 0, 1500], 0), gate).kind, "heli", "far past it: the helicopter is quicker");
   // Reversing backs the truck in reverse gear toward the approach side.
   const r = createRacerRecovery({ returns: true, unsticks: true });
@@ -58,22 +62,44 @@ test("the way back to a missed gate: reverse when it is just behind, turn round 
   assert.equal(s.controls.gear, GEARS.REVERSE);
 });
 
+test("a gate given up to the helicopter is not driven back to again while the miss stands; a new miss is planned afresh", () => {
+  const r = createRacerRecovery({ returns: true, unsticks: false });
+  const missed = { pos: [0, 0, 0], psi: 0, half: [20, 10, 2] };
+  // Well past the gate, facing the course's way: the helicopter is the plan.
+  const s = truck([90, 0, 200], 0, 60);
+  assert.equal(racerRecoveryStep(r, { state: s, dt: DT, gears: GEARS, missed }), "heli");
+  assert.ok(!racerRecovering(r), "the truck is back in the autopilot's hands");
+  // Set down before the gate by the lift, the miss still standing: the autopilot's controls stand, no new plan.
+  s.pos = [0, 0, -200];
+  assert.equal(racerRecoveryStep(r, { state: s, dt: DT, gears: GEARS, missed }), "course");
+  assert.equal(r.mode, "course");
+  // Through the gate (the miss cleared), then another gate missed: planned as any other.
+  racerRecoveryStep(r, { state: s, dt: DT, gears: GEARS, missed: null });
+  const next = { pos: [0, 0, 1000], psi: 0, half: [20, 10, 2] };
+  s.pos = [0, 0, 1030];
+  assert.equal(racerRecoveryStep(r, { state: s, dt: DT, gears: GEARS, missed: next }), "own");
+  assert.equal(r.plan, "reverse");
+});
+
 test("driving back, a truck that makes headway is never fetched; one jammed calls the helicopter after its tries or about 15 s", () => {
   const missed = { pos: [0, 0, 0], psi: 0, half: [20, 10, 2] };
-  // Turned round and closing on the gate's approach side, slowly: no helicopter however long it takes.
+  // Turned round toward the gate's approach side, 250 ft off (under the helicopter's 6 s), and closing on it
+  // slowly: no helicopter however long it takes.
+  const toward = Math.atan2(-120, -220);
   const r = createRacerRecovery({ returns: true, unsticks: true });
-  const s = truck([300, 0, 300], Math.PI, 20);
+  const s = truck([120, 0, 150], toward, 20);
   let verdict = null;
-  for (let t = 0; t < 40 && verdict !== "heli"; t += 0.25) {
+  for (let t = 0; t < 40 && verdict !== "heli" && r.phase !== "through"; t += 0.25) {
     verdict = racerRecoveryStep(r, { state: s, dt: 0.25, gears: GEARS, missed, trucks: [] });
     // Moves 5 ft toward the approach point each quarter second.
     const to = [0 - s.pos[0], -70 - s.pos[2]], d = Math.hypot(...to);
     if (d > 6) { s.pos[0] += (to[0] / d) * 5; s.pos[2] += (to[1] / d) * 5; }
   }
   assert.notEqual(verdict, "heli", "no clock while it gets somewhere");
-  // Jammed: it never moves.
+  assert.equal(r.phase, "through", "it reached the approach side");
+  // Jammed there: it never moves.
   const jam = createRacerRecovery({ returns: true, unsticks: true });
-  const stuck = truck([300, 0, 300], Math.PI, 0);
+  const stuck = truck([120, 0, 150], toward, 0);
   let at = null;
   for (let t = 0; t < 60 && at === null; t += 0.25) {
     stuck.controls.throttle = 1;

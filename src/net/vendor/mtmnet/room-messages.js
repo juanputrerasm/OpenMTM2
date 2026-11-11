@@ -288,20 +288,34 @@ export const RELAY_TAG = 0xc3;
 export const RELAY_HEADER = 4;
 /** The most payload bytes one relay frame may carry. */
 export const RELAY_MAX_PAYLOAD = 1200;
-/** The relay's rate per connection, in bytes of whole frames (header included): sustained per second, and the burst. */
-export const RELAY_RATE = Object.freeze({ bytesPerSecond: 32768, burst: 65536 });
+/** Flags bit 0: the sender meant the frame to be delivered reliably. */
+export const RELAY_RELIABLE = 1;
+/** The most payload bytes a reliable relay frame may carry: udpnet's own reliable limit (OUTREL_MAXLEN), so one game packet never needs two layouts. */
+export const RELAY_MAX_RELIABLE = 1024;
+/**
+ * The relay's rate per connection, in bytes of whole frames (header included): sustained per second, and the burst.
+ * 48 KB/s leaves headroom over a CP4 host's 25 position packets a second for its own truck and 7 computer trucks
+ * (8 x 25 x 120 bytes, about 24 KB/s), as CP4's developers asked.
+ */
+export const RELAY_RATE = Object.freeze({ bytesPerSecond: 49152, burst: 65536 });
+
+/** The most payload bytes a relay frame with these flags may carry. */
+export const relayMaxPayload = (flags) => (flags & RELAY_RELIABLE ? RELAY_MAX_RELIABLE : RELAY_MAX_PAYLOAD);
 
 /**
  * A relay frame:
  *
  *   0 u8 tag (0xC3)   1 u8 flags (the client's own; the server passes them on)   2 u16 member   4 payload (0 to 1200 bytes)
  *
+ * Flags bit 0 (RELAY_RELIABLE) marks a frame its sender meant to be reliable; such a frame carries at most 1024 bytes.
+ *
  * From a client, `member` is the member it is for, 0 for every other member of the room. From the server, it is
  * the member who sent it, which the server writes over whatever the sender put there.
  */
 export function encodeRelay({ flags = 0, member = 0, payload = new Uint8Array(0) } = {}) {
   const body = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
-  if (body.byteLength > RELAY_MAX_PAYLOAD) throw new RangeError(`A relay payload is at most ${RELAY_MAX_PAYLOAD} bytes.`);
+  const max = relayMaxPayload(flags);
+  if (body.byteLength > max) throw new RangeError(`A ${flags & RELAY_RELIABLE ? "reliable " : ""}relay payload is at most ${max} bytes.`);
   const bytes = new Uint8Array(RELAY_HEADER + body.byteLength);
   bytes[0] = RELAY_TAG;
   bytes[1] = flags & 0xff;
@@ -313,6 +327,6 @@ export function encodeRelay({ flags = 0, member = 0, payload = new Uint8Array(0)
 
 /** `{ flags, member, payload }` (the payload a view into `bytes`), or null when it is not a valid relay frame. */
 export function decodeRelay(bytes) {
-  if (!bytes || bytes.byteLength < RELAY_HEADER || bytes.byteLength > RELAY_HEADER + RELAY_MAX_PAYLOAD || bytes[0] !== RELAY_TAG) return null;
+  if (!bytes || bytes.byteLength < RELAY_HEADER || bytes[0] !== RELAY_TAG || bytes.byteLength > RELAY_HEADER + relayMaxPayload(bytes[1])) return null;
   return { flags: bytes[1], member: bytes[2] | (bytes[3] << 8), payload: bytes.subarray(RELAY_HEADER) };
 }

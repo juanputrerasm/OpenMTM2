@@ -7,12 +7,19 @@
   - **Catching a slide**: when the truck's travel is more than `slipOk` off its nose at speed, the wheel turns
     toward the travel (counter-steer) and the throttle eases, fully at `slipFull`. Never in the air or on two
     wheels (a wheel turned on landing trips the truck), and never by braking (a truck braked sideways rolls).
+  - **A drift is not a spin**: in a corner, a truck travelling toward the outside while turning no faster than the
+    path demands (its yaw rate under `oversteer` times speed over the arc's radius) is at the limit of grip, not
+    spinning: the throttle eases but the autopilot's wheel stands. Counter-steering there sent trucks 50 ft wide
+    of the gate at Valparaíso Racing 2026's arc 25 on every lap. The wheel is turned only when the yaw rate runs
+    ahead of the path, the rear stepping out.
   - **Facing the wrong way**: a slow truck whose way down the course lies more than `wrongWay` off its nose backs
     round (a three-point turn) instead of driving a wide circle.
   - **Steering clear** (`cpuAvoidStep`): the solid objects and ground-box walls in its way (game/obstacle-avoid.js).
 
   The figures were tuned on the stock circuits, eight computer trucks for 4 minutes (docs/CHANGELOG.md): on
   Professional the field covers about 13 percent more laps with half the spins, on Intermediate about 4 percent.
+  The drift rule, with the learned pace (game/cpu-pace.js) and the cheaper helicopter (game/racer-recovery.js),
+  took Valparaíso Racing 2026 on Professional from 18 to 31 laps in 300 s with 41 spins down to 7.
   The steering added is taken back before the next autopilot step (the autopilot's steering is smoothed from its
   last value). Pure, so it runs under Node.
 */
@@ -28,11 +35,13 @@ const LOCK = 0.45;
  * - `yawDamp`: steering against the yaw rate per rad/s, scaled by speed over 100 ft/s;
  * - `minSpeed`: below this speed (ft/s) the truck is left to the autopilot; `minWheels` on the ground to steer it;
  * - `wrongWay`, `wrongSpeed`, `turned`, `turnS`: the course this far off the nose (radians) under this speed starts a
- *   three-point turn, which ends inside `turned` or after `turnS` seconds.
+ *   three-point turn, which ends inside `turned` or after `turnS` seconds;
+ * - `oversteer`: in a corner, a slide toward the outside is counter-steered only with the yaw rate over this many
+ *   times the path's (speed times the arc's curvature); under it the truck drifts and only the throttle eases.
  */
 export const CPU_CONTROL = Object.freeze({
   slipOk: 0.18, slipFull: 0.5, slipGain: 1.3, slipEase: 0.5, yawDamp: 0.08, minSpeed: 25, minWheels: 3,
-  wrongWay: 2.1, wrongSpeed: 25, turned: 1.0, turnS: 3,
+  wrongWay: 2.1, wrongSpeed: 25, turned: 1.0, turnS: 3, oversteer: 1.8,
 });
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -54,9 +63,11 @@ export function cpuControlBefore(m, controls) {
 
 /**
  * One step after the autopilot. `state` is the truck (bvel, rates, euler, pos, tires, controls), `aim` a point down
- * the course (its segment's end) or null, `gears` { FIRST, REVERSE }. Returns "turn" while it backs round, else null.
+ * the course (its segment's end) or null, `gears` { FIRST, REVERSE }, `curvature` the signed curvature of the
+ * truck's course segment (1 / radius, positive turning right; 0 on a straight, game/cpu-pace.js `segmentCurvature`).
+ * Returns "turn" while it backs round, else null.
  */
-export function cpuControlStep(m, state, dt, aim, gears, T = CPU_CONTROL) {
+export function cpuControlStep(m, state, dt, aim, gears, T = CPU_CONTROL, curvature = 0) {
   const c = state.controls;
   const [vx, , vz] = state.bvel;
   const speed = Math.hypot(vx, vz);
@@ -95,7 +106,11 @@ export function cpuControlStep(m, state, dt, aim, gears, T = CPU_CONTROL) {
   const over = Math.abs(slip) - T.slipOk;
   if (over > 0) {
     const w = Math.min(1, over / (T.slipFull - T.slipOk));
-    steer = steer * (1 - w) + clamp(slip * T.slipGain, -LOCK, LOCK) * w;
+    // In a corner, travel toward the outside (the slip against the turn) with the truck turning no faster than the
+    // path is a drift: the autopilot's wheel stands. Positive yaw rate turns right, as positive curvature does.
+    const drift = curvature !== 0 && Math.sign(slip) === -Math.sign(curvature)
+      && Math.abs(state.rates[2]) < Math.abs(speed * curvature) * T.oversteer;
+    if (!drift) steer = steer * (1 - w) + clamp(slip * T.slipGain, -LOCK, LOCK) * w;
     c.throttle *= 1 - T.slipEase * w;
     c.brakeFront = Math.min(c.brakeFront, 0.2);
     c.brakeRear = Math.min(c.brakeRear, 0.2);

@@ -82,6 +82,8 @@ const LIGHT_MARGIN = 1300;
 const LIGHT_FAR = 34000;
 /** How much further than its slice each cascade reaches, as a fraction: the camera's free travel. */
 const SLACK = 0.12;
+/** A moving caster is drawn into a cascade whose depth band lies within this many of its radii of it (`_overlay`). */
+const CASTER_BAND_MARGIN = 3;
 /** Depth room behind a cascade's circle toward the sun, in feet, for tall casters. */
 const DEPTH_MARGIN = 2500;
 /** Normal offset per cascade, as a fraction of that cascade's texel: enough to stop acne on the terrain. */
@@ -576,20 +578,42 @@ export class SunShadows {
     light.shadow.updateMatrices(light);
     const frustum = light.shadow.getFrustum();
     const patches = [];
+    /*
+      A cascade's map is read only for the pixels in its band of view depth (CSMShader picks the cascade by
+      vViewPosition.z, no fade), so what moves is drawn into a cascade only where its shadow can fall in that band: a
+      truck 100 ft away is drawn into the near cascade alone, not into all four whose circles it stands in. The margin
+      is the caster's size a few times over, for the shadow it throws along the light. Measured on Farm Road 29 with
+      eight trucks near, the shadow pass fell from about 440 draw calls a frame to 180 to 250, and a cascade with
+      nothing moving in its band skips its draw (and three.js's walk of the whole scene for it) altogether.
+    */
+    const i = this._csm.lights.indexOf(light);
+    const far = Math.min(this._camera.far, this._csm.maxFar);
+    const bandNear = i > 0 ? (this._csm.breaks[i - 1] ?? 0) * far : 0;
+    const bandFar = (this._csm.breaks[i] ?? 1) * far;
+    const inverse = this._camera.matrixWorldInverse;
+    const inBand = (sphere) => {
+      const depth = -_point.copy(sphere.center).applyMatrix4(inverse).z;
+      const margin = sphere.radius * CASTER_BAND_MARGIN;
+      return depth + margin >= bandNear && depth - margin <= bandFar;
+    };
+    let any = false;
     for (const truck of this._truckCasters) {
       const reach = this._truckSphere(truck);
-      const shown = !!(reach && frustum.intersectsSphere(reach));
+      const shown = !!(reach && frustum.intersectsSphere(reach) && inBand(reach));
       this._setCast(truck.meshes, shown);
-      if (shown) this._patch(light, reach, patches);
+      if (shown) { any = true; this._patch(light, reach, patches); }
     }
     for (const mesh of this._dynamicCasters) {
       const geometry = mesh.geometry;
-      if (!geometry) continue;
+      if (!geometry) { mesh.castShadow = false; continue; }
       if (!geometry.boundingSphere) geometry.computeBoundingSphere();
       _sphere.copy(geometry.boundingSphere).applyMatrix4(mesh.matrixWorld);
-      if (frustum.intersectsSphere(_sphere)) this._patch(light, _sphere, patches);
+      const shown = frustum.intersectsSphere(_sphere) && inBand(_sphere);
+      mesh.castShadow = shown;
+      if (shown) { any = true; this._patch(light, _sphere, patches); }
     }
-    this._setCast(this._dynamicCasters, true);
+    // Nothing that moves falls in this cascade's band: its restored static copy is the whole picture.
+    if (!any) { this._restoreCast(); return []; }
     this._suppressClear = true;
     try {
       light.shadow.needsUpdate = true;
@@ -831,7 +855,8 @@ export function enableSunShadows({ renderer, scene, camera, world, sun, trucks =
   });
   // A truck's lamps are light, not things: a beam drawn in the air casts no shadow. Nor does a body's reflection
   // (render/truck-reflection.js), the body drawn again over itself: its shadow would be the body's, drawn twice.
-  for (const truck of trucks) truck.traverse((o) => { if (o.isMesh && o.parent?.name !== "lamps" && !o.userData.reflection) { o.castShadow = true; o.receiveShadow = true; if (o.material) o.material.shadowSide = o.material.side; } });
+  const lampLight = (o) => { for (let node = o.parent; node; node = node.parent) if (node.name === "lamps" || node.name === "evo-lamp-glow") return true; return false; };
+  for (const truck of trucks) truck.traverse((o) => { if (o.isMesh && !lampLight(o) && !o.userData.reflection) { o.castShadow = true; o.receiveShadow = true; if (o.material) o.material.shadowSide = o.material.side; } });
   // The placed models are instanced over every copy; only the original's instances cast (track-scene.js).
   world.getObjectByName("objects")?.traverse((o) => { if (o.isInstancedMesh) o.castShadow = true; });
   // 4x4 Evolution's forest is drawn once, by chunks at the copy nearest the camera (track-scene.js `createForest`): each

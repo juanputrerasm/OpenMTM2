@@ -249,6 +249,25 @@ export default async function mount(container, context, { replay, namesMode: sta
   const contacts = drawn.map(() => new Map());
   /** What a truck at game (x, y, z) stands on: a bridge's deck, the ground, or in Snow the ice over the level's water. */
   const standOn = (x, z, y) => standOnFt(scenery.floorAt(x, z, y), replay.weather ?? 0, build.waterLevelFt ?? null);
+  /**
+   * Each wheel of truck `i`, as the race's simulation would have it: its hub, whether it is on the ground, and the
+   * surface value under it. A wheel on something standing over the ground (a deck more than half a foot over the
+   * terrain) never takes the terrain's water (OpenMTM2's own rule, OpenPhotex `objectSurfaceValue`; docs/MTM2_PHYSICS.md 2.4).
+   */
+  const wheelsOf = (i) => [0, 1, 2, 3].map((k) => {
+    const hub = drawn[i].tireHub(k), onGround = hub[1] - drawn[i].tireRadius - standOn(hub[0], hub[2], hub[1]) < ON_GROUND_FT;
+    let surface = madeOf ? madeOf.surface(hub[0], hub[1] + 100, hub[2]) : -1;
+    if (madeOf && onGround && scenery.floorAt(hub[0], hub[2], hub[1]) > madeOf.height(hub[0], hub[2]) + 0.5) surface = mtm2Sim.objectSurfaceValue(surface);
+    return { hub, onGround, surface };
+  });
+  /** The type most of a truck's wheels on the ground stand on (ties to the lower wheel number), or null with none down. */
+  const mostlyOn = (wheels) => {
+    const counts = new Map();
+    for (const w of wheels) if (w.onGround && w.surface >= 0) counts.set(mtm2Sim.surfaceType(w.surface), (counts.get(mtm2Sim.surfaceType(w.surface)) ?? 0) + 1);
+    let type = null, most = 0;
+    for (const [t, n] of counts) if (n > most) { type = t; most = n; }
+    return type;
+  };
   let filmClock = null;
   const waterSurface = scenery.water ?? createWaterSurface(waters, effectsArt, look);
   if (!scenery.water) cleanups.push(() => waterSurface?.dispose());
@@ -550,14 +569,18 @@ export default async function mount(container, context, { replay, namesMode: sta
       // What the picture tells of each truck for its sounds (game/replay-sound.js `extras`).
       const extras = state.trucks.map((pose, i) => {
         if (!pose || !drawn[i]) return null;
-        const tires = [0, 1, 2, 3].map((k) => {
-          const hub = drawn[i].tireHub(k), onGround = hub[1] - drawn[i].tireRadius - standOn(hub[0], hub[2], hub[1]) < ON_GROUND_FT;
-          return { onGround, surface: madeOf ? madeOf.surface(hub[0], hub[1] + 100, hub[2]) : -1 };
+        const wheels = wheelsOf(i);
+        const tires = wheels.map(({ onGround, surface }) => ({ onGround, surface }));
+        // In water (0x41bbd0, as the race's): a hub under the water there (a CP4 lake's or the track's), or a wheel on
+        // the ground on water or deep water; never in Snow.
+        const inWater = weatherId !== 5 && wheels.some(({ hub, onGround, surface }) => {
+          const at = waterLevelAt(build.lakes, hub[0], hub[2], level);
+          return (at !== null && hub[1] < at) || (onGround && surface >= 0 && [3, 13].includes(mtm2Sim.surfaceType(surface)));
         });
         const vy = filmDt > 0 && lastHeight[i] !== undefined ? (pose.pos[1] - lastHeight[i]) / filmDt : 0;
         lastHeight[i] = pose.pos[1];
         return {
-          tires, vy, inWater: weatherId !== 5 && level !== null && pose.pos[1] < level,
+          tires, vy, inWater,
           clearance: pose.pos[1] - ground(pose.pos[0], pose.pos[2]), impact: Math.max(0, ...hullHits[i].map((hit) => hit.force)),
         };
       });
@@ -580,8 +603,10 @@ export default async function mount(container, context, { replay, namesMode: sta
         trucks: state.trucks.map((pose, i) => {
           if (!pose || !drawn[i]) return null;
           // A wheel is on the ground when its tread is at it, at the deck of a bridge it is on, or at the ice.
-          const tires = pose.tires.map((tire, k) => { const hub = drawn[i].tireHub(k); return { ...tire, onGround: hub[1] - drawn[i].tireRadius - standOn(hub[0], hub[2], hub[1]) < ON_GROUND_FT }; });
-          const type = madeOf ? mtm2Sim.surfaceType(madeOf.surface(pose.pos[0], pose.pos[1] + 100, pose.pos[2])) : 0;
+          const wheels = wheelsOf(i);
+          const tires = pose.tires.map((tire, k) => ({ ...tire, onGround: wheels[k]?.onGround ?? false }));
+          // What the wheels down stand on, as the race's effects take it; else the ground under the body.
+          const type = mostlyOn(wheels) ?? (madeOf ? mtm2Sim.surfaceType(madeOf.surface(pose.pos[0], pose.pos[1] + 100, pose.pos[2])) : 0);
           return { object: drawn[i], pose: { ...pose, tires, forward: pose.speed }, surface: { family: surfaceFamily(type), type }, tires: null, radius: drawn[i].tireRadius, wheels: drawn[i].wheels, tread: drawn[i].tread };
         }),
       });

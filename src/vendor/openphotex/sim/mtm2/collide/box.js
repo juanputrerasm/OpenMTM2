@@ -34,6 +34,17 @@ export function levelBoxCollides(box, detailLevel = 2) {
     return !NON_COLLIDING_TYPES.has(box.type) && (box.priority ?? 0) <= detailLevel;
 }
 /**
+ * Whether a truck that is not the player's own brings a box into the frame's object list by being
+ * near it (§14.15; retail 0x554802..0x554844, CP4 0x1403b39c0..0x1403b3a10, the same rule): not a
+ * box in a checkpoint's footprint (type 11) nor a box with no model, unless the count at
+ * `[0x646c40] + 0xc` (CP4 `[0x140945560] + 0x18`; believed to be a network game's other drivers)
+ * is at least 1. The player's truck, ramps and listed boxes bring in every box; once listed, a box
+ * meets every truck.
+ */
+export function listedByComputerTruck(type, hasModel, networkDrivers = 0) {
+    return networkDrivers >= 1 || (type !== 11 && hasModel);
+}
+/**
  * A level box as a collision object (§14.15): centred on its position, rotated by its angles,
  * sized by its model's vertex bounds when it has a model (else the SIT's sizes). Camera-facing
  * types 8 and 9 take the larger of length and width for both, halved. Null without a position.

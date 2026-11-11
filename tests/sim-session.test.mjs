@@ -446,6 +446,11 @@ test("GOLD mode: a reversed course sends the CPU trucks the other way, Ctrl+T cy
   session.step({ slew: { forward: 1, right: 0, up: 1, yaw: 0, roll: 0, pitch: 0, fast: false } });
   assert.equal(session.race.clock, clock, "the race stands still in slew mode");
   assert.ok(session.state.pos[1] > before[1], "the truck rises");
+  // Slew mode moves the truck the camera is on (the Camera key's choice), not the player's (exe analysis 15).
+  const mine = [...session.state.pos], theirs = [...session.race.trucks[3].s.pos];
+  session.step({ slew: { forward: 0, right: 0, up: 1, yaw: 0, roll: 0, pitch: 0, fast: false, truck: 3 } });
+  assert.deepEqual([...session.state.pos], mine, "the player's truck stays");
+  assert.ok(session.race.trucks[3].s.pos[1] > theirs[1], "the watched truck rises");
   assert.throws(() => session.command("nope"), /Unknown/);
 });
 

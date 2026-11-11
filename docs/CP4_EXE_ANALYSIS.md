@@ -147,6 +147,15 @@ Loader `FUN_140204040`, parser `FUN_1402034b0`. File `WORLD\<lvl>.WTR`, same POD
 - **Physics:** `FUN_140203ed0` runs per tire: on a lake tile (TMAP lookup) with the contact point
   below the surface, the surface code becomes `0x05140000 | low16`, i.e. 1300 (deep water).
   `FUN_140205570` returns the water level at (x, z), lake or track water (24 callers).
+- **The track's own water is still retail's (CONFIRMED):** the surface lookup (`0x1403c51e0` ->
+  `FUN_1401bfae0`) takes a .SRF face under the point first (`FUN_1401c1190` -> `FUN_1402066c0`, only while
+  surface boxes exist, `[0x147428b90]`), then the ground box, then the terrain: 1300 (800 in Snow) when the
+  terrain height (`FUN_1401c0600`, terrain only) is at or below the LVL water (`[0x1409494a4]`), whatever the
+  queried point's height. Only a WTR lake tests the point. So a tire on a triangle prop with no .SRF, over
+  terrain under the track water (a bridge), stands on deep water for grip, for the per-tire surface code
+  (`FUN_140386330`, retail `0x46a2c0`: the water commentary) and for the sounds' "in water" (retail
+  `0x41bbd0`: a tire on the ground on 300 or 1300), exactly as in retail. Its water depth is the point's
+  height against the level, so there is no water drag, sinking or splash. OpenMTM2 departs from this on purpose (MTM2_PHYSICS.md 2.4).
 - **Reflections:** lakes are grouped by distinct height, lowest first. The base plane is the track
   water, or the lowest lake if none. A group gets its own pass when more than `waterLakeOwnPass`
   above the base. Extra planes per frame = min(renderer slots - 1, `waterMirrorExtra`), so the cap
@@ -443,7 +452,7 @@ per race frame (INFERRED). The best lap and its splits are kept.
 | 3 + 3 | front axle +0x28c..+0x294, rear axle +0x4fc..+0x504 |
 | 2 | axle angles +0x274, +0x4e4 |
 | 2 | steering +0x298, +0x508 |
-| 4 | truck +0x1e8c..+0x1e98 (UNKNOWN) |
+| 4 | truck +0x1e8c..+0x1e98 (UNKNOWN; retail +0x1728..+0x1734 by the tail shift of 10.1, INFERRED) |
 | 4 | tire +0x54 of each tire (wheel roll angle: INFERRED) |
 | 4 | tire +0xb8 of each tire (spin rate) |
 
@@ -516,17 +525,23 @@ that raceId (or 120 s) and broadcasts 0x29; clients wait for the matching 0x29 (
 on host loss, or on becoming host). "Waiting for: %s" / "Waiting for the race to start" refresh every
 250 ms. A late 0x28 for an already released race gets an immediate 0x29 back.
 
-INFERRED: in the race loop (`FUN_14019d170`) the flag set when this barrier runs (a network game)
-appears to skip the retail `sync` barrier ("Waiting for other players", 0x15) that follows; read
-from the control flow only, not seen at run time.
+CONFIRMED by CP4's developers (reply_to_kmaster_online_rooms_2.md section 1, from their source): when
+this barrier ran, the retail first-frame `sync` barrier ("Waiting for other players", 0x15) is skipped
+(`Game.cpp`, `barrierRan`). The 120 s timeout counts from the host's own load. The retail
+**end-of-race results** sync still runs (`SyncPlayers(30, eResults)` in `RACE.CPP`), so the host of a
+mixed room must answer it.
 
 **PacketVerifyChecksum 0x25 (116 bytes): identical to retail 0x25.** +0x0C char[20] SIT, +0x20
 char[80] name, +0x70 u32 CRC; the CRC (`FUN_140025ea0`) is CRC-32/MPEG-2 over the whole POD that
 holds `WORLD\<SIT>`, cached per POD.
 
 **PacketCollision 0x27 (44 bytes):** receiver `FUN_140211220`. +0x0C target truck, +0x10 source
-vehicle, +0x14 3 x f32 linear impulse, +0x20 3 x f32 angular impulse. Applied only to the local
-player's truck, or on the host to a truck no human drives; 0.3 s cooldown per source. dv = J / mass,
+vehicle, +0x14 3 x f32 linear impulse, +0x20 3 x f32 angular impulse. The impulses are in the **hit
+truck's body frame**, not world space, each summed over one physics tick (force x dt); corrected by
+CP4's developers, who first read as world space. Applied only to the local player's truck, or on the
+host to a truck no human drives. **Mirror suppression**, not a cooldown per source: if the hit truck's
+own simulation saw contact with that attacker within the last 0.30 s, the packet is dropped entirely,
+since both machines already reacted to the same contact. Otherwise: dv = J / mass,
 mass = sum of the four weights (+0x1040, +0x5a0, +0x2ac, +0x51c) / 32.174; angular part / Ixx, Iyy,
 Izz. Closest approach must be within 8 ft, scaled by (8 - d)/5 between 3 and 8 ft; dv capped at
 clamp(1.25 x closing speed, 15, 60), then 22 ft/s; a 30 ft/s per-truck budget drains at 25 ft/s per
@@ -534,9 +549,316 @@ second.
 
 **0x26 (24 bytes):** +0x0C u32 truck index, +0x10 u32 segments passed (written to truck +0x8fc),
 +0x14 f32 total time (written to truck +0xfa4, only when > 0). Ignored for the local player's own
-truck. INFERRED: the owner's race progress, so standings agree. Same in CP3.
+truck. CONFIRMED by CP4's developers: `{int number, int staged, float totalracetime}`,
+**owner-authoritative**: each machine sends its own truck's staging, disqualification and finish
+state, and receivers take it as truth. Same in CP3.
+
+**Send rate (CONFIRMED by CP4's developers):** one 0x02 per new physics tick (25 a second), sent right
+after the tick runs; a frame that runs no tick sends nothing. The host also sends every computer truck
+no human drives. At 120 bytes a relay frame that is 3.0 KB/s a truck, about 24 KB/s for a host with
+its own truck and 7 computer trucks.
+
+**Version (CONFIRMED by CP4's developers):** 0x3402 is `(build << 8) | rev` from `version.h`
+(2.0.52.2). It names a layout set, not a feature level: every machine in a session runs the same
+build, and nothing negotiates. A client that does not know a version refuses it rather than guess.
 
 **MTU3 transport:** unchanged from the CP3 description in `MONSTER_EXE_ANALYSIS.md` 14.5: same 20-byte
-header and 1200-byte payload limit (`FUN_1400e5560`), same 11 message types (`FUN_1400e46b0`), same
+header and 1200-byte payload limit (`FUN_1400e5560`; reliable payloads at most 1024 bytes,
+`OUTREL_MAXLEN`, per CP4's developers), same 11 message types (`FUN_1400e46b0`), same
 send-mode rule (`FUN_1400e0dc0`). New: `[Network] UPnP` default 1 (`FUN_1400e6730`, status in
 `FUN_1400e6900`) and the `.\system\netdiag.txt` log. `[Network] Port` default **2350** (0x92e).
+
+## 10. Vehicle dynamics and timing
+
+As with the rest of this document: Fila published no source code for CP4; these are facts read from our
+own decompile of the binary. CP4 keeps a debug symbol table (0x1407ca900..0x1407d2000, 32-byte entries
+{name, type, size, address}) that names most physics globals with TRI's original names; names below in
+`code` come from it.
+
+### 10.1 Truck struct (CONFIRMED)
+
+Trucks are 0x1f18 bytes (retail 0x17ac). Offsets up to +0x1100 are retail's. The tail moved by +0x764:
+human flag +0x1ed0 (retail +0x176c), last impact force +0x1ec4 (+0x1760), damage code +0x1ec8 (+0x1764).
+By the same shift the ghost fields of section 7, +0x1e8c..+0x1e98, are retail +0x1728..+0x1734 (INFERRED).
+
+### 10.2 Fixed tick and substeps (CONFIRMED, race loop `FUN_14019d170`, step `FUN_14039f3b0`)
+
+- The race loop adds the frame time to an accumulator capped at 0x28f4/65536 s (about 160 ms). While it
+  holds more than 0xa3c it runs one **tick** with `deltaT` = 0xa3d/65536 s (**40 ms**, 25 Hz), at most
+  4 ticks per frame; time beyond that is dropped (the game slows down).
+- Once per tick: remote poses, the game tick `FUN_1401db310` (keyboard steering `FUN_1401dc530`, then the
+  step), the net pose ring, the ghost recorder and the tick counter `DAT_14572fd9c` (the 25 Hz tick of
+  section 9).
+- After the ticks every truck (position, angles wrapped, axles, tires) and every moving box is drawn
+  between the previous and the current tick with alpha = remainder / 2621; the real state is restored
+  after drawing.
+- The step takes dt = deltaT x `sim_rate_scaler` (1.0). Retail's split (dt > 0.1: n = trunc(10 dt) + 1)
+  is kept and never fires at 40 ms. The new split runs when `simSubstepMs` > 0, the retail split did not,
+  the game is online (`netPlay`) or `simSubstepOffline` is set, and dt > 1.25 x substep: n =
+  round(dt / substep) clamped 2..8, dt /= n.
+- Per substep: joystick input `FUN_1401dbf40`, then the frame `FUN_14038e600` (race rules, object steps,
+  drag staging, broadphase, pair tests, post-step per truck). The autopilot `FUN_140369c40` runs only on
+  the first substep (`gAiRunNow`), with dt set to the whole tick (n x dt).
+- Result (INFERRED from the arithmetic): offline by default one 40 ms physics step per tick; online, or
+  offline with `simSubstepOffline=1`, 4 x 10 ms.
+
+| `[Game]` key | Default | Range |
+|---|---|---|
+| simSubstepMs | 10 | 0..40, 0 = off |
+| simSubstepOffline | 0 | boolean |
+| hiResTimer | 1 | QueryPerformanceCounter frame clock |
+
+`[Sound] soundUpdateHz` (default 50) paces sound only.
+
+### 10.3 The truck step (CONFIRMED, `FUN_1403b0dd0`, retail `0x470810`)
+
+Same order and same maths as retail (`MTM2_PHYSICS.md`): helicopter, autopilot, tire geometry, gearbox,
+gravity, drag, normal load, longitudinal and lateral tire forces (the same 25-pair table, now at
+0x14094af90), aero damping, hull contacts, sums, integration, contact probes. Unchanged: spring and
+damper load, brake drag, the 10 mph static hold, the 0.8 grip clamp, the friction circle above Rookie,
+drag coefficients and the 26.74125 damping floor, the surface mu and density table, the tire-cut table,
+weather (Rain 0.8, Snow 0.6), engine, gears and truck defaults, the gearbox.
+
+Changes from retail:
+
+| Rule | CP4 | Retail | Where |
+|---|---|---|---|
+| Suspension rate | (old - new compression) / dt clamped to +-`suspVelMaxFtPerSec` (20 ft/s, 0 = off); it drives the damper | unclamped | axle solve `FUN_14036b980` |
+| Terrain compression | the terrain wheel probe's penetration capped at `terrainComprMaxFt` (6 ft; < 0 = 0, between 0 and 1 = 1, > 500 = 500; 0 = off) | uncapped | `FUN_140374fe0` |
+| Rest clamp | with `gRestClampGroundedOnly` = 1, velocities are zeroed at rest (\|v\| < 0.1, or < 0.5 with 3 or more contacts) only when the truck has at least 3 ground contacts (wheels on the ground plus +0x890) | any contact count | `FUN_1403955a0` |
+| Surface lookup | at the tire bottom (hub y - radius); a WTR lake makes it 1300 (deep water) when that point is below the lake (`FUN_140203ed0`) | at the hub | grip lookups `FUN_1403899e0`, `FUN_140389bb0` |
+| Axle lift cap | `repoAxleMaxTenthFt` (default 0 = off) | none | `FUN_14036b980` |
+| Push-out budget | `repoMaxTenthFt` (default 0 = off) | none | `FUN_140397cc0` |
+
+### 10.4 Computer trucks and Sonic Trucks (CONFIRMED)
+
+- **`[Game] aiGrip`** default **130**, clamped 100..200: the tire factor (+0x8c) times aiGrip/100 for a
+  computer truck (or the player in demo mode), outside drag races and only offline (`netPlay` 0).
+- Drag races: `gDragGripMul` 1.5 multiplies a computer truck's grip limit (+0x90), and
+  `gDragSteerGainMul` 1.5 its autopilot steering slew. 1.0 otherwise.
+- `tire_cf` (the grip constant K) is 1.75, or **3.0** for a computer truck on Professional with the
+  "Sonic Trucks" option (`sonicTruckFlag`, also a tournament `SONIC=` key). Retail used 2.0 and a
+  per-track Sonic flag; CP3 already used 1.75 / 3.0.
+- `straight_brake_scaler` is always 0.45 (retail 1.0 on Professional + Sonic).
+- `curve_speed_scaler` 0.725, **1.25** with Sonic Trucks (retail 0.75). The 1.25 is read from a constant
+  the substep test also uses; whether it is intended is UNKNOWN.
+- Engine torque: x1.1 for a computer truck on Professional + Sonic, x0.9 for a human with `autoShift`,
+  x aiSpeed/100 for computer trucks offline (as CP3, `CP3_EXE_ANALYSIS.md` 5).
+
+### 10.5 Garage and steering (CONFIRMED)
+
+The garage (`FUN_14015acb0`: Tire Cut, Suspension, Transfer Gear) writes the retail formulas: cut into
+the four tires, suspension s = 1.0 / 0.75 / 0.5 for the spring rates and damper 3.5 sqrt(k), the retail
+transfer table (x1.25 Rookie, x0.75 Professional). Joystick steering (`FUN_1401dbf40`) is the CP3 model
+of `CP3_EXE_ANALYSIS.md` 11 (steerCurveMode 0 Classic = retail, 1 Modern by default; steerRange 90,
+steerExpo 0, steerSpeedSens 35). The physics limits (+-0.45 rad front, rear -0.33 x front, x1.25 in drag
+races) are retail.
+
+### 10.6 Crash damage and boxes (CONFIRMED)
+
+- Damage (`FUN_1403d10c0`) is retail: zones 1..12, level by impact force (10000 / 30000). No physics
+  reads the damage code (INFERRED). `allowCrashDamage` is 0 in the INI reader but 1 on a fresh install.
+- **`[Game] offCentreCollision`** default 1 (`FUN_1403bf220`): when a box model's vertical centre
+  (minY + maxY) / 2 is further from the origin than its height, the collision box corners are shifted
+  by it and the bounding radius grows by it. Retail centres every box on the model origin.
+
+### 10.7 Not physics
+
+`gExpWeatherGrip` feeds only the computer driver's prediction; the `[Control] ai*` keys tune the
+computer driver (defaults in the symbol table; no direct readers in the decompile). The CSV writer
+`FUN_140197130` is the retail demo save; the per-tick `HPHYS` log `FUN_1402e6940` (`[Control] humanLap`)
+prints the truck and per-tire fields.
+
+## 11. Collision solver ([Collision], collisionMode 1)
+
+Fila published no source code for CP4; this section is our reading of the binary. With `collisionMode` 1
+the truck-against-box pair test keeps retail's contact model (the deepest support wins at tire +0x94,
+contacts 13..16, push-out, hull solver) and swaps retail's four box-face routines for queries against the
+model's triangles. The tire block, truck and contact offsets are retail's (`MTM2_PHYSICS.md`). Boxes are
+0x368 bytes in CP4 (type +0x274, ground-box flag +0x26c).
+
+### 11.1 Keys (CONFIRMED, reader `FUN_1401826d0`, `.\system\monster.ini`)
+
+| Key | Default | Parse | Use |
+|---|---|---|---|
+| [Game] collisionMode | 1 | int | 0 = classic boxes, no soups, no SRF |
+| buildShapes | 1 | int | 0 = no shapes, no triangle path |
+| shapeReport, showShapes, strideCheck, exportObj, sweepDiag, edgeDiag | 0 | int | diagnostics |
+| climbBlend | 1 | int | wall climb blend (11.6) |
+| climbBlendLoPct / HiPct | 35 / 100 | /100; lo >= 0, hi <= 1, hi <= lo gives hi = lo + 0.01 | blend ramp |
+| supportSlackIn | 6 | /12 ft, 0..2 | extra reach of the cylinder queries |
+| wallSkipDrivable | 1 | int | 11.6 |
+| wallShortPropPct | 0 | /100, >= 0 | 11.6 (fraction of the tire radius) |
+| climbLiftGuard | 0 | int | 11.6 |
+| wallDampRefFtPerSec | 0 | float >= 0 | 11.6 |
+| wallCorrectPct | 30 | /100; <= 0 or > 1 gives 1 | 11.6 |
+| wallCylinder | 1 | int | 11.6, pushable props only |
+| supportCylinder | 1 | int | 11.5 |
+| supportCylHoldTicks | 3 | 0..25 | 11.5 |
+| phantomCornerTenthFt | 30 | int >= 0, /10 | 11.8 |
+| cylinderTreadClip | 1 | bool | 11.3 |
+| bottomPropPct | 40 | /100, 0..1 | 11.7 |
+| supportClampSmall | 1 | int | 11.5 |
+| supportSpokes | 9 | 1..9 | 11.4 |
+| supportProfile | 1 | int | 11.4 |
+| boxOnTri | 1 | int | 11.8 |
+| supportPick | 1 | 0 deepest, 1 nearest, 2 least; > 2 gives 1 | 11.4, only with supportProfile 0 |
+| suspVelMaxFtPerSec | 20 | float >= 0 | 10.3 |
+| supportComprMaxTenthFt | 20 | /10 ft | 11.5 |
+| wallComprMaxTenthFt | 10 | /10 ft | 11.6 |
+| tireScrapeCfHundredth | 50 | /100 | friction of contacts 13..16 |
+| dropFromHit | 1 | int | 11.6 |
+| impulseCap | 1 | int | 11.7 |
+| smallPropImpulse | 0 | int | 11.7 |
+| smallPropRatioPct | 200 | /100; <= 0 gives 1 | small prop = height under ratio x tire radius |
+| smallPropMaxGPct | 100 | /100 | 11.7 |
+| repoMaxTenthFt, repoAxleMaxTenthFt | 0 | /10 ft | 10.3 |
+| bottomCancelSteep | 0 | 0, 1, 2 | 11.7 |
+| bottomCancelLo / Hi / MinPct | 55 / 90 / 0 | /100 | 11.7 |
+| terrainComprMaxFt | 6 | float | 10.3 |
+| repoStepIn, supportRef, seamDropPct | 2 / 0 / 70 | | read but never used (dead) |
+
+### 11.2 Shapes (CONFIRMED)
+
+- **Which boxes:** at level load every box with a model except type 14 gets a shape (`FUN_1401833a0`).
+  The per-query gate (`FUN_140183d00`) needs collisionMode != 0, not a ground box (RA0/RA1 boxes stay
+  classic), a model, and a shape whose hull is not degenerate and whose grid exists. **Pushable (mass > 0)
+  and moving props collide as triangles too**; only the SRF surfaces (section 5) exclude them. Vegetation
+  objects scale their shape per tree.
+- **Triangle soup** (`FUN_14017ce80`): the BIN's vertex list (opcode 2), facets of opcodes 5, 6, 7, 8,
+  0xF, 0x15, 0x19, 0x1A, 0x1B, 0x21 (index lists) and 0xE, 0x11, 0x18, 0x1E, 0x22, 0x29, 0x33, 0x34, 0x38,
+  0x40 (index plus UV), each facet fanned as (v0, vi, vi+1); fewer than 3 vertices or a bad index is
+  skipped. Feet = vertex x 256 / magnify / 256, in the model frame, which is the box frame. No normals
+  stored.
+- **Hull** (`FUN_14017bc50`): a 26-direction k-DOP. Degenerate (3 or fewer hull vertices, or volume
+  < 1e-4) **turns the triangle path off for that model**: flat plates stay classic boxes.
+- **Grid** (`FUN_140179ef0`): cell = (product of the active padded extents / max(1, 2 nTri))^(1/k), each
+  axis ceil(size / cell) clamped 1..96, the largest axis x3/4 while the total exceeds 32768; overflow
+  falls back to a classic box. Speed only.
+- **Ray query** (`FUN_140183a30`): grid walk, Moller-Trumbore **double-sided**, det eps 1e-8, t in
+  0..maxLen, nearest hit (ties to the lower triangle index); returns t, the unit normal **turned to face
+  the ray origin**, the point and the triangle.
+- **Cache:** `CollCache\%016llx.clsh` (FNV-1a 64 over the soup), hull and grid only. Speed only.
+
+### 11.3 Cylinder query (CONFIRMED, `FUN_140181750`)
+
+Centre c, axis a, radius r, half width h, slack s: per triangle the distance from the segment c +- a h;
+with `cylinderTreadClip` 1 the triangle is first clipped to the slab \|(v - c).a\| <= h (a cylinder cut
+at the sidewalls), with 0 the shape is a capsule. A hit needs distance < r + s; penetration = r -
+distance, with the closest triangle point and the unit triangle normal turned toward the axis. Deepest
+wins.
+
+### 11.4 Tire support: nine spokes (CONFIRMED, `FUN_1403813d0`, replaces retail `0x4a6390`)
+
+- Origin: last step's hub (tire +0x24) moved w/2 x side along the articulated axle, i.e. the inner
+  sidewall plane, as retail.
+- Spoke k ends at E = (Ax + sx w/2, Ay - r cy, Az + r cz) from the static anchor A (tire +0x30), in body
+  axes; the ray runs from the last hub toward E now, length \|E - hub\|.
+
+| Spoke | cy | cz | sx | |
+|---|---|---|---|---|
+| 0 | 1 | 0 | 0 | down |
+| 1, 2 | 0.9239 | +-0.3827 | 0 | 22.5 deg forward, back |
+| 3, 4 | 0.7071 | +-0.7071 | 0 | 45 deg forward, back |
+| 5, 6 | 1 | 0 | +-1 | bottom at each sidewall |
+| 7, 8 | 0.7071 | 0 | +-1 | sidewall, 0.707 r below the hub |
+
+- Per hit: n_in = minus the returned normal in truck axes; **rejected unless n_in.y < -0.5** (the face
+  points up at least 60 deg). With (ny', nz') the normalised (y, z) of n_in, P = (Ax + side w/2,
+  Ay + r ny', Az + r nz') and penetration = ((hit - P) . n_face) / (-n_in.y), as retail's box support.
+- `supportProfile` 1 (`FUN_1403a4a50`): rejected unless \|hit.x - Ax\| <= w/2 + 0.5 ft and
+  (hit.z - Az)^2 < r^2; penetration = min(penetration, (hit.y - Ay) + sqrt(r^2 - dz^2)), the wheel's
+  circle at that z. The strictly deepest spoke wins. With profile 0, `supportPick` chooses.
+
+### 11.5 Cylinder, hold and write-back (CONFIRMED)
+
+- **Cylinder** (no spoke accepted, `supportCylinder` 1): 11.3 with centre at the ray origin, axis the
+  truck's x, radius r, half width w/2, slack `supportSlackIn`; same 0.5 gate, P and profile. As coded it
+  spans from w/2 inboard of the inner sidewall to the tire's centre plane (intent UNKNOWN).
+- **Hold** (the cylinder missed, `supportCylHoldTicks` > 0): 64 slots, slot =
+  ((box >> 4) x 0x9E3779B1 ^ (tire >> 4)) & 63, holding {tire, box, world normal, penetration, truck
+  position, ticks}, written by every cylinder hit. Valid while the keys match and the truck moved at most
+  r; returns the normal and penetration x ticks / holdTicks, then ticks - 1. Removing a box clears its
+  slots.
+- No hit at all: nothing written, no classic fallback.
+- **Write-back:** with `supportComprMaxTenthFt` > 0 the penetration is capped at 2 ft; with
+  `supportClampSmall` 1 only on props with 0 < height (box +0x6C) < smallPropRatio x r. Then retail's
+  rule: if deeper than tire +0x94, store it; when > 0 also the ground normal (world), on-ground, the
+  prop flag and height; the lever is sqrt(r^2 + (Ax + side w/2)^2). Source codes (`gTireComprSrc`):
+  0 none, 1 terrain, 2 classic box or ramp, 3 triangle prop, 4 top-crush. The terrain probe runs later in
+  the post-step and wins only when deeper.
+
+### 11.6 Walls (CONFIRMED, `FUN_1403a6330`, after the support of the same wheel)
+
+- Nine rays from last step's hub, against the box's last position, toward hub now + offset, the offset
+  in the articulated axle frame: 0 down r; 1, 2 down 45 deg forward and back; 3, 4 straight forward and
+  back; 5, 6 the bottom at +-w/2; 7, 8 +-w/2 at hub height. maxLen = the offset's length (INFERRED).
+- Per hit, retail's tire contact point: n_in = minus the normal in truck axes, r_eff = r x
+  max(\|sin pitch\|, \|sin roll\|) of n_in, side by the sign of n_in.x, P = hub now + (side w/2,
+  r_eff ny', r_eff nz'), depth = (hit - P) . n_face.
+- `wallSkipDrivable`: a hit is a spring, not a wall, when the face is drivable (n_in.y < -0.5, or
+  `wallShortPropPct` > 0 and the box height < pct x r), the tire is already supported this tick
+  (+0x94 > 0) and depth > 0. Of the rest the deepest is the wall.
+- `wallCylinder`: no wall from the rays and a pushable prop (0 < mass < truck mass): the cylinder query
+  can supply it.
+- Pushable: retail impulse and push. Immovable, when deeper than the stored contact 13..16:
+  1. R = the hit (`dropFromHit` 1) or P; f = clamp((hub.y - R.y) / r, 0, 1); u = unit(hub - R).
+  2. `climbBlend`: unless `climbLiftGuard` refuses it (n.y >= u.y), when u . n > 0,
+     b = smoothstep((f - lo) / (hi - lo)) and n = unit((1 - b) n + b u): a hub above the hit climbs.
+  3. depth = min(depth, 1 ft); with `wallDampRefFtPerSec` > 0 and v . n > 0, depth x= max(0,
+     1 - v . n / ref); depth x= `wallCorrectPct` (0.30).
+  4. Stored as contact 13..16 (depth, world normal, P), with the box sizes for the small-prop rules.
+- The classic six-face tire contact is skipped for gated boxes. The stored wall feeds retail's push-out
+  and the hull solver; friction of contacts 13..16 is `tireScrapeCfHundredth` / 100 (0.5).
+
+### 11.7 Hull, solvers, bottoming (CONFIRMED)
+
+- Hull points 1..12 (`FUN_14036fc00`): a ray from last step's reference point to the point now, nearest
+  triangle, depth = n . (hit - P). A miss is no contact; a zero-length ray uses the classic test.
+- Contact solvers (`FUN_14039c0c0` and the 1..4 contact solvers; read in the 1-contact one, the others
+  INFERRED): `impulseCap` caps retail's rotational recovery at the impulse that stops the closing speed,
+  m max(0, -n . v) / dt; `smallPropImpulse` (off) scales it by h / (ratio x r) on small props;
+  `smallPropMaxGPct` caps it at pct x truck weight.
+- Bottoming (`FUN_1403a06d0`, retail `0x46ba80`): the cancelled share of the closing speed is x
+  `bottomPropPct` (0.4) on a small prop. `bottomCancelSteep` (off): 1 ramps by \|n.y\| between lo and
+  hi, 2 by the descent share (v.y n.y) / (v . n).
+
+### 11.8 Boxes (CONFIRMED)
+
+- `boxOnTri` (`FUN_140370dc0`): a moving box's 8 corners are raycast against another box's triangles
+  from last step's reference to the corner now; depth = n . (hit - corner).
+- `phantomCornerTenthFt` (`FUN_14017f340`, boxes with mass > 0 only): a corner more than 3 ft from every
+  triangle is not tested against the tires (distances cached per shape; a layout change of more than
+  0.01 ft retests).
+
+### 11.9 SRF grip (CONFIRMED path, INFERRED meaning)
+
+Both grip lookups call `FUN_1402066c0`: a ray from hub y + 4 ft down 10 ft into the surface boxes (section
+5), up to 4 hits, faces with an up component of at least 0.25, untyped faces skipped, the hit nearest the
+hub height wins. The terrain wins when the mesh hit is more than 1/4 ft below the terrain and the terrain
+is nearer. The type code (id x 100) gives the grip.
+
+### 11.10 Order and collisionMode 0 (CONFIRMED)
+
+One frame (`FUN_14038e600`): object steps (the truck's includes the hull solver), broadphase, pair tests
+(truck against box: hull points, then per wheel FR, FL, RR, RL support then walls, then box corners
+against wheels), then per truck the post-step (push-out, terrain probe x4, axle solve, bottoming).
+**collisionMode 0 is not retail:** `terrainComprMaxFt` 6, `suspVelMaxFtPerSec` 20, `impulseCap` 1 and
+`bottomPropPct` 0.4 still apply. Exact retail needs those at 0, 0, 0 and 100.
+
+### 11.11 Open questions
+
+Demo playback calls the game tick with a variable deltaT (`FUN_140191220`); the Sonic curve_speed 1.25;
+the support cylinder centred on the inner sidewall; the wall rays' maxLen; whether the 2..4 contact
+solvers apply `impulseCap` as the 1-contact one does; the `DAT_155b424f8 == 1` clearance probe mode.
+
+### 11.12 In OpenMTM2
+
+Sections 10 and 11 are the "CommPatch4" physics model (Options, Game, Physics): OpenPhotex `sim/cp4` (rules, shapes,
+the triangle pair tests, .SRF grip; OpenPhotex docs/SIM_MTM2.md "Community Patch 4's rules") and `worker/sim-worker.js`
+(the tick, the shapes per model from the track build's `collisionSoups`, the off-centre boxes). Each model's triangles
+come from OpenPhotex's `parseBin` faces; the eight facet opcodes CP4 also reads (7, 8, 21, 26, 27, 30, 33, 56) occur in
+none of the stock or community models the BIN walk was checked on. Options: "CP4 collisions" (`collisionMode`) and "CP4
+substeps offline" (`simSubstepOffline`); every other key is held at the default of 11.1. Not ported: the tree
+collisions of section 3 (trunks stay boxes until CP4's trunk test is traced), the autopilot run once per tick when the
+tick is split (it runs every substep with the tick as its frame time), and the diagnostics keys.

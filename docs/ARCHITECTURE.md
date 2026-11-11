@@ -183,7 +183,11 @@ units.
 - **The simulation is not touched.** The smoothed ground is a second surface that is only
   drawn. It is one pure function of position (`src/game/terrain-relief.js`) that the asset
   worker cuts into a mesh and the main thread asks where the ground is, so the two agree to the
-  last bit. A drawn truck is moved onto it; the truck the simulation steps is not.
+  last bit. A drawn truck is moved onto it; the truck the simulation steps is not. Where the
+  simulation itself stands on a finer grid (a 4x4 Evolution track, always, or a Community Patch 4
+  Spline or Full Map track, by its `.TXV`), the asset worker builds that grid
+  (`worker/level-load.js`, `worker/evo-track-build.js`), draws it as it is and ships it to the
+  simulation, and Smooth terrain is not built over it.
 - **Each part has a switch** (`src/game/visuals.js`), and a part switched off is not built: the
   track comes from the asset worker as it always did (`trackVisuals` says what to build), and
   the screen draws it with the code it always had. The Display page's Enhanced graphics section sets the switches by a

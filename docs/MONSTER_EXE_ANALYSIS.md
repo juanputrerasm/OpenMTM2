@@ -1358,7 +1358,11 @@ slew mode): View Left adds `dt / 4` to the heading offset and View Right takes i
 Forward adds `dt / 4` to the pitch (held at 0x3fff) and View Back takes it away (held at -0x3fff). Their default
 scan codes (`[Keys]`, the value table behind `0x640910`): View Left 0x52 (Insert), View Right 0x53 (Delete), View
 Forward 0x4a (keypad minus), View Back 0x4e (keypad plus); Next View is 0x2f (V), Cockpit View 0x47 (keypad 7),
-Camera 0x25 (K, the watched truck, next or with Shift the one before). The zoom keys are scan codes 0x0d (=,
+Camera 0x25 (K, the watched truck: the one before, or with Shift the next). The Camera key (`0x52cd90`, on the
+view's truck index `+0x78`) works in any view but the cockpit (mode not 0; in a replay in every view): K alone steps
+to the truck before, wrapping to the last, and K with either Shift (scan codes 0x2a, 0x36) to the next, wrapping to the
+first; the view's truck (`+0x10`) follows, and the main view names its mode and the truck (`0x52d180`, "Chase Far of
+..."). It is not a GOLD key: it works in every race. The zoom keys are scan codes 0x0d (=,
 zoom in: `+0x14` less 0x1000, at least 0x1000) and 0x0c (-, zoom out: plus 0x1000, at most 0x20000), and they work
 only in slew mode or Z mode (section 15); outside Z mode each frame sets the zoom from the view again. (The
 Monster Manual, `MONSTER.HLP`, says `-` and `=` give a wide-angle view in any external view; 2.00.42's code takes
@@ -2303,13 +2307,18 @@ autopilot cycle and the slew freeze flag are confirmed in code; the rest is not 
 
 | Key | Effect |
 |---|---|
-| Ctrl+Y | **Slew mode**: freezes the simulation (`0x63f524`) and moves the truck freely: arrows move, Q/A up and down, Shift faster, End/PgDn yaw, Home/PgUp roll, F5/F8 pitch, Ins/Del and keypad +/- orbit the camera, Z enters Z mode |
+| Ctrl+Y | **Slew mode**: freezes the simulation (`0x63f524`) and moves the camera's truck freely (below): arrows move, Q/A up and down, Shift faster, End/PgDn yaw, Home/PgUp roll, F5/F8 pitch, Ins/Del and keypad +/- orbit the camera, Z enters Z mode |
 | Z (in slew) | Z mode: technical overlay (zoom, sector, visible and total polygons, level, model count), -/+ zoom 0.5x to 16x, Ctrl+4/Ctrl+5 BlimpCam and RaceCam, Ctrl+L load a .SIT by name |
 | Ctrl+W | cycles the 9 weather states ("Weather: %s") |
 | Ctrl+T | cycles autopilot: off, auto throttle, full autopilot |
 | Ctrl+B | shows the collision boxes: solid, wireframe, off |
 | 0 (4 in slew) | writes consecutive screenshots (PCX in software, RAW in hardware) |
 | R | **reverse course direction** (`0x647564`): in the controls routine (`0x584490`) the key-state array at `0x694ee0` is indexed by DirectInput scan code, and scan code 0x13 (R) flips the flag while GOLD is on. Scan code 0x0B (0) is the screenshot key, 0x2D (X) toggles the CPU trucks' flag at `0xa9a4d0`. |
+
+**Slew mode moves the camera's truck, traced** (`0x583b00`, called from the in-race key routine `0x585da0` while slew
+mode is on): outside a replay it moves and turns the truck the main view is on (the view's `+0x10`), not the player's.
+The Camera key (K, section 11) steps that truck in any view but the cockpit, so with GOLD and slew mode on, K and then
+the slew keys move and tilt any opponent as the player's own truck is moved.
 
 **Z mode, traced** (the in-race key routine `0x585da0`, beside the weather cycle; the overlay `0x52d540`): Z (scan code 0x2c) flips
 Z mode (`0x63f4f4`) whenever GOLD is on and no chat line is typed; it does not need slew mode, and leaving slew
@@ -2327,7 +2336,7 @@ The View keys orbit the camera in Z mode and slew mode as they do in any chase v
 **In OpenMTM2** (`src/ui/gold-mode.js`): typing GOLD or FRAME during a race works as in the game
 (the last 8 letters are compared). With GOLD on, R reverses the course, Ctrl+T cycles the
 player's autopilot (off, speed control only, full), Ctrl+B cycles the collision boxes (off,
-wireframe, solid), Ctrl+Y is slew mode, Z the technical overlay in slew mode, and 0 (4 in slew
+wireframe, solid), Ctrl+Y is slew mode (moving the truck the camera is on, which K and Shift+K choose), Z the technical overlay in slew mode, and 0 (4 in slew
 mode) saves a screenshot as a PNG download. Z mode stays on when slew mode is left, so its zoom
 (- and +), its orbit (Insert and Delete) and Ctrl+L (load a SIT by name) work while driving, as the trace above
 confirms. Ctrl+4 and Ctrl+5 pick BlimpCam and

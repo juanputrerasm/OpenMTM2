@@ -25,9 +25,10 @@ export const SETTINGS_VERSION = 13;
  * vehicle. "auto" picks one by the player's vehicle, "track" by the track's game (`resolvePhysics`).
  */
 export const PHYSICS_MODELS = Object.freeze([
-  Object.freeze({ id: "auto", label: msg("Auto (by vehicle)"), note: msg("The model of the player's vehicle's game: 4x4 Evolution 2 or 4x4 Evolution for their vehicles, CART Precision Racing for its cars, Monster Truck Madness for MTM1 trucks, Monster Truck Madness 2 for the rest") }),
+  Object.freeze({ id: "auto", label: msg("Auto (by vehicle)"), note: msg("The model of the player's vehicle's game: 4x4 Evolution 2 or 4x4 Evolution for their vehicles, CART Precision Racing for its cars, Monster Truck Madness for MTM1 trucks, Monster Truck Madness 2 for the rest. A 4x4 Evolution track always runs its own game's model") }),
   Object.freeze({ id: "track", label: msg("Auto (by track)"), note: msg("The model of the track's game: 4x4 Evolution 2 or 4x4 Evolution on their tracks, CART Precision Racing on its tracks, Monster Truck Madness on MTM1 tracks, Monster Truck Madness 2 on the rest") }),
   Object.freeze({ id: "mtm2", label: msg("Monster Truck Madness 2"), note: msg("The 1998 game's") }),
+  Object.freeze({ id: "cp4", label: msg("CommPatch4"), note: msg("Community Patch 4's: MTM2's trucks on a fixed 25 Hz tick (100 Hz online), props that collide by their own shapes instead of their boxes, a gentler suspension, computer trucks that grip 30% harder offline") }),
   Object.freeze({ id: "mtm1", label: msg("Monster Truck Madness"), note: msg("The 1996 game's: tires that touch throw trucks twice as hard, water stops a truck, no deep water, weather does not change the grip, no crash damage, and its own drag rules") }),
   Object.freeze({ id: "evo2", label: msg("4x4 Evolution 2"), note: msg("The 2001 game's vehicle model: each Evo vehicle on its own engine, gears, springs and tires; others on MTM2's figures. Airborne vehicles fall at 1.75 g, the centre of gravity sits 2 ft forward, hard steering at speed loosens the rear") }),
   Object.freeze({ id: "evo1", label: msg("4x4 Evolution"), note: msg("The 2000 game's vehicle model, as Evo 2's but floatier in the air, with the centre of gravity at the middle and bodies that slide further on the ground") }),
@@ -37,13 +38,17 @@ export const PHYSICS_MODELS = Object.freeze([
 export const physicsModel = (id) => PHYSICS_MODELS.find((m) => m.id === id) ?? PHYSICS_MODELS.find((m) => m.id === "mtm2");
 
 /**
- * The model a race runs: the setting; with "auto" the one of the player's vehicle (its `<GAME>:<file>` name), with "track"
- * the one of the track's game (`trackGame`, the build's `game`: "EVO2", "MTM1"...).
+ * The model a race runs: on a 4x4 Evolution track always that game's, whatever the setting, so an Evo track drives as
+ * in Evo (with its smoothed ground, worker/evo-track-build.js). Elsewhere the setting; with "auto" the one of the
+ * player's vehicle (its `<GAME>:<file>` name), with "track" the one of the track's game (`trackGame`, the build's
+ * `game`: "EVO2", "MTM1"...).
  */
 export function resolvePhysics(id, vehicle, trackGame = null) {
   const model = physicsModel(id).id;
   const byGame = (game) => (game === "EVO2" ? "evo2" : game === "EVO1" ? "evo1" : game === "MTM1" ? "mtm1" : game === "CPR" ? "cpr" : "mtm2");
-  if (model === "track") return byGame(String(trackGame ?? "").toUpperCase());
+  const track = String(trackGame ?? "").toUpperCase();
+  if (track === "EVO1" || track === "EVO2") return byGame(track);
+  if (model === "track") return byGame(track);
   if (model !== "auto") return model;
   return byGame(/^([A-Z0-9]+):/i.exec(String(vehicle ?? ""))?.[1]?.toUpperCase());
 }
@@ -52,7 +57,7 @@ export function resolvePhysics(id, vehicle, trackGame = null) {
 export const AI_BEHAVIOURS = Object.freeze(["omtm2", "physics", "mtm2", "mtm1", "evo"]);
 /** Each behaviour as Options names it. */
 export const AI_BEHAVIOUR_NAMES = Object.freeze({ omtm2: msg("OMTM2"), physics: msg("Same as physics"), mtm2: msg("MTM2"), mtm1: msg("MTM1"), evo: msg("EVO") });
-const AI_BY_PHYSICS = Object.freeze({ mtm1: "mtm1", mtm2: "mtm2", evo1: "evo", evo2: "evo", cpr: "mtm2" });
+const AI_BY_PHYSICS = Object.freeze({ mtm1: "mtm1", mtm2: "mtm2", cp4: "mtm2", evo1: "evo", evo2: "evo", cpr: "mtm2" });
 /**
  * How a race's computer trucks drive: the setting, or with "Same as physics" the one of the race's physics model
  * (`resolvePhysics`'s): MTM1 for MTM1, EVO for either 4x4 Evolution, MTM2 for MTM2 and CART; OMTM2 for anything else.
@@ -175,6 +180,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   cockpit3d: true,            // Community Patch 4's 3D cockpit where the install has it (cockpit.pod; ini cockpit3d), else the 2D one
   mirrorOn: false,            // the cockpit's rear-view mirror, View Forward in the cockpit; kept as CP4 keeps monster.ini mirrorOn
   cockpitLook: false,         // Community Patch 4's "Smooth Cockpit Look" ([Control] cockpitLook): the right stick looks round the 3D cockpit
+  cp4Collision: "triangles",  // the CommPatch4 physics' collisions ([Game] collisionMode): "triangles" (1, props by their shapes) or "classic" (0, boxes)
+  cp4SubstepsOffline: false,  // the CommPatch4 physics splits its 40 ms tick into 10 ms steps offline too ([Game] simSubstepOffline)
   raceLine: false,            // Community Patch 3's racing line drawn on the ground (render/race-line.js)
   dragBeams: true,            // the drag strip's lines on the ground, as MTM1 draws them: beams and lane lines (render/drag-beams.js)
   dragSplitScreen: false,     // Community Patch 3's drag split screen: both lanes at once      // keypad plus raises the chase camera and minus lowers it (the game's keys do the opposite)

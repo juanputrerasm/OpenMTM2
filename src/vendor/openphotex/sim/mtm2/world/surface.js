@@ -46,12 +46,14 @@ export function textureWordValue(map, word) {
  * The terrain's type value at (x, z): the cell texture, or water below the level. `waterLevelFt`
  * null is treated as the game's level 0.
  */
-export function terrainSurfaceValue(terrain, map, x, z, waterLevelFt, snow = false, deepWater = true) {
+export function terrainSurfaceValue(terrain, map, x, z, waterLevelFt, snow = false, deepWater = true, pointY = null) {
     if (deepWater) {
         const height = terrainHeightAt(terrain, x, z);
         // A Community Patch 4 lake tile is deep water below the lake's surface (FUN_140203ed0, CP4_EXE_ANALYSIS.md 2).
+        // CP4's own physics tests the queried point (`pointY`, the tire's bottom, 10.3); otherwise the ground.
         const lake = terrainLakeAt(terrain, x, z);
-        if (lake && height < terrain.lakes.levelFt[lake])
+        const probeY = pointY ?? height;
+        if (lake && probeY < terrain.lakes.levelFt[lake])
             return (snow ? FROZEN_WATER_TYPE : DEEP_WATER_TYPE) * 100;
         const level = waterLevelFt ?? 0;
         // In the game's units (1/256 ft, floored): ground at 0 is Default, before the water test.

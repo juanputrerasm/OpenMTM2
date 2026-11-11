@@ -8,6 +8,48 @@ as it stood when it was written, and the plan's open items list is the one kept 
 
 Community Patch 4 (beta 0.52) and Traxx 1.7.0 support, OpenPhotex 1.7.0 and OpenMTM2 Server 0.4.1, then testers' requests and bugs (stick steering, rumble, the drag strip, the drag weekend's field, the chase mirror, the names over the trucks):
 
+- **No water on bridges** (not the game's; MTM2_PHYSICS.md 2.4; OpenPhotex `truck/object-support.ts`): the game,
+  CP3 and CP4 read a tire's surface from the terrain under it, so a truck on a bridge or any object over water
+  gripped as on deep water and played the water sounds and the water commentary. A tire held up by an object now
+  reads Default there (its .SRF type where it has one); a truck is in water for its sounds by the game's rule (a hub
+  under the water, a CP4 lake's included, or a tire on water), no longer by its body under the level. The dust,
+  tracks and spray take what most of the tires stand on, .SRF types included, in the race and in replays. To be
+  tested.
+- **Boxes in a checkpoint's footprint** (MTM2_PHYSICS.md 14.15): a type 0 box inside a checkpoint gate's footprint
+  becomes type 11, which a computer truck does not bring into the object list (nor a box with no model), as in MTM2
+  and CP4. To be tested.
+
+- **Frame rate with Natural light** (VISUALS.md, "Shadows"; `render/sun-shadows.js`, `render/track-scene.js`): the
+  trucks and other moving casters are drawn into a shadow cascade only where its band of view depth holds them, a
+  cascade with nothing moving in its band keeps its still copy as it is, and a lamp's glow never casts. Measured on
+  Farm Road 29 with eight trucks near, the shadow pass fell from about 440 draw calls a frame to 180 to 250. Tried and
+  dropped, measured worse: putting a knocked object back among the still objects once it rests (its return redraws
+  the shadow copies it reaches, and a deathmatch knocks it loose again). To be tested.
+
+- **CommPatch4 physics** (CP4_EXE_ANALYSIS.md 10 and 11, read from CP4's executable; its author published no source
+  code; OpenPhotex `sim/cp4`, SIM_MTM2.md "Community Patch 4's rules"): a new entry in Options, Game, Physics. MTM2's
+  vehicle model, which CP4 keeps, under CP4's rules: a fixed 40 ms tick (four 10 ms steps online, or offline with
+  Options, Advanced, CP4, "CP4 substeps offline"), catching up at most 160 ms a frame; the suspension's rate clamped
+  to 20 ft/s and the terrain's push to 6 ft; a truck frozen at rest only with three ground contacts; the surface read
+  at the tire's bottom (a lake under a truck on a prop is not water); computer trucks gripping 30 % harder offline
+  and 50 % harder in drag races; CP4's Sonic values; the hull solver's push capped at what stops the truck; softer
+  bottoming on small props; off-centre models' boxes moved onto them. With "CP4 collisions" on Triangles (the
+  default; Classic boxes is CP4's collisionMode 0) a prop meets the trucks by its model's triangles: hull points as
+  rays, each wheel held up by nine spokes, a tire cylinder and a short hold, the tire's walls by nine rays with the
+  climb blend, boxes on boxes by their corners, and a model's .SRF types for the tires' grip. A host's choice travels
+  as the `cp4Collision` rule. Loose Wheels and Freestyle's trick physics work under it as under MTM2. Not yet: CP4's
+  tree collisions (trunks are still boxes) and the autopilot run once per tick when the tick is split.
+
+- **4x4 Evolution tracks as in Evo** (a tester's report: hills that look smooth hide sharp edges the truck crashes
+  into). Read again in both Evo executables (EVO2_EXE_ANALYSIS.md 5a): what switches Evo's smoothing on is the
+  `.SIT` file's version (3 or more, so every Evo track), not a graphics setting, the trucks drive on that ground, and
+  Evo 1 smooths exactly as Evo 2 does. So every 4x4 Evolution track, Evo 1's and its Lite tracks included, is now on
+  its game's smoothed 8 ft grid, drawn and driven, whatever the graphics switches (before, only Evo 2 tracks were, and
+  only with Smooth terrain on, so the physics changed with a graphics switch and two players online could drive on
+  different ground), and a race there always runs that game's physics (`resolvePhysics`), whatever the Physics
+  setting. Smooth terrain stays a look for the tracks on the 32 ft grid (MTM1, MTM2 classic, CPR); a Community Patch
+  4 track is on its spline grid only when its `.TXV` asks for it, as before. Tests: tests/terrain-smoothing.test.mjs,
+  tests/physics-models.test.mjs.
 - **3D cockpit fixes:** the view is 90 degrees top to bottom, as CP4 draws it (the FOV key is degrees across a 4:3
   frame), and its centre sits at 208/480 of the screen's height as CP4 places it, so the whole cab and the wheel's
   centre show; the sun, the moon and the lens flare are hidden when the cab stands in front
@@ -738,6 +780,7 @@ Things the port adds on purpose. They are marked here so the original game's spe
 - **Computer trucks and the helicopter** (done, not the game's; `game/racer-recovery.js`): every computer racer on a circuit gets itself out when stuck (a shove, backing out, going round) and drives back through a missed checkpoint by reversing or turning round, whichever is quicker, the helicopter only when that is quicker still, after four tries or 15 s with no headway, or when it lies over 3 s.
 - **Computer trucks cut off from their course** (done, not the game's; `game/course-route.js`): a computer racer more than the game's 160 ft from its segment that finds an unmovable obstacle in its way (a ground rise steeper than 45 degrees, a ground box standing up as a wall, a level box that never moves; a moving object is not one) takes the nearest straight of another of the SIT's courses within 160 ft and follows it with the game's autopilot until it is within a straight's track width of its own course; with no course in reach, the helicopter once it is within 25 ft of the obstacle under 15 ft/s. Castle Nugget's grid stands in its castle's yard: its course 2 runs down the castle's ramp and canyon to the track, and the trucks racing course 1 take it there.
 - **Computer trucks keeping control** (done, not the game's; `game/cpu-control.js`): after the course autopilot, every computer truck on a circuit damps its weave (steering against its yaw rate, 0.08 per rad/s at 100 ft/s), catches a slide (travel more than 0.18 rad off its nose at 25 ft/s or more, three or more wheels down: the wheel toward the travel, 1.3 per radian, fully at 0.5 rad, the throttle eased by up to half, never braked sideways), and backs round when it has spun to face more than 2.1 rad off the course under 25 ft/s. Measured on the twelve stock circuits, eight computer trucks for 4 minutes: on Professional the field covered 12 to 16 percent more laps with about half the spins and slides, on Intermediate 4 percent more, on Rookie the same (the autopilot's course speeds there rarely slide a truck). A grip limit (the wheel taken back past 30 ft/s² of side acceleration) and braking a truck sideways were tried and measured worse.
+- **Computer trucks at the limit** (2026-11-09, not the game's; `game/cpu-control.js`, `game/cpu-pace.js`, `game/racer-recovery.js`): measured headless (8 computer trucks, Professional, a fixed window) the OMTM2 drivers lost most of their time to three things: corners driven at the SIT's speed when the tires give less (on Professional's course 2 every truck settled into a 20 degree slip at the same arcs each lap), the slide catch counter-steering that drift and sending the truck 50 ft wide of the gate (on Valparaíso Racing 2026 every truck missed checkpoint 4 on every lap, where the game's own drivers never miss), and the drive back to a missed gate taking 16 to 30 s against the helicopter's 15 (31 percent of all truck time on that track in recovery). Three rules: in a corner a slide toward the outside is a drift while the yaw rate is under 1.8 times speed over the arc's radius, so only the throttle eases and the autopilot's wheel stands; each truck keeps a pace factor per course segment (a slide, spin or missed gate there lowers it by 8 percent, a spin or miss also the segment before, floor 0.7, a clean pass gives 2 percent back) that scales the autopilot's target speed on the arc and in the braking toward it, never the engine, and learns only while the truck drives the course with its wheels down (not while it backs out of a jam, turns round or is thrown about in the air, which on Torture Pit's jumps taught the trucks to crawl); the helicopter counts 6 s in the way-back plan and a gate once given up to it is not planned for again. Laps in the window: Valparaíso Racing 2026 Professional 18 to 31 (41 spins to 4, 21 missed gates to 3, best lap 68.7 to 59.5 s), Crazy 98 16 to 31, Farm Road 29 15 to 17, Junkyard 14 to 16, Aztec Valley 13 to 16; Snake Island Professional 14 spins to 5 and 179 s in recovery to 86 over 300 s; Intermediate unchanged within a lap; Rock Quarry 24 to 20 lost laps (run to run the field varies by about 2 laps, so judge a change over several tracks with `tools/cpu-laps.mjs`). Tried and measured worse: a flat 10 percent corner margin (slows every corner), braking on an arc for the slower arc after a short straight (the autopilot's assumed deceleration is far too optimistic for it to bite), and the Sonic braking constant lowered (no gain once the pace is learnt). AI Speed at 130 percent collapses the field (3 laps on Farm Road 29): the course speeds are already at the limit.
 - **Rumble computer trucks** (done, not the game's; `game/rumble-ai.js`): they recover as the player does, set back on their wheels where they lie and never fetched by the helicopter (which a player cannot call in a Rumble). Their flow field treats a ground box's edge as a face (a step over 3 ft, a wheel's hub, is not climbed onto it), never takes a truck against a wall to be on top of it, keeps 45 ft/s up a ramp, drives the last feet into the zone at 25 ft/s while its floor is still above, and on a big zone (four or more) makes for the nearest flat holding spot at least 20 ft inside its sides, reachable and riding 4 ft over its floor, by the field's own way there. A truck backing into something gives backing up for 3 s. Measured on SUMMIT1 to 3, eight trucks for 3 minutes at each difficulty and three grids: no helicopter at all (174 calls before in one set of nine races), and the time in the zone the same on SUMMIT1 and SUMMIT2 and a third more on SUMMIT3 (the hypercube's steep ramps up to its 152 ft ridge).
 - **Drag computer trucks** (done, not the game's; `game/drag-race.js` `dragPedals`): from the launch to the finish beam a computer truck keeps the throttle down on the straight (the autopilot's wheel within 0.08 of centre, sliding no more than 0.12 rad), eased to half with its nose up past 0.35 rad; through a bend the autopilot's speed control stands. Measured on MTM1's five strips: DRAG4 and DRAG5 2 to 2.5 s quicker (about 14 s to 11.5 on Rookie, 12.3 to 10.6 on Professional) with no disqualification (two before), DRAG 0.2 s quicker, DRAG2 and DRAG3 (short and straight) the same.
 - **Colour key** (done): a cutout texel is cut when its palette colour is black at five bits a channel (below 8 in red, green and blue), as the game's 16-bit textures hold it: AZTEC.POD's fences key on (7, 7, 7).

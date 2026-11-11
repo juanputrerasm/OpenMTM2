@@ -612,6 +612,10 @@
   "text": "Cámara"
  },
  {
+  "tag": "Next truck",
+  "text": "Siguiente camión"
+ },
+ {
   "tag": "Dashboard",
   "text": "Tablero"
  },
@@ -780,8 +784,8 @@
   "text": "Terreno suavizado"
  },
  {
-  "tag": "Rounds the ground's 32 ft facets and gives steep slopes and cliffs relief. Trucks drive on the same ground as before, but on a 4x4 Evolution 2 track, which is smoothed as that game smooths it and driven on so.",
-  "text": "Redondea las caras de 32 pies del suelo y da relieve a las pendientes y los acantilados. Los camiones conducen sobre el mismo suelo de antes, salvo en una pista de 4x4 Evolution 2, que se suaviza como lo hace ese juego y se conduce sobre ella así."
+  "tag": "Rounds the ground's 32 ft facets and gives steep slopes and cliffs relief on MTM1, MTM2 and CART Precision Racing tracks, as a look only: trucks still drive on the game's facets. 4x4 Evolution tracks and Community Patch 4 Spline tracks are always drawn as the smoothed ground their game drives on.",
+  "text": "Redondea las caras de 32 pies del suelo y da relieve a las pendientes y los acantilados en las pistas de MTM1, MTM2 y CART Precision Racing, solo a la vista: los camiones siguen conduciendo sobre las caras del juego. Las pistas de 4x4 Evolution y las pistas Spline de Community Patch 4 siempre se dibujan con el suelo suavizado sobre el que conduce su juego."
  },
  {
   "tag": "Reflective water",
@@ -2872,6 +2876,10 @@
   "text": "La sala se cerró."
  },
  {
+  "tag": "The host runs a version of the game this one cannot play with.",
+  "text": "El anfitrión usa una versión del juego con la que esta no puede jugar."
+ },
+ {
   "tag": "The connection to the game was lost.",
   "text": "Se perdió la conexión con la partida."
  },
@@ -4080,8 +4088,8 @@
   "text": "Crear una sala"
  },
  {
-  "tag": "The model of the player's vehicle's game: 4x4 Evolution 2 or 4x4 Evolution for their vehicles, CART Precision Racing for its cars, Monster Truck Madness for MTM1 trucks, Monster Truck Madness 2 for the rest",
-  "text": "El modelo del juego del vehículo del jugador: 4x4 Evolution 2 o 4x4 Evolution para sus vehículos, CART Precision Racing para sus coches, Monster Truck Madness para los camiones de MTM1 y Monster Truck Madness 2 para el resto"
+  "tag": "The model of the player's vehicle's game: 4x4 Evolution 2 or 4x4 Evolution for their vehicles, CART Precision Racing for its cars, Monster Truck Madness for MTM1 trucks, Monster Truck Madness 2 for the rest. A 4x4 Evolution track always runs its own game's model",
+  "text": "El modelo del juego del vehículo del jugador: 4x4 Evolution 2 o 4x4 Evolution para sus vehículos, CART Precision Racing para sus coches, Monster Truck Madness para los camiones de MTM1 y Monster Truck Madness 2 para el resto. Una pista de 4x4 Evolution siempre usa el modelo de su propio juego"
  },
  {
   "tag": "The model of the track's game: 4x4 Evolution 2 or 4x4 Evolution on their tracks, CART Precision Racing on its tracks, Monster Truck Madness on MTM1 tracks, Monster Truck Madness 2 on the rest",
@@ -7498,5 +7506,37 @@
  {
   "tag": "A CP4 room (Community Patch 4 players, experimental)",
   "text": "Una sala de CP4 (jugadores de Community Patch 4, experimental)"
+ },
+ {
+  "tag": "CommPatch4",
+  "text": "CommPatch4"
+ },
+ {
+  "tag": "Community Patch 4's: MTM2's trucks on a fixed 25 Hz tick (100 Hz online), props that collide by their own shapes instead of their boxes, a gentler suspension, computer trucks that grip 30% harder offline",
+  "text": "El de Community Patch 4: los camiones de MTM2 a un ritmo fijo de 25 Hz (100 Hz en línea), objetos que chocan por su propia forma en vez de por sus cajas, una suspensión más suave, camiones de la computadora que se agarran un 30% más sin conexión"
+ },
+ {
+  "tag": "CP4 collisions",
+  "text": "Colisiones CP4"
+ },
+ {
+  "tag": "Triangles",
+  "text": "Triángulos"
+ },
+ {
+  "tag": "Classic boxes",
+  "text": "Cajas clásicas"
+ },
+ {
+  "tag": "Under the CommPatch4 physics: props meet the trucks by their own shapes, as Community Patch 4 does, or by the boxes round them, as Monster Truck Madness 2 does. From the next race",
+  "text": "Con la física CommPatch4: los objetos chocan con los camiones por su propia forma, como en Community Patch 4, o por las cajas que los rodean, como en Monster Truck Madness 2. Desde la próxima carrera"
+ },
+ {
+  "tag": "CP4 substeps offline",
+  "text": "Subpasos CP4 sin conexión"
+ },
+ {
+  "tag": "Under the CommPatch4 physics: each 40 ms tick runs as four 10 ms steps offline too, as Community Patch 4 always does online. From the next race",
+  "text": "Con la física CommPatch4: cada paso de 40 ms se divide también sin conexión en cuatro pasos de 10 ms, como Community Patch 4 hace siempre en línea. Desde la próxima carrera"
  }
 ]

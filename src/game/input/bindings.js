@@ -20,6 +20,8 @@ export const ACTIONS = Object.freeze([
   { id: "horn", label: msg("Horn") },
   { id: "yeehaw", label: msg("YeeHaw") },
   { id: "camera", label: msg("Camera") },
+  // The game's Camera key (MONSTER_EXE_ANALYSIS.md 11): the camera to the truck before, with Shift to the next one.
+  { id: "nextTruck", label: msg("Next truck") },
   { id: "dashboard", label: msg("Dashboard") },
   { id: "hud", label: msg("Timing display") },
   { id: "fps", label: msg("FPS counter") },
@@ -61,6 +63,8 @@ export const DEFAULT_BINDINGS = Object.freeze({
   horn: Object.freeze(["Space"]),
   yeehaw: Object.freeze(["KeyY"]),
   camera: Object.freeze(["KeyV"]),
+  // The game's own K. Team chat shares it: in a network race K opens the team's chat box instead.
+  nextTruck: Object.freeze(["KeyK"]),
   dashboard: Object.freeze(["KeyG"]),
   hud: Object.freeze(["KeyO"]),
   fps: Object.freeze(["KeyU"]),

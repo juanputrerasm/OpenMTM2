@@ -93,6 +93,7 @@ export { parseCockpitLayout, parseCockpitSections } from "./mtm/cockpit.js";
 export * as mtm2Sim from "./sim/mtm2/index.js";
 export * as evoSim from "./sim/evo/index.js";
 export * as cprSim from "./sim/cpr/index.js";
+export * as cp4Sim from "./sim/cp4/index.js";
 export { CPR_DEFAULT_SETUP, cloneCprSetup, parseCprGarage, writeCprGarage } from "./cpr/garage.js";
 export { PodFormatError } from "./errors.js";
 /** The library version, as published in package.json. */

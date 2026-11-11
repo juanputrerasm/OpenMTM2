@@ -117,3 +117,36 @@ export function decodeModel(bytes, name, unitScale = 1) {
 }
 
 export { MRGL };
+
+/**
+ * A decoded model's triangles for Community Patch 4's triangle collision (OpenPhotex sim/cp4, docs/CP4_EXE_ANALYSIS.md
+ * 11.2): every face fanned, back in the game frame (the scene's z mirror undone), with each triangle's texture name (for
+ * its .SRF surface type). Winding does not matter: the queries are double-sided. Null without geometry.
+ */
+export function collisionSoupOfModel(model) {
+  const meshes = model?.meshes ?? [];
+  let count = 0;
+  for (const m of meshes) count += m.positions.length / 9;
+  if (!count) return null;
+  const positions = new Float32Array(count * 9);
+  const textureIndex = new Int16Array(count);
+  const textures = [];
+  let t = 0;
+  for (const m of meshes) {
+    let ti = -1;
+    if (m.textureName) {
+      ti = textures.indexOf(m.textureName);
+      if (ti < 0) { ti = textures.length; textures.push(m.textureName); }
+    }
+    const p = m.positions;
+    for (let k = 0; k < p.length; k += 9, t++) {
+      for (let c = 0; c < 3; c++) {
+        positions[t * 9 + c * 3] = p[k + c * 3];
+        positions[t * 9 + c * 3 + 1] = p[k + c * 3 + 1];
+        positions[t * 9 + c * 3 + 2] = -p[k + c * 3 + 2];
+      }
+      textureIndex[t] = ti;
+    }
+  }
+  return { positions, textureIndex, textures };
+}

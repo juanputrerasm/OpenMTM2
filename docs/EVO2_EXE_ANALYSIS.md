@@ -363,29 +363,51 @@ triangles. `CGround::init` (`0x469b20`) keeps a 0x26-byte record per cell: at +0
 16-bit heights 8 ft apart (index `z * 4 + x`), two shorts at +0x20 and +0x22 (not traced), the cell's
 level of detail at +0x24 and the previous one at +0x25.
 
-- **Filling** (`CGround::load` `0x46b150`, then `0x46ac90`): below detail 3 the sub-heights are
+- **The switch is the situation's version, not a graphics setting.** Every test below reads the first
+  int of the situation record (`*0x679834`, at `0xcb37b4`; its +4 is the `.SIT` name, its checkpoint
+  tables are at +0x30E0 and +0x45E0, section 12). The `.SIT` reader (`0x550970`) sets it to 2, and when
+  the file's first line is `VERSION` reads the next number into it, refusing one below 3 ("Corrupt sit
+  file") or above 7 ("Invalid situation version"). So a file with a `VERSION` line (Evo 2's 60 stock
+  `.SIT` files are version 7, Evo 1's version 6) is smoothed and driven on so, at any graphics setting; only
+  a header-less, MTM-style situation (version 2) keeps MTM2's flat triangles. The same field also
+  turns on `DETAIL.RAW` as the default detail texture (`0x46a080`) and masks the cell words to
+  12 bits (`0x46b150`), both at version 3 or more. (The `.LVL`'s own first number, 0 in all 60 stock
+  levels, goes elsewhere: `0x48c480` reads it into `0xaa5bd8`.)
+- **Filling** (`CGround::load` `0x46b150`, then `0x46ac90`): below version 3 the sub-heights are
   planar in the cell's two triangles (`0x46ac50`, `0x46a820`, `0x46a920` / `0x46aad0` by parity), the
-  same surface as MTM2's. At detail 3 or more `0x46a160` fills them with a cardinal spline of tension 0
+  same surface as MTM2's. At version 3 or more `0x46a160` fills them with a cardinal spline of tension 0
   (Catmull-Rom; `0x5c7780` with s = 0.5, weights for t = 0.25, 0.5, 0.75 kept at `0x892600`,
   `0x892620`, `0x892640`; `0x5c7950` takes the weighted sum and rounds): the first row along x through
   corners col - 1 .. col + 2, the first column along z through rows row - 1 .. row + 2, then rows 1 to
   3 along x through the first-column values of the cells col - 1 .. col + 2. Every value is held in
-  0 .. 0xFFE0. The world wraps (masks at `+0x18`, `+0x1C`).
+  0 .. 0xFFE0. The world wraps (masks at `+0x18`, `+0x1C`). A tension-0 spline is not monotone: next
+  to a step it dips before it and bulges after it, by about 7 % of the step at the nearest sub-point
+  (the weight of the far corner at t = 0.75 is -0.07).
 - **Height** (`CGround::groundHeight`, `0x471cb0`, 27 callers, the vehicle's among them): the 8 ft
   sub-cell under the point (`x / 8`, `z / 8`), its four corners from this cell's grid or the next
   cell's first row or column, split into two triangles by parity (`(sx & 1) == (sz & 1)`: the main
-  diagonal, as MTM2's cells are), linear inside; times the height scale at `+0x14` (1/32). So the
-  trucks drive on the smoothed surface whenever it is drawn.
+  diagonal, as MTM2's cells are), linear inside; times the height scale at `+0x14` (1/32). It always
+  reads the full grid, whatever level of detail a cell is drawn at, so the trucks drive on the
+  smoothed surface. The smoothing is not eye candy in Evo: what is drawn near the camera is what is
+  driven on.
 - **Drawing** (`0x4705f0` from `0x471a40`): each visible cell takes a level of detail by its squared
   distance from the camera (`+0x6C`, `+0x68` of the view, `0x8eb2a0`, `0x8eb2a4`): 2 draws its 5 x 5
   points (`0x46c1f0`), 1 a 3 x 3 (`0x46d900`, with the edges next to a coarser cell averaged, so no
-  crack shows), 0 its corners (`0x46f280`); below detail 3 always 0. Normals by central differences
+  crack shows), 0 its corners (`0x46f280`); below version 3 always 0. Normals by central differences
   over the sub-grid (`(dh / 512, 1, dh / 512)`, `0x66468c`); texture coordinates from 1/32 to 31/32
   in quarters (the two-pixel crop of MTM2's tiles).
+- **Evo 1 is the same** (`4x4LE.exe`): the same 0x26-byte cell (`0x450fc0`), the same switch
+  (`0x452400`, the situation record `*0x607ea0` filled by `0x51fec0`, versions 3 to 6), and the same
+  spline fill (`0x4518d0`, line for line `0x46a160` with the weights of t = 0.25, 0.5, 0.75 built at
+  tension 0 by `0x5713e0`).
 
 The port (`OpenPhotex evoSim.evoSmoothHeights`, the terrain's fine grid; OpenMTM2
-`worker/evo-track-build.js`) builds Evo 2's ground this way with "Smooth terrain" on, for the drawn
-ground and the simulation alike, and at the finest level of detail everywhere.
+`worker/evo-track-build.js`) builds the ground of every Evo 1 and Evo 2 track (`.SIT` version 3 or
+more) this way, for the drawn ground and the simulation alike, whatever the graphics switches, and
+draws it in three levels of detail of its own (CHANGELOG 0.7.0); the simulation always reads the full
+grid, as the game's does. A race on an Evo track always runs that game's physics (`evo1` or `evo2`,
+`app/settings.js` `resolvePhysics`), whatever the Physics setting, and Smooth terrain is never built
+over its ground.
 
 ## 5b. 4x4 Evolution 1: Lite tracks (`.LTE`)
 

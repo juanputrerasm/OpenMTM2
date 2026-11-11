@@ -19,7 +19,9 @@ export function createTerrainGround(terrain, surface, weather = 0, waterLevelFt 
             return groundHeightAt(terrain, x, z, snow);
         },
         normal: (x, z, out) => groundNormalAt(terrain, x, z, out, snow),
-        surface: (x, _y, z) => (surface ? terrainSurfaceValue(terrain, surface, x, z, waterLevelFt, snow, rules.deepWater) : 200),
+        surface: (x, y, z) => (surface
+            ? terrainSurfaceValue(terrain, surface, x, z, waterLevelFt, snow, rules.deepWater, rules.surfaceAtPoint ? y : null)
+            : 200),
         waterLevelFt,
         waterLevelAt: terrain.lakes ? (x, z) => terrainWaterLevelAt(terrain, x, z, waterLevelFt) : undefined,
         weather,

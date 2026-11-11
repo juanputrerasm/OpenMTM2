@@ -27,7 +27,8 @@ import { buildReliefMesh } from "./relief-mesh.js";
 import { buildReliefData, createRelief } from "../game/terrain-relief.js";
 import { COVER_MIN_WIDTH_FT, GROUND_MAP_SIDE, buildCoverMap, buildGroundMap, buildPuddleMap, buildShelterMap } from "../game/ground-maps.js";
 import { createSnowCover } from "../game/snow-cover.js";
-import { decodeModel } from "./models.js";
+import { collisionSoupOfModel, decodeModel } from "./models.js";
+import { parseSrf, srfTypeCode, srfTypeOf } from "../vendor/openphotex/mtm/srf.js";
 import { resolveKeyframeModel } from "./keyframes.js";
 import { buildGroundBoxMesh, groundBoxSlots } from "./ground-box-mesh.js";
 import { buildTvSky, buildTvTrackRender } from "./tv-track-build.js";
@@ -316,6 +317,8 @@ export async function loadRex(mtm, truckPalettes) {
  *   builds the terrain as the drawn ground, `groundMap` the map of its height for the water
  *   and the weather, `puddles` the map of where rain stands, `snow` the depth of settled snow
  *   on every vertex of the terrain.
+ *   A 4x4 Evolution track is always on its own smoothed grid (worker/evo-track-build.js), and a Community Patch 4
+ *   track on the 8 ft grid its .TXV asks for (worker/level-load.js); Smooth terrain is built on neither.
  *   `progress(text)`: called with MTM2's loading-screen message (MONSTER_EXE_ANALYSIS.md, "The loading bar") as each part begins.
  */
 /** The VFS with the archive that holds `sitPath` looked through first, for a track of another game than MTM. */
@@ -334,7 +337,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   // A 4x4 Evolution track is another kind of level altogether (worker/evo-track-build.js).
   progress("Loading world database");
   const { sitBytes, lite } = await readTrackScript(vfs, sitPath);
-  if (sitBytes && isEvoSit(sitBytes)) return withMtm1Sky(vfs, await buildEvoTrackRender(vfs, sitPath, sitBytes, { detailLevel, raceType, truckFiles, weather, hdWeather, tileOverlap, forest: evoForest, sunShadows, smoothTerrain: !!visuals.smoothing, lite }), weather, mtm1);
+  if (sitBytes && isEvoSit(sitBytes)) return withMtm1Sky(vfs, await buildEvoTrackRender(vfs, sitPath, sitBytes, { detailLevel, raceType, truckFiles, weather, hdWeather, tileOverlap, forest: evoForest, sunShadows, lite }), weather, mtm1);
   const level = await loadLevel(vfs, sitPath, sitBytes);
   const { sit } = level;
   // A CART Precision Racing track (docs/CHANGELOG.md F3): its own art and palettes, a finer heightfield and a road layer.
@@ -516,6 +519,23 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     });
   }
 
+  // Community Patch 4's triangle collision (OpenPhotex sim/cp4; docs/CP4_EXE_ANALYSIS.md 5, 11.2): each collidable model's
+  // triangles in the game frame, and the surface type of each from its MODELS\<model>.SRF (-2 where none matches). The
+  // session builds shapes from them only under the CommPatch4 physics; CP4's author published no source code.
+  const collisionSoups = {};
+  for (const name of new Set(collisionBoxes.map((b) => b.modelName).filter(Boolean))) {
+    const soup = collisionSoupOfModel(models[name]);
+    if (!soup) continue;
+    const srfBytes = await vfs.read(`MODELS\\${name.replace(/\.[^.\\]*$/, "")}.SRF`);
+    let surfaceTypes = null;
+    if (srfBytes && srfBytes.length >= 1 && srfBytes.length <= 65535) {
+      const srf = parseSrf(srfBytes);
+      const codes = soup.textures.map((tex) => { const type = srfTypeOf(srf, tex); return type === null ? -2 : srfTypeCode(type); });
+      surfaceTypes = Int16Array.from(soup.textureIndex, (ti) => (ti < 0 ? (srf.fallback ? srfTypeCode(srf.fallback) : -2) : codes[ti]));
+    }
+    collisionSoups[name] = { positions: soup.positions, surfaceTypes };
+  }
+
   // An MTM1 checkpoint's banner stands on two solid poles (as MTM1 plays; MTM2 makes a checkpoint no collision box at
   // all): each solid part of its model is an immovable box, the banner between them a cut-out the trucks pass under.
   // A CKBOX-style marker (CIRC1's CKBOX.BIN) is not drawn, and is passed through too.
@@ -531,6 +551,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       collisionBoxes.push({
         positionFt: at, theta: box.theta, phi: box.phi, psi: box.psi, sizeFt: null, mass: 0, type: 0, priority: box.priority ?? 0,
         bounds: { min: half.map((v) => -v), max: half }, sitIndex, bvel: null, hitSound: null, modelName: name,
+        // Not an MTM2 box: the checkpoint footprint rule (worker/sim-worker.js) leaves it as it is.
+        checkpointPole: true,
       });
     }
   }
@@ -806,6 +828,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       ra0: level.groundBoxes.ra0 ? level.groundBoxes.ra0.slice() : null,
       ra1: level.groundBoxes.ra1 ? level.groundBoxes.ra1.slice() : null,
       boxes: collisionBoxes,
+      /** Each collidable model's triangles and .SRF surface types, for the CommPatch4 physics (`collisionSoups` above). */
+      collisionSoups,
       /** The top-crush cars (MTM2_PHYSICS.md 14.27), each with its two models' bounds. */
       topCrush,
       ramps,

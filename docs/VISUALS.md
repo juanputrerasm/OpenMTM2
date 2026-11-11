@@ -23,7 +23,7 @@ takes effect from the next race.
 
 | Setting | Options name | Off draws |
 |---|---|---|
-| `terrainSmoothing` | Smooth terrain | the game's two triangles a cell |
+| `terrainSmoothing` | Smooth terrain | the game's two triangles a cell (a look only, on MTM1, MTM2 classic and CPR tracks; a 4x4 Evolution or CP4 Spline track is drawn as the finer grid it is driven on, either way) |
 | `enhancedWater` | Reflective water | the game's `RIPPL` frames on a flat plane, and its ice overlay in Snow (section 13) |
 | `volumetricWeather` | Volumetric weather | linear distance fog and the game's precipitation sprites |
 | `rainPuddles` | Rain puddles | dry-looking ground in Rain |
@@ -77,8 +77,19 @@ What is the game's and what is the port's, in one place:
 ### Two surfaces
 
 The game's ground is a 256 x 256 grid of 32 ft cells with heights in 2 ft steps, each cell two
-flat triangles (`MTM2_PHYSICS.md` 2.1). The simulation stands on exactly that, always. With
-Smooth terrain the renderer draws a second surface, built from the first when the track loads
+flat triangles (`MTM2_PHYSICS.md` 2.1). The simulation stands on exactly that unless the track
+itself is on a finer grid. So Smooth terrain is a look only: a hill drawn round still has the
+game's 32 ft facets under the tires, and a truck can meet an edge it cannot see. It is for the
+tracks on the 32 ft grid: MTM1, MTM2 classic and CART Precision Racing. Two kinds of track are on a
+finer grid of their own, drawn and driven alike, with Smooth terrain never built over them:
+
+- **4x4 Evolution tracks**, always: both games smooth every track whose `.SIT` has a version line
+  into an 8 ft grid and drive on it (`EVO2_EXE_ANALYSIS.md` 5a), and the race runs that game's
+  physics.
+- **Community Patch 4 Spline and Full Map tracks**, when the track's `.TXV` asks for that grid
+  (`CP4_EXE_ANALYSIS.md` 1.2 to 1.5). It is the track's choice, not the player's.
+
+Otherwise, with Smooth terrain the renderer draws a second surface, built from the first when the track loads
 (`src/game/terrain-relief.js`), on MTM1, MTM2 and CART Precision Racing tracks alike. A CPR track's heights come in
 feet (a finer grid than 2 ft steps), and its road keeps the game's ground under it and 10 ft either side (keepouts
 along the `.TRK` centreline, `worker/track-build.js` `cprRoadKeepouts`), since the road layer is drawn over the
@@ -1232,7 +1243,14 @@ or the whole map where the patches would cover more than a quarter of it. A plac
 truck knocks about is drawn into the copies again, but only into those of the cascades its
 shadow falls in, as it stood or as it stands, in the copy of the world nearest each, and only
 where it is wider than one and a half of that cascade's texels: the last cascade's texel is ten
-feet across, and a tombstone's shadow there is a texel. The copies are drawn again one a frame
+feet across, and a tombstone's shadow there is a texel. While it moves it is drawn by itself,
+over the copies with the trucks, and only into the cascades whose band of view depth it lies in
+(a truck 100 ft away is drawn into the near cascade alone, not into all four whose circles it
+stands in; a cascade with nothing moving in its band is not drawn at all), and stays drawn so
+for the rest of the race. Putting it back among the still objects once it rests was measured
+and is not worth it: on Farm Road 29 after 100 s of deathmatch 70 to 120 knocked things lie
+about, nine in ten at rest, and they cost less than the redraws of the copies their return would
+take, since the fight knocks them loose again. The copies are drawn again one a frame
 at the most, nearest the eye first; another waits a frame or two with what it has. A cascade not
 yet drawn at all never waits. Before, each redraw copied back the whole map, colour and depth,
 3 ms a cascade on an Intel HD 630, and any knocked object, anywhere, redrew all four copies,

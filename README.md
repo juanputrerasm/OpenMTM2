@@ -91,7 +91,10 @@ OpenMTM2 reads the other Terminal Reality racing games of the time from your own
 
 Add a game with **Options > Data > Add POD.INI** (pick its folder) or single PODs with the **POD manager**.
 Any vehicle races on any track. **Options > Game > Physics** picks the model: by default each vehicle
-drives on its own game's physics; it can also follow the track's game, or use one model for all.
+drives on its own game's physics; it can also follow the track's game, or use one model for all. A 4x4 Evolution
+track always runs its own game's physics on its own smoothed ground, as in Evo. One of them is
+**CommPatch4**, Community Patch 4's physics: MTM2's trucks on CP4's fixed tick, with props that collide by their
+own triangles (docs/CP4_EXE_ANALYSIS.md 10 and 11).
 
 ## Requirements
 

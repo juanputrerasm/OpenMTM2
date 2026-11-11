@@ -675,10 +675,29 @@ async function mountRace(container, context, params, owned = []) {
     scene.add(object.object);
     return object;
   });
-  // The 3D cockpit (render/cockpit3d.js), shown in the cockpit view in place of the 2D one (`cockpit3dShown`).
-  const cockpit3dBuild = await cockpit3dRequest;
-  const cockpit3d = cockpit3dBuild ? createCockpit3d(cockpit3dBuild, look) : null;
-  if (cockpit3d) { scene.add(cockpit3d.root); cleanups.push(() => cockpit3d.dispose()); }
+  /*
+    The 3D cockpits (render/cockpit3d.js), shown in the cockpit view in place of the 2D one (`cockpit3dShown`): one per
+    truck file, the player's read with the track and any other the first time the cockpit view sits in it (a watched
+    truck, or the one the Camera key put the camera on). An entry is the cockpit, null where that truck keeps the 2D
+    one (Community Patch 4's own rules, or no CP4 cockpit in the install), or undefined while it is read.
+  */
+  const cockpits3d = new Map();
+  const addCockpit3d = (file, built) => {
+    const made = built && !disposed ? createCockpit3d(built, look) : null;
+    if (made) { scene.add(made.root); cleanups.push(() => made.dispose()); }
+    cockpits3d.set(file, made);
+    return made;
+  };
+  if (playerTruck) addCockpit3d(playerTruck, await cockpit3dRequest);
+  /** Truck `i`'s 3D cockpit: null for the 2D one, undefined while it is read (asked for the first time, it is read now). */
+  const cockpit3dOf = (i) => {
+    const file = entrants[i]?.file;
+    if (!file || context.settings.cockpit3d === false) return null;
+    if (cockpits3d.has(file)) return cockpits3d.get(file);
+    cockpits3d.set(file, undefined);
+    context.assets.call("cockpit3d", { truck: file }).catch(() => null).then((built) => addCockpit3d(file, built));
+    return undefined;
+  };
 
   // Crash damage (game/crash-damage.js): the hull contacts the simulation reports dent the bodies.
   // A mode that owns the Crash Damage key (Combat's repairs) always has damage on.
@@ -733,6 +752,11 @@ async function mountRace(container, context, params, owned = []) {
     waterLevelFt: build.sim.waterLevelFt !== undefined ? build.sim.waterLevelFt : build.waterLevelFt,
     weather: weatherId,
     rules: physics,
+    // The CommPatch4 physics (docs/CP4_EXE_ANALYSIS.md 10, 11): props by their triangles or their boxes, each model's
+    // triangles from the track build, and whether the 40 ms tick is split into 10 ms steps offline too.
+    cp4Collision: raceRules.cp4Collision === "classic" ? "classic" : "triangles",
+    cp4SubstepsOffline: !!context.settings.cp4SubstepsOffline,
+    collisionSoups: physics === "cp4" ? build.sim.collisionSoups ?? null : null,
     difficulty,
     autoShift: context.settings.autoShift !== false,
     shiftInAuto: raceRules.shiftInAuto !== false,
@@ -765,6 +789,8 @@ async function mountRace(container, context, params, owned = []) {
         setup: e.player ? setup : undefined,
       };
     }),
+    // The track's checkpoint gates for the footprint rule (worker/sim-worker.js), whatever the race; none in Summit Rumble.
+    checkpointGates: summit ? [] : build.sim.checkpoints ?? [],
     race: freeRoam ? null : gameMode && !keepsRace ? { checkpoints: [], laps: 1, mode: "circuit" }
       : {
         checkpoints: build.sim.checkpoints, laps: dragRace || track.raceType === "rally" ? 1 : laps, mode: summit ? "summit" : dragRace ? "drag" : "circuit",
@@ -906,7 +932,12 @@ async function mountRace(container, context, params, owned = []) {
     handPresses.shiftUp = handPresses.shiftDown = handPresses.helicopter = false;
     const action = modeAction;
     modeAction = null;
-    return { ...held, shiftUp, shiftDown, helicopter, modeAction: action, joystick: driving ? null : joystick, slew: gold?.slewing ? gold.slewInput() : null };
+    // GOLD's slew mode moves the truck the camera is on (MONSTER_EXE_ANALYSIS.md 15), which the Camera key chooses.
+    const slew = gold?.slewing ? { ...gold.slewInput(), truck: cameraTarget } : null;
+    // Spectator mode: nobody drives, so no key, stick or touch reaches a truck. On a track with no course the first
+    // truck has no autopilot to drive it and the simulation would take it for the player's.
+    if (spectator) return { slew };
+    return { ...held, shiftUp, shiftDown, helicopter, modeAction: action, joystick: driving ? null : joystick, slew };
   };
 
   // The Inertia view (the Z-mode cameras option) comes after the game's ten.
@@ -1111,7 +1142,7 @@ async function mountRace(container, context, params, owned = []) {
       saveSettings(context.settings);
       // "Chase Far of Bear Foot": the view's name and the truck being watched (0x52d180).
       // The view's name is the moment's feedback, not the race's news: the caption bar, even with the chat box's log.
-      if (!demo) { const name = t("<<1>> of <<2>>", t(cameraMode(viewMode).name), truckName(watching ? entrants[cameraTarget].file : playerTruck)); caption.show(name, 2); vrMessage.set([name]); }
+      if (!demo) { const name = t("<<1>> of <<2>>", t(cameraMode(viewMode).name), truckName(entrants[cameraTarget]?.file ?? playerTruck)); caption.show(name, 2); vrMessage.set([name]); }
     }
   };
   const onKey = (e) => {
@@ -1121,7 +1152,8 @@ async function mountRace(container, context, params, owned = []) {
     if (watching && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && !paused) {
       // B: the free camera. Left and Right: the truck watched (the free camera has those keys while it flies).
       if (e.code === SPECTATOR_FLY_KEY && flyer) { setFlying(!flyer.enabled); return; }
-      if (e.code === "ArrowRight" || e.code === "ArrowLeft") { watch(cameraTarget + (e.code === "ArrowRight" ? 1 : -1)); return; }
+      // Not in GOLD's slew mode, whose arrows move the truck.
+      if ((e.code === "ArrowRight" || e.code === "ArrowLeft") && !gold?.slewing) { watch(cameraTarget + (e.code === "ArrowRight" ? 1 : -1)); return; }
     }
     if (netChat?.typing) return;
     if (netChat && !e.repeat && (keyMap.chat.includes(e.code) || keyMap.teamChat.includes(e.code))) {
@@ -1131,6 +1163,9 @@ async function mountRace(container, context, params, owned = []) {
     }
     // A combination (Ctrl, Alt or Cmd with a key) is never a single key's action: Ctrl + Y is no YeeHaw.
     if (e.ctrlKey || e.altKey || e.metaKey) return;
+    // The game's Camera key (K, MONSTER_EXE_ANALYSIS.md 11): the camera goes to the truck before, or with Shift to the
+    // next one, in any view but the cockpit. GOLD's slew mode then moves that truck (section 15).
+    if (keyMap.nextTruck.includes(e.code) && !e.repeat && viewMode !== 0 && !flyer?.enabled && !host.presenting) stepCameraTruck(e.shiftKey ? 1 : -1);
     if (keyMap.horn.includes(e.code) && !e.repeat) { truckAudio.horn(0, playerPosition()); netSend("horn"); }
     if (keyMap.yeehaw.includes(e.code) && !e.repeat) { truckAudio.yeehaw(0, playerPosition()); netSend("yeehaw"); }
     // 1 to 9 and 0 pick the ten views (game/cameras.js), unless GOLD mode takes the key for its screenshot.
@@ -1542,10 +1577,17 @@ async function mountRace(container, context, params, owned = []) {
   let cameraTarget = 0;
   // A watched race: the truck the camera is on is the spectator's to choose, and the camera can be flown free
   // (ui/fly-controller.js, the fly-by's own).
+  /**
+   * What the free camera of a watched race shows over the view, which the O key cycles: the race's lap and clock (0),
+   * those and the list of keys (1), then nothing (2), and round again.
+   */
+  let flyShows = 0;
+  const showFlyList = () => flyer?.showList(!!flyer.enabled && flyShows === 1);
   const flyer = spectator || canLeave ? createFlyController({
     canvas, settings: context.settings, save: () => saveSettings(context.settings), course: build.sim.course, courseOpen: !!build.sim.courseOpen,
     groundAt: groundHeightFn(terrain), say: (text, seconds) => say(text, seconds ?? 4), baseFov: fovFor(1, fovBase(context.settings)), font: hudFont, t,
     blocked: () => paused || finishing || !!gameConsole?.open || !!replaying || !!context.optionsDialog?.isConnected,
+    onListKey: () => { flyShows = (flyShows + 1) % 3; showFlyList(); },
   }) : null;
   if (flyer) { view.append(flyer.element); cleanups.push(() => flyer.dispose()); }
   const flyTarget = new THREE.Vector3();
@@ -1563,6 +1605,17 @@ async function mountRace(container, context, params, owned = []) {
     cameraTarget = ((index % entrants.length) + entrants.length) % entrants.length;
     say(t("Watching <<1>> (<<2>>)", truckName(entrants[cameraTarget].file), entrants[cameraTarget].name), 2);
   };
+  /**
+   * The Camera key: the camera on the truck `way` from the one it is on, round the field (0x52cd90). A watched race says
+   * whom it watches; otherwise the view and the truck are named, as the game does (0x52d180).
+   */
+  const stepCameraTruck = (way) => {
+    if (watching) { watch(cameraTarget + way); return; }
+    cameraTarget = (((cameraTarget + way) % entrants.length) + entrants.length) % entrants.length;
+    const name = t("<<1>> of <<2>>", t(cameraMode(viewMode).name), truckName(entrants[cameraTarget].file));
+    caption.show(name, 2);
+    vrMessage.set([name]);
+  };
   /** The free camera on or off, in a watched race: it starts where the race's camera is, looking the same way. */
   const setFlying = (on) => {
     if (!flyer || flyer.enabled === !!on) return !!flyer?.enabled;
@@ -1570,6 +1623,7 @@ async function mountRace(container, context, params, owned = []) {
       camera.getWorldDirection(flyTarget);
       flyer.place([camera.position.x, camera.position.y, -camera.position.z], Math.atan2(flyTarget.x, -flyTarget.z), Math.asin(Math.max(-1, Math.min(1, flyTarget.y))));
       flyer.setEnabled(true);
+      showFlyList();
       flyer.announce();
     } else {
       flyer.setEnabled(false);
@@ -1608,9 +1662,19 @@ async function mountRace(container, context, params, owned = []) {
   /** The rear-view mirror: the full cockpit facing forward, once View Forward has switched it on (it starts off, as in the game). */
   /** The rear-view mirror's switch (View Forward in the cockpit), off until switched on, kept across races. */
   const mirrorOn = () => !!context.settings.mirrorOn;
-  const mirrorShown = () => viewMode === 0 && dashMode() === 0 && mirrorOn() && cockpitTurn() === 0 && !cockpit3dShown();
-  /** The 3D cockpit in place of the 2D one: the cockpit view of the player's own truck, with the cockpit drawn, not in a headset. */
-  const cockpit3dShown = () => !!cockpit3d && viewMode === 0 && dashMode() === 0 && !host.presenting && !watching && cameraTarget === 0;
+  const mirrorShown = () => viewMode === 0 && dashMode() === 0 && mirrorOn() && cockpitTurn() === 0 && cockpit2dShown();
+  /**
+   * The 3D cockpit the view sits in, or null (undefined while it is read): the cockpit view with the cockpit drawn, of
+   * the truck the camera is on (the player's, a watched one, or one the Camera key chose), not in a headset nor with the
+   * camera flown free.
+   */
+  const seatCockpit3d = () => (viewMode === 0 && dashMode() === 0 && !host.presenting && !flyer?.enabled ? cockpit3dOf(cameraTarget) : null);
+  const cockpit3dShown = () => !!seatCockpit3d();
+  /**
+   * The 2D cockpit: the cockpit view with the cockpit drawn, where the truck has no 3D one. Not while the 3D one is
+   * still read: an install with Community Patch 4 never shows the 2D cockpit in its place, even for a moment.
+   */
+  const cockpit2dShown = () => viewMode === 0 && dashMode() === 0 && !host.presenting && !flyer?.enabled && seatCockpit3d() === null;
   /** The 3D cockpit's view: the head's turn (radians, right) and the smooth look (game/cockpit3d.js `stepCockpitLook`). */
   let cockpit3dView = { turn: 0, yaw: 0, pitch: 0 }, cockpit3dFov = false;
   const cockpit3dBody = new THREE.Matrix4();
@@ -1701,10 +1765,11 @@ async function mountRace(container, context, params, owned = []) {
       if (cockpit3dShown()) {
         cockpit3dBody.copy(body);
         cockpit3dView.turn = (cockpitTurn() / 65536) * Math.PI * 2;
-        cockpit3d.pose(body);
-        cockpit3d.placeCamera(camera, body, cockpit3dView);
+        const seated = seatCockpit3d();
+        seated.pose(body);
+        seated.placeCamera(camera, body, cockpit3dView);
         cockpitEye.position.copy(camera.position);
-        if (Math.abs(camera.fov - cockpit3d.verticalFov) > 1e-3) { camera.fov = cockpit3d.verticalFov; camera.updateProjectionMatrix(); }
+        if (Math.abs(camera.fov - seated.verticalFov) > 1e-3) { camera.fov = seated.verticalFov; camera.updateProjectionMatrix(); }
         cockpit3dFov = true;
         return null;
       }
@@ -1801,11 +1866,11 @@ async function mountRace(container, context, params, owned = []) {
       else setStartLights(world, lightsOn, build.startLightColours);
     }
     // The free camera of a watched race: no truck's times, only the race's lap (the leader's) and its clock, or a
-    // Rumble's time left; the keys list (O) is the only other thing over the view.
+    // Rumble's time left; the keys list is the only other thing over the view. O cycles them (`flyShows`).
     const flying = !!flyer?.enabled;
     view.classList.toggle("race-flying", flying);
-    flyHud.element.hidden = !flying;
-    if (flying) {
+    flyHud.element.hidden = !flying || flyShows === 2;
+    if (flying && flyShows !== 2) {
       const leader = race.trucks.find((x) => x.place === 1) ?? race.trucks[0];
       flyHud.set(summit
         ? [[t("Time Remaining:"), formatRaceTime(race.summit?.left ?? 0)]]
@@ -2234,9 +2299,12 @@ async function mountRace(container, context, params, owned = []) {
         if (flyer.apply(camera, flyTarget)) camera.updateProjectionMatrix();
       } else placeCamera(shown[cameraTarget] ?? shown[0], dt);
       if (!host.presenting) placeSplit(shown, dt);
-      // Your own truck is not drawn from inside it.
-      drawn[0].object.visible = viewMode !== 0 || host.presenting;
+      // The truck the cockpit view sits in is not drawn from inside it (the player's own, or the one the camera is on).
+      const inside = viewMode === 0 && !host.presenting && !flyer?.enabled ? cameraTarget : -1;
+      drawn.forEach((d, i) => { d.object.visible = i !== inside; });
       const mine = latest.poses[0].current;
+      // The gauges and the cockpit are those of the truck the camera is on.
+      const watchedState = latest.poses[cameraTarget]?.current ?? mine;
       // The Drive Mode key's answer (worker/sim-worker.js): the transfer case as it now is.
       if (mine.transfer !== null && mine.transfer !== undefined && mine.transfer !== shownTransfer) {
         if (shownTransfer !== null) flash(DRIVE_MODES[mine.transfer] ?? "", now, 2);
@@ -2252,14 +2320,13 @@ async function mountRace(container, context, params, owned = []) {
         panel.style.left = `${Math.round((view.clientWidth * ratio - (panel.width || panel.offsetWidth * ratio)) / 2) / ratio}px`;
       }
       gauges.setVisible(viewMode === 0 ? dashMode() === 1 : context.settings.dashboard !== false);
-      gauges.set(mine);
-      if (cockpit3d) {
-        cockpit3d.setVisible(cockpit3dShown());
-        if (cockpit3dShown()) cockpit3d.update(mine);
-      }
+      gauges.set(watchedState);
+      const shownCockpit3d = seatCockpit3d() ?? null;
+      for (const c of cockpits3d.values()) c?.setVisible(c === shownCockpit3d);
+      shownCockpit3d?.update(watchedState);
       if (cockpit) {
         cockpit.setDashboard({
-          visible: viewMode === 0 && dashMode() === 0 && !host.presenting && !cockpit3dShown(), speed: mine.speed, rpm: mine.rpm, gear: mine.gear, steer: mine.steer,
+          visible: cockpit2dShown(), speed: watchedState.speed, rpm: watchedState.rpm, gear: watchedState.gear, steer: watchedState.steer,
           look: cockpitTurn(), mirror: mirrorShown(),
         });
         const next = build.sim.checkpoints[latest.race?.trucks[0].checkpoint ?? 0];
@@ -2386,7 +2453,7 @@ async function mountRace(container, context, params, owned = []) {
       // A headset has no frame to draw the flare over: it stands in the scene instead.
       flare.setStereo(host.presenting);
       flare.update(camera, sunTravel, true, weatherScene.weather <= 1 && context.settings.sunFlare !== false, flareBlocked,
-        cockpit3dShown() ? (o, d) => cockpit3d.covers(o, d) : null);
+        cockpit3dShown() ? (o, d) => seatCockpit3d().covers(o, d) : null);
     }
     // The lens is the flat screen's (render/lens.js): a headset draws each eye straight to its display.
     truckReflections?.update(camera, weatherScene.weather);
@@ -2403,7 +2470,7 @@ async function mountRace(container, context, params, owned = []) {
     if (!poolsWarmed) { poolsWarmed = true; weatherScene.warmPools(() => scenery.compile(camera)); }
     if (!host.presenting) renderMirror();
     // The 3D cockpit's mirror, once View Forward has switched it on (render/cockpit3d.js `drawMirror`).
-    if (cockpit3dShown() && mirrorOn()) cockpit3d.drawMirror(renderer, scene, camera, cockpit3dBody, { ...cockpit3dView, drawOver: (c) => scenery.drawOver(c) });
+    if (cockpit3dShown() && mirrorOn()) seatCockpit3d().drawMirror(renderer, scene, camera, cockpit3dBody, { ...cockpit3dView, drawOver: (c) => scenery.drawOver(c) });
     flare?.render(renderer, camera);
     renderSplit();
     renderChaseMirror();

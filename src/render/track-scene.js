@@ -1128,7 +1128,9 @@ export function moveObjects(world, moves) {
     if (!slot) continue;
     // A still object that has started to move (a knocked sign, fence or crate) is drawn by itself from then on, its
     // shadow among the moving ones: kept among the instances, each move would make the shadows redraw every still
-    // thing in the world, the forest with it, frame after frame (render/sun-shadows.js).
+    // thing in the world, the forest with it, frame after frame (render/sun-shadows.js). Putting it back among them
+    // once it rests was tried and measured worse: a settled object costs little, and its return redraws the cascades
+    // its shadow reaches (a deathmatch's objects settle and are knocked again all race long).
     const loose = parts.loose.get(sitIndex) ?? (parts.byName.get(slot[0])?.[0]?.userData.facing ? null : loosen(world, parts, sitIndex, slot, touched, spheres));
     if (loose) {
       loose.matrix.copy(placement(matrix, offsets[order[0]], false));

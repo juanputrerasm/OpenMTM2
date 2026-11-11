@@ -19,6 +19,13 @@ import { createStrings, msg } from "../game/strings.js";
 export const FLY_SCHEME_KEY = "KeyC", FLY_FOLLOW_KEY = "KeyT", FLY_LIST_KEY = "KeyO";
 
 /**
+ * The list of keys' font scale, device pixels per font pixel, for a view `deviceHeight` device pixels tall: a step per
+ * 1080 device pixels, never under one. The timing board takes a step per 720 (render/bitmap-text.js `hudFontScale`),
+ * so the long list is drawn no larger than the board and smaller on most screens.
+ */
+export const listFontScale = (deviceHeight) => Math.max(1, Math.round(deviceHeight / 1080));
+
+/**
  * @param {object} options
  * @param {HTMLCanvasElement} options.canvas the mouse looks around over it
  * @param {object} options.settings `flyControls` is read and written
@@ -30,17 +37,28 @@ export const FLY_SCHEME_KEY = "KeyC", FLY_FOLLOW_KEY = "KeyT", FLY_LIST_KEY = "K
  * @param {() => boolean} options.blocked whether the keys are someone else's now (a pause, the console)
  * @param {number} options.baseFov the view's field of view at zoom 1, degrees
  * @param {object} [options.font] the game's bitmap font (render/bitmap-text.js) the list of keys is drawn in, as the HUD is
+ * @param {() => void} [options.onListKey] what the O key does instead of showing and hiding the list (a watched race
+ *   cycles the lap and clock with it)
  */
-export function createFlyController({ canvas, settings, save, course = [], courseOpen = false, groundAt, say = () => {}, blocked = () => false, baseFov = 60, font = null, t = createStrings() }) {
+export function createFlyController({ canvas, settings, save, course = [], courseOpen = false, groundAt, say = () => {}, blocked = () => false, baseFov = 60, font = null, t = createStrings(), onListKey = null }) {
   const fly = createFlyCamera();
   const tour = createCourseTour(course, { open: courseOpen });
   let scheme = FLY_SCHEMES.includes(settings.flyControls) ? settings.flyControls : "traxx";
   let enabled = false, following = false, lookX = 0, lookY = 0, zoomSteps = 0, dragging = false, lastMouse = null;
   const held = new Set();
   const list = el("div", { class: font ? "fly-keys fly-keys-font" : "fly-keys", hidden: true });
-  // In the game's font the keys are its yellow and what they do white, a row each, under the scheme's name.
-  const panel = font ? createTextPanel(font, { fit: true, scale: Math.max(1, Math.round(window.innerHeight / 480)), labelColor: "#f2c14e", valueColor: "#ffffff" }) : null;
+  // In the game's font the keys are its yellow and what they do white, a row each, under the scheme's name. Drawn one
+  // canvas pixel to one device pixel at a whole-number scale (`listFontScale`), on a plate of its own, at a whole
+  // device pixel, so every font pixel is sharp.
+  const panel = font ? createTextPanel(font, { fit: true, labelColor: "#f2c14e", valueColor: "#ffffff", background: "rgba(0, 0, 0, 0.62)", padX: 4, padY: 2 }) : null;
   if (panel) list.append(panel.element);
+  const layoutList = () => {
+    if (!panel) return;
+    const ratio = window.devicePixelRatio || 1;
+    panel.setScale(listFontScale(Math.round(window.innerHeight * ratio)), ratio);
+    list.style.left = list.style.top = `${Math.round(16 * ratio) / ratio}px`;
+  };
+  layoutList();
 
   const drawList = () => {
     const title = following ? t("<<1>>, following the course", FLY_SCHEME_NAMES[scheme]) : FLY_SCHEME_NAMES[scheme];
@@ -76,7 +94,11 @@ export function createFlyController({ canvas, settings, save, course = [], cours
     if (!enabled || blocked() || event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.code === FLY_SCHEME_KEY && !event.repeat) { setScheme(nextFlyScheme(scheme)); event.stopImmediatePropagation(); return; }
     if (event.code === FLY_FOLLOW_KEY && !event.repeat) { setFollowing(!following); event.stopImmediatePropagation(); return; }
-    if (event.code === FLY_LIST_KEY && !event.repeat) { list.hidden = !list.hidden; event.stopImmediatePropagation(); return; }
+    if (event.code === FLY_LIST_KEY && !event.repeat) {
+      if (onListKey) onListKey(); else list.hidden = !list.hidden;
+      event.stopImmediatePropagation();
+      return;
+    }
     if (flyKeyCodes(scheme).has(event.code)) { event.preventDefault(); event.stopImmediatePropagation(); held.add(event.code); }
   };
   const onKeyUp = (event) => held.delete(event.code);
@@ -99,6 +121,7 @@ export function createFlyController({ canvas, settings, save, course = [], cours
   window.addEventListener("mousemove", onMouseMove);
   window.addEventListener("mouseup", onMouseUp);
   canvas.addEventListener("wheel", onWheel, { passive: false });
+  window.addEventListener("resize", layoutList);
   drawList();
 
   return {
@@ -155,6 +178,7 @@ export function createFlyController({ canvas, settings, save, course = [], cours
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
       canvas.removeEventListener("wheel", onWheel);
+      window.removeEventListener("resize", layoutList);
       list.remove();
     },
   };

@@ -10,6 +10,10 @@ brackets. Items marked **hypothesis** were inferred, not traced. Every rule here
 code; nothing was fitted to measurements. Replays are useful only as a regression check once the
 port runs. Section 13 lists the few details still open.
 
+**Community Patch 4.** CP4 beta 0.52 keeps this vehicle model and changes the timing, a few clamps and the
+collisions with props: `CP4_EXE_ANALYSIS.md` sections 10 (vehicle dynamics and timing) and 11 (the triangle
+collision solver). Its author published no source code; those sections are our reading of its executable.
+
 **JSTrackViewer's Test Drive is not a source of truth.** Section 11 lists where it differs.
 
 ---
@@ -138,6 +142,19 @@ The tire-cut factor table (MONSTER_EXE_ANALYSIS.md section 8.6) multiplies mu pe
 - Each hull point and wheel records its water depth.
 - **There is no buoyancy.** Water only adds drag (section 5.3).
 - Entering water above 14.67 ft/s plays the splash.
+- **A tire's surface is the terrain's whatever holds it up.** The game (`0x46a2c0`, the grip lookups) and both
+  Community Patches (CP4_EXE_ANALYSIS.md 2) read it from the terrain under the tire, by the terrain's height
+  against the water: a tire on a level box, a ramp or a CP4 prop with no .SRF, over terrain below the water,
+  stands on deep water (1300). It grips at deep water's 0.4, and the sounds and commentary take it as water
+  (MONSTER_EXE_ANALYSIS.md 12: in water when a hub is under the level, or a tire on the ground stands on 300 or
+  1300). Its water depth is its own height against the level, so there is no drag, sinking or splash.
+- **In OpenMTM2 (not the game's, an intentional change):** a tire held up by anything but the terrain (a level or
+  ground box, a ramp, a CP4 triangle prop, a top-crush car, an edge) never takes water or deep water from the
+  terrain under it: it reads 0 (Default, the value the game gives ground at height 0: full grip, no tire-cut
+  change, no sinking), and a .SRF face keeps its own type. This one rule feeds the grip, the skid and water
+  sounds, the water commentary and the dust and spray. A tire held up by the terrain, and a hub under the water,
+  are as the game has them. OpenPhotex `objectSurfaceValue`, `tireOnObject` (StepContext `dryOnObjects`),
+  `inWaterForSound`.
 
 ### 2.5 Ground boxes (`0x553fa0`)
 
@@ -1152,7 +1169,21 @@ whether it is drawn). A box joins the frame's object list once, when it lies wit
 ft on both x and z of an object already listed (trucks first, then ramps, then earlier boxes;
 `r` and `R` the two bounding radii), or when it moves faster than 0.1 ft/s. An AI truck (not the
 player's) does not bring in a type 11 box (a box inside a checkpoint's footprint) or a box with
-no model, unless the count at `0x646c40 + 0xc` is above 0 (its meaning is still open).
+no model, unless the count at `0x646c40 + 0xc` is above 0 (its meaning is still open). The test is made only
+for a truck doing the bringing in (`0x554802..0x554844`; the box's type, then the first byte of its model name
+`+0x22c`, against the player's truck `[0xa2fd70]`); boxes and ramps bring in every box.
+
+**Type 11 comes from the checkpoints** (`0x552a93..0x552b5e`, after the level's boxes and checkpoints load,
+skipped when the race mode `[0x63f508]` is 4, Summit Rumble): every box of type 0 (`+0x244`) whose position lies
+in some checkpoint gate's footprint becomes type 11. For each gate (the unscaled copies at `0x6e9d88`, stride
+`0x2a4`, 6.2 of MONSTER_EXE_ANALYSIS.md), `d` = box position (`+0x4c`) minus gate position is turned into the
+gate's frame (`0x4692f0` via `0x403c83`: `out_j = sum_i M[i][j] d_i`, world to body) and the box is inside when
+`|d_x| < width` (`+0x68`) and `|d_z| < length` (`+0x64`), the full sizes, strictly; the height is not tested.
+Community Patch 4 keeps both rules unchanged: the conversion at `0x1403ba223..0x1403ba2dc` (type `+0x274`, stride
+`0x368`, Summit test `[0x145766cd8]`, rotation `0x1403b1910`) and the listing test at `0x1403b39c0..0x1403b3a10`
+(count `[0x140945560] + 0x18`); its listing also skips type 14 (fog). A type 11 box keeps CP4's triangle
+collision (the shape gate `FUN_140183d00` reads no type) but is not a .SRF surface (CP4_EXE_ANALYSIS.md 5).
+OpenPhotex `checkpointFootprintType`, `listedByComputerTruck`.
 
 Pairs are then tested as in section 14.14, and whether a box is immovable or pushable for a
 truck follows section 7.3 (immovable when its mass is 0 or at least the truck's).

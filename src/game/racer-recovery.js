@@ -4,8 +4,11 @@
 
   - **A missed checkpoint** (`returns`): the truck weighs, at once and again every `REPLAN_S`, the quickest way back
     through the gate: **reversing** to the gate's approach side (the gate close behind and the truck still facing the
-    course's way), **turning round** and driving back round to the approach side, or the **helicopter** when either
-    would take longer than its flight (the gate far behind). It drives back at racing speed.
+    course's way), **turning round** and driving back round to the approach side, or the **helicopter**. The
+    helicopter is weighed at `HELI_COST_S`, 6 s, well under its flight: measured headless, a drive back took 16 to
+    30 s and often jammed against what stands beside the course, so only a gate close behind is driven back to.
+    A gate once given up to the helicopter is not planned for again: the lift sets the truck down before it and
+    the course autopilot takes it through.
   - **Stuck** (`unsticks`): a truck that wants to go and cannot (another truck in its way, a tree, a wall) first
     shoves a truck in front of it, then backs out turning, then drives round to one side and back onto the course,
     the other side on the next try.
@@ -27,9 +30,10 @@ export const RETURN_SPEED = 75, THROUGH_SPEED = 60, REVERSE_SPEED = 28;
 /**
  * The choice of way back: reverse when the gate is within `REVERSE_FT` behind, within `REVERSE_ACROSS_FT` of the
  * truck's line and the truck still faces within `REVERSE_TURN` radians of the course's way; turning round costs
- * `TURN_COST_S` a half turn more than driving the distance; the helicopter takes `HELI_COST_S`. Weighed again every `REPLAN_S`.
+ * `TURN_COST_S` a half turn more than driving the distance; the helicopter counts `HELI_COST_S` (less than its 15 s
+ * flight: a drive back is weighed against what it really costs, not the flight). Weighed again every `REPLAN_S`.
  */
-export const REVERSE_FT = 110, REVERSE_ACROSS_FT = 30, REVERSE_TURN = 0.9, TURN_COST_S = 3, HELI_COST_S = 15, REPLAN_S = 2;
+export const REVERSE_FT = 110, REVERSE_ACROSS_FT = 30, REVERSE_TURN = 0.9, TURN_COST_S = 3, HELI_COST_S = 6, REPLAN_S = 2;
 /** Driving back without closing on the target by `RETURN_PROGRESS_FT` for this long is being stuck. */
 export const RETURN_STALL_S = 4, RETURN_PROGRESS_FT = 8;
 /** Stuck: wanting to go (throttle over 0.3 in a forward gear) under this speed for this long. */
@@ -63,6 +67,8 @@ export function createRacerRecovery({ returns = false, unsticks = false } = {}) 
   return {
     returns, unsticks, mode: "course", timer: 0, phase: null, plan: null, replan: 0, returnTime: 0, slow: 0, stall: null,
     tries: 0, stuckTime: 0, anchor: null, side: 1, bias: 0, over: 0, closest: Infinity, since: 0, driver: createRumbleDriver(0.5),
+    /** The gate (its position) given up to the helicopter, not driven back to again. */
+    gaveUp: null,
   };
 }
 
@@ -117,8 +123,11 @@ export function racerRecoveryStep(r, ctx) {
   // Lying over: nothing to drive with.
   r.over = s.matrix && s.matrix[4] < OVER_UP ? r.over + dt : 0;
   if (r.over > OVER_S && (r.unsticks || (r.returns && ctx.missed))) { r.over = 0; return giveUp(r, c, ctx.gears); }
+  // A gate given up to the helicopter stays given up until it is passed (the race rules then clear the miss).
+  if (!ctx.missed) r.gaveUp = null;
+  const gaveUp = !!ctx.missed && !!r.gaveUp && r.gaveUp[0] === ctx.missed.pos[0] && r.gaveUp[2] === ctx.missed.pos[2];
   // Stuck on the way back to a gate: the manoeuvres below, then back to the gate.
-  if (r.returns && ctx.missed && !escaping(r)) return returnStep(r, ctx);
+  if (r.returns && ctx.missed && !escaping(r) && !gaveUp) return returnStep(r, ctx);
   if (r.mode === "return") leave(r, c, ctx.gears);
   if (!r.unsticks && !escaping(r)) return "course";
 
@@ -287,7 +296,7 @@ function returnStep(r, ctx) {
   }
   if (r.phase === "approach" && (!r.plan || r.replan <= 0)) {
     const plan = returnPlan(s, gate).kind;
-    if (plan === "heli") return giveUp(r, c, ctx.gears);
+    if (plan === "heli") { r.gaveUp = [gate.pos[0], gate.pos[1], gate.pos[2]]; return giveUp(r, c, ctx.gears); }
     // A new way: its own progress to watch.
     if (plan !== r.plan) { r.closest = Infinity; r.since = 0; }
     r.plan = plan;

@@ -43,6 +43,32 @@ test("a computer truck sliding steers into the slide and eases the throttle, nev
   assert.equal(straight.controls.steer, 0.1);
 });
 
+test("in a corner a drift is not a spin: the wheel stands and only the throttle eases, until the yaw rate runs ahead of the path", () => {
+  // A right-hand arc of 150 ft (curvature +1/150) at 60 ft/s: the path turns at 0.4 rad/s. The truck travels to the
+  // left of its nose (toward the outside), as a truck at the limit of grip does.
+  const curvature = 1 / 150;
+  const drifting = truck(0, [-25, 0, 60], { yaw: 0.45 });
+  drifting.controls.steer = 0.2;
+  cpuControlStep(createCpuControl(), drifting, DT, null, GEARS, undefined, curvature);
+  assert.ok(drifting.controls.steer > 0.1, `the autopilot's wheel stands (less the weave's damping): ${drifting.controls.steer}`);
+  assert.ok(drifting.controls.throttle < 1, "the throttle eases");
+  // Yawing twice as fast as the path: the rear is stepping out, so the wheel turns toward the travel.
+  const spinning = truck(0, [-25, 0, 60], { yaw: 0.9 });
+  spinning.controls.steer = 0.2;
+  cpuControlStep(createCpuControl(), spinning, DT, null, GEARS, undefined, curvature);
+  assert.ok(spinning.controls.steer < 0, `counter-steered: ${spinning.controls.steer}`);
+  // Travel toward the inside of the turn is never a drift: caught as before.
+  const inside = truck(0, [25, 0, 60], { yaw: 0.45 });
+  inside.controls.steer = -0.2;
+  cpuControlStep(createCpuControl(), inside, DT, null, GEARS, undefined, curvature);
+  assert.ok(inside.controls.steer > 0, `caught: ${inside.controls.steer}`);
+  // On a straight (no curvature) the slide is caught as before.
+  const straight = truck(0, [-25, 0, 60], { yaw: 0.45 });
+  straight.controls.steer = 0.2;
+  cpuControlStep(createCpuControl(), straight, DT, null, GEARS);
+  assert.ok(straight.controls.steer < 0, `caught on a straight: ${straight.controls.steer}`);
+});
+
 test("the steering added is taken back before the autopilot steers again", () => {
   const m = createCpuControl();
   const s = truck(0, [30, 0, 60]);

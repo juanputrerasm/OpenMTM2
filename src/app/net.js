@@ -230,6 +230,7 @@ function attach(context, kind, session, transport, me) {
     if (context.net !== net) return;
     context.net = null;
     const text = reason === "removed" ? msg("You have been removed from the game.") : reason === "closed" ? msg("The room was closed.")
+      : reason === "version" ? msg("The host runs a version of the game this one cannot play with.")
       : reason === "left" ? null : msg("The connection to the game was lost.");
     if (text) { const t = context.t ?? createStrings(); await showAlert(t, t(text)); }
     if (reason !== "left") context.router.go(kind === "rooms" && context.netRooms ? "rooms" : "net-connect", {}, { replace: true });

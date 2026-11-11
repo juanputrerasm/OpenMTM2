@@ -117,6 +117,8 @@ export function decodeMtm2HeightPng(bytes, terrainGrid) {
     const png = decodePngSamples(bytes);
     if (png.colorType !== 0 && png.colorType !== 4)
         throw new RangeError("height PNG must be greyscale (RGB and palette images are refused, as the engine does)");
+    if (png.bitDepth !== 8 && png.bitDepth !== 16)
+        throw new RangeError(`png: bit depth ${png.bitDepth} is not supported`);
     if (png.width !== png.height || (png.width !== 256 && png.width !== 1024)) {
         throw new RangeError(`height PNG is ${png.width} x ${png.height}; expected 256 x 256 or 1024 x 1024`);
     }

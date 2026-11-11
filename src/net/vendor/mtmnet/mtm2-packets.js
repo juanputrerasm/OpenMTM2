@@ -14,7 +14,10 @@
   Profiles: Community Patch 3 and 4 change some packets (OpenMTM2 docs/CP4_EXE_ANALYSIS.md section 9).
   Which layout a peer uses follows from the version it announces in its player info (0x03 at +0x3A,
   the same in every profile): `profileForVersion(version)` gives PROFILES.retail (0x0201), .cp3
-  (0x3400) or .cp4 (0x3402). The profile defaults to retail everywhere.
+  (0x3400) or .cp4 (0x3402). The profile defaults to retail everywhere. A Community Patch version
+  is `(build << 8) | rev` and names exactly that build's layouts, with nothing negotiated (CP4's
+  developers, reply_to_kmaster_online_rooms_2.md section 3), so `knownVersion` says whether we can read
+  a peer at all: a patch build we have no profile for must be refused, not read as retail.
   Browser and Node; no dependencies.
 */
 
@@ -26,6 +29,8 @@ export const MTM2_NET_VERSION = 0x0201;
 /** Community Patch 3 (monster.exe 2.0.52.0) announces 0x3400, CP4 beta 0.52 (2.0.52.2) 0x3402 (CP4_EXE_ANALYSIS.md 9). */
 export const CP3_NET_VERSION = 0x3400;
 export const CP4_NET_VERSION = 0x3402;
+/** The first Community Patch version: build 52 (0x34), rev 0. Versions from here up name a patch build's own layouts. */
+export const CP_FIRST_VERSION = 0x3400;
 
 /** Barrier codes (packet 0x15 and the 0x18 results): C multi-character constants, 'rslt' = 0x72736c74, sent as u32 LE. */
 export const fourCC = (s) => ((s.charCodeAt(0) << 24) | (s.charCodeAt(1) << 16) | (s.charCodeAt(2) << 8) | s.charCodeAt(3)) >>> 0;
@@ -146,6 +151,14 @@ export function profileForVersion(version) {
   if (version === CP4_NET_VERSION) return PROFILES.cp4;
   if (version === CP3_NET_VERSION) return PROFILES.cp3;
   return PROFILES.retail;
+}
+/**
+ * Whether a player's 0x03 version is one we have the layouts for: retail's (anything below CP_FIRST_VERSION, which
+ * all share 2.00.42's packets), or CP3's or CP4's exactly. Another patch build's packets are unknown to us.
+ */
+export function knownVersion(version) {
+  if (!Number.isInteger(version)) return false;
+  return version < CP_FIRST_VERSION || version === CP3_NET_VERSION || version === CP4_NET_VERSION;
 }
 /** A profile from its object or name, retail when none is given. */
 function resolveProfile(profile) {

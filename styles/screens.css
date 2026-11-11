@@ -559,7 +559,8 @@ input.race-off { background: #777; color: #222; }
 /* The fly camera's list of keys (ui/fly-controller.js), shown by the O key. */
 .fly-keys { position: absolute; left: 16px; top: 16px; z-index: 6; padding: 10px 14px; background: rgba(0, 0, 0, 0.62); color: #e8e8e8; font: 13px/1.5 system-ui, sans-serif; border-radius: 4px; pointer-events: none; }
 .fly-keys[hidden] { display: none; }
-.fly-keys-font { padding: 6px 8px; image-rendering: pixelated; }
+.fly-keys-font { padding: 0; background: none; border-radius: 0; image-rendering: pixelated; }
+.fly-keys-font .bitmap-text { display: block; }
 .fly-keys p { margin: 0; }
 .fly-keys-title { color: var(--accent, #f2c14e); font-weight: 700; margin-bottom: 4px !important; }
 .fly-key { display: inline-block; min-width: 96px; color: #fff; font-weight: 600; }
