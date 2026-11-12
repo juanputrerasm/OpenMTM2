@@ -32,6 +32,7 @@ import { replyError, sendWorkerFaults } from "../shared/worker-faults.js";
 import { aiSpeedFactor } from "../game/ai-speed.js";
 import { LOADING_BAR } from "../game/loading-bar.js";
 import { CRASH_APART_S, CRASH_MIN_FT_S } from "../game/sound-model.js";
+import { forEachBoxPair } from "./box-pairs.js";
 
 export const STEP = 1 / 60;
 /** The presses that act once (a shift, Drive Mode, the helicopter): kept until a step takes them, and taken by one only. */
@@ -1068,10 +1069,8 @@ export function createSession(init) {
     extensionSession?.addSpecialWalls?.(all, listed);
     // Two boxes that never move never meet (OpenPhotex collideBoxes returns at once): each pair has a moving one first.
     const moving = all.filter((box) => box.dynamic), still = all.filter((box) => !box.dynamic);
-    for (let i = 0; i < moving.length; i++) {
-      for (let j = i + 1; j < moving.length; j++) S.collideBoxes(moving[i], moving[j], STEP, rules);
-      for (const box of still) S.collideBoxes(moving[i], box, STEP, rules);
-    }
+    // Through a grid (worker/box-pairs.js): only the pairs that can meet, in the full loops' order.
+    forEachBoxPair(moving, still, (a, b) => S.collideBoxes(a, b, STEP, rules));
   }
 
   /** A moved box's pose for drawing. */

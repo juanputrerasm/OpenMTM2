@@ -55,6 +55,10 @@ City as the first), the views on them, and Freestyle's trick physics under every
   sim/mtm2/truck/trick.ts): Freestyle's trick physics now drives under whichever model the run uses, 4x4 Evolution's
   and CART's included (their steps take the same three strengths), and the "Trick physics with MTM1 and Evo physics
   too" setting is gone. Tests: tests/freestyle.test.mjs.
+- **Box collisions through a grid** (worker/box-pairs.js `forEachBoxPair`): the step no longer tries every moving box
+  against every other box; a 64 ft grid on x and z hands over only the pairs whose bounding spheres can overlap, in
+  the full loops' order, so the result is the same and a city track's thousands of props cost far less. Tests:
+  tests/box-pairs.test.mjs.
 - **OpenPhotex 1.7.1 and OpenMTM2 Server 0.4.2** vendored: CP4 physics and trick handling in the library; the relay
   rate raised to 49152 bytes a second, reliable relay frames at most 1024 bytes, and `knownVersion` for patch builds.
 
