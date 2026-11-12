@@ -245,9 +245,12 @@ function soundOf(t, ground) {
   const s = t.state;
   const air = 4 - s.tires.filter((x) => x.onGround).length;
   // `slip`: the 4x4 Evolution model's wheelspin (0 under MTM physics); `vLat`: the tire's sideways speed, body ft/s.
+  // `rolls`: the radius the simulation turns the wheel by, feet (`spin` times it is how fast the tread runs): not the
+  // drawn tire's, which is another size, and by which a wheel rolling true looked to be spinning the faster it went.
+  const rolls = t.params?.tireRadiusFt ?? null;
   const tires = s.tires.map((x, i) => ({
     onGround: x.onGround, grip: x.grip, force: [x.force[0], x.force[1], x.force[2]], spin: x.spin, surface: x.surface, lateral: x.lateral,
-    slip: s.evo?.slip[i] ?? 0, vLat: x.velocity[0],
+    slip: s.evo?.slip[i] ?? 0, vLat: x.velocity[0], rolls,
   }));
   const m = s.matrix, weather = ground.weather ?? 0;
   // In water, for its sounds (0x41bbd0, OpenPhotex `inWaterForSound`): a tire's hub under the water level there (a CP4

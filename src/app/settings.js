@@ -206,6 +206,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   sonicTrucks: false,         // Professional only: the computer trucks drive as on a Sonic track, whatever the SIT's fly-by line says
   defaultOpponents: 3,        // computer trucks in a race until the player picks their own (MONSTER.INI defaultOpponents)
   renderScale: 1,             // the share of the screen's points a race is drawn at, each way: 1, 0.85, 0.75, 0.66 or 0.5 (game/graphics.js `drawnPixelRatio`)
+  occlusionCulling: true,    // leave out of the picture what is wholly behind something else (render/occlusion.js)
   textureSize: 1024,          // the largest side HD art keeps, 1024 (full), 512 or 256: for low-memory graphics (worker/art-texture.js)
   drawCells: 128,             // terrain cells (32 ft each): how far the world is drawn (the camera's far plane and the fog)
   backdrops: false,           // the SIT's backdrop models behind the world (off by default)

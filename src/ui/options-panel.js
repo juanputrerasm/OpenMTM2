@@ -766,6 +766,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         set: (v) => { settings.chaseFov = v; save(); },
         title: msg("How wide the external cameras see, in degrees across a 4:3 screen; 90 is Monster Truck Madness 2's lens. The cockpit keeps the game's"),
       }),
+      toggle(msg("Skip hidden scenery"), "occlusionCulling", msg("Do not draw buildings, objects and ground that are wholly behind something else. Faster on city tracks; turn it off if scenery appears late as you come round a corner. From the next race")),
       toggle(msg("V-sync"), "vsync", msg("Draw with the display's refresh. Off draws as fast as the browser allows; a browser still shows no more frames than the display has")),
       // One list: picking a rate switches the limit on, so a rate is never shown chosen while the limit is off.
       row(msg("Frame rate limit"), el("select", {

@@ -63,6 +63,13 @@ const HELP = `Usage: node tools/perf-race.mjs --track <name> [--game <MTM2 folde
   --shots              save a picture of the page after each window
   --out <folder>       where the report and the profiles are written (perf-out, git-ignored if you add it)
   --window <w,h>       Chrome's window size (1920,1080)
+  --freeze <n>         pause the race n seconds after the first window and measure the picture held still: the same
+                       picture every frame and, the autopilot's line repeating, about the same from run to run, for
+                       telling apart settings whose costs are smaller than a race's own ups and downs
+  --occlusion          with --freeze: how much of what the held picture draws is wholly hidden behind something else
+                       (the placed objects and the ground in view, each one's box tested against the scene's depth)
+  --eval <js>          an expression worked out in the page after each window, its value logged with it
+  --passes             the graphics card's time by pass (each picture three.js draws), in place of the frame's
   --dpr <n>            force the device pixel ratio
   --chrome <path>      the Chrome to run
   --keep               leave Chrome open at the end
@@ -91,6 +98,10 @@ function parseArgs(argv) {
     else if (arg === "--shots") o.shots = true;
     else if (arg === "--out") o.out = value();
     else if (arg === "--window") o.window = value();
+    else if (arg === "--passes") o.passes = true;
+    else if (arg === "--eval") o.eval = value();
+    else if (arg === "--occlusion") o.occlusion = true;
+    else if (arg === "--freeze") o.freeze = Number(value());
     else if (arg === "--dpr") o.dpr = value();
     else if (arg === "--chrome") o.chrome = value();
     else if (arg === "--keep") o.keep = true;
@@ -160,25 +171,78 @@ const MEASURE = `window.__perfWindow = (seconds) => new Promise((resolve) => {
     if (query) { gl.endQuery(ext.TIME_ELAPSED_EXT); waiting.push(query); query = null; }
     calls.push(renderer.info.render.calls); tris.push(renderer.info.render.triangles);
     render.push(renderMs); shadow.push(shadowMs); shadowDraws.push(shadowCalls); near.push(trucksNear());
+    // What ground the simulation says each truck is on (its .TTY type), a count a frame and truck.
+    for (const pose of (R.latest && R.latest.poses) || []) if (pose.sound) surfaces[pose.sound.surface] = (surfaces[pose.sound.surface] || 0) + 1;
     renderer.info.reset(); renderMs = shadowMs = shadowCalls = 0; open = false;
   };
+  // Draw calls by what is drawn: the nearest named thing above each drawn object, a truck's as one kind, the shadow
+  // pass's apart.
+  const kinds = new WeakMap(), byKind = {}, surfaces = {};
+  let inShadow = false;
+  const kindOf = (object) => {
+    let kind = kinds.get(object);
+    if (kind) return kind;
+    kind = object.type;
+    for (let o = object; o; o = o.parent) {
+      if (/\\.TRK$/i.test(o.name)) { kind = "trucks"; break; }
+      if (["objects", "looseObject", "terrain", "forest", "placedObject", "vegetation"].includes(o.name)) { kind = o.name; break; }
+      if (o.parent === R.scene) { kind = o.name || kind; break; }
+    }
+    kinds.set(object, kind);
+    return kind;
+  };
+  const origDirect = renderer.renderBufferDirect;
+  renderer.renderBufferDirect = function (camera, scene, geometry, material, object, group) {
+    const kind = (inShadow ? "shadow:" : "") + kindOf(object);
+    byKind[kind] = (byKind[kind] || 0) + 1;
+    return origDirect.call(this, camera, scene, geometry, material, object, group);
+  };
   let depth = 0;
+  // With passes asked for, the graphics card's time is taken of each picture three.js draws by itself (the shadow maps
+  // with the picture that needs them), named by what it is drawn to and with, in place of the frame's as a whole: one
+  // timer runs at a time.
+  const PASSES = window.__perfPasses === true, passMs = {}, passWaiting = [];
+  const passName = (scene) => {
+    const target = renderer.getRenderTarget();
+    const where = target ? target.width + "x" + target.height + (target.samples ? " msaa" + target.samples : "") : "screen";
+    if (scene.isScene) return where + " scene" + (scene.name ? " " + scene.name : "");
+    const material = scene.material || {};
+    const uniforms = Object.keys(material.uniforms || {}).slice(0, 4).join(",");
+    return where + " " + (material.name || scene.name || uniforms || material.type || scene.type);
+  };
   renderer.render = (...args) => {
     if (!open) {
       open = true; channel.port2.postMessage(0);
-      if (ext && waiting.length < 8) { query = gl.createQuery(); gl.beginQuery(ext.TIME_ELAPSED_EXT, query); }
+      if (!PASSES && ext && waiting.length < 8) { query = gl.createQuery(); gl.beginQuery(ext.TIME_ELAPSED_EXT, query); }
     }
     const t = performance.now();
+    let pass = null;
+    if (PASSES && ext && depth === 0 && passWaiting.length < 64) { pass = gl.createQuery(); gl.beginQuery(ext.TIME_ELAPSED_EXT, pass); }
+    const name = pass ? passName(args[0]) : null;
     depth++;
-    try { return origRender(...args); } finally { if (--depth === 0) renderMs += performance.now() - t; }
+    try { return origRender(...args); } finally {
+      if (--depth === 0) renderMs += performance.now() - t;
+      if (pass) { gl.endQuery(ext.TIME_ELAPSED_EXT); passWaiting.push([pass, name]); }
+    }
   };
   renderer.shadowMap.render = (...args) => {
     const before = renderer.info.render.calls, t = performance.now();
-    const result = origShadow(...args);
+    inShadow = true;
+    let result;
+    try { result = origShadow(...args); } finally { inShadow = false; }
     shadowMs += performance.now() - t; shadowCalls += renderer.info.render.calls - before;
     return result;
   };
+  const pollPasses = () => {
+    for (let i = passWaiting.length - 1; i >= 0; i--) {
+      const [q, name] = passWaiting[i];
+      if (!gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) continue;
+      if (!gl.getParameter(ext.GPU_DISJOINT_EXT)) { const p = (passMs[name] ||= { ms: 0, n: 0 }); p.ms += gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6; p.n++; }
+      gl.deleteQuery(q); passWaiting.splice(i, 1);
+    }
+  };
   const poll = () => {
+    pollPasses();
     for (let i = waiting.length - 1; i >= 0; i--) {
       const q = waiting[i];
       if (!gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) continue;
@@ -190,8 +254,15 @@ const MEASURE = `window.__perfWindow = (seconds) => new Promise((resolve) => {
   requestAnimationFrame(tick);
   function finish() {
     renderer.render = origRender; renderer.shadowMap.render = origShadow; renderer.info.autoReset = true;
+    renderer.renderBufferDirect = origDirect;
+    const drawsBy = Object.entries(byKind).map(([kind, n]) => [kind, Math.round(n / Math.max(1, frames.length + 1))])
+      .filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([kind, n]) => kind + " " + n).join(", ");
     if (query) { gl.endQuery(ext.TIME_ELAPSED_EXT); gl.deleteQuery(query); }
     for (const q of waiting) gl.deleteQuery(q);
+    for (const [q] of passWaiting) gl.deleteQuery(q);
+    // Each pass's mean time, and how many times a frame it is drawn (some are drawn on some frames only).
+    const passes = Object.entries(passMs).map(([name, p]) => ({ name, ms: +(p.ms / p.n).toFixed(2), perFrame: +(p.n / Math.max(1, frames.length)).toFixed(2) }))
+      .map((p) => ({ ...p, frameMs: +(p.ms * p.perFrame).toFixed(2) })).sort((a, b) => b.frameMs - a.frameMs);
     const mean = (a) => (a.length ? +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(2) : null);
     const sorted = [...frames].sort((a, b) => a - b);
     const pct = (p) => (sorted.length ? +sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))].toFixed(1) : null);
@@ -212,13 +283,98 @@ const MEASURE = `window.__perfWindow = (seconds) => new Promise((resolve) => {
       fps: meanMs ? +(1000 / meanMs).toFixed(1) : null, frameMs: meanMs, p50: pct(0.5), p90: pct(0.9), p99: pct(0.99),
       jsRenderMs: mean(render), shadowMs: mean(shadow), gpuMs: mean(gpu), gpuSamples: gpu.length,
       drawCalls: Math.round(mean(calls) ?? 0), shadowCalls: Math.round(mean(shadowDraws) ?? 0), triangles: Math.round(mean(tris) ?? 0),
-      trucksNear: mean(near), meshes, nodes, largest, looseObjects: loose,
+      trucksNear: mean(near), meshes, nodes, largest, drawsBy, passes, surfaces, looseObjects: loose,
       at: pose ? pose.pos.map((v) => Math.round(v)) : null, raceTime: Math.round((R.latest && R.latest.time) || 0),
       buffer: [gl.drawingBufferWidth, gl.drawingBufferHeight],
       counter: (document.querySelector(".fps-counter-text") || {}).innerText || null,
     });
   }
 }); true`;
+
+/**
+ * What of the picture's meshes is wholly hidden: the scene's depth drawn into a picture of its own, then the box round
+ * each mesh in view asked of the graphics card (an occlusion query: did any point of it pass that depth). The upper
+ * bound of what occlusion culling could spare: a mesh whose box shows may itself still be hidden.
+ */
+const OCCLUSION = `(async () => {
+  const THREE = await import("three");
+  const R = window.__openmtm2Race, renderer = R.renderer, gl = renderer.getContext(), camera = R.camera, scene = R.scene;
+  const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+  const target = new THREE.WebGLRenderTarget(Math.ceil(size.x / 2), Math.ceil(size.y / 2), { depthBuffer: true });
+  const before = renderer.getRenderTarget(), auto = renderer.autoClear, shadows = renderer.shadowMap.enabled;
+  camera.updateMatrixWorld();
+  const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+  const kindOf = (o) => { for (let n = o; n; n = n.parent) { if (["objects", "terrain", "forest", "looseObject"].includes(n.name)) return n.name; } return null; };
+  const shown = (o) => { for (let n = o; n; n = n.parent) if (!n.visible) return false; return true; };
+  const eye = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
+  const items = [], sphere = new THREE.Sphere(), box = new THREE.Box3();
+  scene.traverse((o) => {
+    if (!o.isMesh || !o.geometry || !shown(o)) return;
+    const kind = kindOf(o);
+    if (!kind) return;
+    if (o.isInstancedMesh) { if (!o.boundingBox) o.computeBoundingBox(); if (!o.boundingSphere) o.computeBoundingSphere(); }
+    else { if (!o.geometry.boundingBox) o.geometry.computeBoundingBox(); if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere(); }
+    const localBox = o.isInstancedMesh ? o.boundingBox : o.geometry.boundingBox, localSphere = o.isInstancedMesh ? o.boundingSphere : o.geometry.boundingSphere;
+    if (!localBox || localBox.isEmpty()) return;
+    sphere.copy(localSphere).applyMatrix4(o.matrixWorld);
+    if (!frustum.intersectsSphere(sphere)) return;
+    box.copy(localBox).applyMatrix4(o.matrixWorld).expandByScalar(0.5);
+    const index = o.geometry.index, count = (index ? index.count : o.geometry.attributes.position.count) / 3 * (o.isInstancedMesh ? o.count : 1);
+    items.push({ kind, name: o.name, triangles: Math.round(count), inside: box.containsPoint(eye), center: box.getCenter(new THREE.Vector3()), size: box.getSize(new THREE.Vector3()) });
+  });
+  // The scene's depth, with nothing but depth drawn.
+  const depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide });
+  renderer.shadowMap.enabled = false;
+  renderer.setRenderTarget(target);
+  renderer.autoClear = true;
+  // Only what hides: not the sky or a backdrop (drawn about the eye, leaving depth alone), nor anything see-through.
+  const out = [];
+  scene.traverse((o) => {
+    if (!o.visible || !(o.isMesh || o.isSprite || o.isPoints || o.isLine)) return;
+    const m = Array.isArray(o.material) ? o.material[0] : o.material;
+    let apart = !o.isMesh || !m || m.depthWrite === false || m.transparent || m.colorWrite === false || !!m.isShaderMaterial;
+    for (let n = o; n && !apart; n = n.parent) if (n.name === "sky" || n.name === "backdrops") apart = true;
+    if (apart) { o.visible = false; out.push(o); }
+  });
+  scene.overrideMaterial = depthOnly;
+  renderer.render(scene, camera);
+  scene.overrideMaterial = null;
+  for (const o of out) o.visible = true;
+  renderer.autoClear = false;
+  const probe = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, side: THREE.DoubleSide }));
+  probe.frustumCulled = false;
+  const probeScene = new THREE.Scene();
+  probeScene.add(probe);
+  const queries = [];
+  for (const item of items) {
+    if (item.inside) { queries.push(null); continue; }
+    probe.position.copy(item.center);
+    probe.scale.copy(item.size);
+    const q = gl.createQuery();
+    gl.beginQuery(gl.ANY_SAMPLES_PASSED, q);
+    renderer.render(probeScene, camera);
+    gl.endQuery(gl.ANY_SAMPLES_PASSED);
+    queries.push(q);
+  }
+  renderer.setRenderTarget(before);
+  renderer.autoClear = auto;
+  renderer.shadowMap.enabled = shadows;
+  gl.flush();
+  for (let wait = 0; wait < 200; wait++) {
+    await new Promise((done) => setTimeout(done, 20));
+    if (queries.every((q) => !q || gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE))) break;
+  }
+  const by = {};
+  items.forEach((item, i) => {
+    const q = queries[i], hidden = q ? gl.getQueryParameter(q, gl.QUERY_RESULT) === 0 : false;
+    if (q) gl.deleteQuery(q);
+    const k = (by[item.kind] ||= { meshes: 0, hidden: 0, triangles: 0, hiddenTriangles: 0 });
+    k.meshes++; k.triangles += item.triangles;
+    if (hidden) { k.hidden++; k.hiddenTriangles += item.triangles; }
+  });
+  target.dispose(); depthOnly.dispose(); probe.geometry.dispose(); probe.material.dispose();
+  return by;
+})()`;
 
 /** The heaviest functions of a sampled profile by self time. */
 function summarize(profile, top = 25) {
@@ -401,7 +557,15 @@ async function main() {
   await waitFor(`document.querySelector(".race-loading")?.hidden === true`, 180000, "the loading screen to go");
   const gpu = await evaluate(`(() => { const gl = window.__openmtm2Race.renderer.getContext(); const info = gl.getExtension("WEBGL_debug_renderer_info"); return info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER); })()`);
   log("renderer:", gpu);
+  // Under the autopilot from before the lights: the truck leaves the line with the others and drives in the pack, where
+  // a race is dearest to draw (eight trucks, their dust and their shadows). Engaged after the first window, it left
+  // some ten seconds late and drove alone.
+  for (let i = 0; i < 3; i++) {
+    const level = await evaluate(`window.__openmtm2Race.sim.call("command", { name: "autopilot" })`);
+    if (level === 2) break;
+  }
   await sleep(4000);
+  if (options.passes) await evaluate("window.__perfPasses = true");
   await evaluate(MEASURE);
   if (options.throttle > 1) {
     await send("Emulation.setCPUThrottlingRate", { rate: options.throttle });
@@ -415,20 +579,60 @@ async function main() {
     const result = await evaluate(`window.__perfWindow(${options.seconds})`);
     report.windows.push({ label, ...result });
     log(`${label}: ${result.fps} fps, frame ${result.frameMs} ms (p90 ${result.p90}, p99 ${result.p99}), js render ${result.jsRenderMs} ms, gpu ${result.gpuMs} ms, ${result.drawCalls} draws (${result.shadowCalls} shadow), ${result.triangles} triangles, ${result.trucksNear} trucks near, at ${JSON.stringify(result.at)}`);
+    log(`  draws by kind: ${result.drawsBy}`);
+    log(`  ground types under the trucks: ${JSON.stringify(result.surfaces)}`);
+    if (result.passes?.length) for (const p of result.passes) log(`  pass ${p.frameMs} ms a frame (${p.ms} ms x ${p.perFrame}): ${p.name}`);
     if (result.counter) log("  counter:", result.counter.replace(/\n/g, " | "));
+    if (options.eval) log("  eval:", JSON.stringify(await evaluate(options.eval)));
     if (options.shots) {
       const shot = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 });
       writeFileSync(join(outDir, `${race.track.replace(/\W+/g, "_")}-${label.replace(/\W+/g, "_")}.jpg`), Buffer.from(shot.data, "base64"));
     }
   };
-  await measure("grid");
-  for (let i = 0; i < 3; i++) {
-    const level = await evaluate(`window.__openmtm2Race.sim.call("command", { name: "autopilot" })`);
-    if (level === 2) break;
+  await measure("start");
+  if (options.freeze > 0) {
+    await sleep(options.freeze * 1000);
+    await evaluate(`window.__openmtm2Race.setPaused(true).then(() => true)`);
+    log(`paused ${options.freeze} s after the first window`);
+    await sleep(1500);
+    for (let i = 0; i < options.windows; i++) await measure(`still ${i + 1}`);
+    // The same held picture with its dust (the puffs of "Rich particles", render/over-scene.js) drawn each way and not
+    // at all: what the dust in it costs, and which way of drawing it is the cheaper there.
+    const load = await evaluate(`(() => {
+      const over = window.__openmtm2Race.scenery.particles?.over;
+      if (!over) return null;
+      const own = Object.getOwnPropertyDescriptor(over, "load");
+      window.__perfDust = (value) => {
+        if (value === null) { Object.defineProperty(over, "load", own); return; }
+        own.set.call(over, value);
+        Object.defineProperty(over, "load", { configurable: true, enumerable: true, get: () => value, set() {} });
+      };
+      window.__perfDustShown = (shown) => {
+        for (const child of over.scene.children) {
+          if (shown) delete child.visible, child.visible = true;
+          else Object.defineProperty(child, "visible", { configurable: true, enumerable: true, get: () => false, set() {} });
+        }
+      };
+      return +over.load.toFixed(2);
+    })()`);
+    if (options.occlusion) {
+      const hidden = await evaluate(OCCLUSION);
+      for (const [kind, k] of Object.entries(hidden ?? {})) log(`hidden ${kind}: ${k.hidden} of ${k.meshes} meshes in view, ${k.hiddenTriangles} of ${k.triangles} triangles`);
+      report.occlusion = hidden;
+    }
+    if (load !== null && !options.occlusion) {
+      log(`dust: ${load} pictures' worth of puffs in the held picture`);
+      for (const [label, script] of [["dust light", "__perfDust(0)"], ["dust heavy", "__perfDust(100)"], ["no dust", "__perfDust(0); __perfDustShown(false)"]]) {
+        await evaluate(`${script}; true`);
+        await sleep(800);
+        await measure(label);
+      }
+    }
+  } else {
+    log(`driving under the autopilot; ${options.settle} s before the next window`);
+    await sleep(options.settle * 1000);
+    for (let i = 0; i < options.windows; i++) await measure(`drive ${i + 1}`);
   }
-  log(`driving under the autopilot; ${options.settle} s before the first window`);
-  await sleep(options.settle * 1000);
-  for (let i = 0; i < options.windows; i++) await measure(`drive ${i + 1}`);
 
   if (options.profile) {
     const sessions = [[undefined, "main"], ...[...workers.entries()]];

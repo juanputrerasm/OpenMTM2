@@ -49,11 +49,18 @@ export const keepsTread = (type) => TRACK_TYPES.includes(type);
 /** Whether the dust off ground of type `type` is grey: Cement's (concrete, asphalt). */
 export const greyDustOn = (type) => type === 1;
 /**
- * How many of the game's puffs a tire raises off ground of type `type`: off Cement a third (the port's; the game puffs
+ * How many of the game's puffs a tire raises off ground of type `type`: off Cement 0.225, three quarters of a third (the port's; the game puffs
  * as on dirt, which on a paved city reads as far too much), elsewhere all.
  */
-export const CEMENT_DUST_SHARE = 0.3;
+export const CEMENT_DUST_SHARE = 0.225;
 export const dustShare = (type) => (greyDustOn(type) ? CEMENT_DUST_SHARE : 1);
+/**
+ * How much of that dust a tire that slides or spins `sliding` hard (0 to 1, game/particles.js `slideAmount`) raises off
+ * ground of type `type`. Off Cement, as much as it slides: pavement gives its dust to a tire that asks more of it than
+ * it holds (a hard corner, a drift, a standing start), and none to one that only rolls, which on a city track was a
+ * cloud behind every truck all race long (the port's; the game puffs wherever a tire rolls). Elsewhere all of it.
+ */
+export const slidingDust = (type, sliding) => (greyDustOn(type) ? Math.min(1, Math.max(0, sliding || 0)) : 1);
 
 /**
  * MTM2's stock tire, the measure of every other (the simulation's 3 ft radius and 4 ft width, OpenPhotex mtm2Sim TRUCK).
@@ -255,20 +262,29 @@ export function dustLevel(settings) {
 }
 
 /**
+ * How many of a wheel's puffs every dust level keeps of what it first had: 30 percent fewer, then a fifth fewer again
+ * and 15 percent fewer again (0.7 x 0.8 x 0.85), the classic Few, the game's own puffs, with the rest. A cloud is made by how long its dust hangs and
+ * swells, which the levels keep; the puffs themselves are what a frame pays for, each a square laid over the picture
+ * (in one held picture of a race the dust was the difference between 168 and 129 frames a second).
+ */
+export const DUST_COUNT = 0.476;
+
+/**
  * The game's puff sprites at a level: for a wheel's dust and a hit's smoke, how many times the game's size a puff starts
- * (`scale`), how many feet it swells (`growth`) and how many times the game's life it lives (`life`); `pool` the most alive.
+ * (`scale`), how many feet it swells (`growth`) and how many times the game's life it lives (`life`); `pool` the most
+ * alive, and `count` how many of the game's puffs a wheel raises.
  */
 export const CLASSIC_DUST = Object.freeze({
-  1: Object.freeze({ dust: { scale: 1, growth: 1, life: 1 }, smoke: { scale: 1, growth: 1, life: 1 }, pool: 96 }),
-  2: Object.freeze({ dust: { scale: 2.8, growth: 14, life: 2.2 }, smoke: { scale: 3, growth: 10, life: 1.6 }, pool: Infinity }),
-  3: Object.freeze({ dust: { scale: 3.8, growth: 22, life: 3.4 }, smoke: { scale: 4, growth: 15, life: 2.4 }, pool: Infinity }),
+  1: Object.freeze({ dust: { scale: 1, growth: 1, life: 1 }, smoke: { scale: 1, growth: 1, life: 1 }, pool: 96, count: DUST_COUNT }),
+  2: Object.freeze({ dust: { scale: 2.8, growth: 14, life: 2.2 }, smoke: { scale: 3, growth: 10, life: 1.6 }, pool: Infinity, count: DUST_COUNT }),
+  3: Object.freeze({ dust: { scale: 3.8, growth: 22, life: 3.4 }, smoke: { scale: 4, growth: 15, life: 2.4 }, pool: Infinity, count: DUST_COUNT }),
 });
 
-/** "Rich particles" dust at a level: its size (`scale`), its life (`life`) and how many puffs (`count`) against Normal. */
+/** "Rich particles" dust at a level: its size (`scale`), its life (`life`) and how many puffs (`count`) a wheel lays. */
 export const RICH_DUST = Object.freeze({
-  1: Object.freeze({ scale: 0.6, life: 0.6, count: 0.5 }),
-  2: Object.freeze({ scale: 1, life: 1, count: 1 }),
-  3: Object.freeze({ scale: 1.4, life: 1.8, count: 1.5 }),
+  1: Object.freeze({ scale: 0.6, life: 0.6, count: 0.5 * DUST_COUNT }),
+  2: Object.freeze({ scale: 1, life: 1, count: DUST_COUNT }),
+  3: Object.freeze({ scale: 1.4, life: 1.8, count: 1.5 * DUST_COUNT }),
 });
 
 /**

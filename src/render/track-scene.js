@@ -37,9 +37,10 @@ import { DEFAULT_FRAME_SECONDS, keyframeWeights } from "../shared/keyframe-splin
 import { blockShift, chunkTriangles, indexedBounds } from "../shared/object-chunks.js";
 import { WORLD_FT } from "../shared/scene-frame.js";
 import { bleedCutout } from "../game/cutouts.js";
-import { fadesToBackdrop, installAtmosphere, screenColor, veilBackdropShader, veilSky } from "./atmosphere.js";
+import { fadesToBackdrop, installAtmosphere, screenColor, solidWhenNear, veilBackdropShader, veilSky } from "./atmosphere.js";
 import { BACKDROP_HAZED } from "../game/atmosphere.js";
 import { addShaderHook } from "./shader-hooks.js";
+import { greyLayersMaterial, mergeModelParts } from "./part-merge.js";
 import { createLakes } from "./lakes.js";
 import { createVegetation } from "./vegetation.js";
 import { createFogVolumes } from "./fog-volumes.js";
@@ -106,6 +107,8 @@ export function cycleTexture(frames, look, repeat = false) {
   const same = frames.filter((f) => f.width === frames[0].width && f.height === frames[0].height);
   if (same.length < 2 || typeof requestAnimationFrame !== "function") return texture;
   const cycle = { texture, frames: same, shown: same[0] };
+  // Its picture changes: it cannot be a layer of a stack (render/part-merge.js).
+  texture.userData.cycle = true;
   cycles.add(cycle);
   texture.addEventListener("dispose", () => cycles.delete(cycle));
   if (!cycleTimer) cycleTimer = requestAnimationFrame(tickCycles);
@@ -323,6 +326,8 @@ export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.at
         geometry.boundingSphere = new THREE.Sphere(
           new THREE.Vector3((chunk.col + 0.5) * side, (chunk.low + chunk.high) / 2, -(chunk.row + 0.5) * side),
           Math.hypot(side / 2, side / 2, (chunk.high - chunk.low) / 2));
+        // The box round it: its middle and half its size each way (`occludees`).
+        geometry.userData.box = [(chunk.col + 0.5) * side, (chunk.low + chunk.high) / 2, -(chunk.row + 0.5) * side, side / 2, (chunk.high - chunk.low) / 2, side / 2];
         const mesh = new THREE.Mesh(geometry, material);
         mesh.name = "terrain";
         mesh.matrixAutoUpdate = false;
@@ -364,6 +369,7 @@ export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.at
       geometry.boundingSphere = new THREE.Sphere(
         new THREE.Vector3((chunkCol + 0.5) * side, (low + high) / 2, -(chunkRow + 0.5) * side),
         Math.hypot(side / 2, side / 2, (high - low) / 2));
+      geometry.userData.box = [(chunkCol + 0.5) * side, (low + high) / 2, -(chunkRow + 0.5) * side, side / 2, (high - low) / 2, side / 2];
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = "terrain";
       mesh.matrixAutoUpdate = false;
@@ -383,6 +389,7 @@ export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.at
         lod.setIndex(new THREE.BufferAttribute(level.indices.subarray(part.start, part.start + part.count), 1));
         // Its points are some of the fine level's: the fine level's bounds hold them.
         lod.boundingSphere = geometry.boundingSphere;
+        lod.userData.box = geometry.userData.box;
         const lodMesh = new THREE.Mesh(lod, material);
         lodMesh.name = "terrain";
         lodMesh.matrixAutoUpdate = false;
@@ -729,6 +736,7 @@ function placement(elements, [dx, dz], facing) {
 }
 
 const _instanceSphere = new THREE.Sphere(), _instanceMatrix = new THREE.Matrix4();
+const _instanceBox = new THREE.Box3(), _instancesBox = new THREE.Box3(), _boxCentre = new THREE.Vector3(), _boxSize = new THREE.Vector3();
 /**
  * The sphere around all of a mesh's instances, with room for a camera-facing model's turning. The copies' meshes share
  * it. An instance taken out (`loosen`, shrunk to nothing at the world's corner) is not counted: it would stretch the
@@ -745,12 +753,24 @@ function boundInstances(mesh) {
   }
   const sphere = (mesh.boundingSphere ??= new THREE.Sphere());
   sphere.makeEmpty();
+  // And the box round them, its middle and half its size each way, or null with none left (`occludees`).
+  if (!geometry.boundingBox) geometry.computeBoundingBox();
+  _instancesBox.makeEmpty();
   for (const place of places) {
     if (place === NOWHERE) continue;
-    _instanceSphere.copy(geometry.boundingSphere).applyMatrix4(placement(place, NO_OFFSET, facing));
+    const placed = placement(place, NO_OFFSET, facing);
+    _instanceSphere.copy(geometry.boundingSphere).applyMatrix4(placed);
     sphere.union(_instanceSphere);
+    _instancesBox.union(_instanceBox.copy(geometry.boundingBox).applyMatrix4(placed));
   }
   if (facing && !sphere.isEmpty()) sphere.radius += geometry.boundingSphere.radius;
+  if (_instancesBox.isEmpty()) mesh.userData.box = null;
+  else {
+    const c = _instancesBox.getCenter(_boxCentre), h = _instancesBox.getSize(_boxSize).multiplyScalar(0.5);
+    // A camera-facing model turns about its own upright: as wide every way across as it is at its widest.
+    const turn = facing ? geometry.boundingSphere.radius : 0;
+    mesh.userData.box = [c.x, c.y, c.z, h.x + turn, h.y, h.z + turn];
+  }
 }
 
 /**
@@ -797,6 +817,9 @@ export function placeObjects(library, objects, copies = [[0, 0]], { rounded = fa
     if (object.sitIndex !== undefined) slots[object.sitIndex] = [key, entry.matrices.length];
     entry.matrices.push(object.matrix);
   }
+  // Each model's parts joined where only their textures tell them apart (render/part-merge.js): fewer draws a model.
+  // A camera-facing model keeps its own parts, whose materials the facing ones are made from.
+  const joined = mergeModelParts([...byKey.values()].filter((entry) => !entry.facing).map((entry) => entry.parts));
   const offsets = copies.map(([dx, dz]) => [dx * WORLD_FT, dz * WORLD_FT]);
   const group = new StillGroup();
   group.name = "objects";
@@ -834,7 +857,7 @@ export function placeObjects(library, objects, copies = [[0, 0]], { rounded = fa
   Object.assign(group.userData, { slots, offsets, copyGroups, masters, reach: null });
   for (const [key, { parts, facing, matrices }] of byKey) {
     const perCopy = matrices.length;
-    for (const { geometry, material } of parts) {
+    for (const { geometry, material, depthMaterial } of facing ? parts : joined.get(parts)) {
       const drawn = facing ? facingMaterial(material, rounded) : material;
       const master = new THREE.InstancedMesh(geometry, drawn, perCopy);
       master.name = key;
@@ -842,6 +865,7 @@ export function placeObjects(library, objects, copies = [[0, 0]], { rounded = fa
       // `places` is the model's placements in the original world, shared by the model's parts.
       Object.assign(master.userData, { perCopy, facing, places: matrices, twins: [] });
       if (facing) master.customDepthMaterial = facingDepthMaterial(material);
+      else if (depthMaterial) master.customDepthMaterial = depthMaterial;
       for (let i = 0; i < perCopy; i++) master.setMatrixAt(i, placement(matrices[i], NO_OFFSET, facing));
       if (!geometry.boundingSphere) geometry.computeBoundingSphere();
       boundInstances(master);
@@ -1288,6 +1312,8 @@ function loosen(world, parts, sitIndex, slot, touched, spheres) {
     instanced.instanceMatrix.needsUpdate = true;
     touched.add(instanced);
     const mesh = new THREE.Mesh(instanced.geometry, instanced.material);
+    if (instanced.customDepthMaterial) mesh.customDepthMaterial = instanced.customDepthMaterial;
+    if (world.userData.fadesToBackdrop) solidWhenNear(mesh);
     mesh.castShadow = instanced.castShadow;
     mesh.receiveShadow = instanced.receiveShadow;
     mesh.userData.moving = true;
@@ -1319,7 +1345,11 @@ export function tintObjects(world, tints) {
       if (!mesh.instanceColor) {
         const white = new THREE.Color(1, 1, 1);
         for (let k = 0; k < mesh.instanceMatrix.count; k++) mesh.setColorAt(k, white);
-        greyMap(mesh.material);
+        if (mesh.material.userData.mapLayers && !mesh.material.userData.grey) {
+          // A material every model's parts of its kind are drawn with: this model's meshes take a grey one of their own.
+          const grey = greyLayersMaterial(mesh.material);
+          for (const one of [mesh, ...(mesh.userData.twins ?? [])]) { one.material = grey.material; if (grey.depthMaterial) one.customDepthMaterial = grey.depthMaterial; }
+        } else greyMap(mesh.material);
       }
       mesh.setColorAt(slot[1], colour);
       mesh.instanceColor.needsUpdate = true;
@@ -1369,6 +1399,8 @@ function drawBackdropFirst(world) {
   world.traverse((o) => {
     if (!o.isMesh || skip.has(o)) return;
     for (const material of [o.material].flat()) fadesToBackdrop(material);
+    // Blended only where the fade is: nearer, nothing shows through it (render/atmosphere.js `solidWhenNear`).
+    if (!Array.isArray(o.material)) solidWhenNear(o);
   });
 }
 
@@ -2017,6 +2049,26 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
   });
   PARTS.set(world, parts);
   return world;
+}
+
+/**
+ * What of a world can be left out of a picture while it is wholly behind something else (render/occlusion.js): the
+ * placed objects' meshes, every copy's, and the ground's chunks at each level of detail. Each as `{ mesh, box }`, `box()`
+ * the box round it in its own frame, `[cx, cy, cz, hx, hy, hz]`, or null while it has none (a model whose every
+ * placement was knocked loose).
+ */
+export function occludees(world) {
+  const list = [];
+  world.traverse((o) => {
+    if (o.isInstancedMesh && (o.userData.places || o.userData.twinOf)) {
+      const master = o.userData.twinOf ?? o;
+      list.push({ mesh: o, box: () => master.userData.box ?? null });
+    } else if (o.isMesh && o.name === "terrain" && o.geometry.userData.box) {
+      const box = o.geometry.userData.box;
+      list.push({ mesh: o, box: () => box });
+    }
+  });
+  return list;
 }
 
 /** The sky stays level with the ground until the camera is this high, feet, then rises with it. */

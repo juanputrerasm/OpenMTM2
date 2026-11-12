@@ -552,14 +552,13 @@ test("a scrape at speed throws a few more, and in the dark they light what is ab
 
 test("thick dust is heavy from six pictures' worth of squares, and until it is back under four", () => {
   // docs/VISUALS.md, "Where the puffs are drawn".
-  assert.deepEqual([OVER.heavyFrom, OVER.heavyUntil, OVER.shrink], [6, 4, 4]);
-  assert.equal(overIsHeavy(false, 5.9), false);
-  assert.equal(overIsHeavy(false, 6), true);
-  // Once heavy it stays so through the band between, so a cloud at the edge of it does not flicker from one way to the other.
-  assert.equal(overIsHeavy(true, 5), true);
-  assert.equal(overIsHeavy(false, 5), false);
-  assert.equal(overIsHeavy(true, 4), true);
-  assert.equal(overIsHeavy(true, 3.9), false);
+  assert.deepEqual([OVER.heavyFrom, OVER.heavyUntil, OVER.shrink], [3, 2, 4]);
+  assert.equal(overIsHeavy(false, 2.9), false);
+  assert.equal(overIsHeavy(false, 3), true);
+  assert.equal(overIsHeavy(true, 2.5), true);
+  assert.equal(overIsHeavy(false, 2.5), false);
+  assert.equal(overIsHeavy(true, 2), true);
+  assert.equal(overIsHeavy(true, 1.9), false);
 });
 
 test("a puff's square covers as much of the picture as the puff looks wide from the eye, and all of it when the eye is in the puff", () => {

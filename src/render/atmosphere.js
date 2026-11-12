@@ -433,6 +433,45 @@ export function fadesToBackdrop(material) {
   return material;
 }
 
+const _fadeCentre = new THREE.Vector3(), _fadeEye = new THREE.Vector3();
+/** Whether any of `mesh` lies where the far fade dissolves the world into the backdrop, as seen from `camera`. */
+function reachesFade(mesh, camera) {
+  // No fog, or a far fade to the fog's colour: nothing dissolves (`mtmFogDissolve`).
+  if (STATE[0] < 0.5 || STATE[31] < 0.5) return false;
+  const sphere = mesh.boundingSphere ?? mesh.geometry?.boundingSphere;
+  if (!sphere) return true;
+  const e = mesh.matrixWorld.elements;
+  const scale = Math.sqrt(Math.max(e[0] * e[0] + e[1] * e[1] + e[2] * e[2], e[4] * e[4] + e[5] * e[5] + e[6] * e[6], e[8] * e[8] + e[9] * e[9] + e[10] * e[10]));
+  const away = _fadeCentre.copy(sphere.center).applyMatrix4(mesh.matrixWorld).distanceTo(_fadeEye.setFromMatrixPosition(camera.matrixWorld));
+  return away + sphere.radius * scale >= STATE[4];
+}
+function solidBeforeDraw(renderer, scene, camera, geometry, material) {
+  if (material.blending === THREE.CustomBlending && material.defines?.MTM_FOG_TO_BACKDROP !== undefined && !reachesFade(this, camera)) {
+    material.blending = THREE.NoBlending;
+    this.userData.drawnSolid = material;
+  }
+}
+function fadingAfterDraw() {
+  const material = this.userData.drawnSolid;
+  if (!material) return;
+  material.blending = THREE.CustomBlending;
+  this.userData.drawnSolid = null;
+}
+
+/**
+ * Draw `mesh` without blending while all of it is nearer than the far fade's beginning. A material that fades to the
+ * backdrop (`fadesToBackdrop`) is drawn blended, and what is blended hides nothing from the graphics card: every
+ * surface behind another is shaded in full before the nearer one covers it, where of solid ones only the nearest is. A
+ * city is many walls deep, and at Max on a dense display that was two fifths of a frame. Nearer than the fade every
+ * point's cover is 1, so blended or not the picture is the same; the material is switched for the one draw (the
+ * program is the same) and back after it, so a mesh not given this is drawn blended, as before. Returns the mesh.
+ */
+export function solidWhenNear(mesh) {
+  mesh.onBeforeRender = solidBeforeDraw;
+  mesh.onAfterRender = fadingAfterDraw;
+  return mesh;
+}
+
 /**
  * Have the fog dim a material that adds its light to the picture (a lamp's lens, a spark), instead of veiling it in the
  * fog's colour, which would add the fog's colour to the picture: it is given three.js's fog and the define the fog's

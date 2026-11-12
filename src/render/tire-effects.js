@@ -2,7 +2,8 @@
   Dust puffs, tire tracks and sparks (game/tire-effects.js has the rules).
 
   As the port first drew them, and still does with "Rich particles" off:
-  - Puffs: a pool of camera-facing sprites that run through the twelve frames of PUFF2 or PUFF3.
+  - Puffs: camera-facing squares that run through the twelve frames of PUFF2 or PUFF3, all of them one draw (the
+    frames are the layers of one texture, a puff an instance of one square), the farthest first.
   - Tracks: a ring of ribbons laid on the ground behind each tire on soft ground, textured with TREAD.RAW. A piece
     lasts `TRACK_LIFE_S`, fading over the end of it (game/tire-effects.js `trackOpacity`).
   - Sparks: a pool of bright points thrown from hull contacts, falling under gravity.
@@ -15,16 +16,16 @@
 import * as THREE from "three";
 import {
   CONTACT_GAP_S, DUST_RANGE_FT, DUST_TICK_S, TRACK_RANGE_FT, SMOKE_AFTER_S, SMOKE_EVERY_S, PUFF_FRAMES, PUFF_POOL, SPARK_POOL, TRACK_BREAK_FT, CLASSIC_TRACK_POOL, TRACK_STEP_FT, TRACK_WIDTH_FT,
-  SPARK_BURST_GAP_S, TIRE_SPARK_SHARE, manySparksForHit, sparkRules, CLASSIC_DUST, RICH_DUST, GREY_DUST_TONE, SPARK_HIT_SPEED, SPARK_MIN_SPEED, CLASSIC_SPARK_MIN_SPEED, TRACK_LIFE_S, TRACK_FADE_S, dustPuffs, dustShare, greyDustOn, keepsTread, puffFrame, puffLife, puffSize, puffsForHit, raisesDust, scrapeSparks, sparksForHit,
+  SPARK_BURST_GAP_S, TIRE_SPARK_SHARE, manySparksForHit, sparkRules, CLASSIC_DUST, RICH_DUST, GREY_DUST_TONE, SPARK_HIT_SPEED, SPARK_MIN_SPEED, CLASSIC_SPARK_MIN_SPEED, TRACK_LIFE_S, TRACK_FADE_S, dustPuffs, dustShare, slidingDust, greyDustOn, keepsTread, puffFrame, puffLife, puffSize, puffsForHit, raisesDust, scrapeSparks, sparksForHit,
 } from "../game/tire-effects.js";
 import { iceHullContacts, standOnFt } from "../game/ice.js";
 import {
   DUST, DUST_BY_TYPE, DUST_WEATHER, LANDING_AIR_S, LITE_SHARE, PUFF_KINDS, ROOSTER, RUT, SPRAY, STREAK_KINDS, TRACK_FADE_FT, TRACK_FADE_LITE_FT, TRACK_KINDS,
   BUBBLES, MIST, SPARKS, SPARK_LIGHT, SUBMERGED_FT, dustColour, footing, groundDust, landingThrows, mistSpacingFt, muddyWater, puddleRut, roosterDrops, roosterVelocity, roosterWading, sparkShower, sparkVelocity,
-  scrapePuff, scrapeThrows, slideAmount, slideThrows, sprayDrops, sprayVelocity, tireThrows, trackKind,
+  gripDemand, scrapePuff, scrapeThrows, slideAmount, slideThrows, sprayDrops, sprayVelocity, tireThrows, trackKind,
 } from "../game/particles.js";
 import { bodyInSnow, scourShape, scourSteps } from "../game/snow-scour.js";
-import { classicFogDims } from "./atmosphere.js";
+import { classicFogDims, veilUniforms } from "./atmosphere.js";
 import { createParticles } from "./particles.js";
 import { addShaderHook } from "./shader-hooks.js";
 import { createTireTracks } from "./tire-tracks.js";
@@ -58,6 +59,60 @@ function dustPrint(art, tint = [128, 112, 92], top = 128) {
   return { rgba: out, width: art.width, height: art.height };
 }
 
+/** A picture at another size, each texel from the four about it. */
+function resized({ rgba, width, height }, toWidth, toHeight) {
+  if (width === toWidth && height === toHeight) return rgba;
+  const out = new Uint8ClampedArray(toWidth * toHeight * 4);
+  for (let y = 0; y < toHeight; y++) {
+    const v = Math.max(0, Math.min(height - 1, ((y + 0.5) * height) / toHeight - 0.5)), y0 = Math.floor(v), y1 = Math.min(height - 1, y0 + 1), fy = v - y0;
+    for (let x = 0; x < toWidth; x++) {
+      const u = Math.max(0, Math.min(width - 1, ((x + 0.5) * width) / toWidth - 0.5)), x0 = Math.floor(u), x1 = Math.min(width - 1, x0 + 1), fx = u - x0;
+      for (let c = 0; c < 4; c++) {
+        const top = rgba[(y0 * width + x0) * 4 + c] * (1 - fx) + rgba[(y0 * width + x1) * 4 + c] * fx;
+        const bottom = rgba[(y1 * width + x0) * 4 + c] * (1 - fx) + rgba[(y1 * width + x1) * 4 + c] * fx;
+        out[(y * toWidth + x) * 4 + c] = top * (1 - fy) + bottom * fy;
+      }
+    }
+  }
+  return out;
+}
+
+/*
+  The puffs' material: what three.js draws a sprite with (its colour and opacity over the picture, the tone curve, the
+  fog), for a square per instance (`iPlace`: where its middle is and its side, feet) showing layer `iLayer` of the
+  frames.
+*/
+const PUFF_VERTEX = /* glsl */ `
+attribute vec4 iPlace;
+attribute float iLayer;
+varying vec3 vPuffUv;
+#include <common>
+#include <fog_pars_vertex>
+#include <logdepthbuf_pars_vertex>
+void main() {
+  vPuffUv = vec3( uv, iLayer );
+  vec4 mvPosition = modelViewMatrix * vec4( iPlace.xyz, 1.0 );
+  mvPosition.xy += position.xy * iPlace.w;
+  gl_Position = projectionMatrix * mvPosition;
+  #include <logdepthbuf_vertex>
+  #include <fog_vertex>
+}`;
+const PUFF_FRAGMENT = /* glsl */ `
+uniform vec3 diffuse;
+uniform float opacity;
+uniform mediump sampler2DArray map;
+varying vec3 vPuffUv;
+#include <common>
+#include <fog_pars_fragment>
+#include <logdepthbuf_pars_fragment>
+void main() {
+  #include <logdepthbuf_fragment>
+  gl_FragColor = vec4( diffuse, opacity ) * texture( map, vPuffUv );
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+  #include <fog_fragment>
+}`;
+
 /** The tread art as a dark print: the lines are opaque brown, the black around them clear. */
 function treadPrint(art) {
   const out = new Uint8ClampedArray(art.rgba.length);
@@ -79,10 +134,12 @@ const sparkLevelOf = (flags) => (flags.sparks === true ? 2 : Math.max(0, Math.mi
  *   bridge's deck is the deck and not the ground under it (render/scenery.js `floorAt`), without which it is `ground`;
  *   `art` the effects art (worker/effects-art.js). `rich` is what "Rich particles" needs, or null with it off
  *   (render/scenery.js `particles`): `{ look, groundTone, bareGround(x, z, y), snowDepth(x, z, y), snowLying(x, z, y),
- *   strikeIce(x, z, speedFtPerS), dragIce(chain, points) }`.
+ *   strikeIce(x, z, speedFtPerS), dragIce(chain, points) }`. `mesh` is the height of the drivable mesh under game
+ *   (x, y, z), or null where there is none there (a Community Patch 4 track's streets and ground, laid over a terrain
+ *   that is not seen): what stands on one leaves its ruts on it and raises the dust of its own surface type.
  */
 
-export function createTireEffects({ scene, art, ground, count, random = Math.random, rich = null, dark = false, floor = null, greyDust = false }) {
+export function createTireEffects({ scene, art, ground, count, random = Math.random, rich = null, dark = false, floor = null, mesh = null, greyDust = false }) {
   const root = new THREE.Group();
   root.name = "tire-effects";
   scene.add(root);
@@ -108,11 +165,15 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
   /** What something at game (x, y, z) stands on: in Snow the ice over the level's water, else what is under it. */
   const standOn = (x, z, y) => standOnFt(floorUnder(x, z, y), weatherNow, waterLevel);
   // A rut is laid on what the tire stands on: on the ice, not on the bed under it, and with no snow of the bed's.
-  const bare = rich?.bareGround ?? ground;
+  /** The drivable mesh under game (x, y, z), feet, or null: with no height to look from, none. */
+  const meshUnder = (x, z, y) => (mesh && Number.isFinite(y) ? mesh(x, z, y) : null);
+  // On a mesh the ruts lie on the mesh: laid on the ground, they lay on the terrain under it, out of sight.
+  const bareGround = rich?.bareGround ?? ground;
+  const bare = (x, z, y) => meshUnder(x, z, y) ?? bareGround(x, z, y);
   const ruts = rich ? createTireTracks({
     scene, art, look: rich.look, pools: rich.pools ?? null, snowLine: rich.snowLine ?? null, renderer: rich.renderer ?? null, groundTone: rich.groundTone ?? null,
     ground: (x, z, y) => standOnFt(bare(x, z, y), weatherNow, waterLevel),
-    snowDepth: (x, z, y) => (iced(bare(x, z, y)) ? 0 : rich.snowDepth?.(x, z, y) ?? 0),
+    snowDepth: (x, z, y) => (iced(bare(x, z, y)) || meshUnder(x, z, y) !== null ? 0 : rich.snowDepth?.(x, z, y) ?? 0),
     onIce: (x, z, y) => iced(bare(x, z, y)),
   }) : null;
   /** The trucks as last given to `update`, and what each stood on: a contact reported between frames asks where the bodies are. */
@@ -127,20 +188,49 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
   // MTM2 classic dust (Options, Advanced): both kinds in the art's own grey, as the game draws a wheel's dust and a hit's alike.
   // Kinds 4 and 5 are the art's grey too: the dust off Cement (game/tire-effects.js `greyDustOn`).
   const tints = greyDust ? [[null, 128], [null, 128], [null, 128]] : [[[128, 112, 92], 128], [[54, 54, 58], 110], [null, 128]];
-  // The Dust slider's level (game/tire-effects.js `dustLevel`), as the last `update` was given it; and the sprites alive.
+  // The Dust slider's level (game/tire-effects.js `dustLevel`), as the last `update` was given it; and the puffs alive.
   let dustNow = 2, livePuffs = 0;
-  const frames = tints.flatMap(([tint, top]) => [art?.puff2, art?.puff3].map((list) => (list ?? []).map((image) => image && new THREE.SpriteMaterial({
-    map: flatTexture(dustPrint(image, tint, top)), transparent: true, depthWrite: false, opacity: 0.7,
-  }))));
+  // Each kind's frames as layers of one texture: `frames[kind][frame]` is the frame's layer, or null where the art has
+  // none. A frame of another size than the first is brought to the first's.
+  const prints = [];
+  const frames = tints.flatMap(([tint, top]) => [art?.puff2, art?.puff3].map((list) => (list ?? []).map((image) => {
+    if (!image || rich) return null;
+    prints.push(dustPrint(image, tint, top));
+    return prints.length - 1;
+  })));
   let puffLight = 1;
-  const puffs = Array.from({ length: pool(PUFF_POOL) }, () => {
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ visible: false }));
-    sprite.visible = false;
-    sprite.renderOrder = 3;
-    sprite.userData = { age: 0, life: 0, size: 0, kind: 0, live: false };
-    root.add(sprite);
-    return sprite;
-  });
+  const PUFFS = prints.length ? pool(PUFF_POOL) : 0;
+  const puffs = Array.from({ length: PUFFS }, () => ({ age: 0, life: 0, size: 0, growth: 0, kind: 0, live: false, x: 0, y: 0, z: 0, layer: 0, side: 0, away: 0 }));
+  let puffMesh = null, puffMap = null, puffPlace = null, puffLayer = null;
+  const shownPuffs = [];
+  if (PUFFS) {
+    const { width, height } = prints[0], layer = width * height * 4;
+    const data = new Uint8Array(layer * prints.length);
+    prints.forEach((print, i) => data.set(resized(print, width, height), i * layer));
+    puffMap = new THREE.DataArrayTexture(data, width, height, prints.length);
+    puffMap.colorSpace = THREE.SRGBColorSpace;
+    puffMap.magFilter = puffMap.minFilter = THREE.LinearFilter;
+    puffMap.needsUpdate = true;
+    const geometry = new THREE.InstancedBufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0]), 3));
+    geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2));
+    geometry.setIndex([0, 1, 2, 0, 2, 3]);
+    puffPlace = new THREE.InstancedBufferAttribute(new Float32Array(PUFFS * 4), 4).setUsage(THREE.DynamicDrawUsage);
+    puffLayer = new THREE.InstancedBufferAttribute(new Float32Array(PUFFS), 1).setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute("iPlace", puffPlace);
+    geometry.setAttribute("iLayer", puffLayer);
+    geometry.instanceCount = 0;
+    puffMesh = new THREE.Mesh(geometry, new THREE.ShaderMaterial({
+      uniforms: { ...veilUniforms(), diffuse: { value: new THREE.Color(1, 1, 1) }, opacity: { value: 0.7 }, map: { value: puffMap } },
+      vertexShader: PUFF_VERTEX, fragmentShader: PUFF_FRAGMENT, transparent: true, depthWrite: false, fog: true,
+    }));
+    puffMesh.name = "dustPuffs";
+    // Placed by its instances' own numbers, wherever the mesh itself is.
+    puffMesh.frustumCulled = false;
+    puffMesh.renderOrder = 3;
+    puffMesh.visible = false;
+    root.add(puffMesh);
+  }
   /**
    * Dust from a wheel starts 2.8 times the game's size, swells by 14 ft and lives 2.2 times as long; the smoke of a hit starts
    * 3 times and swells by 10. With "Rich particles" the smoke of a hit is a puff of the port's own, drifting with `vel`.
@@ -156,16 +246,15 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
     if (!frames[0].length) return;
     const level = CLASSIC_DUST[dustNow] ?? CLASSIC_DUST[2];
     if (livePuffs >= level.pool) return;
-    const sprite = puffs.find((p) => !p.userData.live);
-    if (!sprite) return;
+    const made = puffs.find((p) => !p.live);
+    if (!made) return;
     const { scale, growth, life } = smoke ? level.smoke : level.dust;
     livePuffs++;
-    Object.assign(sprite.userData, {
+    Object.assign(made, {
       age: 0, life: puffLife(random()) * life, size: puffSize(random()) * scale, growth,
       kind: (smoke ? 2 : grey ? 4 : 0) + (random() < 0.5 ? 0 : 1), live: true,
     });
-    sprite.position.set(x, y + 0.5, -z);
-    sprite.visible = true;
+    made.x = x; made.y = y + 0.5; made.z = -z;
   }
 
   /*
@@ -272,7 +361,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       // Slower and lower for what is not a spark: earth and ice are heavy.
       const lively = kind === "spark" ? 1 : 0.55, v = speed * (0.4 + random() * 0.8) * lively;
       particles.streak(spec, x, y, z, Math.cos(a) * v + vel[0] * 0.35, up * (0.3 + random()) * lively + Math.max(0, vel[1]) * 0.3, Math.sin(a) * v + vel[2] * 0.35,
-        spec.ground ? { tone: earthTone("dirt", 0, spec, x, z) } : {});
+        spec.ground ? { tone: earthTone("dirt", 0, spec, x, z, y) } : {});
       return;
     }
     // No sparks under water.
@@ -342,17 +431,25 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
    * The ground texture under game (x, z) where it is soft ground (render/scenery.js `groundAt`), or null: a ground box,
    * say, which the simulation stands on and the terrain's texture does not show.
    */
-  // Only where it is the ground the tire stands on (the simulation's `type`): not the terrain under a street's mesh.
-  const softGround = (x, z, type) => { const under = rich.groundAt?.(x, z) ?? null; return under && under.type === type && DUST_BY_TYPE[under.type] ? under : null; };
+  // Only where it is the ground the tire stands on (the simulation's `type`): not the terrain under a street's mesh,
+  // nor under a mesh of the terrain's own type (dirt laid over a terrain of dirt, whose texture, never seen, would
+  // say how dusty and what colour the mesh's dirt is: dark and damp, so none at all).
+  const softGround = (x, z, type, y) => {
+    if (meshUnder(x, z, y) !== null) return null;
+    const under = rich.groundAt?.(x, z) ?? null;
+    return under && under.type === type && DUST_BY_TYPE[under.type] ? under : null;
+  };
   /**
    * How thick the dust off the ground at game (x, z) is, 0 to 1, of the simulation's ground `type` there: as dusty as
    * the texture under it looks (game/particles.js `groundDust`), or as its type alone says where that is not known, in
    * the weather.
    */
-  const dustOff = (x, z, type) => (softGround(x, z, type)?.dust ?? groundDust(null, type)) * (DUST_WEATHER[weatherNow] ?? 1);
+  const dustOff = (x, z, type, y) => (softGround(x, z, type, y)?.dust ?? groundDust(null, type)) * (DUST_WEATHER[weatherNow] ?? 1);
   /** The colour of dust and clods off ground of `family` and `type` at game (x, z): the ground type's own, half the ground's there (or the level's). */
-  const earthTone = (family, type, kind, x = null, z = null) => {
-    const ground = (x !== null ? softGround(x, z, type)?.tone : null) ?? rich.groundTone ?? null;
+  const earthTone = (family, type, kind, x = null, z = null, y = undefined) => {
+    // On a mesh the ground's colour is not known (the terrain under it is another ground, and the level's mean colour is
+    // that terrain's: under a city by the water, blue): the dust is its type's own colour, dirt's brown.
+    const ground = x !== null && meshUnder(x, z, y) !== null ? null : (x !== null ? softGround(x, z, type, y)?.tone : null) ?? rich.groundTone ?? null;
     if (kind !== STREAK_KINDS.clod) return dustColour(ground, family, type);
     const own = kind.tone, share = kind.ground, level = ground ?? own;
     return [own[0] + (level[0] - own[0]) * share, own[1] + (level[1] - own[1]) * share, own[2] + (level[2] - own[2]) * share];
@@ -364,7 +461,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
   function throwPuff(kind, hub, floor, vel, out, family, type, scale = 1, thick = 1) {
     const spec = PUFF_KINDS[kind], jitter = () => (random() - 0.5) * 2;
     const dusty = kind === "dust", amount = RICH_DUST[dustNow] ?? RICH_DUST[2];
-    const tone = dusty && greyDust ? GREY_DUST_TONE : spec.ground ? earthTone(family, type, spec, hub[0], hub[2]) : spec.tone;
+    const tone = dusty && greyDust ? GREY_DUST_TONE : spec.ground ? earthTone(family, type, spec, hub[0], hub[2], hub[1]) : spec.tone;
     const life = dusty ? amount.life : 1;
     if (dusty) scale *= amount.scale;
     // Dust and a sliding tire's smoke hang where they were raised; powder and mist are flung up and out by the tire.
@@ -405,7 +502,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
   function layDust(state, k, hub, floor, vel, out, family, type, raised, few, far) {
     const from = state.dustAt[k];
     if (!from) return;
-    const thick = dustOff(hub[0], hub[2], type);
+    const thick = dustOff(hub[0], hub[2], type, hub[1]);
     if (thick < DUST.least) { state.dustOwed[k] = 0; return; }
     const dx = hub[0] - from[0], dz = hub[2] - from[1], rolled = Math.hypot(dx, dz);
     // (Not across a jump from one place to another.)
@@ -435,7 +532,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
   /** A streak of `kind` (its name) thrown up and back off a tire at `hub`: the faster the truck, the higher and wider. */
   function throwStreak(kind, hub, floor, vel, speed, family, type) {
     const spec = STREAK_KINDS[kind], jitter = () => (random() - 0.5) * 2;
-    const tone = spec.ground ? earthTone(family, type, spec, hub[0], hub[2]) : spec.tone;
+    const tone = spec.ground ? earthTone(family, type, spec, hub[0], hub[2], hub[1]) : spec.tone;
     const carried = 0.3 + random() * 0.45, wide = 2 + speed * 0.06;
     particles.streak(spec, hub[0] + jitter() * 0.8, floor + 0.3, hub[2] + jitter() * 0.8,
       vel[0] * carried + jitter() * wide, 4 + random() * (4 + speed * 0.2), vel[2] * carried + jitter() * wide, { tone });
@@ -491,14 +588,14 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
     // Only the level's frozen water stars: ground that is ice has no sheet to crack.
     if (stood === "ice" && floor === waterLevel) rich.strikeIce?.(hub[0], hub[2], fall);
     // Dust only as thick as the ground there gives it, and none off ground that gives none.
-    const thick = thrown.puff === "dust" ? dustOff(hub[0], hub[2], type) : 1;
+    const thick = thrown.puff === "dust" ? dustOff(hub[0], hub[2], type, hub[1]) : 1;
     for (let n = 0; n < thrown.puffs && lets(flags, thrown.puff) && thick >= DUST.least; n++) {
       const a = random() * Math.PI * 2, out = 3 + random() * (3 + fall * 0.2);
       throwPuff(thrown.puff, [hub[0] + Math.cos(a), hub[1], hub[2] + Math.sin(a)], floor, [vel[0] + Math.cos(a) * out * 2, 0, vel[2] + Math.sin(a) * out * 2], [0, 0], family, type, 1.15, thick);
     }
     // A puddle's water is muddy.
     const spec = STREAK_KINDS[thrown.streak];
-    const tone = spec.ground ? earthTone(family, type, spec, hub[0], hub[2])
+    const tone = spec.ground ? earthTone(family, type, spec, hub[0], hub[2], hub[1])
       : stood === "puddle" ? muddyWater(rich.groundAt?.(hub[0], hub[2])?.tone ?? rich.groundTone ?? null) : spec.tone;
     for (let n = 0; n < thrown.streaks && lets(flags, thrown.streak); n++) {
       const a = random() * Math.PI * 2, out = 4 + random() * (5 + fall * 0.35);
@@ -568,7 +665,9 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       // Out from the truck's side: the right wheels are the even ones.
       const side = k % 2 === 0 ? 1 : -1, out = [forward[1] * side, -forward[0] * side];
       const few = lite ? LITE_SHARE : 1;
-      const raised = dusty.reduce((n, tire) => n + (tire === k ? 1 : 0), 0);
+      // Off Cement, only as much as the tire asks more of the road than it holds (game/tire-effects.js `slidingDust`, game/particles.js `gripDemand`).
+      const raised = dusty.reduce((n, tire) => n + (tire === k ? 1 : 0), 0)
+        * slidingDust(type, greyDustOn(type) ? gripDemand({ tire: t.tires?.[k] ?? null, radiusFt: t.radius ?? 2.75, forwardFtS, sidewaysFtS }) : 1);
       if (raised) layDust(state, k, hub, floor, vel, out, family, type, raised, few * wheels, far);
       else state.dustOwed[k] = 0;
       state.dustAt[k] = [hub[0], hub[2]];
@@ -586,7 +685,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
         // Wading in the level's water, the tread paddles it up into a rooster tail behind the wheel. The tread runs as
         // fast as the simulation turns the wheel, as fast as the truck goes where it says nothing (a replay).
         if (!puddle && waterLevel !== null) {
-          const radius = t.radius ?? 2.75, tread = Math.max(speed, Math.abs(t.tires?.[k]?.spin ?? 0) * radius);
+          const radius = t.radius ?? 2.75, tread = Math.max(speed, Math.abs(t.tires?.[k]?.spin ?? 0) * (t.tires?.[k]?.rolls ?? radius));
           throwRooster(hub, waterLevel, roosterWading(waterLevel - (hub[1] - radius), radius), tread, vel, forward, radius, few);
         }
       }
@@ -603,7 +702,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
           : [-Math.sign(sidewaysFtS) * forward[1], Math.sign(sidewaysFtS) * forward[0]];
         const fast = 8 + 22 * sliding;
         const back = [vel[0] + push[0] * fast, vel[1], vel[2] + push[1] * fast];
-        const thick = flung.puff === "dust" ? dustOff(hub[0], hub[2], type) : 1;
+        const thick = flung.puff === "dust" ? dustOff(hub[0], hub[2], type, hub[1]) : 1;
         if (flung.puff && thick >= DUST.least && lets(flags, flung.puff === "rubber" ? "dust" : flung.puff) && random() < few * wheels) throwPuff(flung.puff, hub, floor, back, out, family, type, 1 + 0.4 * sliding, thick);
         for (let n = 0; n < flung.streaks && lets(flags, flung.streak); n++) throwStreak(flung.streak, hub, floor, back, speed + fast, family, type);
       }
@@ -715,7 +814,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       }
       if (light !== puffLight) {
         puffLight = light;
-        for (const material of frames.flat(2)) if (material) material.color.setScalar(light);
+        puffMesh?.material.uniforms.diffuse.value.setScalar(light);
       }
       clock += dt;
       if (dt > 0) frameDt = Math.min(dt, 0.1);
@@ -745,27 +844,57 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
           }
           state.wet[k] = wetNow[k];
         });
+        // The truck's velocity over the ground, from where it was a frame ago (none across a jump from one place to another).
+        const pos = t.pose.pos;
+        if (state.before && dt > 0) {
+          const v = [(pos[0] - state.before[0]) / dt, (pos[1] - state.before[1]) / dt, (pos[2] - state.before[2]) / dt];
+          state.vel = Math.hypot(v[0], v[1], v[2]) < 400 ? v : [0, 0, 0];
+        }
+        if (dt > 0) state.before = [pos[0], pos[1], pos[2]];
         state.timer += dt;
         if (state.timer >= DUST_TICK_S) {
           state.timer %= DUST_TICK_S;
           if (flags.dust && !noDust && Math.hypot(hubs[0][0] - listener[0], hubs[0][2] - listener[2]) < DUST_RANGE_FT) {
-            for (const k of dustPuffs({ speedFtS: t.pose.forward ?? t.pose.speed ?? 0, onGround, dusty: raisesDust(type), random, share: (t.wheels ?? 1) * dustShare(type) })) {
+            const forwardFtS = state.vel[0] * forward[0] + state.vel[2] * forward[1], sidewaysFtS = state.vel[0] * forward[1] - state.vel[2] * forward[0];
+            const level = CLASSIC_DUST[dustNow] ?? CLASSIC_DUST[2];
+            for (const k of dustPuffs({ speedFtS: t.pose.forward ?? t.pose.speed ?? 0, onGround, dusty: raisesDust(type), random, share: (t.wheels ?? 1) * dustShare(type) * level.count })) {
+              // Off Cement, only as much as the tire asks more of the road than it holds (game/tire-effects.js `slidingDust`, game/particles.js `gripDemand`).
+              const kept = slidingDust(type, greyDustOn(type) ? gripDemand({ tire: t.tires?.[k] ?? null, radiusFt: t.radius ?? 2.75, forwardFtS, sidewaysFtS }) : 1);
+              if (kept < 1 && random() >= kept) continue;
               puff(hubs[k][0] + (random() - 0.5), floorUnder(hubs[k][0], hubs[k][2], hubs[k][1]), hubs[k][2] + (random() - 0.5), false, STILL, greyDustOn(type));
             }
           }
         }
       });
-      // Puffs age, change frame, grow and face the camera (sprites do).
-      for (const sprite of puffs) {
-        const u = sprite.userData;
+      // Puffs age, change frame and grow; the graphics card turns each to the camera.
+      shownPuffs.length = 0;
+      // Drawn the farthest first, as things seen through one another are, from where the picture is taken.
+      const eye = camera?.position ?? null, eyeX = eye ? eye.x : listener[0], eyeY = eye ? eye.y : listener[1], eyeZ = eye ? eye.z : -listener[2];
+      for (const u of puffs) {
         if (!u.live) continue;
         u.age += dt;
         const frame = puffFrame(u.age, u.life);
-        const material = frame < 0 ? null : frames[u.kind][frame] ?? frames[u.kind][PUFF_FRAMES - 1];
-        if (!material) { u.live = false; sprite.visible = false; livePuffs = Math.max(0, livePuffs - 1); continue; }
-        sprite.material = material;
-        const size = (u.size + Math.min(1, u.age / u.life) * u.growth) * 2;
-        sprite.scale.set(size, size, 1);
+        const layer = frame < 0 ? null : frames[u.kind][frame] ?? frames[u.kind][PUFF_FRAMES - 1] ?? null;
+        if (layer === null) { u.live = false; livePuffs = Math.max(0, livePuffs - 1); continue; }
+        u.layer = layer;
+        u.side = (u.size + Math.min(1, u.age / u.life) * u.growth) * 2;
+        u.away = (u.x - eyeX) ** 2 + (u.y - eyeY) ** 2 + (u.z - eyeZ) ** 2;
+        shownPuffs.push(u);
+      }
+      if (puffMesh) {
+        shownPuffs.sort((a, b) => b.away - a.away);
+        const place = puffPlace.array, layers = puffLayer.array;
+        for (let i = 0; i < shownPuffs.length; i++) {
+          const u = shownPuffs[i];
+          place[i * 4] = u.x; place[i * 4 + 1] = u.y; place[i * 4 + 2] = u.z; place[i * 4 + 3] = u.side;
+          layers[i] = u.layer;
+        }
+        puffMesh.geometry.instanceCount = shownPuffs.length;
+        puffMesh.visible = shownPuffs.length > 0;
+        if (shownPuffs.length) {
+          puffPlace.clearUpdateRanges(); puffPlace.addUpdateRange(0, shownPuffs.length * 4); puffPlace.needsUpdate = true;
+          puffLayer.clearUpdateRanges(); puffLayer.addUpdateRange(0, shownPuffs.length); puffLayer.needsUpdate = true;
+        }
       }
       // Only the quads laid since the last frame go to the graphics card, the newest before the ring's next place.
       if (trackFresh) {
@@ -870,7 +999,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
         const kind = scrapePuff(footing({
           family, type, weather: weatherNow, snowFt: rich.snowLying?.(where[0], where[2], where[1]) ?? 0, puddleFt: rich.puddleAt?.(where[0], where[2]) ?? 0, inWater: onIce,
         }));
-        const thick = kind === "dust" ? dustOff(where[0], where[2], type) : 1;
+        const thick = kind === "dust" ? dustOff(where[0], where[2], type, where[1]) : 1;
         if (!kind || thick < DUST.least) return;
         if (kind !== "smoke") {
           const floor = standOn(where[0], where[2], where[1]);
@@ -942,7 +1071,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       ruts?.dispose();
       scene.remove(root);
       root.traverse((o) => { o.geometry?.dispose?.(); const m = o.material; if (m) { m.map?.dispose?.(); m.dispose?.(); } });
-      for (const list of frames) for (const m of list) { m?.map?.dispose(); m?.dispose(); }
+      puffMap?.dispose();
     },
   };
 }

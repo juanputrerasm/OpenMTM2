@@ -53,6 +53,7 @@ import { cameraSystem, COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, CAMERA_PITCH_
 import { createBlimp, hasBlimp } from "../../game/blimp.js";
 import { soundRange, surfaceFamily } from "../../game/sound-model.js";
 import { createTireEffects } from "../../render/tire-effects.js";
+import { createOcclusion } from "../../render/occlusion.js";
 import { createStartLamps } from "../../render/start-lamps.js";
 import { createDragTreeLamps } from "../../render/drag-tree-lamps.js";
 import { createDragBeams } from "../../render/drag-beams.js";
@@ -98,7 +99,7 @@ import { createCockpit3d } from "../../render/cockpit3d.js";
 import { stepCockpitLook } from "../../game/cockpit3d.js";
 import { cpuNames, fillGrid, formatRaceTime, raceDrivers, seatDrivers, summitBoard } from "../../game/race-setup.js";
 import {
-  addFallingTree, createModelLibrary, createTrackWorld, disposeObject, moveObjects, poseFallingTree, removeFallingTree, setForestTree,
+  addFallingTree, createModelLibrary, createTrackWorld, disposeObject, moveObjects, occludees, poseFallingTree, removeFallingTree, setForestTree,
   setStartLights, skyColor, skyOf, updateSky, updateTrackWorld, placeSky,
 } from "../../render/track-scene.js";
 import { createTruckObject, interpolatePose } from "../../render/truck-object.js";
@@ -1404,7 +1405,14 @@ async function mountRace(container, context, params, owned = []) {
   const plainGround = groundHeightFn(terrain);
   const tireFloor = (x, z, y) => (scenery.floorAt ? scenery.floorAt(x, z, y) : plainGround(x, z));
   const meshFloor = viewMesh ? (x, z, y) => viewMesh.surfaceBelow(x, (y ?? viewRefY) + 3, z, 40) ?? (scenery.floorAt ? scenery.floorAt(x, z, y) : ground(x, z)) : null;
-  const tireFx = createTireEffects({ scene, art: effectsArt, ground, floor: meshFloor ?? scenery.floorAt, count: entrants.length, rich: scenery.particles, greyDust: !!context.settings.greyDust, dark: !!WEATHER_LOOK[weatherId]?.headlights });
+  // What is wholly behind something else is left out of the race's own picture (render/occlusion.js). Not in a headset.
+  const occlusion = context.settings.occlusionCulling !== false ? createOcclusion({ renderer, scene, camera }) : null;
+  if (occlusion) {
+    for (const { mesh, box } of occludees(world)) occlusion.watch(mesh, box);
+    cleanups.push(() => occlusion.dispose());
+  }
+  let drawTally = null;
+  const tireFx = createTireEffects({ scene, art: effectsArt, ground, floor: meshFloor ?? scenery.floorAt, mesh: viewMesh ? (x, z, y) => viewMesh.surfaceBelow(x, y + 3, z, 40) : null, count: entrants.length, rich: scenery.particles, greyDust: !!context.settings.greyDust, dark: !!WEATHER_LOOK[weatherId]?.headlights });
   cleanups.push(() => tireFx.dispose());
   // MTM1 particles (Options, Advanced; render/mtm1-particles.js) take the place of the dust, the spray and the tracks.
   const mtm1Particles = context.settings.mtm1Particles
@@ -2096,7 +2104,7 @@ async function mountRace(container, context, params, owned = []) {
   let drawnCells = drawDistance / TERRAIN_CELL_FT;
   const movedBoxes = new Set();
   const movedPositions = new Map();
-  window.__openmtm2Race = { audio, scene, camera, renderer, sim, entrants, musicName, host, vr, scenery, tireFx, get latest() { return latest; } };
+  window.__openmtm2Race = { audio, scene, camera, renderer, sim, entrants, musicName, host, vr, scenery, tireFx, setPaused, occlusion, get latest() { return latest; } };
   cleanups.push(() => { delete window.__openmtm2Race; });
   // The race stops while an error is shown, as for the pause menu; a network race goes on for the others.
   cleanups.push(onReport(() => { if (!disposed && !net) setPaused(true).catch(() => {}); }));
@@ -2495,8 +2503,21 @@ async function mountRace(container, context, params, owned = []) {
       truckReflections?.setVisible(true);
     }
     if (host.presenting) scenery.draw(host.camera, { plain: true }); else scenery.draw(camera);
-    // The picture's draw calls and triangles, the shadow maps' with them (render/over-scene.js counts its passes together).
-    if (fpsCounter.visible) fpsCounter.noteDraw(now, renderer.info.render.calls, renderer.info.render.triangles);
+    // The frame's draw calls and triangles, every pass of it: three.js counts from nothing at each picture it draws (the
+    // scene, a mirror, the passes laid over it), so the last one alone would be read here, a single square with the lens on.
+    if (fpsCounter.visible) {
+      const info = renderer.info;
+      if (!drawTally) {
+        drawTally = { calls: 0, triangles: 0 };
+        const reset = info.reset.bind(info);
+        info.reset = () => { drawTally.calls += info.render.calls; drawTally.triangles += info.render.triangles; reset(); };
+        cleanups.push(() => { info.reset = reset; });
+      }
+      fpsCounter.noteDraw(now, drawTally.calls + info.render.calls, drawTally.triangles + info.render.triangles);
+      // What is counted now and not yet set to nothing is taken off the next frame's.
+      drawTally.calls = -info.render.calls;
+      drawTally.triangles = -info.render.triangles;
+    }
     // Once the scene has been drawn with the trucks in it, so every material is as it will be and what waits unseen
     // (the helicopters) is there: the shaders of all of it, and for the headlights' pools shown and hidden, built
     // before a rescue or the Headlights key needs them (render/weather-scene.js `warmPools`).

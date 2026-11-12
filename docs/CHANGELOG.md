@@ -91,8 +91,75 @@ City as the first), the views on them, and Freestyle's trick physics under every
     Max: 61 frames a second at 100 percent, 80 at 75.
   - **The FPS counter's draw line and report** (ui/fps-counter.js): draw calls and triangles a frame, and a click
     copies the figures with the build, track, settings, graphics chip and size drawn.
-  Not done, and what the profiles now point at: three.js spends its time per draw call and per material, so the next
-  step on a city is fewer of both (a model's parts drawn from one texture array, the trucks' parts batched).
+  What the profiles then pointed at: three.js spends its time per draw call and per material, and of the 730 to 1,050
+  calls left at Off, 220 to 410 were the placed objects' parts, 290 to 350 the trucks and their shadows and 130 to 185
+  the dust, a draw a puff.
+- **Fewer draws: parts joined by texture stacks, dust in one draw** (same harness and machine). Nice Beaver at Off:
+  320 to 360 calls a frame and 150 frames a second (the graphics card's limit there), 95 to 103 with the main thread
+  slowed four times, where the step above left 47 to 53; at Max slowed four times 78 to 85 for 45 to 48. Farm Road 29:
+  230 to 290 calls; at Max unchanged, 141 to 147 (the graphics card's limit); at Low slowed four times 100 to 107 for
+  86 to 89.
+  - **A model's parts joined** (shared/part-layers.js, render/part-merge.js `mergeModelParts`): a model is cut into
+    parts by texture, a draw each. Textures of one size and filtering are now the layers of one stack
+    (`DataArrayTexture`, 256 layers at most), a vertex names its layer, and the parts that differ in nothing but their
+    texture are one part with one material, shared by every model's parts of that kind. A part with anything else of
+    its own stays as it was: a normal or occlusion map, texture frames, a shader hook (Community Patch 3's glass), the
+    start lights' and the drag tree's textures, keyframes, camera-facing scenery. The stack is not the material's
+    `map`, which three.js would hand to the depth material of a shadow; a cut-out's shadow has a depth material that
+    reads the stack. Used by the placed objects (`placeObjects`; 220 to 410 calls to 50 to 85) and by the trucks
+    (render/truck-object.js; a body with 4x4 Evolution lens groups keeps its parts), whose two dozen parts each are
+    about twelve, in the picture and in the shadow. `tintObjects` gives a tinted model a grey stack of its own.
+  - **Dust puffs in one draw** (render/tire-effects.js): the classic dust was a three.js sprite a puff, up to 640.
+    Now one instanced square over a stack of the puff frames, drawn as the sprite was (colour, opacity, tone curve,
+    fog) and sorted the farthest first.
+  - tools/perf-race.mjs lists a frame's draw calls by what is drawn ("draws by kind").
+- **The world drawn solid in front of the backdrop's fade** (render/atmosphere.js `solidWhenNear`; found at a
+  tester's own settings: Max, Track backdrops on, a 3420 pixel wide window on a 2x display, where the figures above,
+  taken at 1920 x 1080 and one device pixel a point, did not hold). With a track's backdrop drawn every solid material
+  of the world is drawn blended, to dissolve into the backdrop at the far fade, and what is blended hides nothing from
+  the graphics card: every wall behind another was shaded in full. Each mesh wholly nearer than the fade's beginning is
+  now drawn without blending (the same program and the same picture, its cover there being 1). City of the Lost Giblets
+  at those settings, eight trucks leaving the line: 53 frames a second and 29 ms of graphics card time a frame before,
+  81 to 87 and 14 ms after.
+- **The FPS counter's draw line** counted the last picture three.js drew, which with Lens effects on is one square
+  ("draw 1 calls, 0k triangles"); it now counts every pass of the frame.
+- **Less dust** (game/tire-effects.js `slidingDust`, `DUST_COUNT`; game/particles.js `gripDemand`): pavement gives
+  its dust only to a tire that asks more of the road than it holds (a hard corner, a drift, a standing start), none
+  to one that only rolls; and every dust level lays fewer puffs (30 percent, then a fifth again; then 15 percent, below), each
+  living as long as before.
+- **Dust and ruts on a mesh, and smoke on the straights** (found on the BEAVER tracks):
+  - A tire on a drivable mesh (a Community Patch 4 track's streets and ground, laid over a terrain that is not seen)
+    took how dusty its ground is, and the dust's colour, from the terrain's texture under the mesh wherever that
+    terrain was of the same type: dirt laid over a terrain of dark dirt raised none. And its ruts were laid on that
+    terrain, under the mesh. Both now follow the mesh (render/tire-effects.js `meshUnder`). The dust's colour on a
+    mesh is its ground type's own (dirt's brown), not half the level's mean ground colour, which is that of the
+    terrain under the mesh: blue under a city by the water.
+  - A tire was taken to spin by the drawn tire's radius, which is not the radius the simulation rolls it on: the
+    faster a truck went the more its wheels seemed to spin, and on pavement it smoked down every straight (some forty
+    puffs a second on Nice Beaver; ten now, in the corners). The simulation says the radius (`rolls`).
+  - Cement gives 0.225 of the game's puffs for 0.3, and every dust level 15 percent fewer again (`DUST_COUNT` 0.476).
+- **Hidden scenery is not drawn** (render/occlusion.js; Options, Display, "Skip hidden scenery", on): the box round
+  each placed model and each chunk of ground in view is asked of the graphics card once the solid scene is drawn, and
+  what was wholly behind something else two frames running is left out of the race's own picture until its box shows
+  again (the shadows, the mirrors and a headset draw everything). Measured first (tools/perf-race.mjs `--occlusion`):
+  on a street of Nice Beaver or City of the Lost Giblets 100 to 180 of some 190 to 235 placed meshes in view were
+  wholly hidden, and 10 to 37 of 43 chunks of ground, 130,000 to 360,000 triangles a frame. Nice Beaver at Max:
+  330 to 370 draws and 240,000 to 300,000 triangles a frame before, 160 to 260 and 80,000 to 120,000 after.
+- **A far truck's bars, shocks and driveshafts** (render/truck-object.js `FINE_PARTS_FT`) are not drawn past 300 ft,
+  where they are thinner than a point of the picture.
+- **What a frame's points cost, measured in one held picture** (tools/perf-race.mjs `--freeze`: the race paused and
+  the same picture drawn with its dust the light way, the heavy way and not at all; a race's own ups and downs, and
+  the different race each run of the autopilot in a pack turns out to be, hid differences of a millisecond). On a
+  picture 3,420 points wide what moves the frame rate is the dust of "Rich particles" in view, more than any part of
+  High: Farm Road 29 at Low drew 168 frames a second with none, 129 with 4.2 pictures' worth of puffs drawn the light
+  way and 161 the heavy way.
+  - **Puffs are heavy sooner** (game/particles.js `OVER`): from 3 pictures' worth until 2, for 6 and 4.
+  - **The lens's glow by the screen's points** (render/lens.js `glowSize`): its blurs were so many texels wide, so on
+    a display of two pixels a point the glow was half as wide to the eye and four times the work. Max without dust:
+    105 to 110 frames a second.
+- tools/perf-race.mjs puts the truck under the autopilot before the lights, so it leaves the line with the others:
+  engaged after the first window it left ten seconds late and was measured driving alone, with less to draw than a
+  race has.
 
 ## v0.7.1
 

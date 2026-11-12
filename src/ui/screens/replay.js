@@ -245,7 +245,7 @@ export default async function mount(container, context, { replay, namesMode: sta
     (game/replay-effects.js). What the ground is made of is the level's own.
   */
   // In the dark a shower of sparks lights what is about it.
-  const tireFx = replayFx ? createTireEffects({ scene, art: effectsArt, ground, floor: viewMesh ? (x, z, y) => viewMesh.surfaceBelow(x, (y ?? viewRefY) + 3, z, 40) ?? (scenery.floorAt ? scenery.floorAt(x, z, y) : ground(x, z)) : scenery.floorAt, count: drawn.length, rich: scenery.particles, greyDust: !!context.settings.greyDust, dark: !!WEATHER_LOOK[replay.weather ?? 0]?.headlights }) : null;
+  const tireFx = replayFx ? createTireEffects({ scene, art: effectsArt, ground, floor: viewMesh ? (x, z, y) => viewMesh.surfaceBelow(x, (y ?? viewRefY) + 3, z, 40) ?? (scenery.floorAt ? scenery.floorAt(x, z, y) : ground(x, z)) : scenery.floorAt, mesh: viewMesh ? (x, z, y) => viewMesh.surfaceBelow(x, y + 3, z, 40) : null, count: drawn.length, rich: scenery.particles, greyDust: !!context.settings.greyDust, dark: !!WEATHER_LOOK[replay.weather ?? 0]?.headlights }) : null;
   cleanups.push(() => tireFx?.dispose());
   window.__openmtm2Replay = { scene, camera, renderer, tireFx };
   cleanups.push(() => { delete window.__openmtm2Replay; });

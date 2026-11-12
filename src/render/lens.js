@@ -102,7 +102,11 @@ export function createLens({ renderer, aa = null, over = null }) {
   const sceneTarget = (w, h) => new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: samplesFor(w, h), depthTexture: new THREE.DepthTexture(w, h) });
   let target = sceneTarget(Math.max(1, size.x), Math.max(1, size.y));
   const clearColor = new THREE.Color();
-  const bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), GLOW_STRENGTH, GLOW_RADIUS, GLOW_FROM);
+  // The glow is worked out by the screen's points, not its pixels: its blurs are so many texels wide, so on a display
+  // of two pixels a point it was half as wide to the eye as on a plain one, and four times the work. Now it is as wide
+  // on both, and a dense display blurs no more texels than a plain one of its size.
+  const glowSize = (w, h) => { const dense = Math.max(1, renderer.getPixelRatio()); return [Math.max(1, Math.round(w / dense)), Math.max(1, Math.round(h / dense))]; };
+  const bloom = new UnrealBloomPass(new THREE.Vector2(...glowSize(size.x, size.y)), GLOW_STRENGTH, GLOW_RADIUS, GLOW_FROM);
   bloom.highPassUniforms.smoothWidth.value = GLOW_FULL - GLOW_FROM;
   // The bright pass can clean the scene as it reads it. three.js defines luminance() ahead of a ShaderMaterial, so this one does not include <common> (that would define it twice).
   bloom.highPassUniforms.tOver = { value: null };
@@ -190,7 +194,7 @@ export function createLens({ renderer, aa = null, over = null }) {
         target.dispose();
         target = sceneTarget(w, h);
       } else target.setSize(w, h);
-      bloom.setSize(w, h);
+      bloom.setSize(...glowSize(w, h));
     },
     /**
      * Draw `scene` through the lens to the screen. `tone` says the scene is lit for the curve ("Natural light");

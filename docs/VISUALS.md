@@ -1479,9 +1479,15 @@ and in Snow it is under snow or frozen. A headset throws half the puffs.
 **Dust** (`DUST`, `groundDust`, `DUST_WEATHER`, `dustColour`). Whether a tire raises dust is
 still the game's rule: over 10 mph on ground with the game's dust flag (`0x4de180`: Cement, Dirt
 and Sand; game/tire-effects.js `raisesDust`), dry, and a second puff with even odds over 20 mph.
-Cement's dust is grey (concrete, asphalt) and a tire raises a third of the game's puffs there
-(`dustShare`), in both the classic and the rich particles; grass,
-mud and gravel raise none, as in the game. How much is the port's:
+Cement's dust is grey (concrete, asphalt) and a tire raises at most a third of the game's puffs
+there (`dustShare`), and those only as far as it asks more of the road than the road holds
+(`slidingDust`, game/particles.js `gripDemand`): as hard as it slides or spins, or, while the
+truck is still pulling away (in full to 15 mph, none from 35), by the game's whole measure of a
+skid. A tire that only rolls on pavement raises none, where the game puffs wherever one rolls:
+on a city track that was a cloud behind every truck all race long. Both in the classic and the
+rich particles; grass, mud and gravel raise none, as in the game. How much is the port's, and
+at every level a wheel lays 56 in a hundred of the puffs it first did (`DUST_COUNT`): a cloud is made by how long its dust hangs and swells, which is
+kept, and the puffs are what a frame pays for:
 
 - *The trail.* A tire raising dust lays it along the way it rolled since the last tick, a puff
   every 6 ft for each of the game's puffs that tick, spread evenly along that way. Each puff is
@@ -1744,7 +1750,7 @@ are drawn one of two ways, by how much of the picture their squares cover betwee
   over the scene's, reading the scene's depth (`Lens`). Without the lens (the switch off, a
   headset, the rear-view mirror) straight over the scene, hidden by what stands in front of
   each square, at its near side.
-- **Heavy**, from 6 pictures' worth, and until they are back under 4 (`OVER`): into a picture
+- **Heavy**, from 3 pictures' worth, and until they are back under 2 (`OVER`): into a picture
   a quarter the size each way, and laid over the scene from that. Thick dust has no edge for
   the smaller picture to lose, and it is a sixteenth of the points. Through the lens a puff
   reads the scene's depth and stops where the scene stands in it, as when light. Without the

@@ -7550,5 +7550,13 @@
  {
   "tag": "Click to copy these figures",
   "text": "Haz clic para copiar estas cifras"
+ },
+ {
+  "tag": "Skip hidden scenery",
+  "text": "Omitir el escenario oculto"
+ },
+ {
+  "tag": "Do not draw buildings, objects and ground that are wholly behind something else. Faster on city tracks; turn it off if scenery appears late as you come round a corner. From the next race",
+  "text": "No dibuja los edificios, objetos y terreno que están completamente detrás de otra cosa. Más rápido en pistas de ciudad; desactívalo si el escenario aparece tarde al doblar una esquina. Desde la próxima carrera"
  }
 ]

@@ -40,14 +40,14 @@ test("which surfaces raise dust and keep a tread: the game's surface flags (0x4d
   // Cement's dust is grey (concrete, asphalt).
   assert.equal(greyDustOn(1), true);
   assert.equal(greyDustOn(2), false);
-  // Off Cement a third of the puffs, elsewhere all.
-  assert.equal(dustShare(1), 0.3);
+  // Off Cement three quarters of a third of the puffs, elsewhere all.
+  assert.equal(dustShare(1), 0.225);
   assert.equal(dustShare(2), 1);
   let n = 0;
   const r = () => ((n = (n * 9301 + 49297) % 233280) / 233280);
   const count = (share) => { let c = 0; for (let i = 0; i < 2000; i++) c += dustPuffs({ speedFtS: 20, onGround: [true, true, true, true], dusty: true, random: r, share }).length; return c; };
   const full = count(1), cement = count(dustShare(1));
-  assert.ok(Math.abs(cement / full - 0.3) < 0.03, `${cement} of ${full}`);
+  assert.ok(Math.abs(cement / full - 0.225) < 0.03, `${cement} of ${full}`);
 });
 
 test("a track lasts until the ring of 65536 pieces comes round to it, fading over its oldest eighth: no clock wipes it", () => {
@@ -185,4 +185,32 @@ test("the Dust slider: Few is the game's own puffs, Normal the port's, Many larg
   assert.deepEqual(CLASSIC_DUST[2].dust, { scale: 2.8, growth: 14, life: 2.2 });
   for (const key of ["scale", "growth", "life"]) assert.ok(CLASSIC_DUST[3].dust[key] > CLASSIC_DUST[2].dust[key]);
   for (const key of ["scale", "life", "count"]) assert.ok(RICH_DUST[1][key] < RICH_DUST[2][key] && RICH_DUST[3][key] > RICH_DUST[2][key]);
+});
+
+test("pavement gives its dust only to a tire that asks more than the road holds; other ground always", async () => {
+  const { slidingDust, DUST_COUNT } = await import("../src/game/tire-effects.js");
+  const { gripDemand } = await import("../src/game/particles.js");
+  assert.equal(slidingDust(1, 0), 0);
+  assert.equal(slidingDust(1, 0.4), 0.4);
+  assert.equal(slidingDust(1, 3), 1);
+  assert.equal(slidingDust(2, 0), 1);
+  assert.equal(DUST_COUNT, 0.476);
+  assert.equal(RICH_DUST[2].count, 0.476);
+  assert.equal(CLASSIC_DUST[1].count, 0.476);
+  assert.equal(CLASSIC_DUST[2].count, 0.476);
+  // A tire rolling straight within its grip asks nothing; one pushed sideways past it does.
+  const rolling = { onGround: true, grip: 1000, force: [0, 0, 300], spin: 20 / 2.75 };
+  assert.equal(gripDemand({ tire: rolling, forwardFtS: 20 }), 0);
+  assert.ok(gripDemand({ tire: { ...rolling, force: [1200, 0, 0] }, forwardFtS: 60 }) > 0.9);
+  // Its whole push forward counts while pulling away, and not at speed.
+  const pushing = { onGround: true, grip: 1000, force: [0, 0, 1200], spin: 5 / 2.75 };
+  assert.ok(gripDemand({ tire: pushing, forwardFtS: 5 }) > 0.9);
+  assert.equal(gripDemand({ tire: { ...pushing, spin: 80 / 2.75 }, forwardFtS: 80 }), 0);
+  assert.equal(gripDemand({ tire: { ...pushing, onGround: false }, forwardFtS: 5 }), 0);
+  // A wheel rolling true on the simulation's 3 ft radius is not spinning, whatever size its tire is drawn.
+  const { slideAmount } = await import("../src/game/particles.js");
+  const fast = { onGround: true, grip: 1000, force: [0, 0, 100], spin: 30, rolls: 3 };
+  assert.equal(slideAmount({ tire: fast, radiusFt: 3.6, forwardFtS: 90 }), 0);
+  assert.ok(slideAmount({ tire: { ...fast, rolls: undefined }, radiusFt: 3.6, forwardFtS: 90 }) > 0);
+  assert.ok(slideAmount({ tire: { ...fast, spin: 45 }, radiusFt: 3.6, forwardFtS: 90 }) > 0.9);
 });

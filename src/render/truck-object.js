@@ -15,13 +15,20 @@ import { BRAKE_ON, EVO_LAMP_PASSES, beamShows, blinkOn, evoLampFacing, evoLampLe
 import { TRUCK_GLASS_ORDER, createModelLibrary, dataTexture } from "./track-scene.js";
 import { BEAM_AXIS, BEAM_INTENSITY, SHAFT_INTENSITY, aimShaft, beamGeometry, beamMaterial, shaftGeometry, shaftMaterial } from "./light-beam.js";
 import { GLOSS } from "./gloss.js";
+import { mergeModelParts } from "./part-merge.js";
 import { classicFogDims, fogDims } from "./atmosphere.js";
 
-function meshesOf(library, model) {
+/** A model's meshes as a group; `joined` (render/part-merge.js) has the parts to draw a model with in place of its own. */
+/** How near the eye a truck's bars, shocks and driveshafts are drawn, feet: past it they are under a point wide on a 1080 line picture. */
+const FINE_PARTS_FT = 300;
+
+function meshesOf(library, model, joined = null) {
   const group = new THREE.Group();
-  for (const { geometry, material, renderOrder } of library.get(model?.name) ?? []) {
+  const parts = library.get(model?.name) ?? [];
+  for (const { geometry, material, renderOrder, depthMaterial } of joined?.get(parts) ?? parts) {
     const mesh = new THREE.Mesh(geometry, material);
     if (renderOrder) mesh.renderOrder = renderOrder;
+    if (depthMaterial) mesh.customDepthMaterial = depthMaterial;
     group.add(mesh);
   }
   return group;
@@ -36,10 +43,15 @@ function meshesOf(library, model) {
 export function createTruckObject(truck, hubs, look, { richLamps = false } = {}) {
   const library = createModelLibrary(
     Object.fromEntries(Object.values(truck.parts).filter(Boolean).map((m) => [m.name, m])), truck.textures, look);
+  // Each model's parts joined where only their textures tell them apart (render/part-merge.js): a truck is some two
+  // dozen parts, drawn again in the sun's shadow, and eight trucks in sight were most of a frame's draws. A body with
+  // lens groups (a 4x4 Evolution truck's) keeps its parts, which its lamps' glow is drawn from one by one.
+  const lensBody = (truck.parts.body?.meshes ?? []).some((mesh) => mesh.lamp);
+  const joined = mergeModelParts([...library].filter(([name]) => !(lensBody && name === truck.parts.body?.name)).map(([, parts]) => parts), { apart: true });
   const root = new THREE.Group();
   root.name = truck.file;
   root.matrixAutoUpdate = false;
-  const bodyGroup = meshesOf(library, truck.parts.body);
+  const bodyGroup = meshesOf(library, truck.parts.body, joined);
   // How strongly each part shines with "Glossy paint" (render/gloss.js): the body's paint in full.
   bodyGroup.userData.gloss = GLOSS.body;
   // The body, which "MTM2 Truck reflections" draws again (render/truck-reflection.js).
@@ -61,12 +73,12 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
     for (const { mesh } of bodyMeshes) mesh.geometry.getAttribute("normal").needsUpdate = true;
   };
 
-  let standIn = null;
+  let standIn = null, bodyHidden = false;
   const corners = ["tireFR", "tireFL", "tireRR", "tireRL"];
   const tires = hubs.map((hub, index) => {
     const pivot = new THREE.Group();   // at the hub: travel, articulation, steering
     const spin = new THREE.Group();    // the wheel's roll
-    spin.add(meshesOf(library, truck.parts[corners[index]] ?? (hub[0] < 0 ? truck.parts.tireLeft : truck.parts.tireRight)));
+    spin.add(meshesOf(library, truck.parts[corners[index]] ?? (hub[0] < 0 ? truck.parts.tireLeft : truck.parts.tireRight), joined));
     pivot.add(spin);
     pivot.userData.gloss = GLOSS.tire;
     root.add(pivot);
@@ -74,7 +86,7 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
   });
   // An Evolution truck's own axle models, front and rear (game/evo-suspension.js), else MTM's one axle model for both.
   const axles = [0, 2].map((_, k) => {
-    const g = meshesOf(library, (k === 0 ? truck.parts.axleFront : truck.parts.axleRear) ?? truck.parts.axle);
+    const g = meshesOf(library, (k === 0 ? truck.parts.axleFront : truck.parts.axleRear) ?? truck.parts.axle, joined);
     g.userData.gloss = GLOSS.gear;
     root.add(g);
     return g;
@@ -102,7 +114,7 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
   };
   const bars = suspension ? ribbons(suspension.barTexture, 4, BAR_HALF_WIDTH_FT) : evoSuspension ? ribbons(evoSuspension.barTexture, 4, EVO_BAR_HALF_FT) : null;
   const shocks = suspension ? ribbons(suspension.shockTexture, 8, SHOCK_HALF_WIDTH_FT) : evoSuspension ? ribbons(evoSuspension.shockTexture, 8, EVO_SHOCK_HALF_FT) : null;
-  const shafts = suspension && truck.parts.driveshaft ? [0, 1].map(() => { const g = meshesOf(library, truck.parts.driveshaft); root.add(g); return g; }) : [];
+  const shafts = suspension && truck.parts.driveshaft ? [0, 1].map(() => { const g = meshesOf(library, truck.parts.driveshaft, joined); root.add(g); return g; }) : [];
   /** Axles a mode has taken off (Combat's wrecks, `setAxle`): front, rear. Their model, bars, shocks and shaft are gone. */
   const axleGone = [false, false];
   const eye = new THREE.Vector3(), up = new THREE.Vector3(), forward = new THREE.Vector3(0, 0, 1);
@@ -243,7 +255,13 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
     /** A copy of tire `i`'s wheel to draw on its own (it shares the truck's geometry and materials), or null. */
     tireModel(i) {
       const t = tires[i];
-      return t ? t.spin.clone(true) : null;
+      if (!t) return null;
+      const copy = t.spin.clone(true), from = [];
+      // A copy's meshes keep the depth materials their shadows are drawn with (render/part-merge.js), which three.js does not copy.
+      t.spin.traverse((o) => from.push(o));
+      let k = 0;
+      copy.traverse((o) => { const source = from[k++]; if (source?.customDepthMaterial) o.customDepthMaterial = source.customDepthMaterial; });
+      return copy;
     },
     /** Where tire `i`'s hub is in the world, game feet `[x, y, z]` (after `update`). */
     tireHub(i) {
@@ -284,6 +302,7 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
     },
     /** Hide the truck's body but not its lamps: the player's headlights still shine from inside the cockpit. */
     setBodyHidden(hidden) {
+      bodyHidden = !!hidden;
       for (const child of root.children) child.visible = child === lamps.group || !hidden;
       // A body drawn in the truck's place (the TREX code) stands in for the truck's own.
       if (standIn) { bodyGroup.visible = false; standIn.visible = !hidden; }
@@ -330,6 +349,12 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
         root.worldToLocal(eye.copy(camera.position));
         viewerLocal = [eye.x, eye.y, -eye.z];
       }
+      // Far from the eye the bars, shocks and driveshafts are thinner than a point of the picture: they are neither
+      // worked out nor drawn (nor drawn into the sun's shadow, where each was a draw as well).
+      const fine = !camera || Math.hypot(viewerLocal[0], viewerLocal[1], viewerLocal[2]) < FINE_PARTS_FT;
+      if (bars) bars.mesh.visible = fine && !bodyHidden;
+      if (shocks) shocks.mesh.visible = fine && !bodyHidden;
+      shafts.forEach((g, k) => { g.visible = fine && !bodyHidden && !axleGone[k]; });
       const lampState = {
         lamps: env.lamps ?? 0, night: !!env.night, cockpit: !!env.cockpit,
         braking: (pose.brakeRear ?? 0) > BRAKE_ON, reverse: pose.gear === 2,
@@ -337,7 +362,7 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
       };
       lamps.update(lampState, env.clockMs ?? 0, viewerLocal, camera?.position ?? null);
       evoGlow?.update(lampState, env.clockMs ?? 0, viewerLocal);
-      if (!suspension && !evoSuspension) return;
+      if ((!suspension && !evoSuspension) || !fine) return;
       const axleNow = [0, 1].map((k) => ({ z: tires[k * 2].hub[2], travel: pose.axles[k].travel, articulation: pose.axles[k].articulation }));
       const parts = suspension
         ? suspensionParts({ axles: axleNow, axlebar: suspension.axlebar, driveshaft: suspension.driveshaft })

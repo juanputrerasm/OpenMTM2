@@ -51,10 +51,14 @@ export const PUFF_KINDS = Object.freeze({
   and until they are back under `heavyUntil`, so a cloud at the edge of it does not flicker
   between the two. Heavy puffs are drawn into a picture `shrink` times smaller each way and laid
   over the scene from that (render/over-scene.js). The heavy way has a cost of its own, the
-  scene's depth copied for it (3.8 ms where a picture's worth of squares drawn the light way
-  is about 1, on the chip it was measured on), which `heavyUntil` is set by.
+  scene's depth copied for it, which `heavyUntil` is set by. On the chip it was first measured
+  on that copy was 3.8 ms where a picture's worth of squares drawn the light way is about 1, and
+  the puffs were heavy from 6 pictures' worth until 4. Measured again in one held picture drawn
+  each way (tools/perf-race.mjs `--freeze`; an Apple M5, a picture 3,420 points wide): with 3.4
+  and 4.2 pictures' worth the heavy way cost 0 to 0.3 ms and the light way 1.3 to 1.8, and only
+  under half a picture's worth was the light way the cheaper. So they are heavy sooner.
 */
-export const OVER = Object.freeze({ heavyFrom: 6, heavyUntil: 4, shrink: 4 });
+export const OVER = Object.freeze({ heavyFrom: 3, heavyUntil: 2, shrink: 4 });
 
 /** Whether puffs whose squares cover `load` pictures' worth are heavy, given whether they `were` a frame ago. */
 export const overIsHeavy = (were, load) => load >= (were ? OVER.heavyUntil : OVER.heavyFrom);
@@ -630,15 +634,34 @@ export const SPIN_SHOWS_FT_S = 7, SPIN_FULL_FT_S = 28;
 
 /**
  * How hard a tire slides or spins, 0 to 1: `tire` is the simulation's (`{ onGround, grip, force, spin }`, `spin` in
- * radians a second), `radiusFt` its radius, `forwardFtS` how fast the truck goes forward. Without the simulation's
+ * radians a second, `rolls` the radius it rolls on), `radiusFt` its radius where the tire does not say, `forwardFtS` how fast the truck goes forward. Without the simulation's
  * tire (a replay, which records none) it is taken from how fast the truck slips sideways, `sidewaysFtS`.
  */
 export function slideAmount({ tire = null, radiusFt = 2.75, forwardFtS = 0, sidewaysFtS = 0 }) {
   if (!tire) return Math.min(1, Math.max(0, (Math.abs(sidewaysFtS) - 7) / 20));
   if (!tire.onGround) return 0;
   const slide = Math.max(0, (skidAmount({ onGround: true, grip: tire.grip, force: [tire.force?.[0] ?? 0, 0, 0] }) - SLIDE_SHOWS) / (1 - SLIDE_SHOWS));
-  const spin = Math.max(0, (Math.abs(tire.spin ?? 0) * radiusFt - Math.abs(forwardFtS) - SPIN_SHOWS_FT_S) / SPIN_FULL_FT_S);
+  // The tread's speed by the radius the simulation rolls the wheel on (`tire.rolls`), where it says: the drawn tire's
+  // (`radiusFt`) is another size, and by it a wheel rolling true at speed looked to spin.
+  const spin = Math.max(0, (Math.abs(tire.spin ?? 0) * (tire.rolls ?? radiusFt) - Math.abs(forwardFtS) - SPIN_SHOWS_FT_S) / SPIN_FULL_FT_S);
   return Math.min(1, Math.max(slide, spin));
+}
+
+/** A tire pulling away asks all the road has, and is seen to up to `fullMph`; by `noneMph` its push forward is driving, not a start. */
+export const LAUNCH = Object.freeze({ fullMph: 15, noneMph: 35 });
+
+/**
+ * How much more a tire asks of the road than the road holds, 0 to 1, for the dust pavement gives only then
+ * (game/tire-effects.js `slidingDust`): how hard it slides or spins (`slideAmount`), or, while the truck is still
+ * pulling away (`LAUNCH`), the game's whole measure of a skid, its push forward with it. Past that speed the push
+ * forward of a tire at full throttle is over the game's measure all the time, and is not counted.
+ */
+export function gripDemand({ tire = null, radiusFt = 2.75, forwardFtS = 0, sidewaysFtS = 0 }) {
+  const sliding = slideAmount({ tire, radiusFt, forwardFtS, sidewaysFtS });
+  if (!tire?.onGround) return sliding;
+  const mph = Math.abs(forwardFtS) * MPH_PER_FTS;
+  const starting = Math.min(1, Math.max(0, (LAUNCH.noneMph - mph) / (LAUNCH.noneMph - LAUNCH.fullMph)));
+  return Math.max(sliding, starting * skidAmount({ onGround: true, grip: tire.grip, force: tire.force ?? [0, 0, 0] }));
 }
 
 /**
