@@ -20,7 +20,7 @@ import { TOUCH_MODES } from "../game/input/touch.js";
 const RUMBLE_LEVEL_NAMES = [msg("Hits"), msg("Hits + ground"), msg("All")];
 import { CAB_STYLES, VIEW_DISTANCES, VR_VIEWS, vrSettings } from "../game/vr/settings.js";
 import { AA_HINT, AA_MODES, aaChoice } from "../game/aa.js";
-import { GRAPHICS_HINT, GRAPHICS_PRESETS, applyGraphics, detectGraphics, graphicsChoice, graphicsLabel } from "../game/graphics.js";
+import { GRAPHICS_HINT, GRAPHICS_PRESETS, RENDER_SCALES, applyGraphics, detectGraphics, graphicsChoice, graphicsLabel } from "../game/graphics.js";
 import { graphicsHardware } from "../app/graphics-hardware.js";
 import { VISUAL_OPTIONS } from "../game/visuals.js";
 import { CPU_NAMES, CPU_NAME_MAX, cpuNames } from "../game/race-setup.js";
@@ -752,6 +752,8 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       choose(msg("Detail"), "detailLevel", [msg("Low"), msg("Medium"), msg("High")]),
       choose(msg("Texture size"), "textureSize", [msg("Full"), msg("Half (512)"), msg("Quarter (256)")], [1024, 512, 256],
         msg("Largest size kept for HD textures and ground tiles. Half or Quarter uses less video memory. From the next race")),
+      choose(msg("Picture size"), "renderScale", ["100%", "85%", "75%", "66%", "50%"], [...RENDER_SCALES],
+        msg("How many of the screen's points a race is drawn at, stretched to fill it. Smaller is faster where the graphics chip is what holds the frame rate down; the HUD and the menus stay sharp. From the next race")),
       row(msg("Anti-aliasing"), el("select", {
         "aria-label": t("Anti-aliasing"), "data-opt": "Anti-aliasing", title: t(AA_HINT),
         onchange: (event) => { settings.aa = event.target.value; save(); },

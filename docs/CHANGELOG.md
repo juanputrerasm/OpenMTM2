@@ -61,6 +61,38 @@ City as the first), the views on them, and Freestyle's trick physics under every
   tests/box-pairs.test.mjs.
 - **OpenPhotex 1.7.1 and OpenMTM2 Server 0.4.2** vendored: CP4 physics and trick handling in the library; the relay
   rate raised to 49152 bytes a second, reliable relay frames at most 1024 bytes, and `knownVersion` for patch builds.
+- **Frame rate on city tracks, measured** (tools/perf-race.mjs, a kept harness: a real Chrome driven over the DevTools
+  protocol, the player's truck under the autopilot, windows of frames with draw calls, triangles, GPU time, renderer
+  time and CPU profiles of the page and the workers; `--throttle` slows the main thread as a slower processor would,
+  `--add-pod` mounts a track without touching the install). Nice Beaver (BVC1) against Farm Road 29, eight trucks,
+  Apple M5, 1920 x 1080 at one device pixel a point. Before: Nice Beaver drew 3,200 to 3,900 calls a frame at Off and
+  Low (2,150 of them the shadow cascades, redrawn in full every frame without Natural light) and 1,300 at Max, about
+  88 frames a second at every preset, and 34 with the main thread slowed four times; the simulation worker was busy
+  36 percent of the time, 30 of it in box against mesh pairs. After the changes below: 720 to 1,400 calls, 107 to 122
+  frames a second, 50 to 55 slowed four times, the worker 20 percent busy. Farm Road 29 is unchanged at Max and draws
+  750 calls at Off where it drew 1,150.
+  - **Placed objects by copy of the world** (render/track-scene.js `placeObjects`, `showObjectCopies`): a model's
+    part was one instanced mesh over all nine copies, bounded by all nine, so no view ever skipped it and every part
+    of a city was drawn in every pass, nine worlds of vertices each time. Now a mesh a copy sharing one set of
+    placements (instance matrices, colours and bounding sphere), each bounded by one copy's placements; the other
+    copies' meshes in groups by 1,024 ft cells, hidden beyond the far plane; their world matrices worked out only
+    when the copies move (`StillGroup`). Triangles a frame on Nice Beaver: 760,000 to 250,000.
+  - **Static shadow copies in every mode** (render/sun-shadows.js `keepStatic`): kept only with Natural light before,
+    on the thought that few things cast without it.
+  - **Mesh boxes through a grid** (game/mesh-ground.js `boxGrid`): the views, the tire effects, the particles and the
+    computer trucks asked for the surface under a point by trying every mesh box, hundreds of times a frame. Same
+    answers (tests/mesh-ground.test.mjs).
+  - **Triangle ray queries without garbage** (OpenPhotex sim/cp4/coll-shape.ts `rayQuery`, `cylinderQuery`): no set,
+    closure or arrays a query; the same hits to the last bit, checked against the old code on 120,000 random rays.
+  - **The material walk** (sun-shadows.js `setupMaterials`): the settled and the hidden parts of the scene one frame
+    in sixteen.
+  - **Picture size** (Options, Display; game/graphics.js `drawnPixelRatio`): a race drawn at 100, 85, 75, 66 or 50
+    percent of the screen's points each way, for a chip held up by the points it fills. On the M5's own 2x panel at
+    Max: 61 frames a second at 100 percent, 80 at 75.
+  - **The FPS counter's draw line and report** (ui/fps-counter.js): draw calls and triangles a frame, and a click
+    copies the figures with the build, track, settings, graphics chip and size drawn.
+  Not done, and what the profiles now point at: three.js spends its time per draw call and per material, so the next
+  step on a city is fewer of both (a model's parts drawn from one texture array, the trucks' parts batched).
 
 ## v0.7.1
 

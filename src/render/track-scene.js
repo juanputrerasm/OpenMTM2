@@ -24,8 +24,9 @@
   Three things keep that affordable:
   - the terrain is cut into chunks, each its own mesh, so what lies outside the view is skipped
     (one mesh per copy would always be in view, all 131072 triangles of it);
-  - a model's placements in all nine copies are one instanced mesh, so a model costs one draw
-    however often and wherever it stands;
+  - a model's placements in one copy are one instanced mesh a part, and the nine copies' meshes
+    share one set of placements, each under its copy's own group: a part costs a draw only in
+    the copies in reach, and there only when the view (or a shadow cascade) meets its placements;
   - camera-facing scenery (SIT types 8 and 9, trees and the like) is instanced too and turned
     toward the camera in the vertex shader, instead of being hundreds of objects turned by hand.
 */
@@ -727,26 +728,61 @@ function placement(elements, [dx, dz], facing) {
   return _placement;
 }
 
-/** The sphere around all of a mesh's instances, with room for a camera-facing model's turning. */
+const _instanceSphere = new THREE.Sphere(), _instanceMatrix = new THREE.Matrix4();
+/**
+ * The sphere around all of a mesh's instances, with room for a camera-facing model's turning. The copies' meshes share
+ * it. An instance taken out (`loosen`, shrunk to nothing at the world's corner) is not counted: it would stretch the
+ * sphere from the model's placements to that corner.
+ */
 function boundInstances(mesh) {
-  mesh.computeBoundingSphere();
-  if (mesh.userData.facing) mesh.boundingSphere.radius += mesh.geometry.boundingSphere.radius;
-}
-
-/** Write one block of a mesh's instances: the model's placements, moved by a copy's offset. */
-function fillBlock(mesh, block, offset) {
-  const { perCopy, facing, places } = mesh.userData;
-  for (let i = 0; i < perCopy; i++) mesh.setMatrixAt(block * perCopy + i, placement(places[i], offset, facing));
+  const { places, facing } = mesh.userData, geometry = mesh.geometry;
+  if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+  // A mesh that keeps no list of its placements (the forest's, by chunks): every instance it draws.
+  if (!places) {
+    mesh.computeBoundingSphere();
+    if (facing) mesh.boundingSphere.radius += geometry.boundingSphere.radius;
+    return;
+  }
+  const sphere = (mesh.boundingSphere ??= new THREE.Sphere());
+  sphere.makeEmpty();
+  for (const place of places) {
+    if (place === NOWHERE) continue;
+    _instanceSphere.copy(geometry.boundingSphere).applyMatrix4(placement(place, NO_OFFSET, facing));
+    sphere.union(_instanceSphere);
+  }
+  if (facing && !sphere.isEmpty()) sphere.radius += geometry.boundingSphere.radius;
 }
 
 /**
- * Every placed object that does not animate: one InstancedMesh per model part, holding the
- * model's placements in every copy of the world (`copies`, in worlds, the original first). A
- * model used as camera-facing scenery gets meshes of its own, with the facing material.
+ * A group whose children stand still within it: their world matrices are worked out when the group's own place in the
+ * world changes, not on every pass. three.js works out every object's world matrix again for each picture it draws
+ * whenever anything above it places itself by position and turn (the world's root does), the hidden objects' too; the
+ * placed objects are thousands of meshes that never move by themselves.
+ */
+class StillGroup extends THREE.Group {
+  updateMatrixWorld(force) {
+    const parent = this.parent?.matrixWorld.elements ?? null;
+    const seen = (this.userData.parentSeen ??= new Float64Array(16).fill(NaN));
+    let moved = this.matrixWorldNeedsUpdate;
+    if (parent) for (let i = 0; i < 16; i++) if (seen[i] !== parent[i]) { seen[i] = parent[i]; moved = true; }
+    if (!moved && (parent || !force)) return;
+    super.updateMatrixWorld(true);
+  }
+}
+
+const NO_OFFSET = Object.freeze([0, 0]);
+
+/**
+ * Every placed object that does not animate: one InstancedMesh per model part and copy of the world (`copies`, in
+ * worlds, the original first). A model used as camera-facing scenery gets meshes of its own, with the facing material.
  *
- * The instances are kept in blocks, one copy of the world each; `order` says which copy a block
- * holds. The original is always the first block; `orderObjects` brings the copies in view to
- * the front and draws only those. `rounded` lights the camera-facing ones as round things.
+ * The original's meshes hold the placements (`group.userData.masters`). Each other copy has a group of its own, moved
+ * by its offset, whose meshes (`userData.twinOf`, the original's `userData.twins`) draw the same placements: they share
+ * the original's instance matrices, colours and bounding sphere, so a placement is written once. A mesh is then
+ * bounded by its placements in one copy, not by all nine worlds, and is drawn only where a view meets them.
+ * The other copies' meshes are kept in groups by where they stand (`OBJECT_CELL_FT`), and `showObjectCopies` hides the
+ * groups and the copies out of the camera's reach, so three.js does not look at each of their meshes for every
+ * picture. Only the original's meshes cast shadows. `rounded` lights the camera-facing ones as round things.
  */
 export function placeObjects(library, objects, copies = [[0, 0]], { rounded = false } = {}) {
   const byKey = new Map();
@@ -762,29 +798,71 @@ export function placeObjects(library, objects, copies = [[0, 0]], { rounded = fa
     entry.matrices.push(object.matrix);
   }
   const offsets = copies.map(([dx, dz]) => [dx * WORLD_FT, dz * WORLD_FT]);
-  const group = new THREE.Group();
+  const group = new StillGroup();
   group.name = "objects";
-  group.userData.slots = slots;
-  group.userData.offsets = offsets;
-  group.userData.order = offsets.map((_, copy) => copy);
+  // Its meshes keep the materials they are made with (render/sun-shadows.js `setupMaterials`).
+  group.userData.settledMaterials = true;
+  const copyGroups = offsets.map(([dx, dz], copy) => {
+    const copyGroup = new THREE.Group();
+    copyGroup.name = "objectsCopy";
+    copyGroup.userData.copy = copy;
+    copyGroup.position.set(dx, 0, dz);
+    copyGroup.matrixAutoUpdate = false;
+    copyGroup.updateMatrix();
+    group.add(copyGroup);
+    return copyGroup;
+  });
+  const masters = [];
+  // The other copies' meshes by where the model's placements stand: `[{ sphere, groups }]`, a group a copy
+  // (`groups[copy - 1]`), the sphere around the cell's meshes in a copy's own frame (found when asked for).
+  const cells = new Map();
+  const cellOf = (master) => {
+    const c = master.boundingSphere.center;
+    const key = `${Math.floor(c.x / OBJECT_CELL_FT)}|${Math.floor(c.z / OBJECT_CELL_FT)}`;
+    if (!cells.has(key)) {
+      const groups = copyGroups.slice(1).map((copyGroup) => {
+        const cellGroup = new THREE.Group();
+        cellGroup.name = "objectsCell";
+        cellGroup.matrixAutoUpdate = false;
+        copyGroup.add(cellGroup);
+        return cellGroup;
+      });
+      cells.set(key, { sphere: new THREE.Sphere(), masters: [], groups });
+    }
+    return cells.get(key);
+  };
+  Object.assign(group.userData, { slots, offsets, copyGroups, masters, reach: null });
   for (const [key, { parts, facing, matrices }] of byKey) {
-    const perCopy = matrices.length, total = perCopy * offsets.length;
+    const perCopy = matrices.length;
     for (const { geometry, material } of parts) {
-      const instanced = new THREE.InstancedMesh(geometry, facing ? facingMaterial(material, rounded) : material, total);
-      instanced.name = key;
-      instanced.matrixAutoUpdate = false;
+      const drawn = facing ? facingMaterial(material, rounded) : material;
+      const master = new THREE.InstancedMesh(geometry, drawn, perCopy);
+      master.name = key;
+      master.matrixAutoUpdate = false;
       // `places` is the model's placements in the original world, shared by the model's parts.
-      Object.assign(instanced.userData, { perCopy, facing, places: matrices, blocks: offsets.length });
-      if (facing) instanced.customDepthMaterial = facingDepthMaterial(material);
-      offsets.forEach((offset, block) => fillBlock(instanced, block, offset));
+      Object.assign(master.userData, { perCopy, facing, places: matrices, twins: [] });
+      if (facing) master.customDepthMaterial = facingDepthMaterial(material);
+      for (let i = 0; i < perCopy; i++) master.setMatrixAt(i, placement(matrices[i], NO_OFFSET, facing));
       if (!geometry.boundingSphere) geometry.computeBoundingSphere();
-      boundInstances(instanced);
-      // Only the original world casts shadows: its instances come first.
-      instanced.onBeforeShadow = () => { instanced.count = perCopy; };
-      instanced.onAfterShadow = () => { instanced.count = perCopy * instanced.userData.blocks; };
-      group.add(instanced);
+      boundInstances(master);
+      copyGroups[0].add(master);
+      masters.push(master);
+      const cell = copyGroups.length > 1 ? cellOf(master) : null;
+      cell?.masters.push(master);
+      for (let copy = 1; copy < copyGroups.length; copy++) {
+        const twin = new THREE.InstancedMesh(geometry, drawn, 0);
+        twin.name = key;
+        twin.matrixAutoUpdate = false;
+        twin.count = perCopy;
+        twin.instanceMatrix = master.instanceMatrix;
+        twin.boundingSphere = master.boundingSphere;
+        Object.assign(twin.userData, { perCopy, facing, twinOf: master });
+        cell.groups[copy - 1].add(twin);
+        master.userData.twins.push(twin);
+      }
     }
   }
+  group.userData.cells = [...cells.values()];
   return group;
 }
 
@@ -818,28 +896,54 @@ function bumpShadowMotion(world) {
   world.userData.shadowMotion = (world.userData.shadowMotion ?? 0) + 1;
 }
 
+/** How far past the camera's far plane a copy's placed objects are still kept, feet: room for a second view beside the first (a mirror, a split screen). */
+const OBJECT_COPY_SLACK_FT = 1024;
+
+/** The side of the squares of ground the other copies' placed objects are grouped by (`placeObjects`), feet. */
+const OBJECT_CELL_FT = 1024;
+
 /**
- * Draw the placed objects only in the copies of the world that are shown (`shown`, by copy): the
- * blocks of instances holding those are brought to the front, a block changing places with one
- * behind it, and the meshes draw that many blocks.
+ * The ground the original's placed objects cover with their bounding spheres, scene x and z, and each cell's sphere
+ * around its own (`placeObjects`), found again after an object moved.
  */
-function orderObjects(objects, shown) {
-  const { order, offsets } = objects.userData;
-  const count = shown.filter(Boolean).length;
-  const rewritten = [];
-  for (let front = 0; front < count; front++) {
-    if (shown[order[front]]) continue;
-    let behind = count;
-    while (!shown[order[behind]]) behind++;
-    [order[front], order[behind]] = [order[behind], order[front]];
-    rewritten.push(front, behind);
+function objectsReach(objects) {
+  const reach = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+  for (const { boundingSphere: sphere } of objects.userData.masters) {
+    if (!sphere || sphere.isEmpty()) continue;
+    reach.x0 = Math.min(reach.x0, sphere.center.x - sphere.radius); reach.x1 = Math.max(reach.x1, sphere.center.x + sphere.radius);
+    reach.z0 = Math.min(reach.z0, sphere.center.z - sphere.radius); reach.z1 = Math.max(reach.z1, sphere.center.z + sphere.radius);
   }
-  for (const mesh of objects.children) {
-    for (const block of rewritten) fillBlock(mesh, block, offsets[order[block]]);
-    if (rewritten.length) mesh.instanceMatrix.needsUpdate = true;
-    mesh.userData.blocks = count;
-    mesh.count = mesh.userData.perCopy * count;
-    boundInstances(mesh);
+  for (const cell of objects.userData.cells) {
+    cell.sphere.makeEmpty();
+    for (const master of cell.masters) if (!master.boundingSphere.isEmpty()) cell.sphere.union(master.boundingSphere);
+  }
+  return reach;
+}
+
+/**
+ * Which copies of the world have their placed objects drawn: the original always (the camera is over it, and its
+ * objects cast the shadows), another when its copy of the world is shown (`showCopies`) and any of its objects could
+ * lie inside the camera's far plane; within such a copy, the cells of which the same is true. What is hidden here
+ * could not have been seen: this only spares three.js the walk over meshes each of which it would have found out of
+ * view.
+ */
+function showObjectCopies(parts, camera) {
+  const objects = parts.objects;
+  if (!objects) return;
+  const { copyGroups, cells } = objects.userData;
+  if (copyGroups.length < 2) return;
+  const reach = (objects.userData.reach ??= objectsReach(objects));
+  const x = camera.position.x - parts.lattice.position.x, z = camera.position.z - parts.lattice.position.z;
+  const range = camera.far + OBJECT_COPY_SLACK_FT;
+  for (let copy = 1; copy < copyGroups.length; copy++) {
+    const group = copyGroups[copy], dx = group.position.x, dz = group.position.z;
+    const away = Math.hypot(Math.max(reach.x0 + dx - x, 0, x - reach.x1 - dx), Math.max(reach.z0 + dz - z, 0, z - reach.z1 - dz));
+    group.visible = parts.copies[copy].shown && away <= range;
+    if (!group.visible) continue;
+    for (const cell of cells) {
+      const { center, radius } = cell.sphere;
+      cell.groups[copy - 1].visible = radius >= 0 && Math.hypot(center.x + dx - x, center.z + dz - z) - radius <= range;
+    }
   }
 }
 
@@ -856,7 +960,7 @@ const COPY_MARGIN_FT = 600, COPY_PLAY_FT = 300;
  * water, its animated objects, and its share of the placed objects.
  */
 function showCopies(parts, camera, range) {
-  const { copies, objects } = parts;
+  const { copies } = parts;
   if (copies.length < 2) return;
   // The camera where the copies are (`centreCopies`).
   const x = camera.position.x - parts.lattice.position.x, z = camera.position.z - parts.lattice.position.z;
@@ -872,7 +976,6 @@ function showCopies(parts, camera, range) {
     copy.group.visible = shown;
     changed = true;
   });
-  if (changed && objects) orderObjects(objects, copies.map((copy) => copy.shown));
   return changed;
 }
 
@@ -1117,7 +1220,7 @@ export function moveObjects(world, moves) {
     else { group.matrix.copy(m); group.matrixWorldNeedsUpdate = true; }
   }
   if (!parts.objects) return;
-  const { slots, offsets, order } = parts.objects.userData;
+  const { slots } = parts.objects.userData;
   const touched = new Set();
   parts.loose ??= new Map();
   // Where the still objects changed, as each stood and stands now, for the shadows: only the cascades its shadow reaches
@@ -1133,18 +1236,18 @@ export function moveObjects(world, moves) {
     // its shadow reaches (a deathmatch's objects settle and are knocked again all race long).
     const loose = parts.loose.get(sitIndex) ?? (parts.byName.get(slot[0])?.[0]?.userData.facing ? null : loosen(world, parts, sitIndex, slot, touched, spheres));
     if (loose) {
-      loose.matrix.copy(placement(matrix, offsets[order[0]], false));
+      loose.matrix.copy(placement(matrix, NO_OFFSET, false));
       loose.matrixWorldNeedsUpdate = true;
       continue;
     }
     let reach = 0, was = null;
     for (const mesh of parts.byName.get(slot[0]) ?? []) {
-      const { perCopy, facing, places } = mesh.userData;
+      const { facing, places } = mesh.userData;
       reach = Math.max(reach, partReach(mesh, matrix));
       was ??= places[slot[1]] ?? null;
-      // Kept, for when a block is written afresh; then every block, the copies not drawn too.
       places[slot[1]] = matrix;
-      order.forEach((copy, block) => mesh.setMatrixAt(block * perCopy + slot[1], placement(matrix, offsets[copy], facing)));
+      // Written once: the other copies' meshes draw the same instances (`placeObjects`).
+      mesh.setMatrixAt(slot[1], placement(matrix, NO_OFFSET, facing));
       mesh.instanceMatrix.needsUpdate = true;
       touched.add(mesh);
     }
@@ -1152,6 +1255,8 @@ export function moveObjects(world, moves) {
     spheres.push([matrix[12], matrix[13], matrix[14], reach]);
   }
   for (const mesh of touched) boundInstances(mesh);
+  // The ground the objects cover is found again when next asked for (`showObjectCopies`).
+  if (touched.size) parts.objects.userData.reach = null;
   if (touched.size) bumpShadowStatic(world, spheres);
 }
 
@@ -1159,7 +1264,7 @@ export function moveObjects(world, moves) {
 const NOWHERE = Object.freeze(new THREE.Matrix4().makeScale(0, 0, 0).toArray());
 
 /**
- * Take a SIT box out of the still objects' instances (`moveObjects`): its instances in every block are shrunk to
+ * Take a SIT box out of the still objects' instances (`moveObjects`): its instance, which every copy draws, is shrunk to
  * nothing, and a group of its own draws it, flagged `moving`. Its new meshes are handed to the shadows through
  * `world.userData.newDynamicCasters`. The instances it leaves are added to `touched`, and where it stood to `spheres`
  * (`bumpShadowStatic`).
@@ -1167,7 +1272,6 @@ const NOWHERE = Object.freeze(new THREE.Matrix4().makeScale(0, 0, 0).toArray());
 function loosen(world, parts, sitIndex, slot, touched, spheres) {
   const meshes = parts.byName.get(slot[0]) ?? [];
   if (!meshes.length) return null;
-  const { offsets, order } = parts.objects.userData;
   const group = new THREE.Group();
   group.name = "looseObject";
   group.matrixAutoUpdate = false;
@@ -1177,10 +1281,10 @@ function loosen(world, parts, sitIndex, slot, touched, spheres) {
   const was = meshes[0].userData.places[slot[1]] ?? null;
   let reach = 0;
   for (const instanced of meshes) {
-    const { perCopy, places } = instanced.userData;
+    const { places } = instanced.userData;
     if (was) reach = Math.max(reach, partReach(instanced, was));
     places[slot[1]] = NOWHERE;
-    order.forEach((copy, block) => instanced.setMatrixAt(block * perCopy + slot[1], placement(NOWHERE, offsets[copy], false)));
+    instanced.setMatrixAt(slot[1], placement(NOWHERE, NO_OFFSET, false));
     instanced.instanceMatrix.needsUpdate = true;
     touched.add(instanced);
     const mesh = new THREE.Mesh(instanced.geometry, instanced.material);
@@ -1205,7 +1309,7 @@ function loosen(world, parts, sitIndex, slot, touched, spheres) {
 export function tintObjects(world, tints) {
   const parts = PARTS.get(world);
   if (!parts?.objects || !tints.size) return;
-  const { slots, offsets } = parts.objects.userData;
+  const { slots } = parts.objects.userData;
   const colour = new THREE.Color();
   for (const [sitIndex, css] of tints) {
     const slot = slots[sitIndex];
@@ -1217,9 +1321,10 @@ export function tintObjects(world, tints) {
         for (let k = 0; k < mesh.instanceMatrix.count; k++) mesh.setColorAt(k, white);
         greyMap(mesh.material);
       }
-      // Every block holds the copies' placements in the same order (`fillBlock`).
-      for (let block = 0; block < offsets.length; block++) mesh.setColorAt(block * mesh.userData.perCopy + slot[1], colour);
+      mesh.setColorAt(slot[1], colour);
       mesh.instanceColor.needsUpdate = true;
+      // The other copies' meshes draw the same colours.
+      for (const twin of mesh.userData.twins ?? []) twin.instanceColor = mesh.instanceColor;
     }
   }
 }
@@ -1502,6 +1607,7 @@ export function updateTrackWorld(world, camera, dt, { viewRange = Infinity, fine
     }
     if (centreCopies(parts, camera)) bumpShadowStatic(world);
     if (showCopies(parts, camera, viewRange)) bumpShadowStatic(world);
+    showObjectCopies(parts, camera);
     // The camera where the copies are, for the ground's chunks.
     const localX = camera.position.x - parts.lattice.position.x, localZ = camera.position.z - parts.lattice.position.z;
     if ((parts.forest || parts.falling.length) && placeForest(parts, camera, viewRange, parts.copies.length > 1)) bumpShadowStatic(world);
@@ -1848,6 +1954,8 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
     copy.position.set(dx * WORLD_FT, 0, dz * WORLD_FT);
     copy.updateMatrix();
     copy.matrixAutoUpdate = false;
+    // Drawn with the original's materials (render/sun-shadows.js `setupMaterials`).
+    copy.userData.settledMaterials = true;
     lattice.add(copy);
     tiles.push(copy);
   }
@@ -1885,7 +1993,7 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
       x0: ground.min.x + group.position.x, x1: ground.max.x + group.position.x, z0: ground.min.z + group.position.z, z1: ground.max.z + group.position.z,
     })),
   };
-  for (const mesh of objects.children) {
+  for (const mesh of objects.userData.masters) {
     if (!parts.byName.has(mesh.name)) parts.byName.set(mesh.name, []);
     parts.byName.get(mesh.name).push(mesh);
   }

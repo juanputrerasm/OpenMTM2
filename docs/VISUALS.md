@@ -2293,13 +2293,15 @@ the default. Off, FXAA, SMAA and TAA take its place when chosen and were not mea
 
 - **Light.** One hemisphere light more and one curve in every material. The ground in the
   shadow maps: about 650 more draw calls on Breakneck Ridge from the start line, most of them
-  far ground of few triangles. With Natural light those calls fill a copy kept for each cascade
+  far ground of few triangles. Those calls fill a copy kept for each cascade
   (32 MB each, 128 MB for the four) and run again when that copy is redrawn, not on every frame.
   A frame draws the trucks and the keyframed models over the copy. The camera-facing models
   (types 8 and 9) are in the copy: their shadows are cast square to the sun, as the classic
   look's are, and never turn toward the camera. A
-  cascade a truck's shadow cannot reach skips that truck. Without Natural light the maps are
-  drawn in full, as before.
+  cascade a truck's shadow cannot reach skips that truck. Without Natural light the copies
+  are kept too, of the placed objects alone (the ground casts only with it): drawn in full
+  every frame, they were most of the draw calls of a frame at Off and Low (CHANGELOG.md,
+  "Frame rate on city tracks, measured").
 - **Ground detail.** The stack is the atlas again in memory, with its smaller copies a third
   more; on a track with HD ground art, its tiles at their own size, up to 512 MB with theirs. Up to fourteen texture reads a point of ground, eight in a headset; on level ground
   near by, seven.

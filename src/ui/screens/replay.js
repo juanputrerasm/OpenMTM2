@@ -36,7 +36,7 @@ import { createStartLamps } from "../../render/start-lamps.js";
 import { createTrackLights } from "../../render/track-lights.js";
 import { conformPose, createRelief, tireRadiusFt } from "../../game/terrain-relief.js";
 import { trackVisuals, visualSettings } from "../../game/visuals.js";
-import { applyGraphics } from "../../game/graphics.js";
+import { applyGraphics, drawnPixelRatio } from "../../game/graphics.js";
 import { graphicsHardware } from "../../app/graphics-hardware.js";
 import { createScenery } from "../../render/scenery.js";
 import { setLightsInFog } from "../../render/atmosphere.js";
@@ -106,7 +106,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   view.prepend(canvas);
   // Samples on the screen's own picture only where the scene is drawn straight onto it (game/aa.js `screenSampled`).
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: screenSampled(context.settings) });
-  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+  renderer.setPixelRatio(drawnPixelRatio(window.devicePixelRatio, context.settings.renderScale));
   // A frame waits for the graphics card as the race's do (render/gpu-pacer.js).
   const pacer = createGpuPacer(renderer.getContext());
   const limiter = createFrameLimiter();
@@ -209,7 +209,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   // The drawn ground, and the snow lying on it.
   const ground = scenery.surfaceAt;
   // On a track made for CP4 the views stand on its meshes near what they watch (game/mesh-ground.js).
-  const viewMesh = meshGroundFromBuild(build, { terrainHeight: (x, z) => ground(x, z), wrapDelta: (d) => d - 8192 * Math.round(d / 8192) });
+  const viewMesh = meshGroundFromBuild(build, { terrainHeight: (x, z) => ground(x, z), wrapDelta: (d) => d - 8192 * Math.round(d / 8192), worldFt: 8192 });
   let viewRefY = 0;
   const viewGround = viewGroundOn(viewMesh, ground, () => viewRefY);
   // What the external views see through on meshes: nothing (game/mesh-ground.js `viewBlocked`).

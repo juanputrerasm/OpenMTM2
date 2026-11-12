@@ -44,13 +44,16 @@
     - When things in the scene move (a truck being driven, objects knocked about), the near
       cascade redraws every frame and each further one half as often.
     - The fit is snapped to whole texels, so a refit does not make shadow edges crawl.
-    - With Natural light each cascade keeps a copy of what never moves (the ground, the placed
-      objects, the camera-facing trees among them: their shadows are held square to the sun). A
+    - Each cascade keeps a copy of what never moves (the placed objects, the camera-facing
+      trees among them: their shadows are held square to the sun; with Natural light the ground
+      too). A
       redraw puts back only the texels that what moves covered the last time it was drawn,
       and draws the trucks and the keyframed models on top. A cascade a truck's shadow cannot
       reach skips that truck.
-      The copies are 32 MB each. Without Natural light only a few objects cast, and every redraw
-      draws the whole map, as before.
+      The copies are 32 MB each. They were kept only with Natural light at first, on the thought
+      that without it few things cast. Measured (tools/perf-race.mjs, eight trucks): redrawing
+      every placed object into the cascades each frame was 550 of Farm Road 29's 1150 draw calls
+      and 2150 of a city track's 3200, at the settings a new install and a small chip start with.
     - A placed object a truck knocks about changes what never moves. Only the cascades its
       shadow falls in, as it stood and as it stands, have their copy drawn again, and only
       those whose texels are small enough to show it: a far cascade's texel is many feet
@@ -336,17 +339,29 @@ export class SunShadows {
   /**
    * Sets up every lit material under `root` that has not been seen yet.
    * Cheap on a scene that has not changed: one traversal and a WeakSet lookup per material.
+   *
+   * Called every frame. The parts of a track that are drawn with materials already walked elsewhere, or that keep the
+   * materials they were made with (`userData.settledMaterials`, render/track-scene.js: the world's other copies, the
+   * placed objects), are thousands of meshes; they are walked on the first call and then one call in sixteen, so a
+   * material that did turn up there is still found, a quarter of a second late at most. So is what is hidden when
+   * this is called: shown again, it is walked at once; shown only for another picture of the same frame (a mirror's),
+   * it is found by the sixteenth call.
    */
   setupMaterials(root = this._scene) {
-    root.traverse((object) => {
-      if (!object.isMesh) return;
-      const materials = Array.isArray(object.material) ? object.material : [object.material];
-      for (const material of materials) {
-        if (!isLit(material) || this._seen.has(material)) continue;
-        this._seen.add(material);
-        this._setup(material);
+    const seen = this._seen;
+    const all = (this._setupCalls = (this._setupCalls ?? -1) + 1) % 16 === 0;
+    const walk = (object) => {
+      if (!all && (object.userData.settledMaterials || object.visible === false)) return;
+      if (object.isMesh) {
+        const material = object.material;
+        if (Array.isArray(material)) {
+          for (const one of material) if (!seen.has(one) && isLit(one)) { seen.add(one); this._setup(one); }
+        } else if (material && !seen.has(material) && isLit(material)) { seen.add(material); this._setup(material); }
       }
-    });
+      const children = object.children;
+      for (let i = 0; i < children.length; i++) walk(children[i]);
+    };
+    walk(root);
   }
 
   _setup(material) {
@@ -378,6 +393,7 @@ export class SunShadows {
   forgetMaterials() {
     this._csm.shaders.clear();
     this._seen = new WeakSet();
+    this._setupCalls = -1;
   }
 
   /**
@@ -479,8 +495,8 @@ export class SunShadows {
   }
 
   /**
-   * With Natural light, keep a GPU copy of each cascade's static casters (the ground and the placed
-   * objects) and redraw only what moves. `trucks` are the trucks' root objects. Called once the
+   * Keep a GPU copy of each cascade's static casters (the placed objects, and the ground where it
+   * casts) and redraw only what moves. `trucks` are the trucks' root objects. Called once the
    * shadow proxies exist, so the lists are the casters as they will be drawn.
    */
   keepStatic(renderer, world, trucks) {
@@ -857,8 +873,8 @@ export function enableSunShadows({ renderer, scene, camera, world, sun, trucks =
   // (render/truck-reflection.js), the body drawn again over itself: its shadow would be the body's, drawn twice.
   const lampLight = (o) => { for (let node = o.parent; node; node = node.parent) if (node.name === "lamps" || node.name === "evo-lamp-glow") return true; return false; };
   for (const truck of trucks) truck.traverse((o) => { if (o.isMesh && !lampLight(o) && !o.userData.reflection) { o.castShadow = true; o.receiveShadow = true; if (o.material) o.material.shadowSide = o.material.side; } });
-  // The placed models are instanced over every copy; only the original's instances cast (track-scene.js).
-  world.getObjectByName("objects")?.traverse((o) => { if (o.isInstancedMesh) o.castShadow = true; });
+  // The placed models are instanced, a mesh a copy of the world; only the original's meshes cast (track-scene.js `placeObjects`).
+  world.getObjectByName("objects")?.traverse((o) => { if (o.isInstancedMesh && !o.userData.twinOf) o.castShadow = true; });
   // 4x4 Evolution's forest is drawn once, by chunks at the copy nearest the camera (track-scene.js `createForest`): each
   // chunk casts, and the shadow cameras cull the chunks out of their reach.
   world.getObjectByName("forest")?.traverse((o) => { if (o.isInstancedMesh && casts(o)) o.castShadow = true; });
@@ -890,7 +906,8 @@ export function enableSunShadows({ renderer, scene, camera, world, sun, trucks =
   shadows.setDirection(sun.position.clone().negate());
   shadows.setEnabled(true);
   sun.visible = false;
-  if (natural) shadows.keepStatic(renderer, world, trucks);
+  // With or without Natural light: what never moves is drawn into each cascade once and kept (`keepStatic`).
+  shadows.keepStatic(renderer, world, trucks);
   shadows.watchMotion(world, trucks);
   return shadows;
 }

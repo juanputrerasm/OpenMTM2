@@ -572,7 +572,7 @@ export function createSession(init) {
   // The meshes a computer racer drives on (game/mesh-ground.js): the static models that collide by their triangles.
   // Their boxes are no blocks to steer round; their walls and drops are read from the triangles.
   const triMeshes = cp4Triangles
-    ? createMeshGround(levelBoxes.filter((b) => b.shape && !(b.mass > 0) && !movingBoxes.has(b)), { terrainHeight: (x, z) => ground.height(x, z), wrapDelta: S.wrapDelta })
+    ? createMeshGround(levelBoxes.filter((b) => b.shape && !(b.mass > 0) && !movingBoxes.has(b)), { terrainHeight: (x, z) => ground.height(x, z), wrapDelta: S.wrapDelta, worldFt: S.WORLD_FT })
     : null;
   const meshBoxes = new Set(triMeshes?.boxes ?? []);
   const allRamps = (init.ramps ?? []).map((r) => S.createRamp(r, r.bounds)).filter(Boolean);

@@ -105,7 +105,7 @@ import { createTruckObject, interpolatePose } from "../../render/truck-object.js
 import { nearestCopy, toSceneMatrix, wrapFt } from "../../shared/scene-frame.js";
 import { conformPose, createRelief, tireRadiusFt } from "../../game/terrain-relief.js";
 import { trackVisuals, visualSettings } from "../../game/visuals.js";
-import { applyGraphics } from "../../game/graphics.js";
+import { applyGraphics, drawnPixelRatio } from "../../game/graphics.js";
 import { graphicsHardware } from "../../app/graphics-hardware.js";
 import { createScenery } from "../../render/scenery.js";
 import { setLightsInFog } from "../../render/atmosphere.js";
@@ -276,7 +276,20 @@ async function mountRace(container, context, params, owned = []) {
   const dragRace = track.raceType === "drag";
   const dragTree = createDragTree();
   // The toggleable FPS counter, in the top right (below the drag tree on a drag strip).
-  const fpsCounter = createFpsCounter({ visible: !!context.settings.fpsCounter });
+  // A click on it copies its figures with what a report of a slow race needs beside them: the build, the track, the
+  // settings that decide the picture's cost, the graphics chip and the size drawn.
+  const fpsCounter = createFpsCounter({
+    visible: !!context.settings.fpsCounter,
+    title: t("Click to copy these figures"),
+    report: () => {
+      const s = context.settings, hardware = graphicsHardware();
+      return [
+        `${WATERMARK}, ${track.file ?? track.name}, ${(params.opponents?.length ?? 0) + 1} trucks${gameMode ? `, ${gameMode}` : ""}`,
+        `graphics ${s.graphics}, look ${s.look}, aa ${s.aa}, picture ${Math.round((Number(s.renderScale) || 1) * 100)}%, draw distance ${s.drawCells}, physics ${s.physics}, vsync ${s.vsync ? "on" : "off"}`,
+        `${hardware.renderer || "unknown graphics"}, ${renderer.domElement.width}x${renderer.domElement.height}`,
+      ];
+    },
+  });
   // The rumble readout (ui/rumble-readout.js): whether the pad rumbles, and how hard. A testing aid, no longer offered
   // in Options, so it stays hidden.
   const rumbleReadout = createRumbleReadout({ visible: false });
@@ -640,7 +653,7 @@ async function mountRace(container, context, params, owned = []) {
   const ground = scenery.surfaceAt;
   // On a track made for CP4 the views stand on its meshes near what they watch, not on the terrain under the city
   // (game/mesh-ground.js): the chase, BlimpCam and RaceCam views and the tire effects.
-  const viewMesh = meshGroundFromBuild(build, { terrainHeight: (x, z) => ground(x, z), wrapDelta: (d) => d - 8192 * Math.round(d / 8192) });
+  const viewMesh = meshGroundFromBuild(build, { terrainHeight: (x, z) => ground(x, z), wrapDelta: (d) => d - 8192 * Math.round(d / 8192), worldFt: 8192 });
   let viewRefY = 0;
   const viewGround = viewGroundOn(viewMesh, ground, () => viewRefY);
   // What the external views see through on meshes: nothing (game/mesh-ground.js `viewBlocked`).
@@ -1329,6 +1342,8 @@ async function mountRace(container, context, params, owned = []) {
     // A headset sizes its own pictures; the canvas is left alone while it is drawn to.
     if (host.presenting) return;
     const { clientWidth: w, clientHeight: h } = canvas;
+    // The Picture size setting (game/graphics.js): fewer points drawn, stretched over the same canvas.
+    renderer.setPixelRatio(drawnPixelRatio(window.devicePixelRatio, context.settings.renderScale));
     renderer.setSize(w, h, false);
     scenery.setSize(canvas.width, canvas.height);
     camera.aspect = w / Math.max(1, h);
@@ -2480,6 +2495,8 @@ async function mountRace(container, context, params, owned = []) {
       truckReflections?.setVisible(true);
     }
     if (host.presenting) scenery.draw(host.camera, { plain: true }); else scenery.draw(camera);
+    // The picture's draw calls and triangles, the shadow maps' with them (render/over-scene.js counts its passes together).
+    if (fpsCounter.visible) fpsCounter.noteDraw(now, renderer.info.render.calls, renderer.info.render.triangles);
     // Once the scene has been drawn with the trucks in it, so every material is as it will be and what waits unseen
     // (the helicopters) is there: the shaders of all of it, and for the headlights' pools shown and hidden, built
     // before a rescue or the Headlights key needs them (render/weather-scene.js `warmPools`).

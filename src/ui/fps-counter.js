@@ -21,16 +21,36 @@ function barColor(ms) {
   return "#e05555";
 }
 
-export function createFpsCounter({ visible = false } = {}) {
+/**
+ * `title` is the panel's hint (translated by the caller). `report()`, when given, returns lines about the race (the
+ * track, the settings, the graphics chip) that a click on the panel copies with its figures: what a player can paste
+ * into a report of a slow race.
+ */
+export function createFpsCounter({ visible = false, title = null, report = null } = {}) {
   const main = el("div", { class: "fps-main" }, formatFps(60));
   const sub = el("div", { class: "fps-sub" }, "warming up");
   // The simulation's side, where a screen reports it (`noteSim`): a truck that moves in jumps while the frames come
   // steadily shows here, as replies that come late or few steps a second.
   const simLine = el("div", { class: "fps-sub", hidden: true });
-  const text = el("div", { class: "fps-counter-text" }, main, sub, simLine);
+  // What the frame cost to draw, where a screen reports it (`noteDraw`): a frame held up by the number of things drawn
+  // rather than by the points filled shows here.
+  const drawLine = el("div", { class: "fps-sub", hidden: true });
+  const text = el("div", { class: "fps-counter-text" }, main, sub, simLine, drawLine);
   const graph = el("canvas", { class: "fps-graph", width: GRAPH_WIDTH, height: GRAPH_HEIGHT });
   graph.setAttribute("aria-hidden", "true");
   const element = el("div", { class: "fps-counter", hidden: !visible }, text, graph);
+  if (title) element.title = title;
+  /** The panel's figures and the screen's own lines, as text. */
+  const reportText = () => [main, sub, simLine, drawLine].filter((line) => !line.hidden).map((line) => line.textContent)
+    .concat(report ? report() : []).filter(Boolean).join("\n");
+  element.addEventListener("click", () => {
+    const copied = globalThis.navigator?.clipboard?.writeText?.(reportText());
+    if (!copied) return;
+    copied.then(() => {
+      element.classList.add("fps-copied");
+      setTimeout(() => element.classList.remove("fps-copied"), 600);
+    }, () => { /* the browser would not hand over the clipboard: nothing to say */ });
+  });
   const tracker = createFpsTracker();
   const ctx = graph.getContext("2d");
   let shown = !!visible;
@@ -79,13 +99,23 @@ export function createFpsCounter({ visible = false } = {}) {
     simFrom = now; simReplies = 0; simSteps = 0; simGap = 0; simTrip = 0;
   };
 
+  // The last second's draws: three.js's count of draw calls and triangles for a frame's picture, averaged.
+  let drawFrom = 0, drawFrames = 0, drawCalls = 0, drawTriangles = 0;
+  const noteDraw = (now, calls, triangles) => {
+    drawFrames++; drawCalls += calls; drawTriangles += triangles;
+    if (now - drawFrom < 1000) return;
+    drawLine.hidden = false;
+    drawLine.textContent = `draw ${Math.round(drawCalls / drawFrames)} calls, ${Math.round(drawTriangles / drawFrames / 1000)}k triangles`;
+    drawFrom = now; drawFrames = 0; drawCalls = 0; drawTriangles = 0;
+  };
+
   const writeText = () => {
     main.textContent = `${Math.round(tracker.fps)} FPS avg ${Math.round(tracker.average)} 1% low ${Math.round(tracker.low1)}`;
     sub.textContent = `${tracker.avgMs.toFixed(1)} ms avg ${tracker.p99Ms.toFixed(1)} ms p99 ${tracker.worstMs.toFixed(1)} ms worst (${tracker.count})`;
   };
 
   return {
-    element, noteSim,
+    element, noteSim, noteDraw, reportText,
     get visible() { return shown; },
     get stats() {
       return {

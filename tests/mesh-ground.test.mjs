@@ -87,3 +87,33 @@ test("a standing view moves in front of a face between it and the truck, its len
   assert.equal(clearStandingView(null, truck, view, distanceZoom), view);
   assert.ok(VIEW_MARGIN_FT > 0);
 });
+
+test("the boxes found through the grid give the answers of trying every box, across the world's seam too", () => {
+  // Decks and walls scattered over a wrapping world, some across its seam, one wider than a cell by far.
+  let seed = 7;
+  const random = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  const soups = {}, boxes = [];
+  for (let i = 0; i < 60; i++) {
+    const half = [10 + random() * 60, 1 + random() * 8, 10 + random() * 60];
+    if (i === 0) { half[0] = 900; half[2] = 700; }
+    soups[`M${i}`] = { positions: boxSoup(half) };
+    boxes.push(placed(`M${i}`, [random() * 8192, 100 + random() * 60, random() * 8192], half));
+  }
+  const scattered = { sim: { cp4Track: true, collisionSoups: soups, boxes } };
+  const wrapDelta = (d) => d - 8192 * Math.round(d / 8192);
+  const terrainHeight = () => 90;
+  const gridded = meshGroundFromBuild(scattered, { terrainHeight, wrapDelta, worldFt: 8192 });
+  const tried = meshGroundFromBuild(scattered, { terrainHeight, wrapDelta });
+  for (let n = 0; n < 4000; n++) {
+    const x = random() * 8192, z = random() * 8192, y = 100 + random() * 120;
+    assert.equal(gridded.surfaceBelow(x, y, z, 80), tried.surfaceBelow(x, y, z, 80));
+  }
+  for (let n = 0; n < 400; n++) {
+    const pos = [random() * 8192, 0, random() * 8192], reach = random() * 600;
+    assert.deepEqual(gridded.near(pos, reach).map((b) => gridded.boxes.indexOf(b)), tried.near(pos, reach).map((b) => tried.boxes.indexOf(b)));
+    const from = [pos[0], 130, pos[2]], to = [pos[0] + (random() - 0.5) * 400, 100 + random() * 80, pos[2] + (random() - 0.5) * 400];
+    assert.equal(gridded.segmentHit(from, to), tried.segmentHit(from, to));
+    const heading = random() * Math.PI * 2;
+    assert.deepEqual(meshObstacles(gridded, [pos[0], 127, pos[2]], 122, heading, 220, 11), meshObstacles(tried, [pos[0], 127, pos[2]], 122, heading, 220, 11));
+  }
+});

@@ -157,3 +157,17 @@ test("boot, the race and the replay apply the preset before the track is built, 
   assert.match(panel, /VISUAL_OPTIONS\.map\(\(option\) => \(option\.amountKey \? slider\([\s\S]*?: toggle\(option\.label, option\.key, option\.hint\)\)\)/);
   assert.match(panel, /"Enhanced graphics"/);
 });
+
+test("Picture size: a known share of the screen's points or the whole, on a pixel ratio held to 2", async () => {
+  const { RENDER_SCALES, drawnPixelRatio, renderScale } = await import("../src/game/graphics.js");
+  assert.equal(DEFAULT_SETTINGS.renderScale, 1);
+  for (const scale of RENDER_SCALES) assert.equal(renderScale(scale), scale);
+  assert.equal(renderScale(0.3), 1);
+  assert.equal(renderScale(undefined), 1);
+  assert.equal(renderScale("0.75"), 0.75);
+  assert.equal(drawnPixelRatio(1, 1), 1);
+  assert.equal(drawnPixelRatio(3, 1), 2);
+  assert.equal(drawnPixelRatio(2, 0.5), 1);
+  assert.equal(drawnPixelRatio(1, 0.75), 0.75);
+  assert.equal(drawnPixelRatio(undefined, 0.5), 0.5);
+});

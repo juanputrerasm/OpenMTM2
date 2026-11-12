@@ -223,91 +223,99 @@ export function shapeUsable(s) {
     return !!s && !s.degenerate && !!s.grid && s.count > 0;
 }
 /* ---------- queries ---------- */
-/** Moller-Trumbore, double-sided, det eps 1e-8: the ray parameter or -1. */
-function rayTri(s, t, o, d) {
-    const a = corner(s, t, 0), b = corner(s, t, 1), c = corner(s, t, 2);
-    const e1 = sub(b, a), e2 = sub(c, a);
-    const p = cross(d, e2);
-    const det = dot(e1, p);
-    if (Math.abs(det) < 1e-8)
-        return -1;
-    const inv = 1 / det;
-    const tv = sub(o, a);
-    const u = dot(tv, p) * inv;
-    if (u < 0 || u > 1)
-        return -1;
-    const q = cross(tv, e1);
-    const v = dot(d, q) * inv;
-    if (v < 0 || u + v > 1)
-        return -1;
-    return dot(e2, q) * inv;
+/** A new query on the shape: its number, which `marks` holds for each triangle the query has tried. */
+function nextMark(s) {
+    const marks = (s.marks ??= new Uint32Array(s.count));
+    let mark = (s.mark ?? 0) + 1;
+    if (mark > 0xfffffff0) {
+        marks.fill(0);
+        mark = 1;
+    }
+    s.mark = mark;
+    return mark;
 }
-/** Visit the grid cells a segment crosses, in order. */
-function walkCells(g, o, d, maxLen, visit) {
-    // Clip the segment to the grid box (slab method; a component under 1e-20 is parallel).
+// The cell walk's state, kept between queries: a query allocates nothing until it has a hit to return.
+const walkIdx = new Int32Array(3), walkStep = new Int32Array(3);
+const walkMax = new Float64Array(3), walkDelta = new Float64Array(3);
+/**
+ * The nearest triangle a ray meets within `maxLen` (11.2): `dir` a unit vector, box frame. Ties go to
+ * the lower triangle index. Null for none.
+ *
+ * The segment is clipped to the grid's box (slab method; a component under 1e-20 is parallel) and the cells
+ * it crosses are visited in order; each triangle listed in them is tried once (Moller-Trumbore, double-sided,
+ * det eps 1e-8).
+ */
+export function rayQuery(s, origin, dir, maxLen) {
+    const g = s.grid;
+    if (!g || !(maxLen >= 0))
+        return null;
+    const gOrigin = g.origin, gCell = g.cell, dims = g.dims;
     let t0 = 0, t1 = maxLen;
     for (let i = 0; i < 3; i++) {
-        const lo = g.origin[i], hi = lo + g.cell[i] * g.dims[i];
-        if (Math.abs(d[i]) < 1e-20) {
-            if (o[i] < lo || o[i] > hi)
-                return;
+        const lo = gOrigin[i], hi = lo + gCell[i] * dims[i];
+        if (Math.abs(dir[i]) < 1e-20) {
+            if (origin[i] < lo || origin[i] > hi)
+                return null;
         }
         else {
-            let a = (lo - o[i]) / d[i], b = (hi - o[i]) / d[i];
-            if (a > b)
-                [a, b] = [b, a];
+            let a = (lo - origin[i]) / dir[i], b = (hi - origin[i]) / dir[i];
+            if (a > b) {
+                const swap = a;
+                a = b;
+                b = swap;
+            }
             if (a > t0)
                 t0 = a;
             if (b < t1)
                 t1 = b;
             if (t0 > t1)
-                return;
+                return null;
         }
     }
-    const idx = [], step = [], tMax = [], tDelta = [];
     for (let i = 0; i < 3; i++) {
-        const p = o[i] + d[i] * t0;
-        idx[i] = Math.max(0, Math.min(g.dims[i] - 1, Math.floor((p - g.origin[i]) / g.cell[i])));
-        if (Math.abs(d[i]) < 1e-20) {
-            step[i] = 0;
-            tMax[i] = Infinity;
-            tDelta[i] = Infinity;
+        const p = origin[i] + dir[i] * t0;
+        walkIdx[i] = Math.max(0, Math.min(dims[i] - 1, Math.floor((p - gOrigin[i]) / gCell[i])));
+        if (Math.abs(dir[i]) < 1e-20) {
+            walkStep[i] = 0;
+            walkMax[i] = Infinity;
+            walkDelta[i] = Infinity;
             continue;
         }
-        step[i] = d[i] > 0 ? 1 : -1;
-        const edge = g.origin[i] + (idx[i] + (step[i] > 0 ? 1 : 0)) * g.cell[i];
-        tMax[i] = (edge - o[i]) / d[i];
-        tDelta[i] = g.cell[i] / Math.abs(d[i]);
+        walkStep[i] = dir[i] > 0 ? 1 : -1;
+        const edge = gOrigin[i] + (walkIdx[i] + (walkStep[i] > 0 ? 1 : 0)) * gCell[i];
+        walkMax[i] = (edge - origin[i]) / dir[i];
+        walkDelta[i] = gCell[i] / Math.abs(dir[i]);
     }
-    const guard = g.dims[0] + g.dims[1] + g.dims[2] + 3;
-    for (let n = 0; n < guard; n++) {
-        visit(idx[0] + g.dims[0] * (idx[1] + g.dims[1] * idx[2]));
-        const j = tMax[0] <= tMax[1] && tMax[0] <= tMax[2] ? 0 : tMax[1] <= tMax[2] ? 1 : 2;
-        if (tMax[j] > t1)
-            return;
-        idx[j] += step[j];
-        if (idx[j] < 0 || idx[j] >= g.dims[j])
-            return;
-        tMax[j] += tDelta[j];
-    }
-}
-/**
- * The nearest triangle a ray meets within `maxLen` (11.2): `dir` a unit vector, box frame. Ties go to
- * the lower triangle index. Null for none.
- */
-export function rayQuery(s, origin, dir, maxLen) {
-    if (!s.grid || !(maxLen >= 0))
-        return null;
+    const mark = nextMark(s), marks = s.marks;
+    const tris = s.tris, start = g.start, items = g.items;
+    const ox = origin[0], oy = origin[1], oz = origin[2], dx = dir[0], dy = dir[1], dz = dir[2];
     let best = -1, bestT = Infinity;
-    const seen = new Set();
-    walkCells(s.grid, origin, dir, maxLen, (c) => {
-        const g = s.grid;
-        for (let i = g.start[c]; i < g.start[c + 1]; i++) {
-            const t = g.items[i];
-            if (seen.has(t))
+    const guard = dims[0] + dims[1] + dims[2] + 3;
+    for (let n = 0; n < guard; n++) {
+        const c = walkIdx[0] + dims[0] * (walkIdx[1] + dims[1] * walkIdx[2]);
+        for (let i = start[c]; i < start[c + 1]; i++) {
+            const t = items[i];
+            if (marks[t] === mark)
                 continue;
-            seen.add(t);
-            const h = rayTri(s, t, origin, dir);
+            marks[t] = mark;
+            const o = t * 9;
+            const ax = tris[o], ay = tris[o + 1], az = tris[o + 2];
+            const e1x = tris[o + 3] - ax, e1y = tris[o + 4] - ay, e1z = tris[o + 5] - az;
+            const e2x = tris[o + 6] - ax, e2y = tris[o + 7] - ay, e2z = tris[o + 8] - az;
+            const px = dy * e2z - dz * e2y, py = dz * e2x - dx * e2z, pz = dx * e2y - dy * e2x;
+            const det = e1x * px + e1y * py + e1z * pz;
+            if (Math.abs(det) < 1e-8)
+                continue;
+            const inv = 1 / det;
+            const tx = ox - ax, ty = oy - ay, tz = oz - az;
+            const u = (tx * px + ty * py + tz * pz) * inv;
+            if (u < 0 || u > 1)
+                continue;
+            const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+            const v = (dx * qx + dy * qy + dz * qz) * inv;
+            if (v < 0 || u + v > 1)
+                continue;
+            const h = (e2x * qx + e2y * qy + e2z * qz) * inv;
             if (h < 0 || h > maxLen)
                 continue;
             if (h < bestT || (h === bestT && t < best)) {
@@ -315,7 +323,14 @@ export function rayQuery(s, origin, dir, maxLen) {
                 best = t;
             }
         }
-    });
+        const j = walkMax[0] <= walkMax[1] && walkMax[0] <= walkMax[2] ? 0 : walkMax[1] <= walkMax[2] ? 1 : 2;
+        if (walkMax[j] > t1)
+            break;
+        walkIdx[j] += walkStep[j];
+        if (walkIdx[j] < 0 || walkIdx[j] >= dims[j])
+            break;
+        walkMax[j] += walkDelta[j];
+    }
     if (best < 0)
         return null;
     const a = corner(s, best, 0);
@@ -450,7 +465,7 @@ export function cylinderQuery(s, c, axis, r, halfW, slack, treadClip) {
         r1[i] = Math.min(g.dims[i] - 1, r1[i]);
     }
     const p = sub(c, scale(axis, halfW)), q = add(c, scale(axis, halfW));
-    const seen = new Set();
+    const mark = nextMark(s), marks = s.marks;
     let best = null;
     for (let z = r0[2]; z <= r1[2]; z++)
         for (let y = r0[1]; y <= r1[1]; y++)
@@ -458,9 +473,9 @@ export function cylinderQuery(s, c, axis, r, halfW, slack, treadClip) {
                 const cell = x + g.dims[0] * (y + g.dims[1] * z);
                 for (let i = g.start[cell]; i < g.start[cell + 1]; i++) {
                     const t = g.items[i];
-                    if (seen.has(t))
+                    if (marks[t] === mark)
                         continue;
-                    seen.add(t);
+                    marks[t] = mark;
                     const a = corner(s, t, 0), b = corner(s, t, 1), cc = corner(s, t, 2);
                     const poly = treadClip ? clipSlab([a, b, cc], c, axis, halfW) : [a, b, cc];
                     if (poly.length < 3)

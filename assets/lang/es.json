@@ -7538,5 +7538,17 @@
  {
   "tag": "Under the CommPatch4 physics: each 40 ms tick runs as four 10 ms steps offline too, as Community Patch 4 always does online. From the next race",
   "text": "Con la física CommPatch4: cada paso de 40 ms se divide también sin conexión en cuatro pasos de 10 ms, como Community Patch 4 hace siempre en línea. Desde la próxima carrera"
+ },
+ {
+  "tag": "Picture size",
+  "text": "Tamaño de la imagen"
+ },
+ {
+  "tag": "How many of the screen's points a race is drawn at, stretched to fill it. Smaller is faster where the graphics chip is what holds the frame rate down; the HUD and the menus stay sharp. From the next race",
+  "text": "Cuántos puntos de la pantalla se dibujan en una carrera, estirados hasta llenarla. Más pequeño es más rápido cuando es el chip gráfico el que limita los cuadros por segundo; el HUD y los menús siguen nítidos. Desde la próxima carrera"
+ },
+ {
+  "tag": "Click to copy these figures",
+  "text": "Haz clic para copiar estas cifras"
  }
 ]

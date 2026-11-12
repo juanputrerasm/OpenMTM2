@@ -68,6 +68,26 @@ export const GRAPHICS_NOTES = Object.freeze({
 /** Shown on the Options screen's Display page, on the Enhanced graphics preset row. */
 export const GRAPHICS_HINT = msg("Off, the default, is the game's own picture. Auto picks Low, High or Max for this machine. Low keeps the water, puddles, snow, paint, lamps and rich dust, and drops the smoothed ground, volumetric weather, ground detail, natural light and the lens. High drops only the lens. Max is every part. Custom sets each part on its own. Takes effect from the next race.");
 
+/**
+ * Picture size (Options, Display): the share of the screen's points a race is drawn at, each way. The browser stretches
+ * the picture back over the canvas; the HUD, the map and the menus are the page's own and stay sharp. A chip that is
+ * held up by the points it has to fill (an integrated one at a large window) gains nearly the square of the step:
+ * 0.75 fills 56 percent of the points, 0.5 a quarter.
+ */
+export const RENDER_SCALES = Object.freeze([1, 0.85, 0.75, 0.66, 0.5]);
+
+/** A known picture size, or the whole of it. */
+export function renderScale(value) {
+  const n = Number(value);
+  return RENDER_SCALES.includes(n) ? n : 1;
+}
+
+/** The renderer's pixel ratio: the display's, at most 2 as before, times the picture size. */
+export function drawnPixelRatio(devicePixelRatio, scale) {
+  const ratio = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
+  return Math.min(2, ratio) * renderScale(scale);
+}
+
 /** A known choice, or Off when `id` is missing or not one of them. */
 export function graphicsChoice(id) {
   return GRAPHICS_PRESETS.some((preset) => preset.id === id) ? id : "off";

@@ -60,7 +60,8 @@ export function createStartLamps({ world, scene, dark = false }) {
   const bars = [];
   world.traverse((object) => {
     const kind = BARS[object.material?.userData?.textureName];
-    if (kind && object.isMesh) bars.push({ object, kind });
+    // A placed gantry is a mesh a copy of the world (track-scene.js `placeObjects`): the original's stands for them all.
+    if (kind && object.isMesh && !object.userData.twinOf) bars.push({ object, kind });
   });
   if (!bars.length) return null;
   const root = new THREE.Group();
@@ -122,16 +123,17 @@ export function createStartLamps({ world, scene, dark = false }) {
     update(camera, { daylight = 1 } = {}) {
       let lightAt = null, lightAim = null, lightTone = null, best = Infinity;
       for (const bar of bars) {
-        const { object } = bar;
-        object.updateWorldMatrix(true, false);
-        // The copy nearest the eye.
-        let which = -1, least = Infinity;
-        const copies = object.isInstancedMesh ? object.count : 1;
-        for (let i = 0; i < copies; i++) {
-          if (object.isInstancedMesh) object.getMatrixAt(i, instance); else instance.identity();
-          placed.multiplyMatrices(object.matrixWorld, instance);
-          const d = nearest.copy(bar.middle).applyMatrix4(placed).distanceToSquared(camera.position);
-          if (d < least) { least = d; which = i; }
+        // The placement nearest the eye, in whichever copy of the world.
+        let object = bar.object, which = -1, least = Infinity;
+        for (const mesh of [bar.object, ...(bar.object.userData.twins ?? [])]) {
+          mesh.updateWorldMatrix(true, false);
+          const count = mesh.isInstancedMesh ? mesh.count : 1;
+          for (let i = 0; i < count; i++) {
+            if (mesh.isInstancedMesh) mesh.getMatrixAt(i, instance); else instance.identity();
+            placed.multiplyMatrices(mesh.matrixWorld, instance);
+            const d = nearest.copy(bar.middle).applyMatrix4(placed).distanceToSquared(camera.position);
+            if (d < least) { least = d; which = i; object = mesh; }
+          }
         }
         if (object.isInstancedMesh) object.getMatrixAt(which, instance); else instance.identity();
         placed.multiplyMatrices(object.matrixWorld, instance);

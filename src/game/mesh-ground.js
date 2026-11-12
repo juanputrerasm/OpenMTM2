@@ -31,29 +31,92 @@ export const MESH_LOOK = Object.freeze({
 const toBody = (m, x, y, z) => [m[0] * x + m[3] * y + m[6] * z, m[1] * x + m[4] * y + m[7] * z, m[2] * x + m[5] * y + m[8] * z];
 const upOf = (m, n) => m[3] * n[0] + m[4] * n[1] + m[5] * n[2];
 
+/** The side of a cell of the grid the boxes are found through, feet. */
+const CELL_FT = 128;
+const NO_WRAP = (d) => d;
+const NO_BOXES = Object.freeze([]);
+
 /**
+ * The boxes by the ground they stand over: each box is listed, in the list's order, in every cell its bounding circle
+ * touches. A ray straight down meets only boxes listed in the cell it falls through, and a search around a point only
+ * boxes listed in the cells the search's square touches, so neither tries the whole city's boxes for each question
+ * (a city track has a thousand, and the views and the tire effects ask hundreds of times a frame). `worldFt` is the
+ * side of a world that wraps (cells are then counted round it), 0 for one that does not.
+ */
+function boxGrid(list, worldFt) {
+  const across = worldFt > 0 ? Math.max(1, Math.round(worldFt / CELL_FT)) : 0;
+  const cell = across ? worldFt / across : CELL_FT;
+  const wrap = (c) => (across ? ((c % across) + across) % across : c);
+  const key = (cx, cz) => wrap(cx) * 65536 + wrap(cz);
+  const cells = new Map();
+  list.forEach((box, index) => {
+    box.gridIndex = index;
+    let x0 = Math.floor((box.pos[0] - box.radius) / cell), x1 = Math.floor((box.pos[0] + box.radius) / cell);
+    let z0 = Math.floor((box.pos[2] - box.radius) / cell), z1 = Math.floor((box.pos[2] + box.radius) / cell);
+    // A box as wide as the world is in every cell across it, once.
+    if (across && x1 - x0 >= across) { x0 = 0; x1 = across - 1; }
+    if (across && z1 - z0 >= across) { z0 = 0; z1 = across - 1; }
+    for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
+      const k = key(cx, cz), have = cells.get(k);
+      if (have) have.push(box); else cells.set(k, [box]);
+    }
+  });
+  const stamp = new Uint32Array(list.length);
+  let round = 0;
+  return {
+    /** The boxes that can stand over (x, z), in the list's order. Not to be changed. */
+    over: (x, z) => cells.get(key(Math.floor(x / cell), Math.floor(z / cell))) ?? NO_BOXES,
+    /** The boxes listed within `reach` of (x, z) on either axis, each once, in the list's order. A new array. */
+    around(x, z, reach) {
+      let x0 = Math.floor((x - reach) / cell), x1 = Math.floor((x + reach) / cell);
+      let z0 = Math.floor((z - reach) / cell), z1 = Math.floor((z + reach) / cell);
+      if (across && x1 - x0 >= across) { x0 = 0; x1 = across - 1; }
+      if (across && z1 - z0 >= across) { z0 = 0; z1 = across - 1; }
+      if (++round > 0xfffffff0) { stamp.fill(0); round = 1; }
+      const found = [];
+      for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
+        const have = cells.get(key(cx, cz));
+        if (!have) continue;
+        for (let i = 0; i < have.length; i++) {
+          const box = have[i];
+          if (stamp[box.gridIndex] === round) continue;
+          stamp[box.gridIndex] = round;
+          found.push(box);
+        }
+      }
+      return found.sort((p, q) => p.gridIndex - q.gridIndex);
+    },
+  };
+}
+
+/**
+ * @param worldFt  the side of the world `wrapDelta` wraps at, feet; needed for the boxes to be found through a grid on
+ *                 a world that wraps (without it every box is tried, with the same answers)
  * @returns `{ boxes, near(pos, reach), surfaceBelow(x, y, z, depth, list), wallAlong(origin, dir, len, list) }` or null
  *          when no box has a usable shape (a classic track).
  */
-export function createMeshGround(boxes, { terrainHeight, wrapDelta = (d) => d }) {
+export function createMeshGround(boxes, { terrainHeight, wrapDelta = NO_WRAP, worldFt = 0 }) {
   const list = boxes.filter((b) => !b.ghost && shapeUsable(b.shape));
   if (!list.length) return null;
-  /** The boxes whose reach comes within `reach` feet of `pos` (x, z). */
-  const near = (pos, reach) => list.filter((b) => {
+  const grid = worldFt > 0 || wrapDelta === NO_WRAP ? boxGrid(list, worldFt) : null;
+  const within = (b, pos, reach) => {
     const dx = wrapDelta(b.pos[0] - pos[0]), dz = wrapDelta(b.pos[2] - pos[2]), r = b.radius + reach;
     return dx * dx + dz * dz <= r * r;
-  });
+  };
+  /** The boxes whose reach comes within `reach` feet of `pos` (x, z). */
+  const near = (pos, reach) => (grid ? grid.around(pos[0], pos[2], reach) : list).filter((b) => within(b, pos, reach));
   /** A ray through `boxes`: `visit(hit, box, t, up)` for each face met in order of box; returns the nearest kept. */
   const cast = (o, d, len, boxesNear, keep) => {
     let best = null;
-    for (const box of boxesNear) {
-      const r = [wrapDelta(o[0] - box.pos[0]), o[1] - box.pos[1], wrapDelta(o[2] - box.pos[2])];
+    for (let n = 0; n < boxesNear.length; n++) {
+      const box = boxesNear[n];
+      const rx = wrapDelta(o[0] - box.pos[0]), ry = o[1] - box.pos[1], rz = wrapDelta(o[2] - box.pos[2]);
       // The segment's nearest approach to the box's centre against its radius.
-      const along = Math.max(0, Math.min(len, -(r[0] * d[0] + r[1] * d[1] + r[2] * d[2])));
-      const cx = r[0] + d[0] * along, cy = r[1] + d[1] * along, cz = r[2] + d[2] * along;
+      const along = Math.max(0, Math.min(len, -(rx * d[0] + ry * d[1] + rz * d[2])));
+      const cx = rx + d[0] * along, cy = ry + d[1] * along, cz = rz + d[2] * along;
       if (cx * cx + cy * cy + cz * cz > box.radius * box.radius) continue;
       const m = box.matrix;
-      let ob = toBody(m, r[0], r[1], r[2]);
+      let ob = toBody(m, rx, ry, rz);
       const db = toBody(m, d[0], d[1], d[2]);
       let left = len, gone = 0;
       for (let k = 0; k < 6 && left > 0; k++) {
@@ -69,12 +132,16 @@ export function createMeshGround(boxes, { terrainHeight, wrapDelta = (d) => d })
     }
     return best;
   };
+  const DOWN = [0, -1, 0], drivable = (up) => Math.abs(up) >= 0.25;
   return {
     boxes: list,
     near,
-    /** The drivable surface under (x, y, z) within `depth` feet down: a mesh face or the terrain, whichever is higher. */
-    surfaceBelow(x, y, z, depth, boxesNear = list) {
-      const hit = cast([x, y, z], [0, -1, 0], depth, boxesNear, (up) => Math.abs(up) >= 0.25);
+    /**
+     * The drivable surface under (x, y, z) within `depth` feet down: a mesh face or the terrain, whichever is higher.
+     * Without `boxesNear`, among the boxes that stand over the point.
+     */
+    surfaceBelow(x, y, z, depth, boxesNear = grid ? grid.over(x, z) : list) {
+      const hit = cast([x, y, z], DOWN, depth, boxesNear, drivable);
       const mesh = hit ? y - hit.t : -Infinity;
       const terrain = terrainHeight(x, z);
       const ground = terrain <= y ? terrain : -Infinity;
@@ -134,7 +201,7 @@ export function meshObstacles(mesh, pos, feet, heading, lookFt, side, out = [], 
  * city. The same boxes and shapes the session builds (worker/sim-worker.js), from the track build's triangles; static
  * solid models only. Null on any other track.
  */
-export function meshGroundFromBuild(build, { terrainHeight, wrapDelta = (d) => d }) {
+export function meshGroundFromBuild(build, { terrainHeight, wrapDelta = NO_WRAP, worldFt = 0 }) {
   const soups = build?.sim?.collisionSoups;
   if (!build?.sim?.cp4Track || !soups) return null;
   const shapes = new Map();
@@ -147,7 +214,7 @@ export function meshGroundFromBuild(build, { terrainHeight, wrapDelta = (d) => d
     box.shape = shapes.get(b.modelName);
     boxes.push(box);
   }
-  return createMeshGround(boxes, { terrainHeight, wrapDelta });
+  return createMeshGround(boxes, { terrainHeight, wrapDelta, worldFt });
 }
 
 /**
