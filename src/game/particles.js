@@ -647,6 +647,17 @@ export function slideAmount({ tire = null, radiusFt = 2.75, forwardFtS = 0, side
   return Math.min(1, Math.max(slide, spin));
 }
 
+/**
+ * On hard ground a tire is seen to slide only from this much (`slideAmount`), and in full at 1. The simulation's driven
+ * tires run a little faster than the ground under power, 7 to 18 ft/s at speed, which on soft ground digs and on
+ * pavement shows nothing: counted, it was nine in ten of the smoke a truck left on a street, all down the straights.
+ */
+export const HARD_SLIDE_FROM = 0.4;
+/** The odds a tick that a tire sliding in full on hard ground leaves a puff of smoke. */
+export const HARD_SMOKE = 0.255;
+/** How hard a tire that slides or spins `sliding` (0 to 1) is seen to on hard ground, 0 to 1. */
+export const hardSlide = (sliding) => Math.min(1, Math.max(0, ((sliding || 0) - HARD_SLIDE_FROM) / (1 - HARD_SLIDE_FROM)));
+
 /** A tire pulling away asks all the road has, and is seen to up to `fullMph`; by `noneMph` its push forward is driving, not a start. */
 export const LAUNCH = Object.freeze({ fullMph: 15, noneMph: 35 });
 
@@ -658,10 +669,11 @@ export const LAUNCH = Object.freeze({ fullMph: 15, noneMph: 35 });
  */
 export function gripDemand({ tire = null, radiusFt = 2.75, forwardFtS = 0, sidewaysFtS = 0 }) {
   const sliding = slideAmount({ tire, radiusFt, forwardFtS, sidewaysFtS });
-  if (!tire?.onGround) return sliding;
+  if (!tire?.onGround) return hardSlide(sliding);
   const mph = Math.abs(forwardFtS) * MPH_PER_FTS;
   const starting = Math.min(1, Math.max(0, (LAUNCH.noneMph - mph) / (LAUNCH.noneMph - LAUNCH.fullMph)));
-  return Math.max(sliding, starting * skidAmount({ onGround: true, grip: tire.grip, force: tire.force ?? [0, 0, 0] }));
+  // As pavement shows it (`hardSlide`): the little by which a driven tire outruns the road at speed is nothing.
+  return hardSlide(Math.max(sliding, starting * skidAmount({ onGround: true, grip: tire.grip, force: tire.force ?? [0, 0, 0] })));
 }
 
 /**
@@ -672,7 +684,8 @@ export function slideThrows(stoodOn, sliding, random = Math.random) {
   if (!(sliding > 0)) return NOTHING;
   const odds = (p) => (random() < p ? 1 : 0);
   switch (stoodOn) {
-    case "hard": return { puff: odds(0.25 + 0.6 * sliding) ? "rubber" : null, streak: null, streaks: 0 };
+    // (Three tenths of the 0.85 it first was: a street's corners were clouds of it.)
+    case "hard": return { puff: odds(HARD_SMOKE * hardSlide(sliding)) ? "rubber" : null, streak: null, streaks: 0 };
     case "wet": return { puff: odds(0.5 * sliding) ? "mist" : null, streak: "drop", streaks: odds(sliding) };
     case "dust": return { puff: odds(0.35 + 0.6 * sliding) ? "dust" : null, streak: "clod", streaks: 1 + Math.round(2 * sliding) };
     case "mud": return { puff: null, streak: "clod", streaks: 2 + Math.round(3 * sliding) };

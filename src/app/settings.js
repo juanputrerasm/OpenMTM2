@@ -6,7 +6,7 @@
   lives in OPFS instead, through the workers.
 */
 
-import { AA_MODES } from "../game/aa.js";
+import { AA_CHOICES } from "../game/aa.js";
 import { GRAPHICS_FLAGS, GRAPHICS_PRESETS } from "../game/graphics.js";
 import { VISUAL_OPTIONS } from "../game/visuals.js";
 import { extensionSettingDefaults, migrateExtensionSettings } from "../game/extensions/loader.js";
@@ -14,7 +14,7 @@ import { createStrings, msg } from "../game/strings.js";
 
 const KEY = "openmtm2.settings";
 /** The settings' format, stored with them and with an export (Options, Data). */
-export const SETTINGS_VERSION = 13;
+export const SETTINGS_VERSION = 14;
 
 /**
  * The physics a race can run under, as Options (Game) and the console's `physics` list them. A model is one more entry
@@ -155,7 +155,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   terrainOverlap: true,       // MTM2's two-pixel overlap of the ground tiles, on every track; off, they meet edge to edge as MTM1's do
   mtm1NoOverlap: true,        // with Terrain overlap on: MTM1 tracks still meet edge to edge, as MTM1 draws them (`tileOverlapOf`)
   vsync: true,                // draw with the display's refresh; off draws as fast as the browser allows
-  aa: "msaa",                 // anti-aliasing (game/aa.js): off, msaa, fxaa, smaa or taa. The next race takes it up
+  aa: "auto",                 // anti-aliasing (game/aa.js): auto, off, msaa, fxaa, smaa or taa. The next race takes it up
   fpsLimit: false,            // hold the frame rate to `fpsLimitValue`
   fpsLimitValue: 60,
   opponentFps: 30,            // the frame rate the computer trucks drive as if the game ran at (the 1998 game's is about 30)
@@ -200,7 +200,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   waterReflections: false,    // MONSTER.INI reflectionFlag: the world mirrored in the game's water (render/water-mirror.js)
   truckReflections: false,    // MONSTER.INI truckReflectionFlag: CLOUDENV over the trucks' bodies (render/truck-reflection.js)
   sparks: true,               // sparks from hull contacts (not in the game); false is the slider's None
-  dustAmount: 2,              // the Dust slider, both pictures: 0 None, 1 Few (the game's own), 2 Normal, 3 Many (game/tire-effects.js)
+  dustAmount: 1,              // the Dust slider, both pictures: 0 None, 1 Few (the default), 2 Normal, 3 Many (game/tire-effects.js)
   greyDust: false,            // MTM2's own grey for wheels' dust and collisions' smoke
   sparkAmount: 2,             // the Sparks slider, both pictures: 0 None, 1 Few, 2 Normal, 3 Many (game/tire-effects.js)
   sonicTrucks: false,         // Professional only: the computer trucks drive as on a Sonic track, whatever the SIT's fly-by line says
@@ -305,6 +305,10 @@ export function migrateSettings(stored) {
     if (stored.view === 1) delete stored.view;
     delete stored.groundBoxGrain;
   }
+  // Version 14 raises Few dust by default; the Normal saved before it was the old default.
+  if (!(stored.version >= 14) && stored.dustAmount === 2) stored.dustAmount = 1;
+  // And anti-aliases as Auto picks by default; the MSAA saved before it was the old default.
+  if (!(stored.version >= 14) && stored.aa === "msaa") stored.aa = "auto";
   stored.version = SETTINGS_VERSION;
   delete stored.showHiddenTrucks;
   // "MTM1 no terrain overlap" became "Terrain overlap", for every track.
@@ -317,7 +321,7 @@ export function migrateSettings(stored) {
   delete stored.films;
   delete stored.copyFilms;
   // A value that is not one of the choices draws the default.
-  if (!AA_MODES.some((mode) => mode.id === stored.aa)) delete stored.aa;
+  if (!AA_CHOICES.some((mode) => mode.id === stored.aa)) delete stored.aa;
   if (!GRAPHICS_PRESETS.some((preset) => preset.id === stored.graphics)) delete stored.graphics;
   const extensions = extensionSettingDefaults();
   for (const [id, defaults] of Object.entries(extensions)) extensions[id] = { ...defaults, ...(stored.extensions?.[id] ?? {}) };
@@ -402,13 +406,13 @@ export function applyMtm2Classic(settings) {
 
 /**
  * The "OpenMTM2 preset" (Options, Advanced, and Setup's Enhanced graphics): the port's own picture. No MTM1 or MTM2
- * choice (MTM1's trucks stay listed apart, which hides nothing), the track backdrops (HD ones where an archive has them), tire tracks, splashes, the normal dust puffs and sparks, every enhanced part, the glossy
+ * choice (MTM1's trucks stay listed apart, which hides nothing), the track backdrops (HD ones where an archive has them), tire tracks, splashes, Few dust and the normal sparks, every enhanced part, the glossy
  * paint among them (Max), and Community Patch 3's terrain detail, HD weather and reflections. Changes `settings` in place.
  */
 export function applyOpenMtm2(settings) {
   Object.assign(settings, NO_MTM1, {
     mtm1TrucksApart: true, originalBackdrops: false, greyDust: false, waterReflections: false, truckReflections: false, backdrops: true,
-    tireTracks: true, waterSplash: true, dustAmount: 2, dustEffects: true, sparkAmount: 2, sparks: true,
+    tireTracks: true, waterSplash: true, dustAmount: 1, dustEffects: true, sparkAmount: 2, sparks: true,
     ...GRAPHICS_FLAGS.max, glossyPaint: true, graphics: "max", look: "enhanced",
     terrainDetail: true, hdWeather: true, reflections: true, cameraClearance: true, groundBoxGrain: false,
     cameraSystem: "omtm2", aiBehaviour: "omtm2", shiftInAuto: true, mapCheckpoint: true, commentaryTruckNames: false,

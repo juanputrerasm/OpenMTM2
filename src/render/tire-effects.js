@@ -16,7 +16,7 @@
 import * as THREE from "three";
 import {
   CONTACT_GAP_S, DUST_RANGE_FT, DUST_TICK_S, TRACK_RANGE_FT, SMOKE_AFTER_S, SMOKE_EVERY_S, PUFF_FRAMES, PUFF_POOL, SPARK_POOL, TRACK_BREAK_FT, CLASSIC_TRACK_POOL, TRACK_STEP_FT, TRACK_WIDTH_FT,
-  SPARK_BURST_GAP_S, TIRE_SPARK_SHARE, manySparksForHit, sparkRules, CLASSIC_DUST, RICH_DUST, GREY_DUST_TONE, SPARK_HIT_SPEED, SPARK_MIN_SPEED, CLASSIC_SPARK_MIN_SPEED, TRACK_LIFE_S, TRACK_FADE_S, dustPuffs, dustShare, slidingDust, greyDustOn, keepsTread, puffFrame, puffLife, puffSize, puffsForHit, raisesDust, scrapeSparks, sparksForHit,
+  SPARK_BURST_GAP_S, TIRE_SPARK_SHARE, manySparksForHit, sparkRules, CLASSIC_DUST, RICH_DUST, GREY_DUST_TONE, SPARK_HIT_SPEED, SPARK_MIN_SPEED, CLASSIC_SPARK_MIN_SPEED, TRACK_LIFE_S, TRACK_FADE_S, dustPuffs, dustShare, slidingDust, PACK_FT, packDust, greyDustOn, keepsTread, puffFrame, puffLife, puffSize, puffsForHit, raisesDust, scrapeSparks, sparksForHit,
 } from "../game/tire-effects.js";
 import { iceHullContacts, standOnFt } from "../game/ice.js";
 import {
@@ -607,7 +607,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
    * One truck for a frame, with "Rich particles": each tire's rut, what each throws on a tick, and what a landing throws.
    * `tick` is whether this frame is one on which tires throw; `lite` a headset, which throws fewer puffs.
    */
-  function richTruck(state, t, dt, flags, tick, lite, near, far) {
+  function richTruck(state, t, dt, flags, tick, lite, near, far, pack = 1) {
     const hubs = t.pose.tires.map((_, k) => t.object.tireHub(k));
     const onGround = t.pose.tires.map((tire) => !!tire.onGround && !t.pose.heli);
     const family = t.surface?.family ?? "cement", type = t.surface?.type ?? 0;
@@ -664,11 +664,13 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       const floor = floorAt(hub, stood);
       // Out from the truck's side: the right wheels are the even ones.
       const side = k % 2 === 0 ? 1 : -1, out = [forward[1] * side, -forward[0] * side];
-      const few = lite ? LITE_SHARE : 1;
+      // A headset throws half of everything; of its puffs a truck among others throws its share of the pack's
+      // (game/tire-effects.js `packDust`), the water it throws being its own.
+      const few = lite ? LITE_SHARE : 1, puffed = few * pack;
       // Off Cement, only as much as the tire asks more of the road than it holds (game/tire-effects.js `slidingDust`, game/particles.js `gripDemand`).
       const raised = dusty.reduce((n, tire) => n + (tire === k ? 1 : 0), 0)
         * slidingDust(type, greyDustOn(type) ? gripDemand({ tire: t.tires?.[k] ?? null, radiusFt: t.radius ?? 2.75, forwardFtS, sidewaysFtS }) : 1);
-      if (raised) layDust(state, k, hub, floor, vel, out, family, type, raised, few * wheels, far);
+      if (raised) layDust(state, k, hub, floor, vel, out, family, type, raised, puffed * wheels, far);
       else state.dustOwed[k] = 0;
       state.dustAt[k] = [hub[0], hub[2]];
       // On wet ground, and wading in the level's water, the tread's finest spray hangs behind it as mist.
@@ -676,7 +678,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       else state.mistOwed[k] = 0;
       state.mistAt[k] = [hub[0], hub[2]];
       const thrown = tireThrows(stood, speed, random);
-      if (thrown.puff && lets(flags, thrown.puff) && random() < few * wheels) throwPuff(thrown.puff, hub, floor, vel, out, family, type);
+      if (thrown.puff && lets(flags, thrown.puff) && random() < puffed * wheels) throwPuff(thrown.puff, hub, floor, vel, out, family, type);
       // Standing water is thrown aside in sheets.
       if ((stood === "puddle" || stood === "water") && flags.splash) {
         const puddle = stood === "puddle", bed = floorUnder(hub[0], hub[2], hub[1]);
@@ -703,7 +705,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
         const fast = 8 + 22 * sliding;
         const back = [vel[0] + push[0] * fast, vel[1], vel[2] + push[1] * fast];
         const thick = flung.puff === "dust" ? dustOff(hub[0], hub[2], type, hub[1]) : 1;
-        if (flung.puff && thick >= DUST.least && lets(flags, flung.puff === "rubber" ? "dust" : flung.puff) && random() < few * wheels) throwPuff(flung.puff, hub, floor, back, out, family, type, 1 + 0.4 * sliding, thick);
+        if (flung.puff && thick >= DUST.least && lets(flags, flung.puff === "rubber" ? "dust" : flung.puff) && random() < puffed * wheels) throwPuff(flung.puff, hub, floor, back, out, family, type, 1 + 0.4 * sliding, thick);
         for (let n = 0; n < flung.streaks && lets(flags, flung.streak); n++) throwStreak(flung.streak, hub, floor, back, speed + fast, family, type);
       }
     });
@@ -783,6 +785,13 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       snowNow = snowDown;
       lastTrucks = trucks;
       trucks.forEach((t, i) => { lastSurface[i] = t?.surface ?? null; });
+      // How much of its dust each truck raises, by how many trucks it runs among (game/tire-effects.js `packDust`).
+      const packs = trucks.map((t) => {
+        if (!t?.pose) return 1;
+        let near = 0;
+        for (const other of trucks) if (other?.pose && !other.pose.heli && Math.hypot(other.pose.pos[0] - t.pose.pos[0], other.pose.pos[2] - t.pose.pos[2]) < PACK_FT) near++;
+        return packDust(near);
+      });
       if (rich) {
         clock += dt;
         if (dt > 0) frameDt = Math.min(dt, 0.1);
@@ -795,7 +804,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
           const tick = state.timer >= DUST_TICK_S;
           if (tick) state.timer %= DUST_TICK_S;
           const away = Math.hypot(t.pose.pos[0] - listener[0], t.pose.pos[2] - listener[2]);
-          richTruck(state, t, dt, flags, tick, lite, away < TRACK_RANGE_FT, away > DUST.farFt);
+          richTruck(state, t, dt, flags, tick, lite, away < TRACK_RANGE_FT, away > DUST.farFt, packs[i]);
           // Its body in the snow, where it is in it, and on the ice.
           if (flags.tracks) pressBody(state, t); else state.scour = null;
           hullOnIce(state, t, dt);
@@ -857,7 +866,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
           if (flags.dust && !noDust && Math.hypot(hubs[0][0] - listener[0], hubs[0][2] - listener[2]) < DUST_RANGE_FT) {
             const forwardFtS = state.vel[0] * forward[0] + state.vel[2] * forward[1], sidewaysFtS = state.vel[0] * forward[1] - state.vel[2] * forward[0];
             const level = CLASSIC_DUST[dustNow] ?? CLASSIC_DUST[2];
-            for (const k of dustPuffs({ speedFtS: t.pose.forward ?? t.pose.speed ?? 0, onGround, dusty: raisesDust(type), random, share: (t.wheels ?? 1) * dustShare(type) * level.count })) {
+            for (const k of dustPuffs({ speedFtS: t.pose.forward ?? t.pose.speed ?? 0, onGround, dusty: raisesDust(type), random, share: (t.wheels ?? 1) * dustShare(type) * level.count * packs[i] })) {
               // Off Cement, only as much as the tire asks more of the road than it holds (game/tire-effects.js `slidingDust`, game/particles.js `gripDemand`).
               const kept = slidingDust(type, greyDustOn(type) ? gripDemand({ tire: t.tires?.[k] ?? null, radiusFt: t.radius ?? 2.75, forwardFtS, sidewaysFtS }) : 1);
               if (kept < 1 && random() >= kept) continue;

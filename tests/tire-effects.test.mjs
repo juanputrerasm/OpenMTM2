@@ -41,13 +41,13 @@ test("which surfaces raise dust and keep a tread: the game's surface flags (0x4d
   assert.equal(greyDustOn(1), true);
   assert.equal(greyDustOn(2), false);
   // Off Cement three quarters of a third of the puffs, elsewhere all.
-  assert.equal(dustShare(1), 0.225);
+  assert.equal(dustShare(1), 0.07125);
   assert.equal(dustShare(2), 1);
   let n = 0;
   const r = () => ((n = (n * 9301 + 49297) % 233280) / 233280);
   const count = (share) => { let c = 0; for (let i = 0; i < 2000; i++) c += dustPuffs({ speedFtS: 20, onGround: [true, true, true, true], dusty: true, random: r, share }).length; return c; };
   const full = count(1), cement = count(dustShare(1));
-  assert.ok(Math.abs(cement / full - 0.225) < 0.03, `${cement} of ${full}`);
+  assert.ok(Math.abs(cement / full - 0.07125) < 0.03, `${cement} of ${full}`);
 });
 
 test("a track lasts until the ring of 65536 pieces comes round to it, fading over its oldest eighth: no clock wipes it", () => {
@@ -194,10 +194,10 @@ test("pavement gives its dust only to a tire that asks more than the road holds;
   assert.equal(slidingDust(1, 0.4), 0.4);
   assert.equal(slidingDust(1, 3), 1);
   assert.equal(slidingDust(2, 0), 1);
-  assert.equal(DUST_COUNT, 0.476);
-  assert.equal(RICH_DUST[2].count, 0.476);
-  assert.equal(CLASSIC_DUST[1].count, 0.476);
-  assert.equal(CLASSIC_DUST[2].count, 0.476);
+  assert.equal(DUST_COUNT, 0.38556);
+  assert.equal(RICH_DUST[2].count, 0.38556);
+  assert.equal(CLASSIC_DUST[1].count, 0.38556);
+  assert.equal(CLASSIC_DUST[2].count, 0.38556);
   // A tire rolling straight within its grip asks nothing; one pushed sideways past it does.
   const rolling = { onGround: true, grip: 1000, force: [0, 0, 300], spin: 20 / 2.75 };
   assert.equal(gripDemand({ tire: rolling, forwardFtS: 20 }), 0);
@@ -213,4 +213,24 @@ test("pavement gives its dust only to a tire that asks more than the road holds;
   assert.equal(slideAmount({ tire: fast, radiusFt: 3.6, forwardFtS: 90 }), 0);
   assert.ok(slideAmount({ tire: { ...fast, rolls: undefined }, radiusFt: 3.6, forwardFtS: 90 }) > 0);
   assert.ok(slideAmount({ tire: { ...fast, spin: 45 }, radiusFt: 3.6, forwardFtS: 90 }) > 0.9);
+});
+
+test("a pack raises less dust than its trucks would apart, and pavement shows only a hard slide", async () => {
+  const { packDust, PACK_FT } = await import("../src/game/tire-effects.js");
+  const { hardSlide, HARD_SLIDE_FROM, slideThrows, gripDemand } = await import("../src/game/particles.js");
+  assert.equal(PACK_FT, 120);
+  assert.equal(packDust(1), 1);
+  assert.equal(packDust(4), 0.5);
+  assert.ok(Math.abs(8 * packDust(8) - 2.83) < 0.01);
+  assert.equal(packDust(0), 1);
+  // The little by which a driven tire outruns the road at speed shows nothing on pavement.
+  assert.equal(HARD_SLIDE_FROM, 0.4);
+  assert.equal(hardSlide(0.3), 0);
+  assert.equal(hardSlide(1), 1);
+  assert.ok(Math.abs(hardSlide(0.7) - 0.5) < 1e-9);
+  assert.equal(slideThrows("hard", 0.3, () => 0).puff, null);
+  assert.equal(slideThrows("hard", 1, () => 0).puff, "rubber");
+  // A tire whose tread runs 15 ft/s faster than the road at 60 mph: no dust off pavement.
+  const driven = { onGround: true, grip: 1000, force: [0, 0, 400], spin: (88 + 15) / 3, rolls: 3 };
+  assert.equal(gripDemand({ tire: driven, forwardFtS: 88 }), 0);
 });

@@ -186,10 +186,11 @@ export function createOcclusion({ renderer, scene, camera }) {
     armed = false;
     sceneAfter.call(this, r, s, drawnWith, target);
   };
-  // The shadows are drawn from the whole scene, within the same picture, after three.js has listed what the camera sees.
-  const shadowMap = renderer.shadowMap, shadowRender = shadowMap.render;
-  const withAll = function (...args) { restore(); return shadowRender.apply(this, args); };
-  shadowMap.render = withAll;
+  // The shadows are drawn from the whole scene, within the same picture, after three.js has listed what the camera sees:
+  // render/sun-shadows.js calls this as it starts on them. (Asked through the scene, not by wrapping the renderer's
+  // shadow pass, which the shadows wrap as well: whichever of the two was unwrapped second put the other's wrapper
+  // back, and with it everything of a finished race that wrapper could reach.)
+  scene.userData.beforeShadows = restore;
 
   return {
     watch(mesh, box) { watched.push({ mesh, box, hidden: false, runs: 0, query: null, asked: 0, since: 0, was: true }); },
@@ -199,7 +200,7 @@ export function createOcclusion({ renderer, scene, camera }) {
       restore();
       scene.onBeforeRender = sceneBefore;
       scene.onAfterRender = sceneAfter;
-      if (shadowMap.render === withAll) shadowMap.render = shadowRender;
+      if (scene.userData.beforeShadows === restore) delete scene.userData.beforeShadows;
       scene.remove(host);
       hostGeometry.dispose();
       host.material.dispose();

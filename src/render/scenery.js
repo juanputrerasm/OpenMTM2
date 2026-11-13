@@ -7,7 +7,7 @@
   one.
 */
 import * as THREE from "three";
-import { aaChoice } from "../game/aa.js";
+import { aaFor } from "../game/aa.js";
 import { createDrawnGround } from "../game/drawn-ground.js";
 import { createDecks } from "../game/ground-boxes.js";
 import { FOG_AMOUNTS, weatherLevel } from "../game/atmosphere.js";
@@ -109,7 +109,7 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
   // own samples, or through the lens into a picture with samples of its own. The others draw one sample and a pass.
   // Where the screen was made without samples (game/aa.js `screenSampled`, when the renderer was made) MSAA without the
   // lens draws into a picture of its own that has them, put on the screen as the others' is.
-  const mode = aaChoice(settings.aa);
+  const mode = aaFor({ aa: settings.aa, lensEffects: on.lens });
   const aa = renderer && (mode !== "msaa" || (!on.lens && !screenSamples(renderer))) ? createAntiAlias({ renderer, mode }) : null;
   // What is drawn over the scene, the puffs of "Rich particles" (render/over-scene.js). Without the lens and with MSAA
   // the scene goes straight to the screen, and it is this that puts the frame there.

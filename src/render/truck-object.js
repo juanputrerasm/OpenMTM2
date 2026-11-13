@@ -19,6 +19,45 @@ import { mergeModelParts } from "./part-merge.js";
 import { classicFogDims, fogDims } from "./atmosphere.js";
 
 /** A model's meshes as a group; `joined` (render/part-merge.js) has the parts to draw a model with in place of its own. */
+/**
+ * Past this from the eye, feet, a truck is drawn as one still piece (`farTruck`), and nearer than `NEAR_TRUCK_FT` in
+ * its parts again: at 600 ft a truck is a dozen points tall, and a wheel's turn or an axle's travel under one.
+ */
+const FAR_TRUCK_FT = 600, NEAR_TRUCK_FT = 540;
+
+/**
+ * A truck as one still piece for when it is far off: its body, its tires at their hubs and its axles, joined where only
+ * their textures tell them apart (render/part-merge.js), so that a far truck is a draw or two in the picture and in the
+ * sun's shadow where its parts are a dozen each. Without the wheels' turning, the suspension's travel or the dents.
+ */
+function farTruck(library, truck, hubs, corners) {
+  const parts = [];
+  // A model that runs through keyframes cannot stand still: such a truck has no far piece.
+  let still = true;
+  const add = (model, x, y, z) => {
+    for (const part of library.get(model?.name) ?? []) {
+      if (part.frameCount > 1) { still = false; continue; }
+      const geometry = part.geometry.clone();
+      geometry.morphAttributes = {};
+      geometry.translate(x, y, z);
+      parts.push({ geometry, material: part.material, renderOrder: part.renderOrder });
+    }
+  };
+  add(truck.parts.body, 0, 0, 0);
+  hubs.forEach((hub, i) => add(truck.parts[corners[i]] ?? (hub[0] < 0 ? truck.parts.tireLeft : truck.parts.tireRight), hub[0], hub[1] + (truck.tireLift?.[i] ?? 0), -hub[2]));
+  [0, 2].forEach((tire, k) => { if (hubs[tire]) add((k === 0 ? truck.parts.axleFront : truck.parts.axleRear) ?? truck.parts.axle, 0, 0, -hubs[tire][2]); });
+  const group = new THREE.Group();
+  group.name = "far";
+  for (const { geometry, material, renderOrder, depthMaterial } of still ? mergeModelParts([parts]).get(parts) ?? [] : []) {
+    const mesh = new THREE.Mesh(geometry, material);
+    if (renderOrder) mesh.renderOrder = renderOrder;
+    if (depthMaterial) mesh.customDepthMaterial = depthMaterial;
+    group.add(mesh);
+  }
+  group.visible = false;
+  return group;
+}
+
 /** How near the eye a truck's bars, shocks and driveshafts are drawn, feet: past it they are under a point wide on a 1080 line picture. */
 const FINE_PARTS_FT = 300;
 
@@ -73,8 +112,12 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
     for (const { mesh } of bodyMeshes) mesh.geometry.getAttribute("normal").needsUpdate = true;
   };
 
-  let standIn = null, bodyHidden = false;
+  let standIn = null, bodyHidden = false, far = false;
   const corners = ["tireFR", "tireFL", "tireRR", "tireRL"];
+  const farGroup = farTruck(library, truck, hubs, corners);
+  root.add(farGroup);
+  /** Wheels a mode has taken off (`setTire`). */
+  const tireGone = hubs.map(() => false);
   const tires = hubs.map((hub, index) => {
     const pivot = new THREE.Group();   // at the hub: travel, articulation, steering
     const spin = new THREE.Group();    // the wheel's roll
@@ -117,6 +160,42 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
   const shafts = suspension && truck.parts.driveshaft ? [0, 1].map(() => { const g = meshesOf(library, truck.parts.driveshaft, joined); root.add(g); return g; }) : [];
   /** Axles a mode has taken off (Combat's wrecks, `setAxle`): front, rear. Their model, bars, shocks and shaft are gone. */
   const axleGone = [false, false];
+  /**
+   * Which of the truck's pieces are drawn: its parts, or far off the one still piece in their place, where that shows
+   * the truck as it is (not with a wheel or an axle off, another body drawn in its place, or its body hidden).
+   */
+  const show = (wantFar = far) => {
+    far = wantFar && !standIn && !bodyHidden && !tireGone.some(Boolean) && !axleGone.some(Boolean) && farGroup.children.length > 0;
+    bodyGroup.visible = !bodyHidden && !standIn && !far;
+    tires.forEach((t, i) => { t.pivot.visible = !bodyHidden && !tireGone[i] && !far; });
+    axles.forEach((g, k) => { g.visible = !bodyHidden && !axleGone[k] && !far; });
+    farGroup.visible = far;
+  };
+  /*
+    The truck's shadow is cast by its one still piece, near or far (render/sun-shadows.js asks while it draws the
+    shadows, and puts the truck back after): the shadow of a wheel that does not turn and of a body without its dents is
+    the same shadow, and a cascade draws one thing where it drew a dozen. Not where the piece does not show the truck as
+    it is (`show`), nor a truck whose body is hidden, which casts nothing.
+  */
+  let pieceFor = null;
+  root.userData.shadowPiece = (on) => {
+    if (!on) {
+      if (!pieceFor) return;
+      for (const [object, visible] of pieceFor) object.visible = visible;
+      pieceFor = null;
+      return;
+    }
+    if (pieceFor || far || standIn || bodyHidden || tireGone.some(Boolean) || axleGone.some(Boolean) || !farGroup.children.length) return;
+    pieceFor = [];
+    const swap = (object, visible) => { if (object.visible !== visible) { pieceFor.push([object, object.visible]); object.visible = visible; } };
+    swap(bodyGroup, false);
+    for (const t of tires) swap(t.pivot, false);
+    for (const g of axles) swap(g, false);
+    for (const g of shafts) swap(g, false);
+    if (bars) swap(bars.mesh, false);
+    if (shocks) swap(shocks.mesh, false);
+    swap(farGroup, true);
+  };
   const eye = new THREE.Vector3(), up = new THREE.Vector3(), forward = new THREE.Vector3(0, 0, 1);
   // `update` moves the root once a frame, and sparks then ask where a dozen hull points are. Each ask used to
   // walk the whole truck. The walk is skipped while this frame's pose is the one already in the world matrices.
@@ -242,15 +321,16 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
     setTire(i, { hidden = false, wobble = 0 } = {}) {
       const t = tires[i];
       if (!t) return;
-      t.pivot.visible = !hidden;
+      tireGone[i] = !!hidden;
       t.wobble = Math.max(0, Math.min(1, wobble));
+      show();
     },
     /** A mode's say over axle `k` (0 front, 1 rear; Combat's wrecks): `hidden` takes it off, its bars, shocks and shaft too. */
     setAxle(k, { hidden = false } = {}) {
       if (k !== 0 && k !== 1) return;
       axleGone[k] = !!hidden;
-      axles[k].visible = !hidden;
       if (shafts[k]) shafts[k].visible = !hidden;
+      show();
     },
     /** A copy of tire `i`'s wheel to draw on its own (it shares the truck's geometry and materials), or null. */
     tireModel(i) {
@@ -305,14 +385,15 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
       bodyHidden = !!hidden;
       for (const child of root.children) child.visible = child === lamps.group || !hidden;
       // A body drawn in the truck's place (the TREX code) stands in for the truck's own.
-      if (standIn) { bodyGroup.visible = false; standIn.visible = !hidden; }
+      if (standIn) standIn.visible = !hidden;
+      show();
     },
     /** Draw `object` (in the truck's frame) in place of the body, or with null the body again. */
     setStandIn(object) {
       if (standIn) root.remove(standIn);
       standIn = object ?? null;
       if (standIn) root.add(standIn);
-      bodyGroup.visible = !standIn;
+      show();
     },
     /**
      * Place the truck from a simulation snapshot (see worker/sim-worker.js). `env` says how the lamps
@@ -351,7 +432,11 @@ export function createTruckObject(truck, hubs, look, { richLamps = false } = {})
       }
       // Far from the eye the bars, shocks and driveshafts are thinner than a point of the picture: they are neither
       // worked out nor drawn (nor drawn into the sun's shadow, where each was a draw as well).
-      const fine = !camera || Math.hypot(viewerLocal[0], viewerLocal[1], viewerLocal[2]) < FINE_PARTS_FT;
+      const away = camera ? Math.hypot(viewerLocal[0], viewerLocal[1], viewerLocal[2]) : 0;
+      const fine = away < FINE_PARTS_FT;
+      // Far off, the one still piece (`farTruck`); with a little play between the two, so a truck at the line does not flicker.
+      const wantFar = away > (far ? NEAR_TRUCK_FT : FAR_TRUCK_FT);
+      if (wantFar !== far) show(wantFar);
       if (bars) bars.mesh.visible = fine && !bodyHidden;
       if (shocks) shocks.mesh.visible = fine && !bodyHidden;
       shafts.forEach((g, k) => { g.visible = fine && !bodyHidden && !axleGone[k]; });

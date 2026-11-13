@@ -1479,14 +1479,14 @@ and in Snow it is under snow or frozen. A headset throws half the puffs.
 **Dust** (`DUST`, `groundDust`, `DUST_WEATHER`, `dustColour`). Whether a tire raises dust is
 still the game's rule: over 10 mph on ground with the game's dust flag (`0x4de180`: Cement, Dirt
 and Sand; game/tire-effects.js `raisesDust`), dry, and a second puff with even odds over 20 mph.
-Cement's dust is grey (concrete, asphalt) and a tire raises at most a third of the game's puffs
+Cement's dust is grey (concrete, asphalt) and a tire raises at most 0.07 of the game's puffs
 there (`dustShare`), and those only as far as it asks more of the road than the road holds
 (`slidingDust`, game/particles.js `gripDemand`): as hard as it slides or spins, or, while the
 truck is still pulling away (in full to 15 mph, none from 35), by the game's whole measure of a
 skid. A tire that only rolls on pavement raises none, where the game puffs wherever one rolls:
 on a city track that was a cloud behind every truck all race long. Both in the classic and the
 rich particles; grass, mud and gravel raise none, as in the game. How much is the port's, and
-at every level a wheel lays 56 in a hundred of the puffs it first did (`DUST_COUNT`): a cloud is made by how long its dust hangs and swells, which is
+at every level a wheel lays 39 in a hundred of the puffs it first did (`DUST_COUNT`): a cloud is made by how long its dust hangs and swells, which is
 kept, and the puffs are what a frame pays for:
 
 - *The trail.* A tire raising dust lays it along the way it rolled since the last tick, a puff

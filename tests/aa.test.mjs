@@ -22,7 +22,7 @@ test("MSAA is the default, and the optional passes stay off until one of them is
   assert.equal(aaChoice("nope"), "msaa");
   assert.equal(aaChoice(undefined), "msaa");
   assert.equal(aaPost("nope"), null);
-  assert.ok(AA_HINT.includes("optional") && AA_HINT.includes("headset"));
+  assert.ok(AA_HINT.includes("Auto") && AA_HINT.includes("headset"));
 });
 
 test("MSAA takes four samples a point, two above five million points, and every other choice takes one", () => {
@@ -60,24 +60,24 @@ test("TAA's sample stays inside half a pixel, and a camera cut drops the frame i
   assert.equal(aaResets(0, TAA_RESET_TURN + 0.001), true);
 });
 
-test("the choice is a setting, MSAA until the player picks, and Options lists every one", async () => {
+test("the choice is a setting, Auto until the player picks, and Options lists every one", async () => {
   const { DEFAULT_SETTINGS, loadSettings } = await import("../src/app/settings.js");
-  assert.equal(DEFAULT_SETTINGS.aa, "msaa");
+  assert.equal(DEFAULT_SETTINGS.aa, "auto");
   const store = new Map();
   globalThis.localStorage = {
     getItem: (key) => store.get(key) ?? null,
     setItem: (key, value) => store.set(key, value),
     removeItem: (key) => store.delete(key),
   };
-  assert.equal(loadSettings().aa, "msaa", "a setting saved before the choice existed");
+  assert.equal(loadSettings().aa, "auto", "a setting saved before the choice existed");
   store.set("openmtm2.settings", JSON.stringify({ version: 6, aa: "taa", look: "classic" }));
   assert.equal(loadSettings().aa, "taa");
   assert.equal(loadSettings().look, "classic");
   store.set("openmtm2.settings", JSON.stringify({ version: 6, aa: "dlss" }));
-  assert.equal(loadSettings().aa, "msaa", "a value that is not a choice");
+  assert.equal(loadSettings().aa, "auto", "a value that is not a choice");
   delete globalThis.localStorage;
   const panel = readFileSync(new URL("../src/ui/options-panel.js", import.meta.url), "utf8");
-  assert.match(panel, /AA_MODES\.map\(\(mode\) => el\("option"/);
+  assert.match(panel, /AA_CHOICES\.map\(\(mode\) => el\("option"/);
   assert.match(panel, /title: t\(AA_HINT\)/);
 });
 
@@ -120,7 +120,8 @@ test("TAA keeps its frame and the distance in one pass, and hands on the steady 
 });
 
 test("the screen's own picture has samples only where MSAA draws the scene straight onto it, without the lens", () => {
-  assert.equal(screenSampled({}), true, "the defaults: MSAA, no lens");
+  assert.equal(screenSampled({}), true, "the defaults: Auto, which without the lens is MSAA");
+  assert.equal(screenSampled({ lensEffects: true }), false, "Auto through the lens is FXAA");
   assert.equal(screenSampled({ aa: "msaa" }), true);
   assert.equal(screenSampled({ aa: "msaa", lensEffects: true }), false, "through the lens the scene has a picture of its own");
   for (const aa of ["off", "fxaa", "smaa", "taa"]) assert.equal(screenSampled({ aa }), false, aa);
@@ -137,4 +138,15 @@ test("the screen's own picture has samples only where MSAA draws the scene strai
   const aa = read("../src/render/aa.js");
   assert.match(aa, /const samples = aaSamples\(mode, width, height\);/);
   assert.match(aa, /flat = halfFloat\(width, height, \{ depth: true, samples \}\);/);
+});
+
+test("Auto is MSAA straight onto the screen and FXAA through the lens; a choice is itself", async () => {
+  const { AA_CHOICES, AUTO_AA, aaFor, aaSetting } = await import("../src/game/aa.js");
+  assert.deepEqual(AA_CHOICES.map((mode) => mode.id), ["auto", "off", "msaa", "fxaa", "smaa", "taa"]);
+  assert.equal(aaSetting(undefined), AUTO_AA);
+  assert.equal(aaSetting("nope"), AUTO_AA);
+  assert.equal(aaFor({}), "msaa");
+  assert.equal(aaFor({ lensEffects: true }), "fxaa");
+  assert.equal(aaFor({ aa: "auto", lensEffects: false }), "msaa");
+  for (const aa of ["off", "msaa", "smaa", "taa"]) assert.equal(aaFor({ aa, lensEffects: true }), aa);
 });

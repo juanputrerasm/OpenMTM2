@@ -7552,6 +7552,10 @@
   "text": "Haz clic para copiar estas cifras"
  },
  {
+  "tag": "Auto uses MSAA, and FXAA where Lens effects is on, which is where MSAA costs most. Off draws each point once and is the fastest. MSAA is the hardware way: four samples a point, two when the picture is very large. FXAA, SMAA and TAA are passes over the picture. FXAA is the cheapest, SMAA keeps edges sharper, and TAA also steadies shimmer. A headset keeps its own sampling. Takes effect from the next race.",
+  "text": "Automático usa MSAA, y FXAA cuando los efectos de lente están activados, que es donde MSAA cuesta más. Desactivado dibuja cada punto una vez y es lo más rápido. MSAA es el método del hardware: cuatro muestras por punto, dos cuando la imagen es muy grande. FXAA, SMAA y TAA son pasadas sobre la imagen. FXAA es la más liviana, SMAA mantiene los bordes más nítidos y TAA además reduce el parpadeo. Un visor de VR usa su propio muestreo. Se aplica desde la próxima carrera."
+ },
+ {
   "tag": "Skip hidden scenery",
   "text": "Omitir el escenario oculto"
  },

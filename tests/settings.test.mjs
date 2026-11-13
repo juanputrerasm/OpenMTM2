@@ -186,7 +186,7 @@ test("the OpenMTM2 preset: no MTM1 or MTM2 choice, the port's effects with norma
   for (const key of ["mtm1EarthSky", "mtm1Particles", "mtm1Sounds", "originalBackdrops", "greyDust", "waterReflections", "truckReflections"]) assert.equal(settings[key], false, key);
   for (const key of ["tireTracks", "waterSplash", "terrainDetail", "hdWeather", "reflections", "backdrops"]) assert.equal(settings[key], true, key);
   assert.equal(settings.physics, "auto");
-  assert.equal(settings.dustAmount, 2);
+  assert.equal(settings.dustAmount, 1);
   assert.equal(settings.sparkAmount, 2);
   assert.equal(settings.graphics, "max");
   for (const option of VISUAL_OPTIONS) assert.equal(settings[option.key], true, option.key);
@@ -288,4 +288,16 @@ test("settings kept across races: the Names key's mode, the chase mirror's size,
   assert.equal(old.names, 0);
   assert.equal(old.dragBeams, true);
   assert.equal(migrateSettings({ version: 13, names: 2 }).names, 2);
+});
+
+test("Few dust is the default from version 14: a Normal saved before it was the old default, a later one is a choice", async () => {
+  const { DEFAULT_SETTINGS, migrateSettings } = await import("../src/app/settings.js");
+  assert.equal(DEFAULT_SETTINGS.dustAmount, 1);
+  assert.equal(migrateSettings({ version: 13, dustAmount: 2 }).dustAmount, 1);
+  assert.equal(migrateSettings({ version: 13, dustAmount: 3 }).dustAmount, 3);
+  assert.equal(migrateSettings({ version: 14, dustAmount: 2 }).dustAmount, 2);
+  assert.equal(migrateSettings({ version: 13, aa: "msaa" }).aa, "auto");
+  assert.equal(migrateSettings({ version: 13, aa: "smaa" }).aa, "smaa");
+  assert.equal(migrateSettings({ version: 14, aa: "msaa" }).aa, "msaa");
+  assert.equal(DEFAULT_SETTINGS.aa, "auto");
 });

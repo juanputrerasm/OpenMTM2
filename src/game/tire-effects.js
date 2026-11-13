@@ -49,10 +49,10 @@ export const keepsTread = (type) => TRACK_TYPES.includes(type);
 /** Whether the dust off ground of type `type` is grey: Cement's (concrete, asphalt). */
 export const greyDustOn = (type) => type === 1;
 /**
- * How many of the game's puffs a tire raises off ground of type `type`: off Cement 0.225, three quarters of a third (the port's; the game puffs
+ * How many of the game's puffs a tire raises off ground of type `type`: off Cement 0.07125 (a third, less a quarter, a twentieth and then seven tenths; and kept out of the last tenth off `DUST_COUNT`) (the port's; the game puffs
  * as on dirt, which on a paved city reads as far too much), elsewhere all.
  */
-export const CEMENT_DUST_SHARE = 0.225;
+export const CEMENT_DUST_SHARE = 0.07125;
 export const dustShare = (type) => (greyDustOn(type) ? CEMENT_DUST_SHARE : 1);
 /**
  * How much of that dust a tire that slides or spins `sliding` hard (0 to 1, game/particles.js `slideAmount`) raises off
@@ -263,11 +263,23 @@ export function dustLevel(settings) {
 
 /**
  * How many of a wheel's puffs every dust level keeps of what it first had: 30 percent fewer, then a fifth fewer again
- * and 15 percent fewer again (0.7 x 0.8 x 0.85), the classic Few, the game's own puffs, with the rest. A cloud is made by how long its dust hangs and
+ * 15 percent fewer and twice a tenth fewer again (0.7 x 0.8 x 0.85 x 0.9 x 0.9), the classic Few, the game's own puffs, with the rest. A cloud is made by how long its dust hangs and
  * swells, which the levels keep; the puffs themselves are what a frame pays for, each a square laid over the picture
  * (in one held picture of a race the dust was the difference between 168 and 129 frames a second).
  */
-export const DUST_COUNT = 0.476;
+export const DUST_COUNT = 0.38556;
+
+/**
+ * Trucks within this of one another, feet, raise their dust as a pack (`packDust`).
+ */
+export const PACK_FT = 120;
+/**
+ * How much of its dust a truck raises with `near` trucks within `PACK_FT` of it, itself among them: one over the square
+ * root of how many. Each raising all of its own, a pack leaving the line was eight clouds laid one over another, which
+ * reads as one cloud eight times too thick and costs eight clouds to draw; so a pack of four raises two trucks' worth
+ * between them, and one of eight under three.
+ */
+export const packDust = (near) => 1 / Math.sqrt(Math.max(1, near || 1));
 
 /**
  * The game's puff sprites at a level: for a wheel's dust and a hit's smoke, how many times the game's size a puff starts

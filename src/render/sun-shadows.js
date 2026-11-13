@@ -532,6 +532,11 @@ export class SunShadows {
     const previous = renderer.getRenderTarget();
     const face = renderer.getActiveCubeFace();
     const mip = renderer.getActiveMipmapLevel();
+    // A truck casts as its one still piece (render/truck-object.js `shadowPiece`): a draw a cascade where its parts
+    // are a dozen. Only while the shadows are drawn: three.js has already listed what the camera sees.
+    // What was left out of the camera's picture as hidden (render/occlusion.js) still casts: it is shown again first.
+    this._scene.userData.beforeShadows?.();
+    for (const truck of this._truckCasters) truck.root.userData.shadowPiece?.(true);
     try {
       if (!this._caching || this._cacheBroken) {
         this._nativeRender.call(renderer.shadowMap, lights, scene, camera);
@@ -549,6 +554,7 @@ export class SunShadows {
       if (rest.length) this._nativeRender.call(renderer.shadowMap, rest, scene, camera);
       for (const light of pending) this._drawCascade(light);
     } finally {
+      for (const truck of this._truckCasters) truck.root.userData.shadowPiece?.(false);
       renderer.setRenderTarget(previous, face, mip);
     }
   }
@@ -763,6 +769,15 @@ export class SunShadows {
     this._cache = null;
     this._caching = false;
     this._unhook();
+    // The cascades' own maps, each a 2048 square picture and a depth texture of the same size (some 130 MB of the
+    // graphics card's memory between the four): three.js lets go of a light's map only when the light is told to, and
+    // they were not, so every race left its four behind on the card for as long as the page stayed open.
+    for (const light of this._csm?.lights ?? []) {
+      const map = light.shadow?.map;
+      if (map) { map.depthTexture?.dispose(); map.dispose(); light.shadow.map = null; }
+      light.shadow?.dispose?.();
+    }
+    this._depths = null;
   }
 }
 

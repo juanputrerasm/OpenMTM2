@@ -19,7 +19,7 @@ import { TOUCH_MODES } from "../game/input/touch.js";
 /** The Rumble effects slider's steps (game/input/rumble.js RUMBLE_LEVELS). */
 const RUMBLE_LEVEL_NAMES = [msg("Hits"), msg("Hits + ground"), msg("All")];
 import { CAB_STYLES, VIEW_DISTANCES, VR_VIEWS, vrSettings } from "../game/vr/settings.js";
-import { AA_HINT, AA_MODES, aaChoice } from "../game/aa.js";
+import { AA_CHOICES, AA_HINT, aaSetting } from "../game/aa.js";
 import { GRAPHICS_HINT, GRAPHICS_PRESETS, RENDER_SCALES, applyGraphics, detectGraphics, graphicsChoice, graphicsLabel } from "../game/graphics.js";
 import { graphicsHardware } from "../app/graphics-hardware.js";
 import { VISUAL_OPTIONS } from "../game/visuals.js";
@@ -757,7 +757,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       row(msg("Anti-aliasing"), el("select", {
         "aria-label": t("Anti-aliasing"), "data-opt": "Anti-aliasing", title: t(AA_HINT),
         onchange: (event) => { settings.aa = event.target.value; save(); },
-      }, ...AA_MODES.map((mode) => el("option", { value: mode.id, selected: mode.id === aaChoice(settings.aa) }, t(mode.label)))), AA_HINT),
+      }, ...AA_CHOICES.map((mode) => el("option", { value: mode.id, selected: mode.id === aaSetting(settings.aa) }, t(mode.label)))), AA_HINT),
       // In terrain cells (32 ft each), as the game counts its view; 128 is the standard.
       slider(msg("Draw distance"), { min: 16, max: 256, step: 16, value: Math.min(256, settings.drawCells ?? 128), format: (v) => t("<<1>> cells", v), set: (v) => { settings.drawCells = v; save(); } }),
       slider(msg("Field of view"), {

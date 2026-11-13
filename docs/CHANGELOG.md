@@ -147,6 +147,36 @@ City as the first), the views on them, and Freestyle's trick physics under every
   330 to 370 draws and 240,000 to 300,000 triangles a frame before, 160 to 260 and 80,000 to 120,000 after.
 - **A far truck's bars, shocks and driveshafts** (render/truck-object.js `FINE_PARTS_FT`) are not drawn past 300 ft,
   where they are thinner than a point of the picture.
+- **Dust, again** (game/particles.js `hardSlide`, game/tire-effects.js `packDust`, `DUST_COUNT`, `CEMENT_DUST_SHARE`):
+  - Pavement shows a slide only from 0.4 of a full one (`HARD_SLIDE_FROM`), for its smoke and its dust alike. The
+    simulation's driven tires run 7 to 18 ft/s faster than the road under power, which counted as a slight spin: nine
+    in ten of the puffs a truck left on a street, down every straight. Nice Beaver, eight trucks, 55 s: 541 puffs of
+    smoke before, 38 after, and no dust off the pavement at all.
+  - Trucks within 120 ft of one another raise their dust as a pack: each one over the square root of how many, so
+    four raise two trucks' worth and eight under three, where a field leaving the line was eight clouds laid one over
+    another. Dust and smoke only; the water a truck throws is its own.
+  - Every dust level a tenth fewer puffs again (`DUST_COUNT` 0.4284), cement a twentieth less (0.21375).
+  - Then: pavement's dust and a sliding tire's smoke on it three tenths of that (`CEMENT_DUST_SHARE` 0.07125,
+    `HARD_SMOKE` 0.255), every other dust a tenth less again (`DUST_COUNT` 0.38556), and Few the Dust slider's default
+    and the OpenMTM2 preset's (settings version 14: a Normal saved before it was the old default and becomes Few).
+- **A race left 130 MB on the graphics card** (render/sun-shadows.js `dispose`; found with tools/perf-race.mjs
+  `--races`, which runs race after race in one session and lists the graphics card's textures that outlive the race
+  that made them). The sun's shadow cascades are four 2048 square maps, each with a depth texture of its size, and
+  three.js lets go of a light's map only when told to: every race, replay and fly-by in the enhanced look left its
+  four on the card for as long as the page stayed open, since shadows were first drawn. On a chip that shares the
+  machine's memory a session grew slower race by race. They are let go with the race now. (The page's own memory
+  does not grow from race to race.)
+- **Anti-aliasing: Auto** (game/aa.js `aaFor`; Options, Display; the default, and a saved MSAA from before settings
+  version 14 becomes it): MSAA where the scene is drawn straight onto the screen, FXAA where Lens effects has it drawn
+  into a picture of its own. A dust-free held picture 3,420 points wide, through the lens: 98 frames a second with
+  MSAA, 132 with FXAA, 138 with none; without the lens the three are alike (156, 158, 155).
+- **A truck's shadow is cast by its one still piece** (render/truck-object.js `shadowPiece`), near or far: a draw a
+  cascade where its parts were a dozen. Farm Road 29 at Max, eight trucks in view: 96 shadow draws a frame to 9 to 15,
+  230 to 290 draws in all to 113 to 132.
+- **A far truck is one still piece** (render/truck-object.js `farTruck`, past 600 ft and until back within 540): its
+  body, its tires at their hubs and its axles joined into a draw or two, in the picture and in the sun's shadow,
+  where its parts are a dozen each; without the wheels' turning, the suspension's travel or the dents. Not a truck
+  with a wheel or an axle off, another body in its place, or keyframed parts.
 - **What a frame's points cost, measured in one held picture** (tools/perf-race.mjs `--freeze`: the race paused and
   the same picture drawn with its dust the light way, the heavy way and not at all; a race's own ups and downs, and
   the different race each run of the autopilot in a pack turns out to be, hid differences of a millisecond). On a

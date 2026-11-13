@@ -40,7 +40,7 @@
   machine it ran on.
 */
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,6 +69,8 @@ const HELP = `Usage: node tools/perf-race.mjs --track <name> [--game <MTM2 folde
   --occlusion          with --freeze: how much of what the held picture draws is wholly hidden behind something else
                        (the placed objects and the ground in view, each one's box tested against the scene's depth)
   --eval <js>          an expression worked out in the page after each window, its value logged with it
+  --races <n>          run the race n times in the one session, one after another (1): does it slow from race to race
+  --heap               save the page's heap snapshot after the last race (with --races: what a finished race left)
   --passes             the graphics card's time by pass (each picture three.js draws), in place of the frame's
   --dpr <n>            force the device pixel ratio
   --chrome <path>      the Chrome to run
@@ -76,7 +78,7 @@ const HELP = `Usage: node tools/perf-race.mjs --track <name> [--game <MTM2 folde
 `;
 
 function parseArgs(argv) {
-  const o = { track: null, game: null, pods: [], url: null, port: 8097, seconds: 8, windows: 3, settle: 20, settings: {}, mode: null, throttle: 1, profile: false, shots: false, out: "perf-out", window: "1920,1080", dpr: null, chrome: null, keep: false, help: false };
+  const o = { track: null, game: null, pods: [], url: null, port: 8097, seconds: 8, windows: 3, settle: 20, settings: {}, mode: null, throttle: 1, races: 1, profile: false, shots: false, out: "perf-out", window: "1920,1080", dpr: null, chrome: null, keep: false, help: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = () => {
@@ -99,6 +101,8 @@ function parseArgs(argv) {
     else if (arg === "--out") o.out = value();
     else if (arg === "--window") o.window = value();
     else if (arg === "--passes") o.passes = true;
+    else if (arg === "--heap") o.heap = true;
+    else if (arg === "--races") o.races = Number(value());
     else if (arg === "--eval") o.eval = value();
     else if (arg === "--occlusion") o.occlusion = true;
     else if (arg === "--freeze") o.freeze = Number(value());
@@ -254,6 +258,9 @@ const MEASURE = `window.__perfWindow = (seconds) => new Promise((resolve) => {
   requestAnimationFrame(tick);
   function finish() {
     renderer.render = origRender; renderer.shadowMap.render = origShadow; renderer.info.autoReset = true;
+    // (An open port with a listener is never let go, nor is the race the listener can reach: found with --races --heap,
+    // where the page seemed to keep every race it had run.)
+    channel.port1.onmessage = null; channel.port1.close(); channel.port2.close();
     renderer.renderBufferDirect = origDirect;
     const drawsBy = Object.entries(byKind).map(([kind, n]) => [kind, Math.round(n / Math.max(1, frames.length + 1))])
       .filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([kind, n]) => kind + " " + n).join(", ");
@@ -441,8 +448,11 @@ async function main() {
   await new Promise((opened, failed) => { socket.onopen = opened; socket.onerror = failed; });
   let nextId = 0;
   const pending = new Map(), workers = new Map(), exceptions = [];
+  /** A heap snapshot's pieces as they arrive (`--heap`), or null while none is being taken. */
+  let heapChunks = null;
   socket.onmessage = (message) => {
     const data = JSON.parse(message.data);
+    if (data.method === "HeapProfiler.addHeapSnapshotChunk" && heapChunks && !data.sessionId) { heapChunks.push(data.params.chunk); return; }
     if (data.method === "Runtime.exceptionThrown") {
       const details = data.params.exceptionDetails;
       const text = (details.exception?.description ?? details.text ?? "").slice(0, 500);
@@ -526,8 +536,37 @@ async function main() {
   await sleep(1000);
 
   const settings = { vsync: false, ...options.settings };
+  // Every texture the page makes on the graphics card, with the race it was made in, where in the code and its size:
+  // those of an earlier race still there when the last is over were never let go.
+  await evaluate(`(() => {
+    const live = window.__perfTextures = new Map(), proto = WebGL2RenderingContext.prototype;
+    const wrap = (name, fn) => { const own = proto[name]; proto[name] = function (...args) { return fn.call(this, own, args); }; };
+    wrap("createTexture", function (own, args) {
+      const texture = own.apply(this, args);
+      live.set(texture, { round: window.__perfRound || 0, points: 0, where: new Error().stack.split("\\n").slice(2, 12).map((line) => line.trim().replace(/^at /, "").replace(/https?:\\/\\/[^/]+\\//, "").replace(/\\?[^:)]*/, "")).filter((line) => !/^Object\\.|new Promise|as createTexture/.test(line)).filter((line, i, all) => !/three\\.module/.test(line) || all.every((other) => /three\\.module/.test(other))).slice(0, 5).join(" < ") });
+      return texture;
+    });
+    wrap("deleteTexture", function (own, args) { live.delete(args[0]); return own.apply(this, args); });
+    wrap("bindTexture", function (own, args) { this.__perfBound = args[1]; return own.apply(this, args); });
+    const sized = (w, h, d) => function (own, args) { const t = live.get(this.__perfBound); if (t) t.points = Math.max(t.points, args[w] * args[h] * (d ? args[d] : 1)); return own.apply(this, args); };
+    wrap("texStorage2D", sized(3, 4));
+    wrap("texStorage3D", sized(3, 4, 5));
+    wrap("texImage2D", function (own, args) {
+      const t = live.get(this.__perfBound), source = args.length < 9 ? args[5] : null;
+      if (t) t.points = Math.max(t.points, source ? (source.videoWidth || source.width || 0) * (source.videoHeight || source.height || 0) : args[3] * args[4]);
+      return own.apply(this, args);
+    });
+    wrap("texImage3D", sized(3, 4, 5));
+    return true;
+  })()`);
+  let report = null;
+  for (let round = 1; round <= options.races; round++) {
+  await evaluate(`window.__perfRound = ${round}; true`);
+  const again = round > 1 ? `race ${round} ` : "";
   const race = await evaluate(`(async () => {
     const context = window.__perfContext;
+    // The race before this one, if any: the next is ready when another has taken its place.
+    window.__perfRaceBefore = window.__openmtm2Race || null;
     context.settings.introVideos = false;
     context.settings.fpsCounter = true;
     const wanted = ${JSON.stringify(settings)};
@@ -553,7 +592,7 @@ async function main() {
     };
   })()`);
   log("race:", JSON.stringify(race));
-  await waitFor("!!(window.__openmtm2Race && window.__openmtm2Race.latest && window.__openmtm2Race.latest.race)", 60000, "the race to start");
+  await waitFor("!!(window.__openmtm2Race && window.__openmtm2Race !== window.__perfRaceBefore && window.__openmtm2Race.latest && window.__openmtm2Race.latest.race)", 60000, "the race to start");
   await waitFor(`document.querySelector(".race-loading")?.hidden === true`, 180000, "the loading screen to go");
   const gpu = await evaluate(`(() => { const gl = window.__openmtm2Race.renderer.getContext(); const info = gl.getExtension("WEBGL_debug_renderer_info"); return info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER); })()`);
   log("renderer:", gpu);
@@ -573,8 +612,9 @@ async function main() {
     log(`main thread slowed ${options.throttle} times`);
   }
 
-  const report = { when: new Date().toISOString(), url, renderer: gpu, throttle: options.throttle, race, windows: [], profiles: {} };
-  const measure = async (label) => {
+  report ??= { when: new Date().toISOString(), url, renderer: gpu, throttle: options.throttle, race, windows: [], profiles: {} };
+  const measure = async (name) => {
+    const label = again + name;
     await send("Page.bringToFront").catch(() => {});
     const result = await evaluate(`window.__perfWindow(${options.seconds})`);
     report.windows.push({ label, ...result });
@@ -634,6 +674,44 @@ async function main() {
     for (let i = 0; i < options.windows; i++) await measure(`drive ${i + 1}`);
   }
 
+  // What the page holds after the race: a session that slows from race to race keeps something from each.
+  await send("HeapProfiler.collectGarbage").catch(() => {});
+  const held = await evaluate(`(() => {
+    const R = window.__openmtm2Race, info = R.renderer.info;
+    return { geometries: info.memory.geometries, textures: info.memory.textures, programs: info.programs ? info.programs.length : null,
+      heapMB: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null, domNodes: document.getElementsByTagName("*").length,
+      sceneNodes: (() => { let n = 0; R.scene.traverse(() => n++); return n; })() };
+  })()`);
+  log(`${again}holds: ${JSON.stringify(held)}`);
+  (report.held ??= []).push(held);
+  }
+  if (options.races > 1) {
+    const left = await evaluate(`(() => {
+      const by = new Map();
+      for (const t of window.__perfTextures.values()) {
+        if (!(t.round >= 1 && t.round < window.__perfRound)) continue;
+        const k = by.get(t.where) || { count: 0, megapoints: 0, rounds: new Set() };
+        k.count++; k.megapoints += t.points / 1e6; k.rounds.add(t.round);
+        by.set(t.where, k);
+      }
+      return [...by].map(([where, k]) => ({ where, count: k.count, megapoints: +k.megapoints.toFixed(1), races: k.rounds.size })).sort((a, b) => b.megapoints - a.megapoints).slice(0, 14);
+    })()`);
+    for (const t of left) log(`textures of earlier races still held: ${t.count} (${t.megapoints} million points, from ${t.races} races) made at ${t.where}`);
+    if (!left.length) log("no texture of an earlier race is still held");
+    report.texturesLeft = left;
+  }
+  if (options.heap) {
+    // What the page still holds once the races are over: for finding what keeps a finished race alive (tools/heap-paths.mjs).
+    await evaluate("window.__perfRaceBefore = null; true");
+    await send("HeapProfiler.collectGarbage").catch(() => {});
+    heapChunks = [];
+    await send("HeapProfiler.takeHeapSnapshot", { reportProgress: false });
+    const file = join(outDir, "page.heapsnapshot");
+    writeFileSync(file, "");
+    for (const chunk of heapChunks) appendFileSync(file, chunk);
+    heapChunks = null;
+    log("heap snapshot:", file);
+  }
   if (options.profile) {
     const sessions = [[undefined, "main"], ...[...workers.entries()]];
     const started = [];

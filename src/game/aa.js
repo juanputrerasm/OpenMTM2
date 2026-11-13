@@ -20,8 +20,26 @@ export const AA_MODES = Object.freeze([
   Object.freeze({ id: "taa", label: msg("TAA"), post: "taa" }),
 ]);
 
-/** What a race draws until the player picks otherwise: the hardware samples it already had. */
+/** What an unknown choice is taken as: the hardware samples the port first drew with. */
 export const DEFAULT_AA = "msaa";
+
+/**
+ * Auto, what a race draws until the player picks otherwise (`aaFor`): MSAA where the scene is drawn straight onto the
+ * screen's own samples, which costs nothing more, and FXAA where "Lens effects" has it drawn into a picture of its own,
+ * whose samples are that picture's to keep and bring down every frame. Measured on a picture 3,420 points wide with no
+ * dust in view (tools/perf-race.mjs `--freeze`): through the lens 98 frames a second with MSAA, 132 with FXAA and 138
+ * with none; without the lens 156, 158 and 155.
+ */
+export const AUTO_AA = "auto";
+/** The choices as Options lists them: Auto, then each way. */
+export const AA_CHOICES = Object.freeze([Object.freeze({ id: AUTO_AA, label: msg("Auto"), post: null }), ...AA_MODES]);
+/** A choice Options lists, or Auto when `id` is missing or not one of them. */
+export const aaSetting = (id) => (AA_CHOICES.some((mode) => mode.id === id) ? id : AUTO_AA);
+/** The way a race with `settings` is anti-aliased: the choice itself, or what Auto picks for them. */
+export function aaFor(settings = {}) {
+  const id = aaSetting(settings.aa);
+  return id === AUTO_AA ? (settings.lensEffects === true ? "fxaa" : "msaa") : id;
+}
 
 /**
  * Above this many points the hardware path takes two samples a point instead of four, so a
@@ -44,7 +62,7 @@ export const TAA_DEPTH_FT = 0.5;
 export const TAA_DEPTH_SHARE = 0.02;
 
 /** Shown on the Options screen's Display page. */
-export const AA_HINT = msg("Off draws each point once and is the fastest. MSAA is the hardware default: four samples a point, two when the picture is very large. FXAA, SMAA and TAA are optional passes over the picture, left off unless chosen. FXAA is the cheapest, SMAA keeps edges sharper, and TAA also steadies shimmer. A headset keeps its own sampling. Takes effect from the next race.");
+export const AA_HINT = msg("Auto uses MSAA, and FXAA where Lens effects is on, which is where MSAA costs most. Off draws each point once and is the fastest. MSAA is the hardware way: four samples a point, two when the picture is very large. FXAA, SMAA and TAA are passes over the picture. FXAA is the cheapest, SMAA keeps edges sharper, and TAA also steadies shimmer. A headset keeps its own sampling. Takes effect from the next race.");
 
 /** A known choice, or the default when `id` is missing or not one of them. */
 export function aaChoice(id) {
@@ -76,7 +94,7 @@ export function aaSamples(id, width, height) {
  * of its own that has them (render/scenery.js).
  */
 export function screenSampled(settings = {}) {
-  return aaChoice(settings.aa) === "msaa" && settings.lensEffects !== true;
+  return aaFor(settings) === "msaa" && settings.lensEffects !== true;
 }
 
 /** The van der Corput radical inverse: the fractional part of `index` written in base `base` and mirrored. */
