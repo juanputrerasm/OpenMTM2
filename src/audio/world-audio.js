@@ -6,6 +6,8 @@
 */
 import { RAIN_UNDERWATER_PITCH, UNDERWATER_PITCH, nextDelay, objectHitSound, truckCrashSound, rainJitter, rainOnRoof, roofGain, underwaterMix } from "../game/sound-model.js";
 import { weatherMaskIncludes } from "../vendor/openphotex/mtm/sound.js";
+import { FALL_SOUND_RANGE } from "../vendor/openphotex/sim/cp4/falls.js";
+import { nearestCopy } from "../shared/scene-frame.js";
 
 /**
  * A tracker module's extra gain over a WAV loop. A rendered module averages about -16 dBFS RMS (SEX.MOD) while the
@@ -148,6 +150,16 @@ export function createWorldAudio(audio, { ambient, cues = ambient, weather, musi
     // Crossing bells and horns answer trains only; a Community Patch 3 mover (type 13) has neither.
     const trains = emitters.filter((e) => e.moving && e.train !== false);
     for (const e of emitters) {
+      // A Community Patch 4 waterfall's loop (worker/cp4-falls.js; CP4_EXE_ANALYSIS.md 12.7): from its landing at the
+      // copy of the world nearest the listener, at its volume and hearing, within the engine's sound range.
+      if (e.fall !== undefined) {
+        e.pos = nearestCopy(e.positionFt, listener);
+        const heard = Math.hypot(e.pos[0] - listener[0], e.pos[1] - listener[1], e.pos[2] - listener[2]) < FALL_SOUND_RANGE;
+        if (heard && !e.voice) e.voice = audio.play(e.sound, { loop: true, gain: e.volume, hearing: e.hearing, randomStart: true, position: e.pos });
+        else if (!heard && e.voice) { e.voice.then((v) => v?.stop()); e.voice = null; }
+        if (e.voice) e.voice.then((v) => v?.setPosition(e.pos));
+        continue;
+      }
       const p = moved.get(e.sitIndex);
       if (p) e.pos = p;
       const bell = /^cross/i.test(e.sound);

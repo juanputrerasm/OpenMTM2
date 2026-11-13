@@ -229,7 +229,8 @@ export default async function mount(container, context, { replay, namesMode: sta
   cleanups.push(() => weatherScene.dispose());
   // The enhanced look's sun shadows, as in the race.
   if (look === "enhanced" && replayFx) {
-    shadows = enableSunShadows({ renderer, scene, camera, world, sun, trucks: drawn.filter(Boolean).map((truck) => truck.object), natural: !!scenery.lightRig });
+    shadows = enableSunShadows({ renderer, scene, camera, world, sun, trucks: drawn.filter(Boolean).map((truck) => truck.object), natural: !!scenery.lightRig,
+      shadowShells: context.settings.cp4ShadowShells !== false });
     shadows.follow(sun, scenery.lightRig?.rig?.shadow ?? 1);
     cleanups.push(() => shadows?.dispose?.());
   }

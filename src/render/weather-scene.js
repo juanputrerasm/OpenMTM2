@@ -17,6 +17,7 @@
 import * as THREE from "three";
 import { setBackdropWeather } from "./track-scene.js";
 import { setFogVolumeWeather } from "./fog-volumes.js";
+import { setWaterfallWeather } from "./waterfalls.js";
 import { UNDERWATER_FOG_FT, WEATHER_LOOK } from "../game/weather.js";
 import { UNDERWATER, lightAtDepth } from "../game/water.js";
 import { BACKDROP_DARK } from "../game/atmosphere.js";
@@ -197,6 +198,8 @@ export function createWeatherScene(env) {
     const w = WEATHER_LOOK[current];
     // Community Patch 4's fog volumes are drawn in the weathers their mask names (render/fog-volumes.js).
     setFogVolumeWeather(world, current);
+    // And Community Patch 4 beta 0.53's waterfalls: Snow holds their ripple and freezes a FREEZE fall (render/waterfalls.js).
+    setWaterfallWeather(world, current);
     // At a race's start the weather has been as it is all along; a change during one comes on.
     volume?.set(current, { instant: !started });
     groundSurface?.set(current, { instant: !started });

@@ -10,10 +10,11 @@
   names, then turns the map off (game/course-map-labels.js `nextOpenMapMode`), each name with its place.
 */
 import { drawText, textWidth } from "./bitmap-text.js";
-import { CHECKPOINT_COLOR, NEXT_CHECKPOINT_COLOR, MAP_HALF_WIDTH_FT, boxCorners, mapLineScale, mapTransparency, toMapFrame } from "./minimap.js";
+import { CHECKPOINT_COLOR, NEXT_CHECKPOINT_COLOR, MAP_HALF_WIDTH_FT, boxCorners, mapLineScale, mapTransparency, nearestToPlayer, toMapFrame, wrapRuns } from "./minimap.js";
 import { nameTagScale, nameTransparency } from "./name-tag-style.js";
 import { MAP_OFF, openMapLabel, openMapMode, nextOpenMapMode } from "../game/course-map-labels.js";
 import { courseSegments, smoothCoursePath } from "../game/course-shape.js";
+import { mapWrap } from "../shared/scene-frame.js";
 
 /** Feet of ground over the strip's height at the truck's own scale, at zoom 1 (the tilt fits more ahead). */
 export const OPEN_MAP_SPAN_FT = 1100;
@@ -166,12 +167,14 @@ export function createOpenMap(course, { font = null, open = false, areas = null,
       const cx = w * OPEN_MAP_ORIGIN[0], cy = h * OPEN_MAP_ORIGIN[1];
       /** A map-frame point `[right, ahead]` on the canvas, or null where the view cannot show it. */
       const screen = (r, a) => { const p = tiltProject(r, a, OPEN_MAP_TILT, eye); return p ? [cx + p[0] * k, cy - p[1] * k] : null; };
-      const frame = (x, z) => toMapFrame(x, z, me.pos[0], me.pos[2], eased);
-      const px = (x, z) => { const [r, a] = frame(x, z); return screen(r, a); };
-      /** A polyline of world points `[x, z]`, cut where it runs behind the eye. */
-      const polyline = (pts, closed) => {
+      // A mark is drawn at its copy nearest the player, a course edge where `wrapRuns` placed it (beta 0.53's rule).
+      const frame = (x, z, wrap = true) => toMapFrame(x, z, me.pos[0], me.pos[2], eased, wrap);
+      const px = (x, z, wrap = true) => { const [r, a] = frame(x, z, wrap); return screen(r, a); };
+      const near = (x, z) => nearestToPlayer(x, z, me.pos[0], me.pos[2]);
+      /** A polyline of world points `[x, z]`, cut where it runs behind the eye; `wrap` false for points already placed. */
+      const polyline = (pts, closed, wrap = true) => {
         const minAhead = (eye * 0.2 - eye) / Math.sin(OPEN_MAP_TILT) + 1e-3;
-        const list = pts.map(([x, z]) => frame(x, z));
+        const list = pts.map(([x, z]) => frame(x, z, wrap));
         if (closed && list.length) list.push(list[0]);
         ctx.beginPath();
         let pen = false;
@@ -198,17 +201,24 @@ export function createOpenMap(course, { font = null, open = false, areas = null,
       // The course layer: drawn, then faded toward the strip's ends and sides.
       if (zoneMap) {
         ctx.lineWidth = 2 * u * line;
-        const box = (b, fill, stroke) => { polyline(boxCorners(b), true); ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = stroke; ctx.stroke(); };
+        const box = (b, fill, stroke) => {
+          const pos = b.pos ?? b.position, [nx, nz] = near(pos[0], pos[2]);
+          polyline(boxCorners(b).map(([x, z]) => [x + nx - pos[0], z + nz - pos[2]]), true, false);
+          ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = stroke; ctx.stroke();
+        };
         if (areas.summit) box(areas.summit, state === 1 ? "rgba(235,235,235,.3)" : "rgba(235,235,235,.14)", "rgba(240,240,240,.9)");
         if (areas.zone) box(areas.zone, state === 2 ? "rgba(255,214,64,.55)" : "rgba(255,214,64,.25)", "rgba(255,214,64,.95)");
       }
       if (path.length > 1) {
-        polyline(path, false); ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 5.5 * u * line; ctx.stroke();
-        polyline(path, false); ctx.strokeStyle = "rgba(240,240,240,.92)"; ctx.lineWidth = 2.5 * u * line; ctx.stroke();
+        const runs = wrapRuns(path, false, me.pos[0], me.pos[2]).map((run) => run.map((p) => [p.x, p.z]));
+        const stroke = () => { for (const run of runs) { polyline(run, false, false); ctx.stroke(); } };
+        ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 5.5 * u * line; stroke();
+        ctx.strokeStyle = "rgba(240,240,240,.92)"; ctx.lineWidth = 2.5 * u * line; stroke();
         if (open) {
           // The start and the finish: a short bar across the line at each end.
           for (const [i, j] of [[0, 1], [path.length - 1, path.length - 2]]) {
-            const a = px(path[i][0], path[i][1]), b = px(path[j][0], path[j][1]);
+            const [ax, az] = near(path[i][0], path[i][1]);
+            const a = px(ax, az, false), b = px(ax + mapWrap(path[j][0] - path[i][0]), az + mapWrap(path[j][1] - path[i][1]), false);
             if (!a || !b) continue;
             const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, nx = -(b[1] - a[1]) / l * 6 * u, ny = (b[0] - a[0]) / l * 6 * u;
             ctx.beginPath(); ctx.moveTo(a[0] - nx, a[1] - ny); ctx.lineTo(a[0] + nx, a[1] + ny); ctx.stroke();
@@ -221,7 +231,8 @@ export function createOpenMap(course, { font = null, open = false, areas = null,
           if (!g) return;
           const across = Math.min(g.half > 0 ? g.half : MAP_HALF_WIDTH_FT, 60 * u / k);
           const dx = Math.cos(g.psi) * across, dz = -Math.sin(g.psi) * across;
-          const a = px(g.pos[0] - dx, g.pos[2] - dz), b = px(g.pos[0] + dx, g.pos[2] + dz);
+          const [gx, gz] = near(g.pos[0], g.pos[2]);
+          const a = px(gx - dx, gz - dz, false), b = px(gx + dx, gz + dz, false);
           if (!a || !b) return;
           ctx.strokeStyle = i === checkpoints.current ? NEXT_CHECKPOINT_COLOR : CHECKPOINT_COLOR;
           ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();

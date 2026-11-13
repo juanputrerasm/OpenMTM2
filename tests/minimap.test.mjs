@@ -71,3 +71,56 @@ test("the map's transparency is 0 (solid, the game's) by default and held to its
   assert.equal(mapTransparency(-1), 0);
   assert.equal(mapTransparency(5), MAP_TRANSPARENCY_MAX);
 });
+
+test("beta 0.53's fold: a difference across the world edge is the short way, in [-4096, 4096)", async () => {
+  const { mapWrap } = await import("../src/render/minimap.js");
+  assert.equal(mapWrap(100), 100);
+  assert.equal(mapWrap(8000), -192);
+  assert.equal(mapWrap(-8000), 192);
+  assert.equal(mapWrap(4096), -4096);
+  assert.equal(mapWrap(-4096), -4096);
+});
+
+test("a course across the world edge unwraps point by point, so its loop never spans the world", () => {
+  const course = [
+    { ctype: 1, startFt: [8000, 0, 100], endFt: [8150, 0, 100] },
+    { ctype: 1, startFt: [100, 0, 100], endFt: [200, 0, 300] },
+    { ctype: 1, startFt: [100, 0, 500], endFt: [7950, 0, 400] },
+  ];
+  const loop = courseLoop(course);
+  assert.deepEqual(loop, [[8000, 100], [8150, 100], [8292, 100], [8392, 300], [8292, 500], [7950, 400]]);
+  for (let i = 1; i < loop.length; i++) assert.ok(Math.hypot(loop[i][0] - loop[i - 1][0], loop[i][1] - loop[i - 1][1]) < 500);
+});
+
+test("the map draws each edge at the copy whose midpoint is nearest the player, never across the world", async () => {
+  const { wrapRuns } = await import("../src/render/minimap.js");
+  // A loop that closes across the edge (it winds once round the world): the closing edge is folded short.
+  const pts = [[8100, 0], [8300, 0], [8300, 200], [8192 + 8100, 200]];
+  const runs = wrapRuns(pts, true, 50, 100);
+  for (const run of runs) for (let i = 1; i < run.length; i++) assert.ok(Math.hypot(run[i].x - run[i - 1].x, run[i].z - run[i - 1].z) <= 200 + 1e-9);
+  // Every drawn point is within half a world of the player.
+  for (const run of runs) for (const p of run) assert.ok(Math.abs(p.x - 50) <= 4096 && Math.abs(p.z - 100) <= 4096);
+  // The player at x = 50 sees the course just west of them, not 8000 ft east.
+  assert.ok(runs.flat().some((p) => p.x < 50 && p.x > -200));
+});
+
+test("an open course is not closed, and edges that meet are drawn as one run", async () => {
+  const { wrapRuns } = await import("../src/render/minimap.js");
+  const runs = wrapRuns([[0, 0], [100, 0], [100, 100]], false, 0, 0);
+  assert.equal(runs.length, 1);
+  assert.deepEqual(runs[0].map((p) => [p.x, p.z, p.i]), [[0, 0, 0], [100, 0, 1], [100, 100, 2]]);
+});
+
+test("a mark across the world edge is drawn at its copy nearest the player", () => {
+  const [r, u] = toMapFrame(8100, 0, 50, 0, 0);
+  near(r, -142); near(u, 0);
+  const [r2] = toMapFrame(8100, 0, 50, 0, 0, false);
+  near(r2, 8050);
+});
+
+test("the road's edge offsets at a loop closing across the world edge use the near copies of its neighbours", () => {
+  const square = [[8142, 0], [8242, 0], [8242, 100], [8142, 100]];
+  const wrapped = [[8142, 0], [50, 0], [50, 100], [8142, 100]];
+  const a = edgeOffsets(square), b = edgeOffsets(wrapped);
+  a.forEach((o, i) => { near(o[0], b[i][0], 1e-6); near(o[1], b[i][1], 1e-6); });
+});

@@ -97,7 +97,10 @@ export function createAudio(assets, volumes = {}) {
   const levelOf = (rec) => {
     if (!rec.position) return rec.base;
     const d = Math.hypot(rec.position[0] - listenerFeet[0], rec.position[1] - listenerFeet[1], rec.position[2] - listenerFeet[2]);
-    return rec.base * attenuation(d, range);
+    // A voice's hearing (a Community Patch 4 waterfall's, 1..2: CP4_EXE_ANALYSIS.md 12.7) stretches the fade,
+    // 1 - sqrt(d) / (sqrt(range) * hearing), and the sound still ends at the range.
+    const hearing = rec.hearing ?? 1;
+    return d >= range ? 0 : rec.base * attenuation(d, range * hearing * hearing);
   };
   function mix() {
     if (!running()) return;
@@ -168,11 +171,12 @@ export function createAudio(assets, volumes = {}) {
 
   /**
    * Start a sample. Options: `gain`, `rate`, `loop` (use its loop points), `position` ([x, y, z]
-   * feet; unpositioned when absent), `bus` ("effects", "music" or "commentary"), `randomStart`.
+   * feet; unpositioned when absent), `bus` ("effects", "music" or "commentary"), `randomStart`, `hearing` (a positioned
+   * voice heard further into the range, 1..2).
    * Resolves to a
    * voice `{ setGain, setRate, setPosition, stop }`, or null when the sample is missing.
    */
-  async function play(name, { gain = 1, rate = 1, loop = false, position = null, bus = "effects", randomStart = false } = {}) {
+  async function play(name, { gain = 1, rate = 1, loop = false, position = null, bus = "effects", randomStart = false, hearing = 1 } = {}) {
     // A one-shot is not started again at once, nor more than three at a time (the mixer's own limit is 16 in all).
     const key = String(name).toUpperCase();
     const guarded = !loop && bus === "effects";
@@ -196,7 +200,7 @@ export function createAudio(assets, volumes = {}) {
     source.playbackRate.value = rate;
     if (guarded) shots.get(key)?.push({ start: ctx.currentTime, end: ctx.currentTime + data.buffer.duration / rate });
     const volume = ctx.createGain();
-    const rec = { name: key, loop, base: gain, position: position ? [...position] : null, volume, stopped: false, startedAt: ctx.currentTime, mixed: bus === "effects" };
+    const rec = { name: key, loop, base: gain, position: position ? [...position] : null, hearing, volume, stopped: false, startedAt: ctx.currentTime, mixed: bus === "effects" };
     volume.gain.value = levelOf(rec);
     let panner = null;
     source.connect(volume);

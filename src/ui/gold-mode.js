@@ -61,7 +61,7 @@ export function createGoldMode(env) {
     view.append(panel.element);
   }
   // `zoomValue`: the camera's zoom as the game keeps it (16.16, 0x10000 the view's own; MONSTER_EXE_ANALYSIS.md 11), `zoom` the factor it gives.
-  const state = { gold: false, fps: false, slew: false, zMode: false, zoom: 1, zoomValue: ZOOM_ONE, screenshot: false, dance: false };
+  const state = { gold: false, fps: false, slew: false, autopilot: 0, zMode: false, zoom: 1, zoomValue: ZOOM_ONE, screenshot: false, dance: false };
   // DANCE: the mixer's output as a line across the view, over three guide lines (the middle and 64 lines either side of 480).
   const scope = win.document.createElement("canvas");
   scope.className = "gold-scope";
@@ -92,7 +92,16 @@ export function createGoldMode(env) {
   let typed = "", shots = 0, frameS = 1 / 60;
   const down = new Set();
 
-  const command = async (name) => sim.call("command", { name });
+  const command = async (name, value) => sim.call("command", value === undefined ? { name } : { name, value });
+  /**
+   * GOLD switched off hands the truck back (the port's own): the autopilot it set (Ctrl+T) goes off and slew mode
+   * (Ctrl+Y) ends, since their keys no longer answer and the truck would drive itself, or stand still, for the rest
+   * of the race.
+   */
+  const handBack = () => {
+    if (state.autopilot) { state.autopilot = 0; command("autopilot", 0); }
+    if (state.slew) { state.slew = false; command("slew", false); }
+  };
   const setZoom = (value, { keep = true } = {}) => {
     state.zoomValue = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, value));
     state.zoom = zoomFactor(state.zoomValue);
@@ -115,7 +124,7 @@ export function createGoldMode(env) {
     if (!e.ctrlKey && !e.altKey) {
       typed = typeKey(typed, e.code);
       const code = cheatTyped(typed);
-      if (code === "GOLD") { state.gold = !state.gold; typed = ""; flash(`GOLD ${onOff(state.gold)}`); }
+      if (code === "GOLD") { state.gold = !state.gold; typed = ""; flash(`GOLD ${onOff(state.gold)}`); if (!state.gold) handBack(); }
       if (code === "FRAME") { state.fps = !state.fps; typed = ""; fpsPanel.element.hidden = !state.fps; }
       // Monster Truck Madness 1's two (MTM1_MONSTER_EXE_ANALYSIS.md 3).
       if (code === "DANCE") { state.dance = !state.dance; typed = ""; scope.hidden = !state.dance; }
@@ -144,7 +153,7 @@ export function createGoldMode(env) {
       done(command("reverse").then((on) => flash(t("Reverse course: <<1>>", onOff(on)))));
       return false;
     }
-    if (chord && e.code === "KeyT") { done(command("autopilot").then((n) => flash(t("Autopilot: <<1>>", t(AUTOPILOT_NAMES[n]))))); return true; }
+    if (chord && e.code === "KeyT") { done(command("autopilot").then((n) => { state.autopilot = n; flash(t("Autopilot: <<1>>", t(AUTOPILOT_NAMES[n]))); })); return true; }
     if (chord && e.code === "KeyB") { done(Promise.resolve(overlayNow().cycle()).then((m) => flash(t("Collision boxes: <<1>>", t(OVERLAY_NAMES[m] ?? m))))); return true; }
     if (chord && e.code === "KeyW") {
       const next = nextWeather(env.getWeather(), env.track.weatherMask);

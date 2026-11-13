@@ -733,7 +733,8 @@ async function mountRace(container, context, params, owned = []) {
 
   // The enhanced look (settings.look): the sun's shadows, and the sun, moon and lens flare.
   if (look === "enhanced") {
-    shadows = enableSunShadows({ renderer, scene, camera, world, sun, trucks: drawn.map((truck) => truck.object), natural: !!scenery.lightRig });
+    shadows = enableSunShadows({ renderer, scene, camera, world, sun, trucks: drawn.map((truck) => truck.object), natural: !!scenery.lightRig,
+      shadowShells: context.settings.cp4ShadowShells !== false });
     shadows.follow(sun, scenery.lightRig?.rig?.shadow ?? 1);
     const data = await context.assets.call("flare").catch(() => null);
     if (data) {
@@ -837,6 +838,8 @@ async function mountRace(container, context, params, owned = []) {
   const vrCockpit = await context.assets.call("cockpitPanel").catch(() => null);
   if (disposed) return { unmount };
   if (spectator) say(t(SPECTATOR_CAPTION), 8);
+  // What the track's loaders had to say (Community Patch 4 beta 0.53's waterfalls, worker/cp4-falls.js), as the engine shows it on screen.
+  if (build.notices?.length && !demo) say(build.notices.map((n) => t(n.text, ...(n.args ?? []).map((a) => (a?.tag ? t(a.tag) : a)))).join(" "), 8);
   // The scene's shaders are built and its textures sent to the graphics card now, behind the loading screen, the
   // shaders side by side where the browser can (three.js `compileAsync`); not one at a time inside the first frames.
   board.step(t("Loading additional graphics"));

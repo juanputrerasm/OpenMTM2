@@ -16,6 +16,7 @@ addresses (`FUN_...` or bare hex) and globals are for this exact build. World co
 | File | `monster.exe`, 10,252,288 bytes, MD5 `3938c3fb3f2f8b47cc6ca9075e49ccbe` |
 | Version | 2.0.52.2, PE32+ x86-64, image base 0x140000000 |
 | Version in the MP join packet | 0x3402 (CP3: 0x3400, retail 0x0201) |
+| Beta 0.53 build (sections 12 to 14) | `monster.exe`, 13,263,360 bytes, MD5 `2d80e10e5282f22a3e0e27e9d899d259`, still "Version 2.0.52.2"; renderer `trid3d11.dll` 1,728,000 bytes, MD5 `ec27cca6329136786f034a6bb30a8240` |
 
 ---
 
@@ -862,3 +863,675 @@ none of the stock or community models the BIN walk was checked on. Options: "CP4
 substeps offline" (`simSubstepOffline`); every other key is held at the default of 11.1. Not ported: the tree
 collisions of section 3 (trunks stay boxes until CP4's trunk test is traced), the autopilot run once per tick when the
 tick is split (it runs every substep with the tick as its frame time), and the diagnostics keys.
+
+---
+
+## 12. Beta 0.53: waterfalls (.WFL)
+
+The beta 0.53 build (header table) adds waterfalls: `WORLD\<stem>.WFL`, written by Traxx 1.7.1 (format: OpenPhotex
+`mtm/wfl`, docs/LEVELS.md). The engine builds each fall's sheet itself at load from the crest, the terrain and the
+water; the file holds no geometry. The renderer half (the four looks, the vertex layout as the shader reads it, the
+tuning keys) is in `trid3d11.dll`, whose waterfall shaders are embedded as source text. Cross-references inside this
+section (1.4, 2.3, ...) are to its own subsections (12.1.4, 12.2.3, ...).
+
+#### 12.0.1 Renderer DLL (CONFIRMED, `trid3d11.dll`)
+
+- Pipeline (`18000e350`): one vertex shader and four pixel-shader looks: 0 Original (the fall's texture), 1 Enhanced
+  and 2 Realistic (the lake's water material, CP4's own water modes), 3 Ice.
+- Vertex, 16 floats: pos xyz (1/256 ft, relative to the fall's anchor); u (ft across the crest), tau (s since the crest),
+  speed (ft/s), air (1 free fall, 0 draped); edge (0 outer column .. 1), end, kind (1 foam), fall index; drop (ft below
+  the crest); normal xyz; path (ft from the crest).
+- Vertex shader: draped water (kind 0) is lifted along its normal by (1 - air) * (wfLift / 100 + 0.0005 * eye distance)
+  ft and pulled toward the eye by (1 - air) * wfDepthPull / 1000 of the eye distance, against z-fighting on the ground.
+- Look 0: flow = (tau - time) * crest speed; the sheet samples the texture at (u / 16, flow / 16) and a second layer at
+  (u / 21.92 + 0.31, (tau * speed - time * speed * 0.85) / 21.92 + 0.17), mixed 30%; alpha = opacity * mask. The foam
+  strip (kind 1, only with SPLASH) samples at (anchor-relative xz ft / 16 + (0, time * 0.03)), colour
+  saturate(c * 1.6 + 0.12), alpha opacity * saturate(end * 1.5).
+- Look 3 (ice): no foam; c = the texture at (u / 16, flow / 16) with time 0; l = luma (0.30, 0.59, 0.11);
+  g = saturate(0.5 + (l - 0.35) * 2.5); colour lerp((0.62, 0.72, 0.80), (0.84, 0.90, 0.95), g) * (0.82 + 0.36 *
+  fbm(u / 1.5, flow / 16)); alpha = mask (no opacity).
+- Mask (every look): ns = 0.65 V(u / 0.8, q / 4) + 0.35 V(u / 0.35 + 3.1, q / 1.7), nf = 0.6 V(u / 1.3 + 7.3, q / 3) + 0.4
+  V(u / 0.5 + 1.7, q / 1.4) with q = flow; m = smoothstep(0, 0.25, sqrt(edge) * 1.1 + 0.08 - k (0.15 + 0.75 ns)) *
+  smoothstep(0, 0.3, end + 0.15 - 0.65 nf), k = wfEdge / 100. V is value noise on an integer lattice with a smoothstep
+  blend and the hash h = x * 0x8da6b343 ^ z * 0xd8163841; h ^= h >> 13; h *= 0x5bd1e995; h ^= h >> 15; value
+  (h & 0xffffff) / 16777215. fbm = 0.5 + 0.55 (V(p) - 0.5) + 0.30 (V(2.03 p + (17.1, 3.7)) - 0.5) + 0.15
+  (V(4.11 p + (5.3, 31.7)) - 0.5), each octave faded toward its mean as its cells shrink under a pixel.
+- Then colour * the scene light, fogged by horizontal eye distance to the weather fog colour. With the clip flag on
+  (mirror passes), pixels below the mirror plane are discarded.
+- Tuning keys (`[Graphics]`, `1800181e0`; default): wfEdge 100, wfLift 40 (hundredths of a ft), wfDepthPull 4 (per
+  mille), wfFoam 100; the rest (wfDepthScale, wfRippleStretch, wfWhite, wfLipBlend, wfRippleAmp, wfReflect,
+  wfCalmSpeed, wfRoughSpeed, wfCalmStreak*, wfFlowCycle, wfBreakup) shape looks 1 and 2 only.
+
+#### 12.0.2 Function map (CONFIRMED)
+
+| Address | Does |
+|---|---|
+| `14024ef30` | loader: ini keys, finds `WORLD\<stem>.WFL`, parse, validate, build each fall, texture/anim lookup, log, then sound and mist |
+| `1402486c0` | level name -> stem (chars before the first '.', at most 63) |
+| `140248720` | WFL parser (header, directory, FALL chunk, record checks) |
+| `140248ed0` | status code -> text |
+| `140250260` | per-fall validation (REFUSED reasons), converts the record to feet |
+| `140248f60` | crest: unwrap the points from point 0, segment lengths, point directions |
+| `1402493a0` | columns of one spacing: count, arc position s, x, z, flow dir |
+| `140249c20` | the column walk |
+| `1402496b0` | walk callback, count pass (rows, end kind, per-row y, chord path, "flat contact" flag) |
+| `14024a160` | walk callback, build pass (writes the sheet vertices and the sink vertex) |
+| `14024a650` | the mesh build: spacing / budget / shortening, both passes, trim, normals, indices, foam, landing stats |
+| `140249840` | per-vertex normals |
+| `1402511a0` | ground callback -> `140202130` (terrain height, classic or fine grid) |
+| `1402525d0` | water callback (WTR lake or LVL water, source lake excluded) |
+| `14024cc30` | per-frame draw (culling, looks, per-fall constants, `gpuDrawWaterfalls`) |
+| `14024db20` | landing rings / churn sent to the lake shader (sets the "lake draws this landing" bits) |
+| `14024e3a0` | foam zones (`gpuWaterfallFoamZones`) |
+| `140250080` -> `140250b00` -> `140251200` | per-frame anim clock, droplets, one droplet burst (`gpuSprayBurst`) |
+| `140251f10` | sounds (load time) |
+| `140251920` | mist fog volumes (load time) |
+| `14024c520` + `140250960`, `14024c680` | waterfallDebug: re-walk and store column polylines; draw them as lines |
+| `140250150` | clear all fall state (level unload) |
+
+DLL wrappers: `14012eb00` gpuWaterfallsAvailable (also needs Mesh, Texture, Draw imported), `14012eac0` gpuWaterfallMesh,
+`14012eae0` gpuWaterfallTexture, `14012daa0` gpuDrawWaterfalls, `14012eaa0` gpuWaterfallFoamZones, `14012e6a0`
+gpuSprayBurst, `14012e680` gpuSprayAvailable. Pointers at `1413e7a68/70/78/80/88`.
+
+Globals: falls built `DAT_1478305b0`, vertex buffer `DAT_1478305b8` (count `DAT_1478305b4`), index buffer
+`DAT_1478305c0` (count `DAT_1478305c8`), parsed records `DAT_147832920` (64 x 0x8c), built fall table `DAT_14782cab0`
+(64 x 0xec), per-fall GPU constants `DAT_147839220` (64 x 0x40).
+
+### 12.1 Loader (`14024ef30`)
+
+#### 12.1.1 Order, ini keys, file (CONFIRMED)
+
+- Called from the level loader `14049e710` at `14049f93f`, after the stadium/backdrop and the VEG loader, and well
+  after the WTR loader (`1402201a0` -> `140247090` at `14049eafd`), so the lake table exists when falls are validated.
+- `[Graphics] waterfalls` (default 1): 0 = no falls at all (the function returns before anything).
+- `[Graphics] waterBodyLog` (default 0): opens `waterfalls.txt` (the same switch as `waterbodies.txt`). **The log is
+  NOT controlled by `waterfallDebug`.**
+- `[Graphics] waterfallDebug` (default 0): sets `DAT_1478305cc`; see 1.6.
+- `[Graphics] wfRingDecay` default 15, clamp 2..100 (ft); `wfRingStrength` default 100, clamp 0..400 (%); `wfChurn`
+  default 100, clamp 0..400 (%). Used by the landing rings (6.2). Logged as "landing rings (lake surface, looks 1/2)".
+- File: `WORLD\<stem>.WFL`, stem = the level file name up to the first '.', 1..63 chars (`1402486c0`), file name
+  buffer 64 (`%s.WFL`), path buffer 80 (`WORLD\%s`).
+- **No TXV key.** The only "waterfalls" string (`1408a3ea8`) is the ini key above; the TXV parser does not read it.
+- Not found in any mounted pod: return silently (no log line, no message).
+- **Same-pod rule:** the pod holding `WORLD\<stem>.WFL` must be the pod holding `LEVELS\<level>`; if the level is a
+  loose file or the pods differ, the falls are ignored. Only the log says so ("IGNORED: %s is in %s but the level is in
+  %s"); **no on-screen message** (the lake and vegetation loaders do show one).
+
+#### 12.1.2 Format (CONFIRMED, parser `140248720`)
+
+Header (all little-endian):
+
+| Offset | Field | Rule |
+|---|---|---|
+| 0 | 'MWFL' | else status 2 |
+| 4 | u16 major | must be 1, else status 4 |
+| 6 | u16 minor | stored only |
+| 8 | u32 directory offset | >= 0x20 |
+| 0xc | u32 chunk count | dirOffset + count*16 <= size, else status 5 |
+| 0x10, 0x12 | u16 256, u16 256 | else status 6 |
+
+File size 0 = status 1; < 4 or < 0x20 = status 3. Directory entry 16 bytes {tag, version, offset, size}. Only the
+**first** 'FALL' entry is considered: offset+size past the end = outOfBounds, version != 1 = badVersion; any later
+FALL = duplicate; other tags = unknown. No usable FALL, FALL size < 8 or stride < 0x80 (badStride), or 0 records =
+status 7. Records: u32 count, u16 stride (>= 0x80), u16 reserved, records from +8; count is clamped to
+(size-8)/stride (truncated++).
+
+Record (stride 0x80, or >= 0x84 for v1.1):
+
+| Offset | Field | Check (counter) |
+|---|---|---|
+| 0 | u8 id | 1..255 (badId), unique (dupId) |
+| 1 | u8 source | lake id, 0 = spring (checked later) |
+| 2 | u8 points | 2..8 (badPoints) |
+| 3 | u8 | not read |
+| 4 | u16 flags | bit0 FREEZE, bit1 SPLASH, bit2 SOUND; `flags & 0xfff8` != 0 = badFlags |
+| 6 | u16 speed | 16..1600, 1/16 ft/s (badSpeed) |
+| 8 | u32 height | 1..4096, half-feet (badHeight) |
+| 0xc | 8 x (u32 x, u32 z) | each < 0x20000, 1/16 ft (badCoord); only the first `points` are checked/copied |
+| 0x4c | u8 opacity % | clamped to 100 |
+| 0x4d | u8 mist % | clamped to 200 |
+| 0x4e | u8 volume % | clamped to 200 |
+| 0x4f | u8 | not read |
+| 0x50 | char[16] sound stem | needs a NUL in the 16 bytes (badName) |
+| 0x60 | char[16] texture stem | needs a NUL in the 16 bytes (badName) |
+| 0x70..0x7f | reserved | not read |
+| 0x80 | u8 mist depth % | only if stride >= 0x84; 0 -> 100; clamp 250; else 100 |
+| 0x81 | u8 mist height % | same |
+
+At most **64** accepted; beyond that `over`++. The check order per record is: id, dupId (the id is marked used before
+the later checks), points, coords, speed, height, flags, names, over.
+
+#### 12.1.3 Messages (CONFIRMED, `14049ff20` = on-screen message)
+
+| Message | When |
+|---|---|
+| "This track's waterfalls file could not be read." | size <= 0, open, malloc or fread fails |
+| "This track's waterfalls need a newer build." | status 4 |
+| "This track's waterfalls file is damaged (%s) and was not loaded." | any other status != 0 (%s = status text: "empty file", "not a waterfall file (bad magic)", "file truncated (header)", "bad header size or chunk directory runs past the end", "authored for a different terrain size", "no usable waterfall list") |
+| "This track's waterfalls need more memory than is available." | the 16 MiB vertex or 6 MiB index buffer cannot be allocated |
+| "Some of this track's waterfalls were skipped." | any of over, badId, dupId, badPoints, badCoord, badSpeed, badHeight, badFlags, badName != 0, **or** any fall REFUSED by 1.4 |
+| "Some of this track's waterfalls were too big and were left out." | any fall DROPPED by the budget (2.9) |
+
+Chunk-level counters (unknown, duplicate, outOfBounds, badVersion, badStride, truncated) do not raise "skipped".
+
+#### 12.1.4 Validation, REFUSED reasons (CONFIRMED, `140250260`, in this order)
+
+Converted to feet: x, z = int * 0.0625; crest Y = height * 0.5; speed = int * 0.0625 ft/s.
+
+1. `FALL_POINTS`: a segment shorter than 2.0 ft (wrapped difference: d = (b - a) + 4096, d -= floor(d/8192)*8192 (fmod,
+   +8192 if negative), d -= 4096).
+2. `FALL_TURN`: two consecutive segment directions with a negative dot product (turn > 90 deg).
+3. `FALL_WIDTH`: crest length > 1024 ft.
+4. Only when source != 0: `FALL_SOURCE`: source not 1..255, or no loaded WTR body with that id (body table
+   `DAT_1478109d0 + id*0x70`, its +0 must equal id; a lake the WTR loader refused has no entry).
+5. `FALL_HEIGHT`: stored height != that lake's WTR height (body +4). **Exact equality is required.**
+6. `FALL_DIRECTION`: for every point k, try its adjacent segment(s) j in {k-1, k} (an end point only its own segment):
+   base = P_k nudged min(0.5 * len_j, 0.5) ft along segment j (forward if j == k, backward if j == k-1); probe =
+   base - dir_j (1 ft against the segment flow dir); tile = floor(probe / 32) & 255 per axis; pass if
+   TMAP[tz*256 + tx] == source for either segment. Any point failing = refused.
+
+Segment flow dir = normalize(dz, -dx) (fallback (1, 0) when length < 1e-12; unreachable after FALL_POINTS).
+Springs (source 0) skip 4..6. A refused fall is logged "fall %d: REFUSED %s (source %d, %d points)" and counts for
+"skipped".
+
+#### 12.1.5 Budget, memory, build loop (CONFIRMED)
+
+- Vertex buffer malloc 0x1000000 (16 MiB = **262,144** vertices x 64 B), index buffer malloc 0x600000 (6 MiB =
+  **1,572,864** u32 indices). After the loop both are realloc'd down to the used sizes; with no fall built both are freed.
+- Falls are built in file (accepted) order; the loop also stops at 64 built.
+- Per fall: vertex budget = min(16384, 262144 - used); index room = 1,572,864 - used. Budget < 1, or the build fails
+  (crest, no columns, or nothing fits even at 2 rows) = "fall %d: DROPPED, nothing fits in the vertex budget (%d
+  left)" and counts for "too big".
+- Indices are global (vertex base of the fall added), so the whole track is one vertex/index buffer.
+
+#### 12.1.6 waterfallDebug (CONFIRMED, `14024c520`, `140250960`, `14024c680`)
+
+For each built fall it re-walks every column at the spacing actually used and stores each row's x, y, z (x and z
+relative to point 0, wrapped to +-4096 ft). In the scene, outside the mirror passes, the stored column polylines are
+drawn as 3D line segments (anchor wrapped to the player's position), at most 1200 segments per frame: when there are
+more, only every ceil(total / 1200)-th column is drawn.
+
+#### 12.1.7 waterfalls.txt content (CONFIRMED, only with waterBodyLog=1)
+
+"level %s"; the landing ring knobs; "file %s (pod %s)"; "status %s format %d.%d"; the chunk counters; the record
+counters (only when status 0); per fall either "REFUSED", "DROPPED", or animation/texture warnings plus
+"fall %d: source %d points %d columns %d spacing %g ft verts %d (sheet %d, foam %d) rows %d..%d[ SHORTENED]",
+"ends water %d / rest %d / limit %d crest %.1f ft speed %.2f ft/s height %d (%.1f ft)" (crest = crest length),
+"bounds ft (rel. crest 0) x..y..z", "landing x, y, z ft width %.1f ft drop %.1f ft texture "%s"[ (animated)] sound
+"%s""; then the sound block (7), the mist block (4); then "track: %d fall(s) built of %d accepted, vertices %d of
+262144, indices %d". Failures: "FAILED to read %s (%d bytes) from %s", "FAILED: out of memory", "IGNORED: ...".
+
+### 12.2 The mesh build (`14024a650`)
+
+#### 12.2.1 Crest (CONFIRMED, `140248f60`)
+
+- P0 = stored point 0 (ft, in [0, 8192)); P_k+1 = P_k + wrapped difference (1.4 formula). Coordinates stay unwrapped
+  from P0 for the whole build.
+- cum[0] = 0, cum[k+1] = cum[k] + |seg k|; L = cum[n-1]; L < 1e-6 = build fails.
+- Point direction: end points take their segment's dir; an inner point normalize(dirIn + dirOut), fallback dirOut when
+  the length is < 1e-12. (Traxx: fallback threshold 1e-9; no practical difference.)
+
+#### 12.2.2 Columns (CONFIRMED, `1402493a0`)
+
+- Spacings tried in order {2, 3, 4, 6, 8} ft (table `1408a3bd0`).
+- n = (int)ceil(L / sp - 1e-9); if n < 1: 2 columns (n = 1); else n + 1 columns, **0 if n + 1 > 1100**. (With L <= 1024,
+  2 ft gives at most 513 columns, so the 1100 cap cannot trigger for a valid fall.)
+- Column i: s = i * sp for i < n, s = L for the last. Segment = first k (k <= n-2) with s <= cum[k+1]; t = (s - cum[k]) /
+  (cum[k+1] - cum[k]) (0 if that length <= 1e-12), clamped 0..1; position = lerp(P_k, P_k+1, t); flow dir =
+  normalize(lerp(pd_k, pd_k+1, t)), fallback pd_k. Same as Traxx `CrestAt`.
+
+#### 12.2.3 Ground and water used by the walk (CONFIRMED)
+
+- Ground `1402511a0`: xi = floor(x * 256), zi = floor(z * 256) (unwrapped values; the grid lookup masks them, so it
+  wraps), `140202130(zi, xi)`, result / 256 ft. `140202130` is **terrain only** (no ground boxes, props, SRF meshes):
+  - classic mode: the classic grid (`145af8aa0`, s16 at 1/64 ft, 6-byte cells), corner*4, 32 ft cells, fraction
+    `(pos & 0x1fff) * 8`, triangle split by `(xt & 1) == (zt & 1)` and the four retail cases. **Identical to Traxx
+    `FallClassicHeightRaw`** (same diagonal rule, same fmul `(a*b) >> 16` on 64-bit products, same truncation).
+  - spline / fine mode (`DAT_1477fdeb0` != 0): `14023c560` on the 1024x1024 fine grid (`DAT_1477fdeb8`, s16, 1/64 ft),
+    8 ft cells `pos >> 11 & 0x3ff`, fraction `(pos & 0x7ff) * 32`, the same parity split over 8 ft cells, h*4. So the
+    walk sees the same ground as trucks in fine mode. Traxx previews smooth terrain with "the fine heights Traxx draws",
+    which is only right if they are this grid with this triangle rule.
+- Normal for the drape: from the ground 0.5 ft either side: n = normalize(-(h(x+.5)-h(x-.5)), 1, -(h(z+.5)-h(z-.5))).
+- Water `1402525d0` (ctx = &source): tile = TMAP[zt*256 + xt] (zt, xt from floor(*256) >> 13 & 0xff). If tile == 0
+  or tile == source: the LVL water level `DAT_145cdccc8` (1/256 ft), and **no water if it is < 1**; else the lake's
+  surface Y (body +8, = height*128). Returned in ft. This is the source-lake exclusion: the source lake's own tiles
+  count as the track's water (body 0).
+
+#### 12.2.4 Column walk (CONFIRMED, `140249c20`, disassembled)
+
+Start: x, z = column position; y = crest Y (height * 0.5); v = (speed * dx, 0, speed * dz); row 0 emitted with
+t = 0, speed = crest speed, air = 1, end = 0. Then for step = 1..4000:
+
+1. p += v * dt (dt = 1/60, `1408a3bf8`), then vy += -32/60 (`1408a3c20` = -0.5333...).
+2. g = ground(x, z). If y < g + 0.3: **draped**: y = g + 0.3, n = drape normal, vn = v.n, if vn < 0 remove v -= vn*n,
+   then v *= 0.98 (all three components), air = 0, ny = n.y. Else: not draped, ny = 0, **air = 1 if y - (g + 0.3) >
+   0.05 ft, else 0** (`14089e9a8` = 0.05).
+3. Water: if water(x, z) returns a surface S with S > g and S >= y: y = S, end = 1 (water).
+4. Else rest: draped and ny > 0.9961947 (cos 5 deg, `1408a3c08`) and |v| < 2.0 ft/s: end = 2 (ground).
+5. Else end = 3 (limit) if step == 4000, else 0.
+6. d = |p - p_prev| (p_prev after its own drape/snap). If end == 0: acc += d; emit when acc >= spacing. If end != 0:
+   always emit. Emit: callback(col, row, x, y, z, t = step/60, speed = |v|, air, end); row++; acc = 0. Return on end.
+
+Same rule as Traxx `WalkColumn` (dt, g, drape, drag, steps, rest speed and cosine, water test S > g and y <= S, row
+emission). Differences are in what is done with the rows (2.5..2.8), not in the walk.
+
+#### 12.2.5 Count pass and the trailing-flat trim (CONFIRMED, callback `1402496b0`; the trim block at `14024a859..14024a917`, which Ghidra dropped as "unreachable")
+
+The callback stores per row: y; chord path P_i = P_i-1 + |row_i - row_i-1| (straight distance between emitted rows,
+not the per-step arc); and a flag F_i = 1 when air == 0 **and** the ground normal under the row (0.5 ft differences)
+has ny > 0.9848078 (cos 10 deg, `1408a3c00`). Up to 4002 rows.
+
+**Trim (not in Traxx).** For a column whose end != water and with n >= 2 rows:
+1. k = n; while k > 0 and F_k-1: k--. If k == n (the last row is not a flat contact): no trim.
+2. s = max(k - 1, 0); while s < n and y_s - y_n-1 >= 1.0 ft: s++.
+3. If s >= n - 1, or P_n-1 - P_s <= 8.0 ft (`14085e128`): no trim.
+4. Else n = (smallest i > s with P_i - P_s > 8.0) + 1.
+
+So water that comes to rest (or runs out of steps) on flat ground keeps only 8 ft of path past the point where it got
+within 1 ft of its final height. Then rows = n + (end == water ? 1 : 0) (the sink row).
+
+#### 12.2.6 Spacing choice, budget, shortening (CONFIRMED)
+
+For each spacing in order with a non-zero column count: walk every column (count pass, rows/ends as 2.5); Totals(R):
+- verts = sum min(rows_c, R) + 3 * (each run of >= 2 consecutive columns with end == water and rows_c <= R);
+- tris = sum over adjacent pairs (min(r_a, R) + min(r_b, R) - 2) + 4 * (run - 1) per foam run.
+Fits when verts <= min(16384, track room) **and** 3 * tris <= index room. The first fitting spacing is used, nothing
+cut (R = 0x7fffffff). If none fits: at the last spacing with columns, require Totals(2) to fit (else DROPPED), then
+bisection lo = 2, hi = max rows: mid = lo + (hi - lo + 1) / 2, fits -> lo = mid else hi = mid - 1; R = lo, flag
+SHORTENED. Same as Traxx `FitFall`/`Budget` except the index test and the trimmed row counts.
+
+#### 12.2.7 Build pass, sheet vertices (CONFIRMED, callback `14024a160`)
+
+Each column is walked again at the chosen spacing and its rows written while row < R and row < cap_c, where cap_c =
+the column's trimmed row count for non-water columns and unlimited for water columns. Columns are laid out
+consecutively (column start = running total). Per vertex (16 floats, 64 bytes):
+
+| Float | Field | Value |
+|---|---|---|
+| 0..2 | pos | (x - P0x, y - crestY, z - P0z) * 256, i.e. 1/256 ft relative to the anchor (2.10), unwrapped |
+| 3 | u | s of the column along the crest (ft); the last column has u = L |
+| 4 | tau | t = step/60 of that row (s since the crest) |
+| 5 | speed | smoothed: row 0 = crest speed; then max(|v_row|, prev * exp(-d / 8)), d = chord to the previous row (`14085e108` = 0.125) |
+| 6 | air | 0 or 1 (2.4 step 2); **binary**, the DLL treats it as a blend |
+| 7 | edge | min(col, ncols - 1 - col) / 3, clamped to 1 |
+| 8 | end | see below (holds the chord path until the column is finished) |
+| 9 | kind | 0 (sheet) |
+| 10 | fall | the fall's build slot index (0..63) |
+| 11 | drop | crestY - y (ft) |
+| 12..14 | normal | set by 2.8 (written (0, 1, 0) first) |
+| 15 | path | chord path P (ft): **sum of straight row-to-row distances, not the exact arc** |
+
+end: a water column that got its sink vertex: 1 on every row, 0 on the sink. Any other column: clamp((P_last - P_i) /
+6, 0, 1) (`140888310` = 6), P_last = the path of the last written row.
+
+**Sink vertex** (CONFIRMED): when the row ends in water (end == 1), row > 0 and row + 1 < R, one more vertex is
+written after it, copying it, then: let D = (dx, dy, dz) = this row minus the previous row; if |D| > 1e-9 and -dy/|D|
+>= 0.5: offset = (4/(-dy)) * (dx, dz) horizontally (continue along the last row step until 4 ft lower), else 0;
+pos = (x + ox, y - 4, z + oz); tau = t + 4 / max(rawSpeed, 0.5); speed = exp(-|(ox, 4, oz)| / 8) * smoothed;
+end = 0; kind = 0; drop = crestY - (y - 4); path = P + |(ox, 4, oz)|; normal = the water row's normal (copied after
+2.8). Traxx counts this row but has no rule for its position.
+
+#### 12.2.8 Normals (CONFIRMED, `140249840`)
+
+For vertex r of column c (counts = written vertices per column, sink included): down D = v[c][min(r+1, last)] -
+v[c][max(r-1, 0)]; if |D|^2 < 1e-6: D = (fx_c, 0, fz_c) (the column's crest flow dir). Across A = v[c+1][r] (if
+c+1 exists and has row r, else v[c][r]) - v[c-1][r] (same rule); if |A|^2 < 1e-6: A = (-fz_c, 0, fx_c). n =
+normalize(D x A), (0, 1, 0) if its length < 1e-12; flipped if n . (fx_c, 1, fz_c) < 0. Then every sink vertex takes
+its previous vertex's normal.
+
+#### 12.2.9 Indices (CONFIRMED)
+
+Between column a (start A, m_a vertices) and b = a+1 (start B, m_b), m = min(m_a, m_b):
+- i = 0..m-2: (A+i, B+i, B+i+1), (A+i, B+i+1, A+i+1);
+- if m_a < m_b: i = m-1..m_b-2: (A+m-1, B+i, B+i+1);
+- if m_b < m_a: i = m-1..m_a-2: (A+i, B+m-1, A+i+1).
+Triangles = m_a + m_b - 2 per pair. All indices + the fall's vertex base in the track buffer.
+
+#### 12.2.10 Foam strip (CONFIRMED)
+
+Runs of consecutive columns with end == water and rows <= R, of length >= 2. For each column of a run, 3 vertices
+(after all sheet vertices of the fall), from the column's last written (surface) row L and the row before it (Lp):
+- flow f = normalize(Lx - Lpx, Lz - Lpz) when the column has >= 2 rows and that length >= 1e-6, else the column's
+  crest flow dir;
+- width w = clamp(1.5 * (crestY - Ly), 4, 40) ft (`140869278`, `14085e118`, `1408692b8`); across = (fz, -fx);
+- positions (rel. anchor, *256): L + across * w/2, L, L - across * w/2; y = Ly + 0.1 ft (`1408882b0`);
+- u = column s; tau = t at L; speed = raw |v| at L (not smoothed); air = 0; edge as 2.7; end = 0, 1 (centre), 0;
+  kind = 1; fall index; drop = crestY - Ly; normal (0, 1, 0); path = 0.
+Triangles for consecutive columns with a = 3i, b = a + 3 (foam base added): (a, b, b+1), (a, b+1, a+1),
+(a+1, b+1, b+2), (a+1, b+2, a+2). Same count as Traxx `Totals` (3 per column of a run of >= 2).
+
+#### 12.2.11 Landing statistics (CONFIRMED)
+
+Counted per column: end 1 = water (whether kept or cut by R), 2 = rest, 3 = limit ("ends water/rest/limit").
+Using only water columns with rows <= R ("kept"):
+- landY = mean of L.y; drop = mean (crestY - L.y); landing dir (fx, fz) = normalize(sum of unit horizontal last steps
+  L - Lp), fallback normalize(sum of the crest point dirs), then (0, 1);
+- across a = Lz*fx - Lx*fz, along b = Lx*fx + Lz*fz; width = (max a - min a) + **the spacing used**; landing x =
+  mean(b)*fx - mid(a)*fz, z = mean(b)*fz + mid(a)*fx (ft, unwrapped).
+- No kept water column: landing = the last row of the column whose last row is lowest (first such), drop from it,
+  width 0, direction as the fallback.
+Traxx `MistVolume` uses the 2 ft columns and +2 ft; the engine uses the chosen spacing's kept columns and + that spacing.
+
+#### 12.2.12 The built fall table (CONFIRMED, `DAT_14782cab0` + i*0xec)
+
++0x00..0x8b the parsed record (35 ints: id, source, points, flags, speed, height, x[8], z[8], opacity, mist, volume,
+sound[16] at +0x64, texture[16] at +0x74, mist depth +0x84, mist height +0x88); +0x8c first index; +0x90 index count;
+**anchor +0x94 X = x0 * 16, +0x98 Y = height * 128, +0x9c Z = z0 * 16** (ints, 1/256 ft; x0, z0 = stored point 0 in
+1/16 ft); +0xa0..+0xb7 bounds min xyz, max xyz (floats, vertex units, foam included); +0xb8 landing x, y, z (ft);
++0xc4 width; +0xc8 drop; +0xcc crest length L; +0xd0 crest speed (ft/s); +0xd4 water-end count; +0xd8 animation
+index (-1); +0xdc animation clock; +0xe0 fx, +0xe4 fz; +0xe8 RNG state = id * 0x3c6ef362 + 0x9e3779b1.
+
+#### 12.2.13 Differences from Traxx `TrackPODFalls.cpp` (WalkColumn, BuildShape, Totals, Budget, MistVolume)
+
+1. **Trailing-flat trim** (2.5) on non-water columns: Traxx keeps all rows, so it can over-count vertices and pick a
+   coarser spacing or SHORTENED where the engine does not, and its preview tails are longer.
+2. **Index budget**: the engine also requires 3*tris <= index room (1,572,864 per track). Traxx: not modelled.
+3. **Fine/spline terrain**: the engine walks the 1024x1024 grid with the parity split (2.3); Traxx uses its drawn heights.
+4. **Path** stored per vertex is the chord sum between rows; Traxx's `pathlen` is the per-step arc. Only the trim and
+   the `end` fade (6 ft) use it; it does not change the shape.
+5. **Sink row** position rule (2.7) has no Traxx counterpart (Traxx only counts it).
+6. **Mist landing**: width + the chosen spacing (Traxx + 2 ft); only kept water columns; centre wrapped into
+   [0, 8192). Traxx needs a water column at 2 ft; the engine needs water-end count > 0 at the build spacing.
+7. Point-direction fallback threshold 1e-12 vs 1e-9; zero-length segment dir (1, 0) vs (0, 0): no practical effect.
+8. Unchanged and identical: dt, gravity, drape 0.3, drag 0.98 (all components, after removing the into-ground part),
+   4000 steps, rest (< 2 ft/s, > cos 5 deg, draped), water test, row emission, column positions, spacings, 1100 cap,
+   16384 / 262144, foam counting, bisection, classic ground rule.
+
+### 12.3 Crest height: lake-fed vs spring (CONFIRMED)
+
+Always the record's stored height: crest Y = height * 0.5 ft, anchor Y = height * 128. For a lake-fed fall the
+loader does not take the lake's height: it **refuses** the fall unless the stored height equals the WTR body's
+height exactly (`FALL_HEIGHT`, 1.4). So both are equal by construction; a Traxx file whose lake height changed
+without rewriting the WFL loses its falls. The source lake's tiles are then not water for the walk (2.3).
+
+### 12.4 Mist (CONFIRMED, `140251920`, once at load after the sounds)
+
+- `[Graphics] waterfallMist` default 100, min 0, no max.
+- Per fall, needs mist % > 0 and water-end count > 0.
+- density = (mist/100) * clamp(crestSpeed * L * drop / 7200, 0.25, 2.0) * (waterfallMist/100); <= 0: no mist.
+- Box (feet): L = max(0.6 * drop, 20) * depth%/100; W = width + 0.6 * drop, at least 20 (**not** scaled by a %);
+  H = min(0.7 * drop, 120) * height%/100, then at most 240.
+- Centre x = landX + 0.3 * L * fx, z = landZ + 0.3 * L * fz, both fmod 8192 into [0, 8192); floor = landY - 2.
+  Axes: W along (-fz, fx), L along (fx, fz); with no direction (length <= 1e-6) the axes are (1, 0) and (0, 1) and no
+  0.3 L offset.
+- Fog parameters (the SIT fog record defaults from `1404aaca0`, then overrides): vis = clamp(120 / density, 20, 1000)
+  ft (extinction 3/vis as for SIT fog); half (height falloff) = H * 0.5; colour 0.75, 0.78, 0.82; soft edge 20; soft
+  top 5; soft bottom 0; maxOp 1; round 1.0; wisp 0.6; wisp size 25 ft; wisp speed 2; weather mask 0x1ff, or **0x1df
+  with FREEZE** (bit 5 Snow cleared: the log's "(not in snow)").
+- Slot rule (`1404ab000`): SIT fog volumes + mist volumes < 64, i.e. 64 shared slots; full = "fall %d: NO mist (no fog
+  slot free, %d volumes)" (%d = the SIT count). Mist volumes are appended after the SIT volumes in the per-frame list
+  (`1404aa2c0`), so they go through the same weather mask, distance cull and nearest `fogVolumeMax` (16) selection
+  (INFERRED for the selection code itself, which is the 0.52 one in CP4_EXE_ANALYSIS 4), and need `fogVolumes`=1
+  (CONFIRMED: the gather is inside `if (fogVolumes)`).
+- Same formulas as Traxx `MistVolume` for W, L, H, floor and offset (differences in 2.13 item 6).
+
+### 12.5 Droplets (CONFIRMED, `140250b00`, `140251200`)
+
+- Runs each frame from `140250080(ticks)` with dt = ticks / 65536 s.
+- Gate: water look 1 or 2 (enhancedWater or waterRealism), a player view exists, two graphics option flags
+  (`DAT_140adbcd0`, `DAT_140adab58`, option ids 0x20 and 0x19, names not traced), `enhancedWaterSpray` > 0 and
+  `gpuSprayAvailable`. Otherwise the per-fall timers are cleared.
+- `[Graphics] waterfallDroplets` default 100, clamp 0..400, read once per level; 0 = off. k = value / 100.
+- Per fall: SPLASH flag, water-end count > 0, and not (Snow and FREEZE). Landing x/z wrapped to the player's position;
+  only within 150 ft (d^2 <= 22500), else the timer resets.
+- Global budget: B += dt * 500, at most 80 bursts banked; each burst costs 1; at most 6 bursts per fall per frame.
+- Interval = (0.4 + 1.2 u) * 0.02 / k s (8..32 ms at 100 %); the timer accumulates dt; after the bursts, a timer
+  still >= interval is set to 0.999 * interval (no backlog).
+- vLand = sqrt(max(0, crestSpeed^2 + 64 * drop)); sizeK = clamp(drop / 60, 0.3, 1.0).
+- One burst (`gpuSprayBurst`, the truck spray system): with (c, s) = landing dir (or a random angle in 0..2 pi):
+  - position (ft, then * 256): x = X + c * a - s * j + 1.5 (2u - 1), z = Z + s * a + c * j + 1.5 (2u - 1), y = landY;
+    a = 8 u ahead along the flow (or +-4 ft with no direction), j = (2u - 1) * min(width/2, 60) across;
+  - velocity * 256: horizontal speed 0.2 u * vLand at angle (dir + theta), theta uniform in +-1.396 rad (+-80 deg);
+    vy = (0.06 + 0.12 u) * vLand;
+  - intensity = min(1, (0.6 + 0.6 u) * sizeK * 0.3 * k); waterY = landY * 256; halfW = min(12, width/2) * 256;
+    size scale (pd.x) = (1.5 + 1.5 u) * clamp(k, 0.3, 4); dlt 0, carrier velocity 0, smear 0; a 32-bit seed.
+  The particle look, lifetime and gravity are the DLL's spray shader (`gDropA/B`, `gT.w`): not exe data.
+- RNG: state += 0x9e3779b1 per interval draw; per burst state += 0x2e2ac0ea (with a direction) or 0x6a99b44c; each
+  u = h(state + const) >> 8 / 2^24 with h(x) = x ^= x >> 16; x *= 0x85ebca6b; x ^= x >> 13; x *= 0xc2b2ae35;
+  x ^= x >> 16 (the exact per-draw constants are in `140251200`; only needed for bit-exact particles).
+
+### 12.6 Foam zones and landing rings
+
+#### 12.6.1 gpuWaterfallFoamZones (CONFIRMED, `14024e3a0`)
+
+Called every frame from the water/lake draw `1401f9320` (at `1401f9cb8`), with no look test in the exe. Up to
+**32 zones x 2 float4** (8 floats each), positions camera-relative 1/256 ft, wrapped to the nearest copy:
+- Landing zones first (falls with water-end count > 0), nearest first: (cx, cz, fx, fz), (across half-width =
+  (width/2 + 6) * 256, ahead = max(0.6 * drop, 12) * 256, behind = 1536 (6 ft), feather = 768 (3 ft)). No direction:
+  the anchor-to-landing direction, else (1, 0).
+- Then crest segments of **lake-fed** falls (up to 448 candidates), nearest first, filling the remaining slots:
+  (segment midpoint, flow dir (dz, -dx)/len), (half-length = (len/2 + 2) * 256, ahead 1024, behind 1024 (4 ft each),
+  feather 512 (2 ft)).
+- Sent with the count (NULL when 0) only when the count is non-zero or was non-zero last time.
+The DLL uses them as a mask on the lake's shore foam (`shader_180154890`: no shore foam inside the boxes). The shore
+foam is an Enhanced/Realistic effect (INFERRED from the DLL).
+
+#### 12.6.2 Landing rings (CONFIRMED, `14024db20`, from `1401f9320` at `1401fab82`)
+
+Falls with SPLASH, water-end count > 0, not (Snow and FREEZE), nearest first, up to the caller's limit (16): pos,
+(-fz, fx), half-width min(width/2, 256) * 256, ring = clamp(drop/40, 0.4, 1.5) * clamp(speed/20 + 0.6, 0.6, 1.2) *
+wfRingStrength% * a, churn = clamp(speed/20 + 0.6, 0.6, 1.2) * 0.6 * wfChurn% * b (a, b = the lake pass's own
+factors), radius clamp(0.1 * drop + 4, 4, 10) * 256; header (count, wfRingDecay * 256). Each fall sent sets its bit in
+`DAT_1478328e0[64]`, which the fall draw turns into flags bit 2 (+4) on looks 1 and 2 (the DLL then skips its own
+foam strip there).
+
+### 12.7 Sound (CONFIRMED, `140251f10` at load; playback by the engine's continuous sounds)
+
+- Per fall with the SOUND flag (0x4). Empty sound stem: "sound silent (no stem)": **silent, there is no default
+  roar**. Snow + FREEZE: "sound silent (frozen)". No SOUND flag: nothing, no log line.
+- Candidates sorted by squared horizontal distance (wrapped) from the player's truck at load ("file order (no truck)"
+  when there is none).
+- Room: the track's looping-sound table holds **30** (`1404b8df0` returns 30 - used), shared with the track's own SIT
+  continuous sounds; none left = "sound silent (no room)" (and `1404b7e30` shows "Too many looping sounds on this
+  track; '%s' is silent.").
+- File: "<stem>.WAV" (buffer 40), opened through the pod file system as `sound\<stem>.WAV` with a loose-file fallback
+  (`1400f3560` / `14005c490`). **No .KLP.** A missing file just fails to start (INFERRED: no message seen).
+- Position = the landing point (x, z fmod 8192, y = landY), in ft. Not the crest.
+- Volume = (volume% / 100) * clamp(crestSpeed * L / 240, 0.3, 1.0). Hearing = 1 + clamp((crestSpeed * L - 240) / 960,
+  0, 1) (1..2).
+- Playback (`1404c2e70`, the retail continuous-sound start): looped, started at a random point of the sample; volume
+  in the voice; hearing written to the voice only when != 1. Falloff (`14010dcd0`): gain = volume * (1 - (d^2)^0.25 /
+  (sqrt(R) * hearing)), with R the sound range (default 1000, `140ad7fb8`, the listener distance in the engine's units,
+  ft INFERRED), and 0 beyond d >= R whatever the hearing. So hearing 2 keeps half the volume at the edge.
+
+### 12.8 Texture and looks
+
+#### 12.8.1 Default texture (CONFIRMED)
+
+No custom texture: the draw binds the engine's water texture slot (`14021d3b0(NULL)` -> `DAT_140adc660 + frame*0x48`),
+the retail ripple animation **RIPPL100.RAW .. RIPPL800.RAW .. RIPPL200.RAW** (14 frames ping-pong: 1..8 then 7..2),
+advancing every 16384 ticks (0.25 s), not advancing in Snow or in the mirror passes. `gpuWaterfallTexture(i)`
+captures the bound texture. The "slightly modified" part is in the DLL (look 0: a second layer at 1/21.92 scale,
+offset (.31, .17), speed .85, blended 30 %).
+
+#### 12.8.2 Custom texture (CONFIRMED)
+
+- Stem with no '.' gets ".RAW" (buffer 20). Compared case-insensitively, as given and as "stem.RAW", with the names of
+  the track's animation list (the tanim file read by `Animate.cpp`, `DAT_1410dd080`, at most 64 animations, at most 8
+  frames each, "frames,delay").
+- Animation found: needs frames >= 1 and delay >= 1 ("(no frames / no timing)" otherwise) and every frame loadable
+  from `art\` (pod, then loose; with the HD texture option also via the PNG/TGA path `1400647b0`); else "animation ...
+  frame %s cannot be loaded - not animated" and it falls back to the static name.
+- Animated: frame = (clock / delay) % frames, clock += frame ticks (`140250080`), wrapping at frames * delay; same
+  timing units as the track's own animated textures (INFERRED).
+- Static: the name must load from `art\` the same way; else "texture ... cannot be loaded - the ripple is used" (8.1).
+- Every frame, each visible non-ice fall binds its texture and calls gpuWaterfallTexture; a non-zero return sets
+  flags bit 1 (+2).
+
+#### 12.8.3 Look selection (CONFIRMED, `14024cc30`)
+
+- Water mode `14021ceb0`: `waterRealism` -> 2 (Realistic), else `enhancedWater` -> 1 (Enhanced), else 0 (Original).
+- Look 3 (ice) when weather == Snow (5) **and** the fall has FREEZE **and** `gpuWaterfallsAvailable` returned bit 2
+  (value 4). Otherwise the water mode. No ice support in the DLL: frozen falls are drawn as running water, but their
+  sound, mist, rings and droplets still stop.
+- Look 3: no texture bind, no SPLASH bit, frame time 0.
+- Drawing at all needs `gpuWaterfallsAvailable` bit 0.
+
+### 12.9 Draw (CONFIRMED, `14024cc30`)
+
+- Order in the scene function `1401f61b0`: water/lakes `1401f9320` (at `1401f6df2`) -> **waterfalls** (`1401f6e11`) ->
+  fog volumes incl. mist (`1401f5760`, which gathers through `1404aa2c0`). Skipped when `DAT_145aaca58`,
+  `DAT_145cbcb38` or `DAT_145a94b54` is set (other passes set by `140211af0` / `140211550`; meanings INFERRED: special
+  render passes). The water reflection passes (`DAT_145cbcb18` set by `1401dfe50`, `DAT_145cbcb20` by `140173050`)
+  **do** draw the falls, with the frame constants' clip plane on (`14021ced0`), and skip the reflection-plane lookup.
+- Mesh upload `gpuWaterfallMesh(vertices, count, 16, indices, count)` when the device generation changed (first frame
+  and after a reset).
+- Per frame and fall, `DAT_147839220 + i*0x40`:
+  - [0] anchor x, z camera-relative (the copy among x, x +- 2,097,152 nearest the camera), y absolute (crest Y),
+    w = visible for this look pass;
+  - [1] first index, index count, opacity% / 100 clamped 0..1, crest speed ft/s;
+  - [2] x flags: +1 SPLASH (looks 0..2), +2 texture set, +4 the lake drew the landing this frame (looks 1, 2 only);
+    y = 1 + the lake reflection slot whose height is within 512 (2 ft) of the crest Y (the source lake), else 1 + 0 when
+    the LVL water is within 2 ft, else 0; not looked up in mirror passes; z, w = 0;
+  - [3] 0.
+- Visible: index count >= 1; horizontal distance from the camera to the bounds centre minus half the bounds diagonal <
+  (draw range in tiles + 1) * 32 ft; bounding sphere inside the 5 frustum planes.
+- One `gpuDrawWaterfalls(frame constants (0x30 floats), fall constants, falls, 16)` per look 0..3 that has a visible
+  fall; the frame block's last two floats = time and look.
+- Time = (ticks `DAT_1410e7184` * 1.5254237e-05 (float 0x377fec73)) mod 600 s (`14021d410`); 0 for look 3.
+
+### 12.10 Simulation (CONFIRMED)
+
+Falls do not touch the simulation. Every reader of the fall tables (`DAT_1478305b0`, `DAT_14782cab0` and fields) is in
+the loader, draw, foam zones, rings, droplets, sound, mist and debug functions listed in 0. No physics, water-depth,
+surface-code, AI or network code reads them; the walk's water test is load-time only and changes no water level.
+
+### 12.11 Lakes (CONFIRMED)
+
+- The engine knows nothing about spillway notches: no notch/lip/sill strings or data; only the WTR tile map and body
+  table, the per-fall source exclusion (2.3) and FALL_DIRECTION (1.4). Notches (Traxx `BuildNotches`) can only exist as
+  tiles the author carved out of the TMAP.
+- WTR loader `140247090` and parser `140246500` are the 0.52 `140204040` / `1402034b0` unchanged: `FDIFF=cp4:cp4b2`
+  shows only relocated addresses and constants, and the log/message strings are identical.
+
+### 12.12 Network (CONFIRMED)
+
+Join version still **0x3402** (written as 0x34020000 at +0x58, `1402350a0`, as 0.52's `348558` line; compared with
+`!= 0x3402` in `1400b1740`, the player-list code that shows a differing version, INFERRED role). The 'info' message
+handler `1400bb130` keeps the 0.52 branches (< 0x3402 sends string 0x9c71, >= 0x3403 sends 0x9c72, 0x3402 nothing).
+No fall data is sent; falls are loaded locally from the pod.
+
+### 12.13 UNKNOWN / not traced
+
+- The names of the two graphics options gating droplets (ids 0x19, 0x20) and of the three pass flags that skip the
+  fall draw.
+- Units of the animation delay (same as the track's animated textures).
+- Why the shader clock uses 1.5254237e-05 per tick while droplets use 2^-16 (both exact in the binary).
+- Mesh upload argument order beyond (vertices, count, 16): from the DLL notes.
+
+### 12.14 In OpenMTM2
+
+Options, Advanced, CP4, "Waterfalls" (`cp4Waterfalls`, on by default, settings version 16) is `[Graphics] waterfalls`:
+off, the file is not read. docs/VISUALS.md, "Waterfalls", describes the drawing.
+
+Ported:
+- **Loader (1.1 .. 1.5):** `worker/level-load.js` `readLevelFalls` reads `WORLD\<stem>.WFL` (the stem up to the first
+  '.', the .LVL's name, then the .SIT's) only from the archive that holds the .LVL, by OpenPhotex `readFallFile`, the
+  engine's parser (statuses 1..7, only the first FALL entry, the count clamped, bad records left to the record checks);
+  `worker/cp4-falls.js` builds the falls with OpenPhotex `buildFallMeshes` (record checks, REFUSED reasons, budget,
+  64 built) and shows the 1.3 messages as the race begins (`build.notices`), all but the out-of-memory one.
+- **Mesh (2):** all of it, from OpenPhotex. The ground is the track's terrain as the engine holds it (`fallHeights`:
+  v >> 1 at 1/64 ft, the 32 ft corners, or the 8 ft grid of a Spline or Full Map track, through `fallGround`); the water
+  is the .LVL's and the lakes the WTR loader keeps (the same rule as the lake sheets), on the file's own tile map.
+- **Draw (0.1, 8, 9):** `render/waterfalls.js`, looks 0 and 3 as 0.1 gives them (the vertex lift and pull, the flow, the
+  second layer, the mask with its noise and hash, the foam strip with SPLASH, the ice's colours and fbm), the anchor at
+  the copy nearest the camera, the draw-range test (bounds centre less half the diagonal, the range plus a tile) and
+  the frustum test on each fall's bounding sphere, the time as ticks * 1.5254237e-05 mod 600 (0 for the ice), the order
+  after the water and lakes and before the fog volumes. The water's mirror (render/water-mirror.js) draws the scene, so
+  the falls are in it, cut by its clip plane. The tuning keys keep their defaults (wfEdge 100, wfLift 40, wfDepthPull
+  4): OpenMTM2 has no ini.
+- **Texture (8.1, 8.2):** the RIPPL ping-pong (held in Snow), or the stem: the track's .ANI animation (frames, delay in
+  16.16 s, at most 8 frames of 64 animations, every frame loadable), else the still (".RAW" added, HD art as the track's
+  other textures), else the ripple.
+- **Mist (4):** OpenPhotex `fallMist`, appended after the SIT's fog volumes (game/fog-volumes.js `withFallMists`) while
+  the 64 slots last, then drawn as they are (the weather mask without Snow on FREEZE, the nearest 16). OpenMTM2 always
+  draws fog volumes (the engine's `fogVolumes` default 1); `waterfallMist` stays 100.
+- **Sound (7):** OpenPhotex `fallSound`, the falls nearest the player's grid slot first (the build's first slot: the
+  player's truck is not placed yet when the track is built), in the room the SIT's looping sounds leave of 30, the
+  "Too many looping sounds" message for those left out; played by `audio/world-audio.js` from the landing at the copy
+  nearest the listener, looped from a random point, with the hearing in the falloff (`audio/audio-engine.js`: 1 -
+  sqrt(d) / (sqrt(R) * hearing), silent from R on, R the port's sound range, 1000 ft by default).
+- **Simulation (10):** nothing.
+
+Approximated:
+- The light: "colour * the scene light" is taken as the port's lights on a matt face (ambient, the light rig's sky and
+  ground by the sheet's normal, the sun by its angle to the normal); the fog is the port's own (render/atmosphere.js),
+  not the DLL's horizontal-distance fog.
+- The ice samples the fall's current texture (12.8.3: the engine binds none for it, so it reads whatever is bound).
+- The fbm's octave fade under a pixel uses the screen derivatives of its coordinates.
+- The DLL works on the texture's values as they are: the port does too, then turns the result to linear light.
+
+Not ported:
+- Looks 1 and 2: Community Patch 4's own Enhanced and Realistic lake water, which OpenMTM2 does not have. Its
+  "Reflective water" is another water, so a fall keeps look 0 under it.
+- Droplets (5): the burst's look, lifetime and gravity are the DLL's spray shader, not exe data, and the gate needs two
+  graphics options whose names are not traced and an enhanced water mode OpenMTM2 does not have.
+- Foam zones (6.1) and landing rings (6.2): both feed the lake shader of looks 1 and 2 only.
+- `waterBodyLog` / waterfalls.txt (1.7) and `waterfallDebug` (1.6): the port logs refusals, drops and missing mist to the
+  console instead.
+- The out-of-memory message (the port's buffers are sized to what was built).
+
+## 13. Beta 0.53: "outside light" for roofed arenas (shadow shells)
+
+The 0.53 notes say stadiums now get outside light for the old MTM and Freestyle drags. It is not a
+lighting change. **The `.SIT` stadium (`*** Stadium ***`, `!stadiumFlag,...`) is lit exactly as in 0.52
+and retail** (CONFIRMED: the 16 functions that read the flag differ only in addresses): Clear weather is
+forced, the stadium model is drawn in the sky's place, the level's light vector and ambient light the
+scene, and the shadow-map light is fixed at (0.2, -0.95, 0.15).
+
+What 0.53 adds is a **shadow shell** rule (CONFIRMED, `1404a5b20`, `1404a62c0`, `1404a66a0`, `1404a6710`,
+run each frame from the terrain and shadow-map setup `140211af0`):
+
+- A shell is a placed object (record word 0, not a ground box) with a model, at least `shadowShellMinFt`
+  wide and long (`[Graphics]`, default 500), whose roof covers at least `shadowShellRoofPct` (default 70)
+  percent of it. Roof cover is measured once per level: a 12 x 12 grid of vertical rays over the model,
+  a ray counting when it hits a triangle in the top 40% of the model's height; cover = hits x 100 / 144,
+  and a model under 30 ft tall scores 0.
+- Each frame, the shells whose own box (its bottom extended 10 ft down) holds the **camera** are listed, at
+  most 8.
+- A listed shell is left out of the sun's shadow-map pass, as a single object (`1401f3b90`) and as every
+  instanced copy of the same model (`1401f7580`). It is still drawn.
+
+So under a big roofed building the trucks, the ground and the props are lit by the open sun, as if the
+roof cast no shadow ("not accurate"). Nothing else changes: light colours, strengths, the sun's direction
+and the weather tables are those of 0.52. It is not tied to a track, a race mode, the weather or the
+stadium flag. `shadowShellDiag` writes `shelldiag.txt`.
+
+INFERRED: the converted MTM1 and Freestyle drag tracks build their arena from a roofed object, not the
+stadium flag. UNKNOWN: whether the baked prop light map (`1401e7d20`) still darkens the floor under a
+shell; 0.52's renderer DLL was not available to compare.
+
+### 13.1 In OpenMTM2
+
+Options, Advanced, CP4, "Roofed arenas lit as outdoors" (`cp4ShadowShells`, on by default), with Smooth textures
+(the sun's shadows). The rules are `game/shadow-shells.js`: the roof is measured once per level in the track build
+(`worker/cp4-world.js` `buildShadowShells`, on each SIT object's model triangles from OpenPhotex's `parseBin`
+faces, the size tested first), the rays through the middles of the 12 x 12 cells over the model's vertex bounds,
+`shadowShellMinFt` and `shadowShellRoofPct` held at their defaults. A shell's box is its model's bounds turned
+with the object, and the camera is tested at its copy nearest the shell (the world wraps at 8192 ft). Each frame
+`render/sun-shadows.js` lists the shells holding the camera and leaves every caster of a listed shell's model out
+of the cascades (its instances in the placed objects, a forest chunk, an animated placement, a knocked piece);
+when the listed models change, each cascade they reach draws its kept copy of what never moves again, the nearest
+first. Not ported: `shadowShellDiag`.
+
+## 14. Beta 0.53: the course map across the world edge (CONFIRMED)
+
+The course map works in 1/64 ft, so a world is 0x80000 and half a world 0x40000. 0.53 adds one fold,
+inlined in three functions (0.52 and retail have none):
+
+`W(d)`: r = d % 0x80000 (C remainder); r >= 0x40000 gives r - 0x80000, r < -0x40000 gives r + 0x80000,
+so W(d) lies in [-4096, 4096) ft.
+
+- **The loop** (`1401cd290`): the points are built as before (each type-1 straight's start and end, at
+  most 512), then unwrapped in order: point 0 as stored, then `p[i] = p[i-1] + W(p[i] - p[i-1])` on x and
+  on z. The edge offsets (the road's two sides, 48 ft out, the bisector rule unchanged) are computed on
+  the unwrapped points, each neighbour folded again against the current point, which matters only at
+  the closure.
+- **The drawing** (`1401c7180`), for every edge i to j including the closing one: dx = W(p[j] - p[i]);
+  the midpoint m = p[i] + dx / 2; the shift k = (P - m) + W(m - P), where P is the player's position;
+  the segment runs from p[i] + k to p[i] + dx + k. Each segment is drawn whole, moved by whole worlds
+  so that its midpoint is the copy nearest the player, never split.
+- **The trucks** (`1401c7b40`): a marker is drawn at P + W(truck - P); the ghost the same way.
+- Unchanged: the zoom, the view, the labels and colours. Checkpoints are not drawn on this map. The
+  Summit Rumble square is still drawn unwrapped.
+

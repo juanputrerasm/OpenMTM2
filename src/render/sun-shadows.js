@@ -76,6 +76,8 @@ import { CSMShader } from "three/addons/csm/CSMShader.js";
 import { SHADOW_CASCADE_ENDS_FT, SHADOW_FAR_FT } from "../game/lighting.js";
 import { REBUILDS_PER_FRAME, changeReaches, patchesToRestore, shadowPatch } from "../game/shadow-cache.js";
 import { WORLD_FT } from "../shared/scene-frame.js";
+import { SHELLS_LISTED, SHELL_FLOOR_FT, shellsHolding } from "../game/shadow-shells.js";
+import { bumpShadowStatic } from "./track-scene.js";
 
 const CASCADES = 4;
 const MAP_SIZE = 2048;
@@ -223,6 +225,10 @@ export class SunShadows {
     this._suppressClear = false;
     this._nativeRender = null;
     this._nativeClear = null;
+    // Community Patch 4 beta 0.53's shadow shells (`setShadowShells`): none until given.
+    this._shells = null;
+    this._shellHeld = new Int32Array(SHELLS_LISTED);
+    this._shellOut = [];
     this.setEnabled(false);
   }
 
@@ -411,12 +417,14 @@ export class SunShadows {
     const tx = ty * camera.aspect;
     const spread = Math.sqrt(1 + tx * tx + ty * ty);
 
-    // Objects that left the still ones (render/track-scene.js `moveObjects`) are drawn with what moves from now on.
+    // Objects that left the still ones (render/track-scene.js `moveObjects`) are drawn with what moves from now on. A
+    // shell's piece copies its instances' castShadow, which is off while the camera is inside it.
     const fresh = this._world?.userData.newDynamicCasters;
     if (fresh?.length) {
-      if (this._caching) for (const mesh of fresh) if (mesh.castShadow) this._dynamicCasters.push(mesh);
+      if (this._caching) for (const mesh of fresh) if (this._adoptShellCaster(mesh) || mesh.castShadow) this._dynamicCasters.push(mesh);
       fresh.length = 0;
     }
+    this._updateShells();
     let any = false, rebuilds = 0;
     const serial = this._world?.userData.shadowStaticSerial ?? 0;
     this._csm.lights.forEach((light, i) => {
@@ -630,7 +638,7 @@ export class SunShadows {
       if (!geometry) { mesh.castShadow = false; continue; }
       if (!geometry.boundingSphere) geometry.computeBoundingSphere();
       _sphere.copy(geometry.boundingSphere).applyMatrix4(mesh.matrixWorld);
-      const shown = frustum.intersectsSphere(_sphere) && inBand(_sphere);
+      const shown = !mesh.userData.shellOut && frustum.intersectsSphere(_sphere) && inBand(_sphere);
       mesh.castShadow = shown;
       if (shown) { any = true; this._patch(light, _sphere, patches); }
     }
@@ -682,6 +690,88 @@ export class SunShadows {
     this._setCast(this._staticCasters, true);
     this._setCast(this._dynamicCasters, true);
     for (const truck of this._truckCasters) this._setCast(truck.meshes, true);
+    // A shell the camera is inside casts nothing, whatever else is put back.
+    this._setCast(this._shellOut, false);
+  }
+
+  /**
+   * Community Patch 4 beta 0.53's shadow shells (docs/CP4_EXE_ANALYSIS.md 13, game/shadow-shells.js): `shells` the
+   * level's (`world.userData.shadowShells`, game feet), or null for none. Each frame (`update`) the shells whose box
+   * holds the camera are listed, at most eight, and every caster of a listed shell's model is left out of the cascades:
+   * the placed object's instances (all its placements, as CP4 leaves out every instanced copy of the model), a forest
+   * chunk's, an animated placement's meshes and a knocked piece of it. Each is still drawn. Called once the casters are
+   * set (`enableSunShadows`).
+   */
+  setShadowShells(shells) {
+    for (const mesh of this._shellOut) { mesh.castShadow = true; mesh.userData.shellOut = false; }
+    this._shellOut = [];
+    this._shells = shells?.length ? shells : null;
+    if (!this._shells) return;
+    const ids = new Map();
+    this._shellModelOf = Int32Array.from(this._shells, (shell) => {
+      if (!ids.has(shell.model)) ids.set(shell.model, ids.size);
+      return ids.get(shell.model);
+    });
+    this._shellIds = ids;
+    this._shellMeshes = [...ids.keys()].map(() => []);
+    // Where each model's shells stand, `[x, y, z, radius]` in scene feet, for the cascades their change reaches.
+    this._shellSpheres = [...ids.keys()].map(() => []);
+    this._shells.forEach((shell, i) => this._shellSpheres[this._shellModelOf[i]].push(shellSphere(shell)));
+    this._shellNow = new Uint8Array(ids.size);
+    this._shellWas = new Uint8Array(ids.size);
+    // A world of one copy (a stadium, a level whose edges do not meet) does not wrap. Kept, so a frame makes nothing.
+    this._shellQuery = { max: SHELLS_LISTED, wraps: (this._world?.getObjectByName("objects")?.userData.copyGroups?.length ?? 9) > 1 };
+    const seen = new Set();
+    this._scene.traverse((object) => {
+      if (!object.isMesh || !object.castShadow || seen.has(object)) return;
+      seen.add(object);
+      const id = ids.get(object.userData.shellModel);
+      if (id !== undefined) this._shellMeshes[id].push(object);
+    });
+  }
+
+  /** A caster made after `setShadowShells` (a knocked piece): kept with its model's, and left out now if they are. Whether it is a shell's. */
+  _adoptShellCaster(mesh) {
+    const id = this._shells ? this._shellIds.get(mesh.userData.shellModel) : undefined;
+    if (id === undefined) return false;
+    this._shellMeshes[id].push(mesh);
+    const out = this._shellWas[id] === 1;
+    mesh.userData.shellOut = out;
+    mesh.castShadow = !out;
+    if (out) this._shellOut.push(mesh);
+    return true;
+  }
+
+  /**
+   * The shells the camera is inside this frame (game/shadow-shells.js `shellsHolding`): when their models change, the
+   * ones listed stop casting and the others cast again, and each cascade their shadows reach draws its static copy
+   * afresh (render/track-scene.js `bumpShadowStatic`), the nearest first. Nothing is made on a frame they stay the same.
+   */
+  _updateShells() {
+    const shells = this._shells;
+    if (!shells) return;
+    const e = this._camera.matrixWorld.elements;
+    // The camera in the game frame: the scene's z mirrored (shared/scene-frame.js).
+    const held = shellsHolding(shells, e[12], e[13], -e[14], this._shellHeld, this._shellQuery);
+    const now = this._shellNow, was = this._shellWas;
+    now.fill(0);
+    for (let k = 0; k < held; k++) now[this._shellModelOf[this._shellHeld[k]]] = 1;
+    let changed = false;
+    for (let id = 0; id < now.length; id++) if (now[id] !== was[id]) { changed = true; break; }
+    if (!changed) return;
+    const spheres = [];
+    for (let id = 0; id < now.length; id++) {
+      if (now[id] === was[id]) continue;
+      const out = now[id] === 1;
+      for (const mesh of this._shellMeshes[id]) { mesh.userData.shellOut = out; mesh.castShadow = !out; }
+      spheres.push(...this._shellSpheres[id]);
+    }
+    was.set(now);
+    this._shellOut = [];
+    for (let id = 0; id < now.length; id++) if (now[id]) this._shellOut.push(...this._shellMeshes[id]);
+    if (this._world) bumpShadowStatic(this._world, spheres);
+    if (!this._caching) this.invalidate();
+    this._dynamic = true;
   }
 
   /**
@@ -819,6 +909,18 @@ const _sphere = new THREE.Sphere();
 /** How far a truck's part has to move, feet (or turn, as a quaternion's part), for its shadow to be drawn again. */
 const MOTION_EPSILON = 1e-3;
 
+/**
+ * The sphere round a shell's box (game/shadow-shells.js: its model's extents turned with it, the bottom 10 ft lower),
+ * `[x, y, z, radius]` in scene feet in the world's first copy, as render/track-scene.js `bumpShadowStatic` takes it.
+ */
+function shellSphere({ pos, rot: m, min, max }) {
+  const cx = (min[0] + max[0]) / 2, cy = (min[1] - SHELL_FLOOR_FT + max[1]) / 2, cz = (min[2] + max[2]) / 2;
+  const x = pos[0] + m[0] * cx + m[1] * cy + m[2] * cz;
+  const y = pos[1] + m[3] * cx + m[4] * cy + m[5] * cz;
+  const z = pos[2] + m[6] * cx + m[7] * cy + m[8] * cz;
+  return [x, y, -z, Math.hypot(max[0] - min[0], max[1] - min[1] + SHELL_FLOOR_FT, max[2] - min[2]) / 2];
+}
+
 /** Whether any node of a watched truck moved, or was shown or hidden, since the last call; records its place. */
 function truckMoved(watched) {
   const { nodes } = watched;
@@ -859,7 +961,7 @@ const _point = new THREE.Vector3();
  * the world, so a cliff shades the canyon under it, and the cascades are drawn in closer, so a
  * truck's shadow is sharp.
  */
-export function enableSunShadows({ renderer, scene, camera, world, sun, trucks = [], natural = false }) {
+export function enableSunShadows({ renderer, scene, camera, world, sun, trucks = [], natural = false, shadowShells = true }) {
   renderer.shadowMap.enabled = true;
   // Soft-edged shadows (PCFSoft), as JSTrackViewer's scene draws them with its cascades.
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -924,5 +1026,7 @@ export function enableSunShadows({ renderer, scene, camera, world, sun, trucks =
   // With or without Natural light: what never moves is drawn into each cascade once and kept (`keepStatic`).
   shadows.keepStatic(renderer, world, trucks);
   shadows.watchMotion(world, trucks);
+  // Community Patch 4 beta 0.53's "outside light" under a roofed arena (Options, Advanced, CP4: `cp4ShadowShells`).
+  if (shadowShells) shadows.setShadowShells(world.userData.shadowShells);
   return shadows;
 }

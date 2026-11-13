@@ -14,7 +14,7 @@ import { createStrings, msg } from "../game/strings.js";
 
 const KEY = "openmtm2.settings";
 /** The settings' format, stored with them and with an export (Options, Data). */
-export const SETTINGS_VERSION = 14;
+export const SETTINGS_VERSION = 16;
 
 /**
  * The physics a race can run under, as Options (Game) and the console's `physics` list them. A model is one more entry
@@ -184,6 +184,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   cockpitLook: false,         // Community Patch 4's "Smooth Cockpit Look" ([Control] cockpitLook): the right stick looks round the 3D cockpit
   cp4Collision: "triangles",  // the CommPatch4 physics' collisions ([Game] collisionMode): "triangles" (1, props by their shapes) or "classic" (0, boxes)
   cp4SubstepsOffline: false,  // the CommPatch4 physics splits its 40 ms tick into 10 ms steps offline too ([Game] simSubstepOffline)
+  cp4ShadowShells: true,      // Community Patch 4 beta 0.53's shadow shells: under a big roofed building the sun's shadows leave its roof out (game/shadow-shells.js)
+  cp4Waterfalls: true,        // Community Patch 4 beta 0.53's waterfalls ([Graphics] waterfalls): a track's .WFL is read and its falls drawn (render/waterfalls.js)
   raceLine: false,            // Community Patch 3's racing line drawn on the ground (render/race-line.js)
   dragBeams: true,            // the drag strip's lines on the ground, as MTM1 draws them: beams and lane lines (render/drag-beams.js)
   dragSplitScreen: false,     // Community Patch 3's drag split screen: both lanes at once      // keypad plus raises the chase camera and minus lowers it (the game's keys do the opposite)
@@ -309,6 +311,10 @@ export function migrateSettings(stored) {
   if (!(stored.version >= 14) && stored.dustAmount === 2) stored.dustAmount = 1;
   // And anti-aliases as Auto picks by default; the MSAA saved before it was the old default.
   if (!(stored.version >= 14) && stored.aa === "msaa") stored.aa = "auto";
+  // Version 15 lights roofed arenas as outdoors (Community Patch 4 beta 0.53's shadow shells), on for every save before it.
+  if (!(stored.version >= 15)) stored.cp4ShadowShells = true;
+  // Version 16 draws Community Patch 4 beta 0.53's waterfalls, on for every save before it (the engine's default).
+  if (!(stored.version >= 16)) stored.cp4Waterfalls = true;
   stored.version = SETTINGS_VERSION;
   delete stored.showHiddenTrucks;
   // "MTM1 no terrain overlap" became "Terrain overlap", for every track.

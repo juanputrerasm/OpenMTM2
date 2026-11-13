@@ -1354,8 +1354,10 @@ export function createSession(init) {
     }
     if (name === "reverse") return (apCtx.reversed = !apCtx.reversed);
     // A player who left the race (Leave and watch) cannot take the wheel back.
-    if (name === "autopilot") return player.left ? player.apLevel : setAutopilotLevel((player.apLevel + 1) % 3);
-    if (name === "slew") return (gold.slew = !gold.slew);
+    // With a value (0 to 2) that level is set; without one the levels go round (Ctrl+T).
+    if (name === "autopilot") return player.left ? player.apLevel : setAutopilotLevel([0, 1, 2].includes(value) ? value : (player.apLevel + 1) % 3);
+    // With a value slew mode is switched on or off; without one it changes over (Ctrl+Y).
+    if (name === "slew") return (gold.slew = typeof value === "boolean" ? value : !gold.slew);
     // Z mode's X: the computer trucks stop driving, and drive again on the next press; a single-player race of two or more.
     if (name === "cpuStop") return trucks.length > 1 && !trucks.some((t) => t.remote) ? (gold.cpuStopped = !gold.cpuStopped) : null;
     throw new Error(`Unknown command "${name}"`);
@@ -1432,6 +1434,24 @@ export function createSession(init) {
     if (w.time < patience) return;
     w.time = 0;
     liftStuck(t);
+  }
+
+  /**
+   * A player's truck lying on its hull on a mesh (the port's own rule, for tracks built of meshes): the game sets a
+   * truck back on its wheels as soon as it lies at rest, and counts five seconds only for one that does not (10.3).
+   * On the terrain a rolled truck is stopped by the bumps within a second or two; on a flat deck of triangles it
+   * slides twice as far and then rocks a foot or two a second without ever coming to rest, so a roll there waited
+   * much longer (measured on Beaver City: 4.8 s on average against 3.2 s on Farm Road 29, the worst 8 s). Here a
+   * truck the game's own count is running for (the timer under zero) with no wheel down, slower than LYING_FT_S for
+   * LYING_S, is at rest.
+   */
+  const LYING_FT_S = 10, LYING_S = 0.5;
+  function resetLying(t) {
+    const s = t.state;
+    const lying = t.recovery.player && s.heliTimer < 0 && s.tires.every((tire) => !tire.onGround);
+    if (!lying || Math.hypot(s.bvel[0], s.bvel[1], s.bvel[2]) >= LYING_FT_S) { t.lying = 0; return; }
+    t.lying = (t.lying ?? 0) + STEP;
+    if (t.lying >= LYING_S && S.resetTruck(s, t.recovery, 1)) t.lying = 0;
   }
 
   /** The helicopter for a stuck computer truck, at once. */
@@ -1929,6 +1949,7 @@ export function createSession(init) {
       if (t.cprCar) Cp.stepCprTruck(t.state, t.params, t.ctx, STEP);
       else if (evoModel) E.stepEvoTruck(t.state, t.params, t.ctx, STEP);
       else S.stepTruck(t.state, t.params, t.ctx, STEP);
+      if (triMeshes) resetLying(t);
       t.snd.impact = Math.max(t.snd.impact, t.state.impactForce);
       // The bump stops' jolt, for a gamepad's rumble (game/input/rumble.js); only the MTM2 model reports it.
       t.snd.bottoming = Math.max(t.snd.bottoming, t.state.bottoming ?? 0);
@@ -1994,6 +2015,11 @@ export function createSession(init) {
    * Every third call brings the pterodactyl instead (the game's counter at `0x651798`).
    */
   let heliCalls = 0;
+  // On a track built of meshes the course runs over decks and bridges, with the terrain (often water) far under them:
+  // the truck is set down on the drivable surface at the course's own height there, and in the air it clears what
+  // lies under it, not the terrain alone.
+  const courseGround = (x, z, y) => (triMeshes && Number.isFinite(y) ? triMeshes.surfaceBelow(x, y + 6, z, 80) : null) ?? ground.height(x, z);
+  const flightGround = (x, z, y) => (triMeshes && Number.isFinite(y) ? triMeshes.surfaceBelow(x, y, z, 400) : null) ?? ground.height(x, z);
   function callHelicopter(t) {
     if (t.recovery.summit || !(!race || S.raceStarted(race)) || gold.slew) return;
     if (t.flight) { releaseTruck(t); return; }
@@ -2010,9 +2036,9 @@ export function createSession(init) {
     const racing = !!race && !race.summit && S.raceStarted(race);
     const spot = extensionSession?.heliSpot?.(trucks.indexOf(t))
       ?? (racing && init.checkpointHeli && t === player ? lastCheckpointSpot(t) : null)
-      ?? nearestCourseSpot(driven, here, (x, z) => ground.height(x, z), { around: racing ? t.state.ap.segment : null })
-      ?? { pos: [here[0], ground.height(here[0], here[2]), here[2]], heading: t.state.euler[2] };
-    t.flight = createFlight(t.state, spot, { teryl: heliCalls === 2, height: (x, z) => ground.height(x, z) });
+      ?? nearestCourseSpot(driven, here, courseGround, { around: racing ? t.state.ap.segment : null })
+      ?? { pos: [here[0], courseGround(here[0], here[2], here[1]), here[2]], heading: t.state.euler[2] };
+    t.flight = createFlight(t.state, spot, { teryl: heliCalls === 2, height: flightGround });
     t.state.heliTimer = 1;
     t.exit = null;
   }
@@ -2027,7 +2053,7 @@ export function createSession(init) {
     const cp = race.checkpoints[(rt.checkpoint - 1 + n) % n];
     const heading = cp.psi;
     const x = cp.gate.pos[0] - Math.sin(heading) * 32, z = cp.gate.pos[2] - Math.cos(heading) * 32;
-    return { pos: [x, ground.height(x, z), z], heading };
+    return { pos: [x, courseGround(x, z, cp.gate.pos[1]), z], heading };
   }
   function flyTruck(t) {
     const s = t.state;

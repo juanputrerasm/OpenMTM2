@@ -1259,6 +1259,12 @@ browser takes a copy between two maps is asked of it the first time only: asking
 graphics card to catch up with everything drawn before it, and held up every frame by as long as
 the card was behind.
 
+Under a big roofed building the sun's shadows leave the roof out while the camera is inside it
+(Community Patch 4 beta 0.53's shadow shells, docs/CP4_EXE_ANALYSIS.md 13, `src/game/shadow-shells.js`;
+Options, Advanced, CP4, "Roofed arenas lit as outdoors", on by default): every placement of the
+building's model stops casting, so the trucks and the floor under it are lit by the open sun, and
+the cascades it reaches draw their kept copies again, the nearest first. It is still drawn.
+
 How the shadows are read. three.js's soft shadows (PCFSoftShadowMap) test the depth at sixteen
 texels about a point, each unpacked from a colour, and weigh the tests as a box three texels wide
 of bilinear reads. Each cascade's map keeps its depth in a texture the graphics card compares as
@@ -2204,7 +2210,7 @@ layout's cab model every truck keeps the 2D cockpit.
 ## Lakes, vegetation and fog volumes (Community Patch 4)
 
 Not the port's own either: what a Community Patch 4 track adds beside its level, drawn by its
-engine's rules (CP4_EXE_ANALYSIS.md 2, 3 and 4), in both looks. The files are read by OpenPhotex
+engine's rules (CP4_EXE_ANALYSIS.md 2, 3, 4 and, for beta 0.53's waterfalls, 12), in both looks. The files are read by OpenPhotex
 (`mtm/wtr.ts`, `mtm/veg.ts`, the SIT's `Ffog` block), the drawing data built in
 `src/worker/cp4-world.js` and `src/game/fog-volumes.js`.
 
@@ -2275,6 +2281,38 @@ engine's rules (CP4_EXE_ANALYSIS.md 2, 3 and 4), in both looks. The files are re
   0.25, Pitch Black 0.05), and the scene's fog veils the volume as it does everything else.
 - Not drawn: the wisps. The line of sight stops at the box, not at what stands in it: the ground
   inside a volume is fogged by the depth of the box behind it.
+
+### Waterfalls
+
+Beta 0.53's `WORLD\<stem>.WFL` (CP4_EXE_ANALYSIS.md 12, its 12.14 says what of it is ported). Options, Advanced, CP4,
+"Waterfalls" (`cp4Waterfalls`, on, the engine's `[Graphics] waterfalls`) reads it at all.
+
+- **Read and built at load** (`src/worker/level-load.js` `readLevelFalls`, `src/worker/cp4-falls.js`): the file by
+  the engine's parser (OpenPhotex `readFallFile`), only from the archive that holds the level's .LVL; each fall's
+  sheet by OpenPhotex `buildFallMeshes` (the column walk from the crest over the terrain into the water, the budget,
+  the 16-float vertices, the foam strip) on the track's terrain as the engine holds it (`fallHeights`: the 32 ft
+  corners, or the 8 ft grid of a Spline or Full Map track) and its water (the lakes the WTR loader keeps, the .LVL's
+  water). The engine's messages (could not be read, a newer build, damaged, skipped, too big) show as the race begins.
+- **Drawn** (`src/render/waterfalls.js`, made in `createTrackWorld` beside the lakes): one vertex and index buffer for
+  the track, a mesh a fall over its range of the indices, placed each frame at the copy of the world nearest the eye,
+  left out beyond the draw range plus a tile and culled by its bounds. The shader is the renderer DLL's look 0: the
+  draped sheet lifted 0.4 ft off the ground (plus 0.0005 of the eye distance) and pulled 0.4 % of the way toward the
+  eye; the texture at (u / 16, flow / 16) flowing at the crest speed, a second layer at 1 / 21.92 mixed 30 %; the
+  ragged sides and foot from the DLL's value noise and hash; the opacity; the foam strip where the water lands, only
+  with SPLASH. In Snow a FREEZE fall takes look 3, the ice: no flow, no foam, the texture recoloured between two ice
+  blues and shaded by a three-octave noise. Then the scene's light (ambient, the light rig's sky and ground, the sun on
+  the sheet's normal) and the weather's fog. See-through, after the water and the lakes, before the fog volumes; the
+  water's mirror draws the falls too, cut at its plane. Looks 1 and 2 are Community Patch 4's own Enhanced and
+  Realistic lake water, which the port does not have: "Reflective water" keeps look 0.
+- **Texture**: the game's ripple (`RIPPL100` .. `RIPPL800` and back, a quarter second a frame, held in Snow), or the
+  fall's own stem: the track's .ANI animation of that name (frames and delay, as the engine plays the track's
+  animations), else the still `ART\<stem>.RAW` (or its HD picture), else the ripple.
+- **Mist**: each fall's mist box (OpenPhotex `fallMist`) is a fog volume after the SIT's (game/fog-volumes.js
+  `withFallMists`), drawn as they are, while the 64 slots last; a FREEZE fall's is not drawn in Snow.
+- **Sound**: a fall with the SOUND flag and a stem loops `SOUND\<stem>.WAV` from its landing (src/audio/world-audio.js),
+  at its volume, heard further by its hearing (1 to 2), to 1000 ft. The falls nearest the player's start take the
+  room the track's own looping sounds leave of 30; an empty stem or a FREEZE fall in Snow is silent.
+- Not drawn: the droplets, the foam zones and the landing rings (CP4_EXE_ANALYSIS.md 12.14 says why).
 
 ### The Spline and Full Map terrain
 

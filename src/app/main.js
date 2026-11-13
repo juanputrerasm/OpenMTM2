@@ -88,7 +88,8 @@ async function boot() {
     if (type === "catalog") return { mtm1Apart: context.settings.mtm1TrucksApart !== false, ...(payload ?? {}) };
     // Options, Graphics: Texture size, the largest side HD art keeps (worker/art-texture.js `setHdTextureLimit`).
     const textureSide = Number(context.settings.textureSize) || 1024;
-    if (type === "trackRender") return { hdWeather: context.settings.hdWeather !== false, originalBackdrops: !!context.settings.originalBackdrops, textureSide, ...(payload ?? {}) };
+    // Community Patch 4 beta 0.53's waterfalls (Options, Advanced, CP4: "Waterfalls"), read with the track.
+    if (type === "trackRender") return { hdWeather: context.settings.hdWeather !== false, originalBackdrops: !!context.settings.originalBackdrops, waterfalls: context.settings.cp4Waterfalls !== false, textureSide, ...(payload ?? {}) };
     if (type === "truckPreview") return { textureSide, ...(payload ?? {}) };
     if (type === "sky") return { hdWeather: context.settings.hdWeather !== false, ...(payload ?? {}) };
     return payload;

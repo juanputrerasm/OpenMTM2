@@ -7540,6 +7540,14 @@
   "text": "Con la física CommPatch4: cada paso de 40 ms se divide también sin conexión en cuatro pasos de 10 ms, como Community Patch 4 hace siempre en línea. Desde la próxima carrera"
  },
  {
+  "tag": "Roofed arenas lit as outdoors",
+  "text": "Estadios techados iluminados como al aire libre"
+ },
+ {
+  "tag": "Community Patch 4 beta 0.53's outside light: with Smooth textures, while the camera is inside a big roofed building (500 ft or more across, its roof covering 70% of it), the building casts no sun shadow, so the trucks and the floor under it are lit as in the open. The building is still drawn. From the next race",
+  "text": "La luz exterior de la beta 0.53 de Community Patch 4: con Texturas suavizadas, mientras la cámara está dentro de un gran edificio techado (500 pies o más de lado, con el techo cubriendo el 70% de él), el edificio no proyecta sombra del sol, así que los camiones y el suelo bajo él se iluminan como al aire libre. El edificio se sigue dibujando. Desde la próxima carrera"
+ },
+ {
   "tag": "Picture size",
   "text": "Tamaño de la imagen"
  },
@@ -7566,5 +7574,61 @@
  {
   "tag": "Do not draw buildings, objects and ground that are wholly behind something else. Faster on city tracks; turn it off if scenery appears late as you come round a corner. From the next race",
   "text": "No dibuja los edificios, objetos y terreno que están completamente detrás de otra cosa. Más rápido en pistas de ciudad; desactívalo si el escenario aparece tarde al doblar una esquina. Desde la próxima carrera"
+ },
+ {
+  "tag": "Waterfalls",
+  "text": "Cascadas"
+ },
+ {
+  "tag": "Community Patch 4 beta 0.53's waterfalls: the falls a track's .WFL places are drawn, with their mist and their sound. Off, the file is not read. From the next race",
+  "text": "Las cascadas de la beta 0.53 de Community Patch 4: se dibujan las cascadas que coloca el .WFL de una pista, con su bruma y su sonido. Desactivado, el archivo no se lee. Desde la próxima carrera"
+ },
+ {
+  "tag": "empty file",
+  "text": "archivo vacío"
+ },
+ {
+  "tag": "not a waterfall file (bad magic)",
+  "text": "no es un archivo de cascadas (firma incorrecta)"
+ },
+ {
+  "tag": "file truncated (header)",
+  "text": "archivo truncado (cabecera)"
+ },
+ {
+  "tag": "bad header size or chunk directory runs past the end",
+  "text": "tamaño de cabecera incorrecto o el directorio de bloques pasa del final"
+ },
+ {
+  "tag": "authored for a different terrain size",
+  "text": "hecho para otro tamaño de terreno"
+ },
+ {
+  "tag": "no usable waterfall list",
+  "text": "ninguna lista de cascadas utilizable"
+ },
+ {
+  "tag": "This track's waterfalls file could not be read.",
+  "text": "No se pudo leer el archivo de cascadas de esta pista."
+ },
+ {
+  "tag": "This track's waterfalls need a newer build.",
+  "text": "Las cascadas de esta pista necesitan una versión más nueva."
+ },
+ {
+  "tag": "This track's waterfalls file is damaged (<<1>>) and was not loaded.",
+  "text": "El archivo de cascadas de esta pista está dañado (<<1>>) y no se cargó."
+ },
+ {
+  "tag": "Some of this track's waterfalls were skipped.",
+  "text": "Se omitieron algunas cascadas de esta pista."
+ },
+ {
+  "tag": "Some of this track's waterfalls were too big and were left out.",
+  "text": "Algunas cascadas de esta pista eran demasiado grandes y se dejaron fuera."
+ },
+ {
+  "tag": "Too many looping sounds on this track; '<<1>>' is silent.",
+  "text": "Demasiados sonidos en bucle en esta pista; '<<1>>' queda en silencio."
  }
 ]

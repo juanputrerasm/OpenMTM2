@@ -44,6 +44,7 @@ import { greyLayersMaterial, mergeModelParts } from "./part-merge.js";
 import { createLakes } from "./lakes.js";
 import { createVegetation } from "./vegetation.js";
 import { createFogVolumes } from "./fog-volumes.js";
+import { createWaterfalls } from "./waterfalls.js";
 import { SHARED_NOISE_GLSL, detailNoise } from "./noise-textures.js";
 import { terrainMaskShares } from "../shared/terrain-mask.js";
 
@@ -814,7 +815,7 @@ export function placeObjects(library, objects, copies = [[0, 0]], { rounded = fa
     const parts = library.get(object.model);
     if (!parts || object.moving || parts.some((part) => part.frameCount > 1)) continue;
     const key = object.billboard ? `${object.model}|facing` : object.model;
-    if (!byKey.has(key)) byKey.set(key, { parts, facing: !!object.billboard, matrices: [] });
+    if (!byKey.has(key)) byKey.set(key, { parts, model: object.model, facing: !!object.billboard, matrices: [] });
     const entry = byKey.get(key);
     if (object.sitIndex !== undefined) slots[object.sitIndex] = [key, entry.matrices.length];
     entry.matrices.push(object.matrix);
@@ -857,15 +858,16 @@ export function placeObjects(library, objects, copies = [[0, 0]], { rounded = fa
     return cells.get(key);
   };
   Object.assign(group.userData, { slots, offsets, copyGroups, masters, reach: null });
-  for (const [key, { parts, facing, matrices }] of byKey) {
+  for (const [key, { parts, model, facing, matrices }] of byKey) {
     const perCopy = matrices.length;
     for (const { geometry, material, depthMaterial } of facing ? parts : joined.get(parts)) {
       const drawn = facing ? facingMaterial(material, rounded) : material;
       const master = new THREE.InstancedMesh(geometry, drawn, perCopy);
       master.name = key;
       master.matrixAutoUpdate = false;
-      // `places` is the model's placements in the original world, shared by the model's parts.
-      Object.assign(master.userData, { perCopy, facing, places: matrices, twins: [] });
+      // `places` is the model's placements in the original world, shared by the model's parts. `shellModel`: the model,
+      // for the sun's shadows to leave out while the camera is inside one of its placements (render/sun-shadows.js).
+      Object.assign(master.userData, { perCopy, facing, places: matrices, twins: [], shellModel: model });
       if (facing) master.customDepthMaterial = facingDepthMaterial(material);
       else if (depthMaterial) master.customDepthMaterial = depthMaterial;
       for (let i = 0; i < perCopy; i++) master.setMatrixAt(i, placement(matrices[i], NO_OFFSET, facing));
@@ -900,7 +902,7 @@ const SHADOW_CHANGES_KEPT = 64;
  * it does, has changed: `spheres` say where, `[x, y, z, radius]` in scene feet in the world's first copy, as it stood and
  * as it stands now. Without them the change is taken to reach everywhere.
  */
-function bumpShadowStatic(world, spheres = null) {
+export function bumpShadowStatic(world, spheres = null) {
   const serial = (world.userData.shadowStaticSerial ?? 0) + 1;
   world.userData.shadowStaticSerial = serial;
   const changes = (world.userData.shadowChanges ??= []);
@@ -1045,6 +1047,7 @@ export function placeAnimatedObjects(library, objects) {
     }
     for (const part of parts) {
       const mesh = new THREE.Mesh(part.geometry, part.material);
+      mesh.userData.shellModel = object.model;
       // Its shadow is drawn each frame with the trucks', not kept with the still ground's (render/sun-shadows.js).
       if (object.moving) mesh.userData.moving = true;
       if (part.frameCount > 1) {
@@ -1106,6 +1109,7 @@ export function createForest(library, objects, { rounded = false } = {}) {
     for (const { geometry, material } of parts) {
       const mesh = new THREE.InstancedMesh(geometry, card ? facingMaterial(material, rounded) : material, placed.length);
       mesh.name = model;
+      mesh.userData.shellModel = model;
       mesh.matrixAutoUpdate = false;
       placed.forEach(({ matrix, sitIndex }, i) => {
         mesh.setMatrixAt(i, m.fromArray(matrix));
@@ -1319,6 +1323,7 @@ function loosen(world, parts, sitIndex, slot, touched, spheres) {
     mesh.castShadow = instanced.castShadow;
     mesh.receiveShadow = instanced.receiveShadow;
     mesh.userData.moving = true;
+    mesh.userData.shellModel = instanced.userData.shellModel;
     group.add(mesh);
     added.push(mesh);
   }
@@ -1647,6 +1652,7 @@ export function updateTrackWorld(world, camera, dt, { viewRange = Infinity, fine
     if ((parts.forest || parts.falling.length) && placeForest(parts, camera, viewRange, parts.copies.length > 1)) bumpShadowStatic(world);
     if (parts.vegetation?.update(camera, viewRange, parts.copies.length > 1)) bumpShadowStatic(world);
     parts.fogVolumes?.update(camera);
+    parts.waterfalls?.update(camera, dt);
     for (const chunk of parts.chunks) {
       const dx = Math.abs(chunk.x - localX), dz = Math.abs(chunk.z - localZ);
       const seen = Math.hypot(dx, dz) < viewRange + chunk.radius;
@@ -2004,6 +2010,9 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
   if (vegetation) world.add(vegetation.group);
   const fogVolumes = createFogVolumes(build.fogVolumes, { drawDistance, wraps: copies.length > 1 });
   if (fogVolumes) world.add(fogVolumes.group);
+  // Community Patch 4 beta 0.53's waterfalls (render/waterfalls.js), each at the copy of the world nearest the camera.
+  const waterfalls = createWaterfalls(build.falls, { look, drawDistance, wraps: copies.length > 1 });
+  if (waterfalls) world.add(waterfalls.group);
   const backdrops = createBackdrops(build, look);
   if (backdrops && showBackdrops && !build.stadium) world.add(backdrops);
   if (!build.stadium) {
@@ -2020,7 +2029,7 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
   if (grass) world.add(grass.mesh);
   if (backdrops && showBackdrops && !build.stadium) drawBackdropFirst(world);
   const parts = {
-    grass, forest, falling: [], library, lattice, vegetation, fogVolumes,
+    grass, forest, falling: [], library, lattice, vegetation, fogVolumes, waterfalls,
     objects, byName: new Map(), placed: [], morphing: [], chunks: [], backdrops: backdrops && !build.stadium ? backdrops : null,
     copies: tiles.map((group) => ({
       group, shown: true,
@@ -2049,6 +2058,8 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
       chunk.radius = Math.max(chunk.radius, radius);
     }
   });
+  // Community Patch 4 beta 0.53's shadow shells (worker/cp4-world.js `buildShadowShells`), for render/sun-shadows.js.
+  world.userData.shadowShells = build.shadowShells ?? [];
   PARTS.set(world, parts);
   return world;
 }

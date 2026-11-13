@@ -183,7 +183,8 @@ export default async function mount(container, context, params) {
   const celestial = (weather) => (weather <= 1 ? "sun" : weather === 7 ? "moon" : "none");
   // The enhanced look: the sun's shadows, and the sun, moon and lens flare, hidden behind the hills as in the race.
   if (look === "enhanced") {
-    shadows = enableSunShadows({ renderer, scene, camera, world, sun, trucks: [], natural: !!scenery.lightRig });
+    shadows = enableSunShadows({ renderer, scene, camera, world, sun, trucks: [], natural: !!scenery.lightRig,
+      shadowShells: context.settings.cp4ShadowShells !== false });
     shadows.follow(sun, scenery.lightRig?.rig?.shadow ?? 1);
     cleanups.push(() => shadows?.dispose?.());
     const data = await context.assets.call("flare").catch(() => null);

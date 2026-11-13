@@ -748,12 +748,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         type: "checkbox", class: "opt-switch", checked: settings.look === "enhanced", "aria-label": t("Smooth textures"), "data-opt": "Smooth textures",
         onchange: (event) => { settings.look = event.target.checked ? "enhanced" : "classic"; save(); },
       }), msg("Textures filtered smooth and the world lit by the sun (the enhanced look). Off: the game's own sharp texels and baked light")),
-      toggle(msg("Lens flare"), "sunFlare", msg("With Smooth textures: the sun's flare across the screen. Off keeps the sun and moon")),
       choose(msg("Detail"), "detailLevel", [msg("Low"), msg("Medium"), msg("High")]),
-      choose(msg("Texture size"), "textureSize", [msg("Full"), msg("Half (512)"), msg("Quarter (256)")], [1024, 512, 256],
-        msg("Largest size kept for HD textures and ground tiles. Half or Quarter uses less video memory. From the next race")),
-      choose(msg("Picture size"), "renderScale", ["100%", "85%", "75%", "66%", "50%"], [...RENDER_SCALES],
-        msg("How many of the screen's points a race is drawn at, stretched to fill it. Smaller is faster where the graphics chip is what holds the frame rate down; the HUD and the menus stay sharp. From the next race")),
       row(msg("Anti-aliasing"), el("select", {
         "aria-label": t("Anti-aliasing"), "data-opt": "Anti-aliasing", title: t(AA_HINT),
         onchange: (event) => { settings.aa = event.target.value; save(); },
@@ -766,7 +761,6 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         set: (v) => { settings.chaseFov = v; save(); },
         title: msg("How wide the external cameras see, in degrees across a 4:3 screen; 90 is Monster Truck Madness 2's lens. The cockpit keeps the game's"),
       }),
-      toggle(msg("Skip hidden scenery"), "occlusionCulling", msg("Do not draw buildings, objects and ground that are wholly behind something else. Faster on city tracks; turn it off if scenery appears late as you come round a corner. From the next race")),
       toggle(msg("V-sync"), "vsync", msg("Draw with the display's refresh. Off draws as fast as the browser allows; a browser still shows no more frames than the display has")),
       // One list: picking a rate switches the limit on, so a rate is never shown chosen while the limit is off.
       row(msg("Frame rate limit"), el("select", {
@@ -778,6 +772,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       toggle(msg("FPS counter"), "fpsCounter", msg("Show the frames per second in the corner of a race or replay (the FPS counter key switches it)")),
       toggle(msg("Backdrops"), "backdrops"),
       el("h3", {}, t("Effects")),
+      toggle(msg("Lens flare"), "sunFlare", msg("With Smooth textures: the sun's flare across the screen. Off keeps the sun and moon")),
       toggle(msg("Tire tracks"), "tireTracks"), toggle(msg("Water splashes"), "waterSplash"),
       // One amount for both pictures (game/tire-effects.js `CLASSIC_DUST`, `RICH_DUST`): Few is the game's own puffs.
       slider(msg("Dust"), {
@@ -802,6 +797,12 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       }, ...GRAPHICS_PRESETS.map((preset) => el("option", { value: preset.id, selected: preset.id === graphicsChoice(settings.graphics) }, t(preset.label)))), GRAPHICS_HINT),
       scenerySwitches,
       sceneryNote,
+      // What costs or saves video memory and picture, for a machine that needs it.
+      el("h3", {}, t("Advanced")),
+      choose(msg("Texture size"), "textureSize", [msg("Full"), msg("Half (512)"), msg("Quarter (256)")], [1024, 512, 256],
+        msg("Largest size kept for HD textures and ground tiles. Half or Quarter uses less video memory. From the next race")),
+      choose(msg("Picture size"), "renderScale", ["100%", "85%", "75%", "66%", "50%"], [...RENDER_SCALES],
+        msg("How many of the screen's points a race is drawn at, stretched to fill it. Smaller is faster where the graphics chip is what holds the frame rate down; the HUD and the menus stay sharp. From the next race")),
     ]],
     [msg("Headset"), [headset]],
     [msg("Sound"), [
@@ -935,6 +936,8 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       choose(msg("CP4 collisions"), "cp4Collision", [msg("Triangles"), msg("Classic boxes")], ["triangles", "classic"],
         msg("Under the CommPatch4 physics: props meet the trucks by their own shapes, as Community Patch 4 does, or by the boxes round them, as Monster Truck Madness 2 does. From the next race")),
       toggle(msg("CP4 substeps offline"), "cp4SubstepsOffline", msg("Under the CommPatch4 physics: each 40 ms tick runs as four 10 ms steps offline too, as Community Patch 4 always does online. From the next race")),
+      toggle(msg("Roofed arenas lit as outdoors"), "cp4ShadowShells", msg("Community Patch 4 beta 0.53's outside light: with Smooth textures, while the camera is inside a big roofed building (500 ft or more across, its roof covering 70% of it), the building casts no sun shadow, so the trucks and the floor under it are lit as in the open. The building is still drawn. From the next race")),
+      toggle(msg("Waterfalls"), "cp4Waterfalls", msg("Community Patch 4 beta 0.53's waterfalls: the falls a track's .WFL places are drawn, with their mist and their sound. Off, the file is not read. From the next race")),
       sub(msg("OMTM2")),
       row(msg("Terrain overlap"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.terrainOverlap !== false, "aria-label": t("Terrain overlap"), "data-opt": "Terrain overlap", onchange: (event) => { settings.terrainOverlap = event.target.checked; save(); } }),
         msg("The ground tiles overlap by two pixels, as Monster Truck Madness 2 draws them. Off, they meet edge to edge, as MTM1 draws them. Some HD texture packs need it on. From the next race")),
@@ -961,6 +964,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         set: (v) => { settings.nameTransparency = v; save(); },
         title: msg("How see-through the names over the trucks (the Names key) and on the course map are: 0% is the game's"),
       }),
+      toggle(msg("Skip hidden scenery"), "occlusionCulling", msg("Do not draw buildings, objects and ground that are wholly behind something else. Faster on city tracks; turn it off if scenery appears late as you come round a corner. From the next race")),
       toggle(msg("Ground box grain"), "groundBoxGrain", msg("With Ground detail on: its grain on the ground boxes too, the walls, buildings and signs built of them. Off, they keep their textures plain. From the next race")),
       sub(msg("Computer trucks")),
       choose(msg("Computer trucks drive as"), "aiBehaviour", [msg("OMTM2"), msg("Same as physics"), msg("MTM2"), msg("MTM1"), msg("EVO")], [...AI_BEHAVIOURS]),

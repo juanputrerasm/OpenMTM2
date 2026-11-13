@@ -79,6 +79,8 @@ TARGETS = {
     "evo1": ("evo1/out", "~/games/evo1", "4x4LE.exe"),
     "evo2": ("evo2/out", "~/games/evo2", "4x42.exe"),
     "cpr": ("cpr/out", "~/games/cpr", "CART.EXE"),
+    "cp4": ("cp4/out", "~/games/cp4beta052", "monster.exe"),
+    "cp4b2": ("cp4b2/out", "~/games/mtm2", "monster.exe"),
 }
 
 

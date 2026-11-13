@@ -36,8 +36,8 @@ const DEPART_RATE_FT = 40;
 export const WINDOW_BACK = 2, WINDOW_AHEAD = 6;
 
 /**
- * The point of course segment `seg` nearest (in x and z) to `pos`: `{ x, z, heading, distance }`, the heading the
- * course runs there; null for a segment of no size.
+ * The point of course segment `seg` nearest (in x and z) to `pos`: `{ x, z, u, heading, distance }`, the heading the
+ * course runs there and the share `u` (0 to 1) of the segment driven by then; null for a segment of no size.
  */
 export function spotOnSegment(seg, pos) {
   if (seg.ctype === 2) {
@@ -47,14 +47,14 @@ export function spotOnSegment(seg, pos) {
     const u = Math.min(1, Math.max(0, rel / span));
     const angle = seg.entryAngle + span * u;
     const x = seg.centre[0] + Math.sin(angle) * seg.radius, z = seg.centre[2] + Math.cos(angle) * seg.radius;
-    return { x, z, heading: angle + (span >= 0 ? Math.PI / 2 : -Math.PI / 2), distance: Math.hypot(x - pos[0], z - pos[2]) };
+    return { x, z, u, heading: angle + (span >= 0 ? Math.PI / 2 : -Math.PI / 2), distance: Math.hypot(x - pos[0], z - pos[2]) };
   }
   const dx = seg.end[0] - seg.start[0], dz = seg.end[2] - seg.start[2];
   const length2 = dx * dx + dz * dz;
   if (!(length2 >= 1e-9)) return null;
   const u = Math.min(1, Math.max(0, ((pos[0] - seg.start[0]) * dx + (pos[2] - seg.start[2]) * dz) / length2));
   const x = seg.start[0] + dx * u, z = seg.start[2] + dz * u;
-  return { x, z, heading: Math.atan2(dx, dz), distance: Math.hypot(x - pos[0], z - pos[2]) };
+  return { x, z, u, heading: Math.atan2(dx, dz), distance: Math.hypot(x - pos[0], z - pos[2]) };
 }
 
 /**
@@ -69,32 +69,50 @@ export function courseWindow(count, around, back = WINDOW_BACK, ahead = WINDOW_A
 }
 
 /**
+ * The height the course runs at, `u` (0 to 1) of the way along segment `i`: along a straight between its ends, round
+ * an arc between the straights it joins. On a track built of meshes this tells a bridge's deck from the ground under it.
+ */
+export function courseHeight(course, i, u) {
+  const seg = course[i];
+  const lerpY = (a, b) => (Number.isFinite(a) && Number.isFinite(b) ? a + (b - a) * u : Number.isFinite(a) ? a : b);
+  if (seg.ctype !== 2) return lerpY(seg.start?.[1], seg.end?.[1]);
+  const before = course[(i + course.length - 1) % course.length], after = course[(i + 1) % course.length];
+  const y = lerpY(before?.ctype !== 2 ? before?.end?.[1] : undefined, after?.ctype !== 2 ? after?.start?.[1] : undefined);
+  return Number.isFinite(y) ? y : seg.centre?.[1];
+}
+
+/**
  * The nearest point of the course (in x and z) to `pos`, with the heading the course runs there:
  * `{ pos: [x, y, z], heading, distance, segment }`, or null for no course. `course` is the oriented course
- * (alternating straights and arcs), `height(x, z)` the ground. `around`, the segment the truck is on in the race,
- * keeps the search to the part of the course it has reached (`courseWindow`): at a crossroads the nearest point
- * may be on a part of the lap still to come or long past.
+ * (alternating straights and arcs), `height(x, z, courseY)` the ground, asked with the height the course runs at
+ * there (`courseHeight`; a ground of meshes answers with the surface the course is on). `around`, the segment the
+ * truck is on in the race, keeps the search to the part of the course it has reached (`courseWindow`): at a
+ * crossroads the nearest point may be on a part of the lap still to come or long past.
  */
 export function nearestCourseSpot(course, pos, height, { around = null, back = WINDOW_BACK, ahead = WINDOW_AHEAD } = {}) {
   if (!course?.length) return null;
   let best = null;
   for (const i of courseWindow(course.length, around, back, ahead)) {
     const spot = spotOnSegment(course[i], pos);
-    if (spot && (!best || spot.distance < best.distance)) best = { pos: [spot.x, height(spot.x, spot.z), spot.z], heading: spot.heading, distance: spot.distance, segment: i };
+    if (spot && (!best || spot.distance < best.distance)) best = { ...spot, segment: i };
   }
-  return best;
+  if (!best) return null;
+  const y = height(best.x, best.z, courseHeight(course, best.segment, best.u));
+  return { pos: [best.x, y, best.z], heading: best.heading, distance: best.distance, segment: best.segment };
 }
 
 /**
  * Start a flight for a truck at `s` (`pos`, `euler`: pitch, roll, heading) to `spot`
- * (`{ pos, heading }`). `teryl` asks for the pterodactyl instead of the helicopter.
+ * (`{ pos, heading }`). `teryl` asks for the pterodactyl instead of the helicopter. `height(x, z, y)` is the ground
+ * under a truck at height `y`.
  */
 export function createFlight(s, spot, { teryl = false, height }) {
   return {
     t: 0, teryl,
     from: { pos: [...s.pos], pitch: s.euler[0], roll: s.euler[1], heading: s.euler[2] },
     to: { pos: [spot.pos[0], spot.pos[1], spot.pos[2]], heading: spot.heading },
-    groundAt: (x, z) => height(x, z),
+    // Asked with the height the truck would fly at: a ground of meshes answers with what lies under it there.
+    groundAt: (x, z, y) => height(x, z, y),
     angle: Math.atan2(s.pos[0] - spot.pos[0], s.pos[2] - spot.pos[2]),
   };
 }
@@ -120,7 +138,7 @@ export function stepFlight(flight, s, dt) {
   }
   s.pos[0] = x;
   s.pos[2] = z;
-  s.pos[1] = Math.max(y, flight.groundAt(x, z) + CLEARANCE_FT);
+  s.pos[1] = Math.max(y, flight.groundAt(x, z, y) + CLEARANCE_FT);
   s.euler[0] = from.pitch * (1 - u);
   s.euler[1] = from.roll * (1 - u);
   s.euler[2] = from.heading + wrapPi(to.heading - from.heading) * u;

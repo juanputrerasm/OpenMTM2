@@ -4,6 +4,63 @@ What was built, milestone by milestone and stage by stage, as the plan recorded 
 current state and everything still open are in [PLAN.md](PLAN.md); a "Not done", "Left" or "Pending" line below is
 as it stood when it was written, and the plan's open items list is the one kept up to date.
 
+## v0.7.4
+
+Community Patch 4 beta 0.53: its waterfalls and its roofed arenas lit as outdoors (the new monster.exe and its
+renderer analysed, CP4_EXE_ANALYSIS.md 12 to 14); the course map across the world edge; reports from Beaver City, a
+track built of meshes; and three options moved:
+
+- **OpenPhotex 1.7.3** vendored: the `.WFL` waterfall reader and writer, and the game's waterfall build (`cp4Sim`).
+- **The course map across the world edge** (render/minimap.js `wrapRuns`, `unwrapPath`, `nearestToPlayer`,
+  game/course-shape.js, shared/scene-frame.js `mapWrap`; Community Patch 4 beta 0.53's rule, CP4_EXE_ANALYSIS.md 14):
+  on a course laid out across the 8192 ft edge, the map (classic and OpenMTM2 styles) drew a line across the whole
+  world at the seam, bent the road's sides there, and lost trucks, gates and marks just across it, as the retail game
+  does. The loop's points are now unwrapped in order, each straight is drawn whole at the copy whose midpoint is
+  nearest the player, and every truck, gate and mark at its own copy nearest the player. Courses inside the world
+  draw as before.
+
+- **The helicopter sets a truck down on the course's own surface on a track of meshes** (game/heli-flight.js
+  `courseHeight`, worker/sim-worker.js `courseGround`, `flightGround`): the player's Helicopter key found the spot's
+  height, and what to clear in the air, from the terrain alone, so on a bridge or a raised road the truck was let go
+  over the ground under the meshes, into the water under a bridge. The ground is now asked with the height the course
+  runs at there (along a straight between its ends, round an arc between the straights it joins), and answers with
+  the drivable surface at that height; the Advanced option "Helicopter to the last checkpoint" asks with the gate's.
+  Measured on City of the Lost Giblets: at 139 of 145 points along the course the terrain lies over a foot under the
+  road (up to 42 ft, 9 of them under water); after the change 57 of 58 trial flights rest on the spot's surface and
+  the other on a kerb 5 ft over it. Tracks without meshes are asked as before.
+- **A rolled truck is set back on its wheels sooner on a mesh** (worker/sim-worker.js `resetLying`, the port's own
+  rule for tracks of meshes): the game sets a truck back at once when it lies at rest and counts five seconds only for
+  one that does not. On a flat deck a truck on its roof slides about twice as far as on the terrain (nothing but the
+  hull's friction stops it) and then goes on rocking without coming to rest. A player's truck with no wheel down, the
+  game's count running, under 10 ft/s for half a second now counts as at rest. Measured over 30 rolls (five
+  attitudes, level and nose down, dropped still and sliding at 40 and 70 ft/s): 4.8 s on average and 8.0 s at worst
+  before, 4.0 s and 6.0 s after; the same rolls on Farm Road 29's terrain take 3.2 s and 5.1 s. What is left is the
+  slide itself, which is the game's hull friction on a flat surface and is not changed.
+- **GOLD switched off hands the truck back** (ui/gold-mode.js `handBack`; the worker's `autopilot` and `slew`
+  commands take a value): the autopilot GOLD set with Ctrl+T (auto throttle or the full autopilot) stayed on after
+  GOLD was typed again, with no key left to switch it off, so the truck went on working its own pedals for the rest
+  of the race; slew mode likewise left the race standing still. Both now end with GOLD.
+- **Options:** Lens flare moved to Display's Effects; Texture size and Picture size to a new Advanced section at the
+  foot of Display; Skip hidden scenery to Advanced, OMTM2.
+- **Roofed arenas lit as outdoors** (game/shadow-shells.js, worker/cp4-world.js `buildShadowShells`,
+  render/sun-shadows.js `setShadowShells`; Community Patch 4 beta 0.53's shadow shells, CP4_EXE_ANALYSIS.md 13): a
+  placed object at least 500 ft wide and long whose roof covers 70% of it (measured once a level, 12 x 12 rays over
+  its model, the top 40% of its height) is left out of the sun's shadows, every placement of its model with it, while
+  the camera is inside its box (the bottom 10 ft lower, at most eight listed), so the trucks and the floor under the
+  roof are lit as in the open; it is still drawn, and nothing else about the light changes. An option under Advanced,
+  CP4, on by default (settings version 15 turns it on for older saves).
+- **Waterfalls** (Community Patch 4 beta 0.53's `WORLD\<stem>.WFL`, CP4_EXE_ANALYSIS.md 12; worker/level-load.js
+  `readLevelFalls`, worker/cp4-falls.js, render/waterfalls.js, game/waterfalls.js, game/fog-volumes.js
+  `withFallMists`; OpenPhotex re-vendored with `mtm/wfl` and `sim/cp4/falls`, its new `readFallFile` the engine's
+  parser): each fall's sheet is built at load as the engine builds it, by walking the water from the crest over the
+  terrain into the lake or the track's water, and drawn in the renderer DLL's Original look (the flowing texture, its
+  second layer, the ragged edges and foot, the foam strip with SPLASH) or, in Snow on a FREEZE fall, its ice; the
+  default texture is the game's ripple, or the fall's own still or .ANI animation. Its mist is a fog volume after the
+  SIT's, in the 64 slots they share; its sound loops from the landing, in the room the track's 30 looping sounds
+  leave, nearest the player's start first. The engine's load messages show as the race begins. Not ported: the
+  droplets, the foam zones and the landing rings. An option under Advanced, CP4, "Waterfalls", on by default
+  (settings version 16 turns it on for older saves). Tests: tests/cp4-falls.test.mjs, with Fila's 0.53 sandbox opt-in.
+
 ## v0.7.3
 
 Frame rate, measured and worked on from end to end (a kept harness, tools/perf-race.mjs): fewer draws, hidden scenery

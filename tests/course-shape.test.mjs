@@ -30,3 +30,14 @@ test("a corner on short runs reaches back at most half of each", () => {
   const path = smoothCoursePath(short, true);
   assert.ok(path.some(([x, z]) => Math.abs(x - 50) < 1e-6 && Math.abs(z) < 1e-6));
 });
+
+test("the smooth path's runs unwrap across the world edge, and a loop closing across it joins its near copy", () => {
+  const course = [
+    { ctype: 1, startFt: [8000, 0, 0], endFt: [8150, 0, 0] },
+    { ctype: 1, startFt: [100, 0, 0], endFt: [100, 0, 400] },
+  ];
+  const segs = courseSegments(course);
+  assert.deepEqual(segs, [[[8000, 0], [8150, 0]], [[8292, 0], [8292, 400]]]);
+  const path = smoothCoursePath(segs, true);
+  for (let i = 1; i < path.length - 1; i++) assert.ok(Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]) < 600, `step ${i}`);
+});

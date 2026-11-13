@@ -6,10 +6,14 @@
   (game/course-map-labels.js); the player's own label is dark red. The road is the straights' end points joined in order into a closed loop (0x4e1e90),
   with a second outline 48 ft either side of it along each corner's bisector (0x4e2160).
   A Summit Rumble has no course to show: its map is the summit and the scoring zone (6.3) round the trucks.
+  Across the world edge (CP4_EXE_ANALYSIS.md 14, beta 0.53's rule; retail and 0.52 drew a line across the world):
+  the loop's points are unwrapped in order, each straight is drawn whole at the copy whose midpoint is nearest
+  the player, and every mark (a truck, a gate, a point) at its own copy nearest the player.
 */
 import { drawText, textWidth } from "./bitmap-text.js";
 import { nameTransparency } from "./name-tag-style.js";
 import { MAP_OFF, mapLabel, mapLabelColor, mapMode, nextMapMode } from "../game/course-map-labels.js";
+import { mapWrap } from "../shared/scene-frame.js";
 
 /** Half the road's drawn width, feet (3072 in the map's 1/64 ft units). */
 export const MAP_HALF_WIDTH_FT = 48;
@@ -28,7 +32,20 @@ export const mapLineScale = (v) => { const n = Number(v); return Number.isFinite
 export const MAP_TRANSPARENCY_MAX = 0.9;
 export const mapTransparency = (v) => { const n = Number(v); return Number.isFinite(n) ? Math.max(0, Math.min(MAP_TRANSPARENCY_MAX, n)) : 0; };
 
-/** The centre line, `[x, z]` feet: each straight's start then end, in course order. */
+/** The world fold (shared/scene-frame.js), here too for the map's callers. */
+export { mapWrap };
+
+/** Points `[x, z]` unwrapped in order: the first as stored, each next one the copy nearest the one before it. */
+export function unwrapPath(points) {
+  const out = [];
+  points.forEach((p, i) => {
+    const q = out[i - 1];
+    out.push(q ? [q[0] + mapWrap(p[0] - q[0]), q[1] + mapWrap(p[1] - q[1])] : [p[0], p[1]]);
+  });
+  return out;
+}
+
+/** The centre line, `[x, z]` feet: each straight's start then end, in course order, unwrapped across the world edge. */
 export function courseLoop(course) {
   const points = [];
   for (const g of course) {
@@ -37,7 +54,39 @@ export function courseLoop(course) {
     points.push([g.startFt[0], g.startFt[2]], [g.endFt[0], g.endFt[2]]);
     if (points.length >= MAX_POINTS) break;
   }
-  return points;
+  return unwrapPath(points);
+}
+
+/** The copy of world point (x, z) nearest the player at (px, pz). */
+export function nearestToPlayer(x, z, px, pz) {
+  return [px + mapWrap(x - px), pz + mapWrap(z - pz)];
+}
+
+/**
+ * A path's edges as the map draws them (beta 0.53, 0x1401c7180): each edge i to j (and, `closed`, the last back
+ * to the first) runs from point i along the folded difference to j, moved by whole worlds so that its midpoint is
+ * the copy nearest the player at (px, pz). Edges that meet are joined into runs; a run is a list of
+ * `{ x, z, i }` (`i` the point's index, for its edge offset), drawn as one polyline.
+ */
+export function wrapRuns(points, closed, px, pz) {
+  const n = points.length, runs = [];
+  let run = null;
+  for (let i = 0; i < (closed ? n : n - 1); i++) {
+    const j = (i + 1) % n, a = points[i], b = points[j];
+    const dx = mapWrap(b[0] - a[0]), dz = mapWrap(b[1] - a[1]);
+    const [mx, mz] = [a[0] + dx / 2, a[1] + dz / 2];
+    const [nx, nz] = nearestToPlayer(mx, mz, px, pz);
+    const A = { x: a[0] + nx - mx, z: a[1] + nz - mz, i }, B = { x: A.x + dx, z: A.z + dz, i: j };
+    const last = run?.[run.length - 1];
+    if (last && last.i === i && Math.abs(last.x - A.x) < 1e-6 && Math.abs(last.z - A.z) < 1e-6) run.push(B);
+    else { run = [A, B]; runs.push(run); }
+  }
+  // A closed loop drawn in one piece ends where it began.
+  if (closed && runs.length > 1) {
+    const first = runs[0][0], end = runs[runs.length - 1].at(-1);
+    if (end.i === first.i && Math.abs(end.x - first.x) < 1e-6 && Math.abs(end.z - first.z) < 1e-6) runs[0] = [...runs.pop(), ...runs[0].slice(1)];
+  }
+  return runs;
 }
 
 const unit = (x, z) => { const l = Math.hypot(x, z); return l ? [x / l, z / l] : [0, 0]; };
@@ -46,7 +95,9 @@ const unit = (x, z) => { const l = Math.hypot(x, z); return l ? [x / l, z / l] :
 export function edgeOffsets(points, half = MAP_HALF_WIDTH_FT, open = false) {
   const n = points.length;
   return points.map((p, i) => {
-    let prev = points[(i + n - 1) % n], next = points[(i + 1) % n];
+    // Each neighbour is the copy nearest this point (beta 0.53): only a loop closing across the world edge needs it.
+    const near = (q) => [p[0] + mapWrap(q[0] - p[0]), p[1] + mapWrap(q[1] - p[1])];
+    let prev = near(points[(i + n - 1) % n]), next = near(points[(i + 1) % n]);
     // A one-way course has two ends, which carry on straight: the missing neighbour is the other one mirrored.
     if (open && i === 0) prev = [2 * p[0] - next[0], 2 * p[1] - next[1]];
     if (open && i === n - 1) next = [2 * p[0] - prev[0], 2 * p[1] - prev[1]];
@@ -68,10 +119,11 @@ export function edgeOffsets(points, half = MAP_HALF_WIDTH_FT, open = false) {
 
 /**
  * A point on the map for a player at `(px, pz)` heading `psi` (the truck faces `(sin psi, cos psi)`):
- * forward is up. Returns offsets in feet `[right, up]`.
+ * forward is up. Returns offsets in feet `[right, up]`. `wrap`: the point's copy nearest the player (a mark,
+ * beta 0.53's truck rule); false for a point already placed near the player (a course edge from `wrapRuns`).
  */
-export function toMapFrame(x, z, px, pz, psi) {
-  const dx = x - px, dz = z - pz;
+export function toMapFrame(x, z, px, pz, psi, wrap = true) {
+  const dx = wrap ? mapWrap(x - px) : x - px, dz = wrap ? mapWrap(z - pz) : z - pz;
   const s = Math.sin(psi), c = Math.cos(psi);
   return [dx * c - dz * s, dx * s + dz * c];
 }
@@ -152,12 +204,16 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
       if (!me) return;
       const k = (h / 480) * MAP_PIXELS_PER_FOOT, cx = w * MAP_ORIGIN[0], cy = h * MAP_ORIGIN[1];
       const lineWidth = Math.max(1, h / 480) * mapLineScale(lineScale);
-      const px = (x, z) => { const [r, u] = toMapFrame(x, z, me.pos[0], me.pos[2], me.heading); return [cx + r * k, cy - u * k]; };
+      const px = (x, z, wrap = true) => { const [r, u] = toMapFrame(x, z, me.pos[0], me.pos[2], me.heading, wrap); return [cx + r * k, cy - u * k]; };
+      /** A mark's copy nearest the player, so that a box or a gate is placed whole. */
+      const near = (x, z) => nearestToPlayer(x, z, me.pos[0], me.pos[2]);
       if (zoneMap) {
         ctx.lineWidth = lineWidth;
         const outline = (box) => {
           ctx.beginPath();
-          boxCorners(box).forEach(([x, z], i) => { const [sx, sy] = px(x, z); if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy); });
+          // The Summit Rumble square is drawn as stored in beta 0.53 too; its copy nearest the player keeps it whole.
+          const pos = box.pos ?? box.position, [nx, nz] = near(pos[0], pos[2]);
+          boxCorners(box).forEach(([x, z], i) => { const [sx, sy] = px(x + nx - pos[0], z + nz - pos[2], false); if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy); });
           ctx.closePath();
         };
         if (areas.summit) {
@@ -178,19 +234,22 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
       if (loop.length > 2) {
         ctx.lineWidth = lineWidth;
         ctx.strokeStyle = "rgba(225,225,225,.85)";
+        const runs = wrapRuns(loop, !open, me.pos[0], me.pos[2]);
         for (const sign of [1, -1]) {
           ctx.beginPath();
-          loop.forEach((p, i) => {
-            const [x, y] = px(p[0] + sign * offsets[i][0], p[1] + sign * offsets[i][1]);
-            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-          });
-          if (!open) ctx.closePath();
+          for (const run of runs) {
+            run.forEach((p, n) => {
+              const [x, y] = px(p.x + sign * offsets[p.i][0], p.z + sign * offsets[p.i][1], false);
+              if (n === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+          }
           ctx.stroke();
         }
         if (open) {
           // The start and the finish: a line across the road at each end.
           for (const i of [0, loop.length - 1]) {
-            const a = px(loop[i][0] + offsets[i][0], loop[i][1] + offsets[i][1]), b = px(loop[i][0] - offsets[i][0], loop[i][1] - offsets[i][1]);
+            const [lx, lz] = near(loop[i][0], loop[i][1]);
+            const a = px(lx + offsets[i][0], lz + offsets[i][1], false), b = px(lx - offsets[i][0], lz - offsets[i][1], false);
             ctx.beginPath();
             ctx.moveTo(a[0], a[1]);
             ctx.lineTo(b[0], b[1]);
@@ -221,7 +280,8 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
           if (!g || i === checkpoints.current) return;
           const across = halfOf(g);
           const dx = Math.cos(g.psi) * across, dz = -Math.sin(g.psi) * across;
-          const a = px(g.pos[0] - dx, g.pos[2] - dz), b = px(g.pos[0] + dx, g.pos[2] + dz);
+          const [gx, gz] = near(g.pos[0], g.pos[2]);
+          const a = px(gx - dx, gz - dz, false), b = px(gx + dx, gz + dz, false);
           ctx.strokeStyle = CHECKPOINT_COLOR;
           ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
         });
@@ -229,7 +289,8 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
         if (g) {
           const across = halfOf(g);
           const dx = Math.cos(g.psi) * across, dz = -Math.sin(g.psi) * across;
-          let a = px(g.pos[0] - dx, g.pos[2] - dz), b = px(g.pos[0] + dx, g.pos[2] + dz);
+          const [gx, gz] = near(g.pos[0], g.pos[2]);
+          let a = px(gx - dx, gz - dz, false), b = px(gx + dx, gz + dz, false);
           let [x, y] = px(g.pos[0], g.pos[2]);
           const edge = across * k + thick;
           if (x < edge || y < edge || x > w - edge || y > h - edge) {

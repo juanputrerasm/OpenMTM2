@@ -58,6 +58,17 @@ export function nearestCopy(pos, to) {
   return dx || dz ? [pos[0] + dx, pos[1], pos[2] + dz] : pos;
 }
 
+/**
+ * A difference of world coordinates folded into one world, [-WORLD_FT / 2, WORLD_FT / 2): the shorter way across the
+ * world edge (beta 0.53's course map fold, CP4_EXE_ANALYSIS.md 14: a C remainder, then one world added or taken off).
+ */
+export function mapWrap(d) {
+  let r = d % WORLD_FT;
+  if (r >= WORLD_FT / 2) r -= WORLD_FT;
+  else if (r < -WORLD_FT / 2) r += WORLD_FT;
+  return r;
+}
+
 /** A coordinate brought into the world, [0, WORLD_FT). */
 export function wrapFt(v) {
   const w = v % WORLD_FT;

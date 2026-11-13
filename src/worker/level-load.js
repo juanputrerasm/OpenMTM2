@@ -16,6 +16,7 @@ import { decodeMtm2Heights, decodeMtm2HeightPng, mtm2EngineHeightsFt } from "../
 import { readTxvInfo } from "../vendor/openphotex/mtm/txv.js";
 import { parseWtr } from "../vendor/openphotex/mtm/wtr.js";
 import { parseMtm2Veg, isMtm2Veg } from "../vendor/openphotex/mtm/veg.js";
+import { readFallFile } from "../vendor/openphotex/sim/cp4/falls.js";
 
 const GRID = 256;
 
@@ -35,6 +36,30 @@ function safely(read, what) {
   }
 }
 
+/** A level name's stem as the waterfall loader takes it: up to the first '.', at most 63 characters (CP4_EXE_ANALYSIS.md 12.1.1). */
+export const fallStem = (name) => podPathTitle(name).split(".")[0].slice(0, 63);
+
+/**
+ * Community Patch 4 beta 0.53's waterfalls (docs/CP4_EXE_ANALYSIS.md 12.1.1): `WORLD\<stem>.WFL`, read by the engine's
+ * parser (OpenPhotex `readFallFile`), only when it is in the same archive as the level's .LVL (`levelHit`); in another
+ * one it is ignored, which the engine only logs. `{ size, ...readFallFile }`, or null for none.
+ */
+export async function readLevelFalls(vfs, stems, levelHit) {
+  for (const stem of stems) {
+    if (!stem) continue;
+    const path = `WORLD\\${stem}.WFL`;
+    const bytes = await vfs.read(path);
+    if (!bytes) continue;
+    const hit = vfs.find?.(path);
+    if (hit && levelHit && hit.mount !== levelHit.mount) {
+      console.info(`Waterfalls IGNORED: ${path} is in ${hit.mount.name} but the level is in ${levelHit.mount.name}`);
+      return null;
+    }
+    return { size: bytes.length, ...readFallFile(bytes) };
+  }
+  return null;
+}
+
 /** Read `name` from `folder`, by its file name only (the LVL writes bare names). */
 async function readIn(vfs, folder, name) {
   if (!name) return null;
@@ -45,8 +70,10 @@ async function readIn(vfs, folder, name) {
  * @param {ReturnType<import("./vfs.js").createVfs>} vfs
  * @param {string} sitPath e.g. "WORLD\\TPARK.SIT"
  * @param {Uint8Array} [sitBytes] the SIT, when the caller has read it already
+ * @param {{ waterfalls?: boolean }} [options] `waterfalls`: read Community Patch 4 beta 0.53's .WFL (the engine's
+ *   `[Graphics] waterfalls`, Options' "Waterfalls")
  */
-export async function loadLevel(vfs, sitPath, sitBytes = null) {
+export async function loadLevel(vfs, sitPath, sitBytes = null, { waterfalls = true } = {}) {
   sitBytes ??= await vfs.read(sitPath);
   if (!sitBytes) throw new Error(`${sitPath} is not in the mounted archives.`);
   const title = podPathTitle(sitPath);
@@ -79,6 +106,9 @@ export async function loadLevel(vfs, sitPath, sitBytes = null) {
     either(`WORLD\\${stemOf(lvlTitle)}.VEG`, `WORLD\\${stem}.VEG`),
   ]);
   const txv = txvBytes ? readTxvInfo(txvBytes) : null;
+  // Beta 0.53's waterfalls, beside them (docs/CP4_EXE_ANALYSIS.md 12.1).
+  const levelHit = vfs.find?.(`LEVELS\\${lvlTitle}`) ?? vfs.find?.(`LEVELS\\${stem}.LVL`) ?? null;
+  const falls = cpr || !waterfalls ? null : await readLevelFalls(vfs, [...new Set([fallStem(lvlTitle), fallStem(stem)])], levelHit);
 
   let heights = null, heightsFt = null, fineFt = null, terrainMode = "classic8", terrainWarning = null;
   if (cpr) {
@@ -138,6 +168,8 @@ export async function loadLevel(vfs, sitPath, sitBytes = null) {
     /** Community Patch 4 lakes (OpenPhotex `parseWtr`) and vegetation (`parseMtm2Veg`), or null. */
     lakes: wtrBytes ? safely(() => parseWtr(wtrBytes), "lakes") : null,
     vegetation: vegBytes && isMtm2Veg(vegBytes) ? safely(() => parseMtm2Veg(vegBytes), "vegetation") : null,
+    /** Community Patch 4 beta 0.53's waterfalls as the engine's parser reads them (`{ size, status, falls, ... }`), or null. */
+    falls,
     textureNames, tty, textureValues,
     palette,
     groundBoxes,

@@ -11,7 +11,9 @@ import { rumbleGrid } from "../game/race-setup.js";
 import { loadHdSky, loadWeatherArt } from "./weather-art.js";
 import { weatherSkyStem } from "../game/weather.js";
 import { BOX_FOG, BOX_LIGHT, BOX_MOVING } from "../vendor/openphotex/mtm/sit.js";
-import { buildLakeSheets, buildVegetation, vegetationWalls } from "./cp4-world.js";
+import { buildLakeSheets, buildShadowShells, buildVegetation, vegetationWalls } from "./cp4-world.js";
+import { buildTrackFalls, fallHeights, trackAnimations } from "./cp4-falls.js";
+import { loadWaterFrames } from "./effects-art.js";
 import { fogVolumesOf } from "../game/fog-volumes.js";
 import { decodeActPalette } from "../vendor/openphotex/texture/act.js";
 import { decodeRawTexture, rawTextureSide } from "../vendor/openphotex/texture/raw.js";
@@ -327,7 +329,7 @@ export function trackHome(vfs, sitPath) {
   return home && (home.family ?? "MTM") !== "MTM" ? vfs.preferMount?.(home.name) ?? vfs : vfs;
 }
 
-export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType = "circuit", truckFiles = [], weather = 0, mtm1 = MTM1_DEFAULTS, tileOverlap, visuals = {}, smoothTiles = false, hdWeather = false, originalBackdrops = false, evoForest = true, sunShadows = false, progress = () => {} } = {}) {
+export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType = "circuit", truckFiles = [], weather = 0, mtm1 = MTM1_DEFAULTS, tileOverlap, visuals = {}, smoothTiles = false, hdWeather = false, originalBackdrops = false, evoForest = true, sunShadows = false, waterfalls = true, progress = () => {} } = {}) {
   // A Terminal Velocity, Fury3 or Hellbender level has no SIT: it is named by its LVL (worker/tv-track-build.js).
   if (/\.LVL$/i.test(sitPath)) return withMtm1Sky(vfs, await buildTvTrackRender(vfs, sitPath, { truckFiles, tileOverlap }), weather, mtm1);
   // Another game's track reads its own archive first: every CART Precision Racing track POD has art of the same names
@@ -338,7 +340,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   progress("Loading world database");
   const { sitBytes, lite } = await readTrackScript(vfs, sitPath);
   if (sitBytes && isEvoSit(sitBytes)) return withMtm1Sky(vfs, await buildEvoTrackRender(vfs, sitPath, sitBytes, { detailLevel, raceType, truckFiles, weather, hdWeather, tileOverlap, forest: evoForest, sunShadows, lite }), weather, mtm1);
-  const level = await loadLevel(vfs, sitPath, sitBytes);
+  // `waterfalls`: Community Patch 4 beta 0.53's .WFL is read (Options, Advanced, CP4: "Waterfalls"; the engine's `[Graphics] waterfalls`).
+  const level = await loadLevel(vfs, sitPath, sitBytes, { waterfalls });
   const { sit } = level;
   // A CART Precision Racing track (docs/CHANGELOG.md F3): its own art and palettes, a finer heightfield and a road layer.
   // The trucks, the blimp and the helicopter are MTM2's whatever the track, looked up as an MTM2 track would.
@@ -470,6 +473,10 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       ...(!billboard && !box.crushRole && !mtm2Sim.levelBoxCollides(box, detailLevel) ? { forest: true } : {}),
     });
   }
+
+  // Community Patch 4 beta 0.53's shadow shells (docs/CP4_EXE_ANALYSIS.md 13): the roofed buildings whose model the sun's
+  // shadows leave out while the camera is inside one. Measured here, once a level, before the stadium joins the objects.
+  const shadowShells = buildShadowShells(objects, sit.boxes, models, (box) => mtm2Sim.eulerToMatrix(box.theta, box.phi, box.psi, new Array(9)));
 
   // Community Patch 4's vegetation (WORLD\<stem>.VEG, docs/CP4_EXE_ANALYSIS.md 3): each species' model and far card, read
   // as the boxes' are, its instances by species (worker/cp4-world.js), and the trees the trucks run into. A tree above
@@ -748,8 +755,22 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     return b ? [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]] : null;
   });
   const replayBoxes = replayBoxOrder(sit.boxes);
+  // Community Patch 4's lakes as the engine keeps them; beta 0.53's waterfalls (worker/cp4-falls.js) are built on the
+  // terrain and these lakes, their mist after the SIT's fog volumes and their sounds after the SIT's looping ones.
+  const keptLakes = lakesOf(level);
+  const sitFog = cpr ? [] : fogVolumesOf(sit.boxes);
+  const trackFalls = level.falls ? await buildTrackFalls(level, {
+    heights: fallHeights(level), tileMap: level.lakes?.tileMap ?? null, waterLevelFt: level.waterLevelFt,
+    lakes: (keptLakes?.bodies ?? []).map((b) => ({ id: b.id, height: Math.round(b.levelFt * 2) })),
+    sitVolumes: sitFog, used: soundObjects.length, weather, player: gridSlots[0]?.positionFt ?? null,
+    animations: level.falls.status === 0 && level.falls.falls.some((f) => f.textureName) ? await trackAnimations(vfs, level) : [],
+    loadImage: (name) => loadArtTexture(vfs, name, palettes).catch(() => null), loadRipple: () => loadWaterFrames(vfs),
+  }) : { falls: null, fogVolumes: sitFog, sounds: [], notices: [] };
+  soundObjects.push(...trackFalls.sounds);
   return {
     problems: [...missing].sort(),
+    /** Messages to show as the race begins, `{ text, args }` (an arg `{ tag }` is translated too): the waterfalls' (CP4_EXE_ANALYSIS.md 12.1.3). */
+    notices: trackFalls.notices,
     title: level.title,
     /** The level's music file in MUSIC.POD (the LVL names it), e.g. "farm.wav"; null when it names none. */
     musicName: level.lvl.musicName ?? null,
@@ -787,9 +808,14 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
      * Community Patch 4's lakes: `tileMap` (65536 tile ids, x + z * 256), `levelFt[id]` each lake's surface in feet,
      * and `bodies` for drawing ({ id, levelFt, reflective, box }). Null for none.
      */
-    lakes: withSheets(lakesOf(level)),
-    /** Community Patch 4's fog volumes (game/fog-volumes.js `fogVolumeOf`): the SIT's type 14 boxes, at most 64. */
-    fogVolumes: cpr ? [] : fogVolumesOf(sit.boxes),
+    lakes: withSheets(keptLakes),
+    /**
+     * Community Patch 4's fog volumes (game/fog-volumes.js `fogVolumeOf`): the SIT's type 14 boxes, then beta 0.53's
+     * waterfall mist (`withFallMists`), at most 64 in all.
+     */
+    fogVolumes: trackFalls.fogVolumes,
+    /** Community Patch 4 beta 0.53's waterfalls for render/waterfalls.js (worker/cp4-falls.js `buildTrackFalls`), or null. */
+    falls: trackFalls.falls,
     /** Community Patch 4's vegetation by species (worker/cp4-world.js `buildVegetation`), or null. */
     vegetation,
     waterLevelFt: level.waterLevelFt,
@@ -801,6 +827,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     soundObjects, trackLights,
     modelTextures,
     objects,
+    /** Community Patch 4 beta 0.53's shadow shells (worker/cp4-world.js `buildShadowShells`), game feet. */
+    shadowShells,
     blimp, heli, rex: await loadRex(mtm, truckPalettes),
     /**
      * The game's box table in order, as SIT box indexes: the replay's object numbers count these. The game keeps type 99

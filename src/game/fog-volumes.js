@@ -65,6 +65,35 @@ export function fogVolumesOf(boxes) {
   return out;
 }
 
+/**
+ * A waterfall's mist (Community Patch 4 beta 0.53, docs/CP4_EXE_ANALYSIS.md 12.4; OpenPhotex `fallMist`) as a volume:
+ * its box W across the landing (the box's own width), L along it, H up from the floor, turned so its width lies along
+ * `axisW`, with the fog the engine sets for it.
+ */
+export function fallMistVolume(mist) {
+  const [wx, wz] = mist.axisW;
+  // A box's width lies along the game's (cos psi, -sin psi) (OpenPhotex eulerToMatrix), so psi turns it onto axisW.
+  const psi = Math.atan2(-wz, wx);
+  return fogVolumeOf({ fog: mist.fog, positionFt: [mist.centre[0], mist.floorFt, mist.centre[1]], sizeFt: [mist.lengthFt, mist.widthFt, mist.heightFt], psi });
+}
+
+/**
+ * The SIT's fog volumes (`fogVolumesOf`) with the waterfalls' mist after them, as the engine appends them to the same
+ * list (12.4): each fall with a mist takes a slot while the SIT's volumes and the mist so far are fewer than
+ * FOG_VOLUMES_KEPT, and is left without one after (the engine's "no fog slot free"). `mists` is OpenPhotex
+ * `fallMists(built, { sitFogVolumes: volumes.length })`'s list. Returns `{ volumes, noSlot }`, the falls' build slots
+ * that found none in `noSlot`.
+ */
+export function withFallMists(volumes, mists) {
+  const out = [...volumes], noSlot = [];
+  for (const { slot, mist } of mists) {
+    if (out.length >= FOG_VOLUMES_KEPT) { noSlot.push(slot); continue; }
+    const volume = fallMistVolume(mist);
+    if (volume) out.push({ ...volume, fall: slot });
+  }
+  return { volumes: out, noSlot };
+}
+
 const wrap = (d) => d - Math.round(d / WORLD_FT) * WORLD_FT;
 
 /**

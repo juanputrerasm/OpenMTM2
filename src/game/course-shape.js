@@ -13,17 +13,29 @@
   either run, so a corner draws as a wide sweep rather than a kink, and two curves on one run never overlap.
 */
 
+import { mapWrap } from "../shared/scene-frame.js";
+
 export const COURSE_CORNER_RADIUS_FT = 240;
 export const COURSE_CURVE_STEPS = 16;
 const MAX_SEGMENTS = 256;
 
-/** The course's straights as `[[x, z], [x, z]]` runs, feet, in course order (the primary course's type 1 entries). */
+/**
+ * The course's straights as `[[x, z], [x, z]]` runs, feet, in course order (the primary course's type 1 entries),
+ * unwrapped across the world edge as beta 0.53's map unwraps its loop (CP4_EXE_ANALYSIS.md 14): each point the copy
+ * nearest the point before it.
+ */
 export function courseSegments(course) {
   const segments = [];
+  let last = null;
+  const near = (p) => (last ? [last[0] + mapWrap(p[0] - last[0]), last[1] + mapWrap(p[1] - last[1])] : p);
   for (const g of course ?? []) {
     if (g.ctype !== undefined && g.ctype !== 1) continue;
     if (!g.startFt || !g.endFt) continue;
-    segments.push([[g.startFt[0], g.startFt[2]], [g.endFt[0], g.endFt[2]]]);
+    const start = near([g.startFt[0], g.startFt[2]]);
+    last = start;
+    const end = near([g.endFt[0], g.endFt[2]]);
+    last = end;
+    segments.push([start, end]);
     if (segments.length >= MAX_SEGMENTS) break;
   }
   return segments;
@@ -91,9 +103,14 @@ export function smoothCoursePath(segments, loop = true) {
   const curves = [];
   for (let i = 0; i < (loop ? n : n - 1); i++) {
     const j = (i + 1) % n;
-    const join = courseJoin(segments[i], segments[j]);
+    // A loop that closes across the world edge: the first run is joined at its copy nearest the last one's end, and
+    // its start kept where it is (the map folds the step back, render/minimap.js `wrapRuns`).
+    const end = segments[i][1], next = segments[j];
+    const sx = mapWrap(next[0][0] - end[0]) - (next[0][0] - end[0]), sz = mapWrap(next[0][1] - end[1]) - (next[0][1] - end[1]);
+    const moved = sx || sz ? next.map((p) => [p[0] + sx, p[1] + sz]) : next;
+    const join = courseJoin(segments[i], moved);
     ends[i] = join.from;
-    starts[j] = join.to;
+    starts[j] = sx || sz ? [join.to[0] - sx, join.to[1] - sz] : join.to;
     curves[i] = join.points;
   }
   const out = [];

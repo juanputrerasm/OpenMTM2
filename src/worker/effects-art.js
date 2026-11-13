@@ -18,15 +18,23 @@ const NAMES = {
   water: ["RIPPL100", "RIPPL200", "RIPPL300", "RIPPL400", "RIPPL500", "RIPPL600", "RIPPL700", "RIPPL800"],
 };
 
+/** One of these 64 x 64 images, `ART\<stem>.RAW` with its own `.ACT`, as `{ width, height, rgba }`, or null when missing. */
+async function loadEffectImage(vfs, stem) {
+  const raw = await vfs.read(`ART\\${stem}.RAW`);
+  const act = await vfs.read(`ART\\${stem}.ACT`);
+  if (!raw || !act || raw.length < SIDE * SIDE) return null;
+  const palette = decodeActPalette(act);
+  return palette ? { width: SIDE, height: SIDE, rgba: decodeIndexedImage(raw, palette, SIDE, SIDE).rgba } : null;
+}
+
+/** The water surface's eight `RIPPL` frames alone (the waterfalls' default texture, worker/cp4-falls.js), null where one is missing. */
+export function loadWaterFrames(vfs) {
+  return Promise.all(NAMES.water.map((stem) => loadEffectImage(vfs, stem)));
+}
+
 /** `{ flakes, drops[], ice[], blob, ripple, splash[], puff2[12], puff3[12], tread, water[] }` of `{ width, height, rgba }`; a missing file is null. */
 export async function loadEffectsArt(vfs) {
-  const load = async (stem) => {
-    const raw = await vfs.read(`ART\\${stem}.RAW`);
-    const act = await vfs.read(`ART\\${stem}.ACT`);
-    if (!raw || !act || raw.length < SIDE * SIDE) return null;
-    const palette = decodeActPalette(act);
-    return palette ? { width: SIDE, height: SIDE, rgba: decodeIndexedImage(raw, palette, SIDE, SIDE).rgba } : null;
-  };
+  const load = (stem) => loadEffectImage(vfs, stem);
   const out = {};
   for (const [key, stems] of Object.entries(NAMES)) {
     const images = await Promise.all(stems.map(load));

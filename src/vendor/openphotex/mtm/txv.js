@@ -52,6 +52,6 @@ export function readTxvInfo(input) {
         formatVersion: int("formatVersion"), tool: str("tool"), toolVersion: str("toolVersion"), built: str("built"),
         legacyFallback: bool("legacyFallback"), hdTextures: bool("hdTextures"), fogVolumes: int("fogVolumes"),
         vegetation: bool("vegetation"), vegTrees: int("vegTrees"), vegClumps: int("vegClumps"),
-        terrainGrid: str("terrainGrid"), terrainHeights: str("terrainHeights"),
+        terrainGrid: str("terrainGrid"), terrainHeights: str("terrainHeights"), waterfalls: int("waterfalls"),
     };
 }

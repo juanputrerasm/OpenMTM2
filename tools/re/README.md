@@ -24,7 +24,11 @@ into `re/mtm1beta/`; `match.py` and `fdiff.py` take `MATCH=mtm1beta:mtm1` and `F
 `re/evo1/`. CART Precision Racing (`docs/CPR_PHYSICS.md`): `CPR_DIR=~/games/cpr tools/re/decompile.sh cpr`,
 into `re/cpr/`. Community Patch 3's 64-bit `monster.exe` (`docs/MONSTER_EXE_ANALYSIS.md` 14.5):
 `tools/re/decompile.sh cp3`, into `re/cp3/` (game folder `CP3_DIR`, default `~/games/mtm2`); `disasm.py`
-reads it as 64-bit code. Its author published no source code. Every helper below reads MTM2 unless `RE_TARGET` is `mtm1`, `evo1`, `evo2`, `cpr` or `cp3`;
+reads it as 64-bit code. Its author published no source code. Community Patch 4: beta 0.52 with `tools/re/decompile.sh cp4` (into
+`re/cp4/`, `CP4_DIR`, default `~/games/cp4beta052`) and beta 0.53 with `tools/re/decompile.sh cp4b2` (into
+`re/cp4b2/`, `CP4B2_DIR`, default `~/games/mtm2`), whose renderer `trid3d11.dll` is `cp4b2dll` (into
+`re/cp4b2dll/`); `FDIFF=cp4:cp4b2` diffs a function between the two betas. Neither has published source.
+Every helper below reads MTM2 unless `RE_TARGET` is `mtm1`, `evo1`, `evo2`, `cpr`, `cp3`, `cp4`, `cp4b2` or `cp4b2dll`;
 `fdiff.py` takes `FDIFF=evo1:evo2` and `match.py` `MATCH=cpr:mtm1` (any two targets).
 
 This analyses `MONSTER.EXE` from the install, exports every function decompiled to

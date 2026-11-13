@@ -262,6 +262,10 @@ See [the multiplayer guide](docs/MULTIPLAYER.md) for the protocols, ports and se
   vehicles, each on its own game's physics or on the model picked in Options.
 - Community Patch 3 support covers HD model, truck, sky and terrain art; normal and occlusion maps;
   enhanced materials and glass; track lights; moving objects; four-tire sets; and `.SI2` tracks.
+- Community Patch 4 tracks (betas 0.52 and 0.53) bring their 16-bit, Spline and Full Map terrain, lakes, vegetation,
+  fog volumes, drivable surface meshes, 3D cockpits and waterfalls: sheets of water poured over a crest by the
+  game's own rules, with foam, mist and their roar. Roofed arenas can be lit as outdoors, as in CP4 0.53
+  (**Options > Advanced > CP4**).
 
 ### Graphics, weather and water
 

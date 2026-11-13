@@ -7,6 +7,8 @@
 */
 import { vegClumpAt, vegTreeAt } from "../vendor/openphotex/mtm/veg.js";
 import { VEG_CAST_SHADOW, VEG_FAR_SHADOW, VEG_KIND_GRASS, VEG_KIND_TREE, VEG_NO_FAR_CARD, grassKept, treeShown, trunkOf, vegDistances } from "../game/vegetation.js";
+import { isShadowShell, levelShells } from "../game/shadow-shells.js";
+import { collisionSoupOfModel } from "./models.js";
 
 const TILES = 256, TILE_FT = 32, WORLD_FT = 8192;
 
@@ -153,4 +155,26 @@ export function vegetationWalls(veg, modelOf, { detail = 2 } = {}) {
     });
   }
   return walls;
+}
+
+/**
+ * Community Patch 4 beta 0.53's shadow shells (docs/CP4_EXE_ANALYSIS.md 13, game/shadow-shells.js): the level's placed
+ * objects (`objects`, worker/track-build.js, each with its SIT box's `sitIndex`; the stadium and the ground boxes are not
+ * among them) whose model is a roofed building at least 500 ft wide and long, each model's roof measured once.
+ * `boxes` the SIT's boxes, `models` the decoded models by name, `turnOf(box)` a box's turn (row-major, body to world).
+ * `[{ model, sitIndex, pos, rot, min, max, roofPct }]`, game feet.
+ */
+export function buildShadowShells(objects, boxes, models, turnOf) {
+  const placed = [];
+  for (const object of objects) {
+    const box = boxes[object.sitIndex];
+    if (object.type === "stadium" || !box?.positionFt || !object.model) continue;
+    placed.push({ model: object.model, sitIndex: object.sitIndex, pos: box.positionFt, rot: turnOf(box) });
+  }
+  return levelShells(placed, (name) => {
+    const model = models[name];
+    // The size first: a model too small is never measured, nor its triangles gathered.
+    const soup = model?.bounds && isShadowShell(model.bounds, Infinity) ? collisionSoupOfModel(model) : null;
+    return soup ? { bounds: model.bounds, positions: soup.positions } : null;
+  });
 }

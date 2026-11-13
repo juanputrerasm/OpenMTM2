@@ -9,6 +9,8 @@
 #   CPR_DIR=~/games/cpr tools/re/decompile.sh cpr          (CART Precision Racing, into re/cpr/)
 #   CP3_DIR=~/games/mtm2 tools/re/decompile.sh cp3         (Community Patch 3's monster.exe, x64, into re/cp3/)
 #   CP4_DIR=~/games/cp4beta052 tools/re/decompile.sh cp4  (Community Patch 4 beta 0.52, x64, into re/cp4/)
+#   CP4B2_DIR=~/games/mtm2 tools/re/decompile.sh cp4b2    (Community Patch 4 beta 0.53, x64, into re/cp4b2/)
+#   CP4B2DLL_DIR=~/games/mtm2 tools/re/decompile.sh cp4b2dll  (beta 0.53's trid3d11.dll renderer, into re/cp4b2dll/)
 # Needs Ghidra (brew install ghidra) and Python 3. Takes a few minutes.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -58,6 +60,19 @@ elif [ "$TARGET" = cp4 ]; then
   GAME_DIR=${CP4_DIR:-$HOME/games/cp4beta052}
   WORK="$REPO/re/cp4"
   EXE=monster.exe
+  SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
+elif [ "$TARGET" = cp4b2 ]; then
+  # Community Patch 4 beta 0.53 (monster.exe, still "2.0.52.2", MD5 2d80e10e...): waterfalls (.WFL),
+  # enhanced water, tire trails, original physics (docs/CP4_EXE_ANALYSIS.md 12-14). No source code.
+  GAME_DIR=${CP4B2_DIR:-$HOME/games/mtm2}
+  WORK="$REPO/re/cp4b2"
+  EXE=monster.exe
+  SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
+elif [ "$TARGET" = cp4b2dll ]; then
+  # Beta 0.53's Direct3D 11 renderer (trid3d11.dll): the gpuWaterfall* / foam entry points the exe calls.
+  GAME_DIR=${CP4B2DLL_DIR:-$HOME/games/mtm2}
+  WORK="$REPO/re/cp4b2dll"
+  EXE=trid3d11.dll
   SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
 else
   GAME_DIR=${MTM2_DIR:-$HOME/games/mtm2}
