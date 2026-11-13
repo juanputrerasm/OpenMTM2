@@ -173,6 +173,16 @@ City as the first), the views on them, and Freestyle's trick physics under every
 - **A truck's shadow is cast by its one still piece** (render/truck-object.js `shadowPiece`), near or far: a draw a
   cascade where its parts were a dozen. Farm Road 29 at Max, eight trucks in view: 96 shadow draws a frame to 9 to 15,
   230 to 290 draws in all to 113 to 132.
+- **Reflective water leaves the Low preset** (game/graphics.js): measured from one place looking out to sea on City of
+  the Lost Giblets (tools/perf-race.mjs `--try`, the camera set where the frame's fog picture is made for it), it is
+  2.5 ms of a frame for half a 3,420 point picture, all of it the water's own shading (drawn one flat colour it costs
+  nothing): the scene's fog on it 0.8 ms, its waves 0.3, the sun's shadows 0.3, the rest between what it mirrors, its
+  depth, glint and foam. High and Max keep it.
+- **The fog's last slice from the frame's fog picture** (render/atmosphere.js `mtmFogAlong`; on trial): a point of the
+  picture read the whole slices of fog before it from the picture worked out once a frame, and worked the slice it
+  lies in out for itself (the banks' noise twice, the floor, the layer's sum). It now takes that slice from the same
+  picture too, as much of it as the line is long in it. In a clear day's haze 0.4 to 0.7 ms of a frame at 3,420
+  points; in Dense Fog nothing measured; pictures of the two alike.
 - **A far truck is one still piece** (render/truck-object.js `farTruck`, past 600 ft and until back within 540): its
   body, its tires at their hubs and its axles joined into a draw or two, in the picture and in the sun's shadow,
   where its parts are a dozen each; without the wheels' turning, the suspension's travel or the dents. Not a truck

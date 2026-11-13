@@ -247,13 +247,28 @@ vec2 mtmFogAlong( vec3 dir, float dist ) {
     // The whole slices along this way are read from the picture of them, and only the rest is worked out here.
     if ( mtmFogStateEye.w > 0.5 && far > 0.0 ) {
       int whole = min( slices, int( float( slices ) * sqrt( max( dist, 0.0 ) / far ) ) );
-      vec2 kept = whole > 0 ? mtmFogStateAfter( dir, whole ) : vec2( - 1.0 );
-      if ( kept.x >= 0.0 ) {
+      // (Before the first slice's end nothing is behind the eye: all the light, none of the fog's.)
+      vec2 kept = whole > 0 ? mtmFogStateAfter( dir, whole ) : vec2( 1.0, 0.0 );
+      // The slice the line ends in, whole, from the same picture: the line has passed as much of it as it is long in it,
+      // as through a fog as thick all along that slice as the slice is on the whole. Working that part out for every
+      // point of the picture (the banks' noise twice, the floor, the layer's sum) was a seventh of a frame at Max.
+      vec2 next = whole < slices ? mtmFogStateAfter( dir, whole + 1 ) : vec2( 0.0 );
+      if ( kept.x >= 0.0 && next.x >= 0.0 ) {
         clear = kept.x;
         seen = kept.y;
         first = whole;
         float part = float( whole ) / float( slices );
         from = far * part * part;
+        if ( whole < slices && dist > from ) {
+          float partNext = float( whole + 1 ) / float( slices );
+          float t = clamp( ( dist - from ) / ( far * partNext * partNext - from ), 0.0, 1.0 );
+          // What the whole slice lets through of the light that reaches it, and so much of it as the line is in.
+          float lets = clamp( next.x / max( clear, 1e-6 ), 0.0, 1.0 ), through = pow( lets, t );
+          float gained = next.y - seen;
+          seen += lets < 0.9999 ? gained * ( 1.0 - through ) / ( 1.0 - lets ) : gained * t;
+          clear *= through;
+          from = dist;
+        }
       }
     }
   #endif

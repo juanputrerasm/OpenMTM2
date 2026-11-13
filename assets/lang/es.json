@@ -7556,6 +7556,10 @@
   "text": "Automático usa MSAA, y FXAA cuando los efectos de lente están activados, que es donde MSAA cuesta más. Desactivado dibuja cada punto una vez y es lo más rápido. MSAA es el método del hardware: cuatro muestras por punto, dos cuando la imagen es muy grande. FXAA, SMAA y TAA son pasadas sobre la imagen. FXAA es la más liviana, SMAA mantiene los bordes más nítidos y TAA además reduce el parpadeo. Un visor de VR usa su propio muestreo. Se aplica desde la próxima carrera."
  },
  {
+  "tag": "Puddles, snow, paint, lamps and rich dust. No smoothed ground, reflective water, volumetric weather, ground detail, natural light or lens.",
+  "text": "Los charcos, la nieve, la pintura, las luces y el polvo detallado. Sin terreno suavizado, agua reflectante, clima volumétrico, detalle del suelo, luz natural ni efectos de lente."
+ },
+ {
   "tag": "Skip hidden scenery",
   "text": "Omitir el escenario oculto"
  },

@@ -13,7 +13,7 @@ Each part is a setting of its own (`src/app/settings.js`), listed by `src/game/v
 The Options screen's Display page sets them, under Enhanced graphics, with one preset (`src/game/graphics.js`): Auto,
 Off, Low, High, Max or Custom. Off is the default and is the game's own picture: every part is
 the player's to turn on. Auto picks Low, High or Max for this machine, again when the game
-starts and when a race or a replay starts. Low keeps the water, puddles, snow, paint, lamps and rich dust, and turns off the
+starts and when a race or a replay starts. Low keeps the puddles, snow, paint, lamps and rich dust, and turns off the reflective water, the
 smoothed ground, volumetric weather, ground detail, natural light and the lens. High is every
 part but the lens. Max is every part. Custom shows each switch; the other presets hide them.
 A stored Off, Low, High, Max or Custom is kept, and a save that turned a part off before

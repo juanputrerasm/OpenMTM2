@@ -36,10 +36,10 @@ test("Low keeps the cheap parts and the rich dust and gives up the smoothed grou
   assert.equal(GRAPHICS_FLAGS.high.lensEffects, false);
   for (const key of KEYS) if (key !== "lensEffects") assert.equal(GRAPHICS_FLAGS.high[key], true, key);
   // The smoothed ground is the one cheap-looking part a small chip pays for on every frame (docs/VISUALS.md, "On a small chip").
-  for (const key of ["terrainSmoothing", "volumetricWeather", "groundDetail", "naturalLight", "lensEffects"]) {
+  for (const key of ["terrainSmoothing", "enhancedWater", "volumetricWeather", "groundDetail", "naturalLight", "lensEffects"]) {
     assert.equal(GRAPHICS_FLAGS.low[key], false, key);
   }
-  for (const key of ["enhancedWater", "rainPuddles", "snowCover", "glossyPaint", "truckLamps", "richParticles"]) {
+  for (const key of ["rainPuddles", "snowCover", "glossyPaint", "truckLamps", "richParticles"]) {
     assert.equal(GRAPHICS_FLAGS.low[key], true, key);
   }
 });

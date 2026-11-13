@@ -68,9 +68,12 @@ const HELP = `Usage: node tools/perf-race.mjs --track <name> [--game <MTM2 folde
                        telling apart settings whose costs are smaller than a race's own ups and downs
   --occlusion          with --freeze: how much of what the held picture draws is wholly hidden behind something else
                        (the placed objects and the ground in view, each one's box tested against the scene's depth)
+  --try <label::js>    with --freeze: after the held picture is measured, run the script in the page and measure it
+                       again under that label (repeatable, each on top of the last): what one thing costs in one picture
   --eval <js>          an expression worked out in the page after each window, its value logged with it
   --races <n>          run the race n times in the one session, one after another (1): does it slow from race to race
   --heap               save the page's heap snapshot after the last race (with --races: what a finished race left)
+  --weather <n>        the weather, by its number in the game's list (0, a clear day)
   --passes             the graphics card's time by pass (each picture three.js draws), in place of the frame's
   --dpr <n>            force the device pixel ratio
   --chrome <path>      the Chrome to run
@@ -101,9 +104,11 @@ function parseArgs(argv) {
     else if (arg === "--out") o.out = value();
     else if (arg === "--window") o.window = value();
     else if (arg === "--passes") o.passes = true;
+    else if (arg === "--weather") o.weather = Number(value());
     else if (arg === "--heap") o.heap = true;
     else if (arg === "--races") o.races = Number(value());
     else if (arg === "--eval") o.eval = value();
+    else if (arg === "--try") (o.tries ??= []).push(value());
     else if (arg === "--occlusion") o.occlusion = true;
     else if (arg === "--freeze") o.freeze = Number(value());
     else if (arg === "--dpr") o.dpr = value();
@@ -583,7 +588,7 @@ async function main() {
     const player = trucks[0].file;
     const opponents = trucks.filter((t) => t.file !== player && (!t.game || t.game === "MTM")).slice(0, 7).map((t) => t.file);
     const { goRace, setRaceConfig } = await import("/src/app/flow.js");
-    setRaceConfig(context, { mode: track.raceType ?? "circuit", track: track.file, laps: 3, difficulty: context.settings.difficulty ?? 1, gameMode: ${JSON.stringify(options.mode)}, opponents, weather: 0, freeRoam: false });
+    setRaceConfig(context, { mode: track.raceType ?? "circuit", track: track.file, laps: 3, difficulty: context.settings.difficulty ?? 1, gameMode: ${JSON.stringify(options.mode)}, opponents, weather: ${Number(options.weather) || 0}, freeRoam: false });
     goRace(context);
     const s = context.settings;
     return {
@@ -655,12 +660,18 @@ async function main() {
       };
       return +over.load.toFixed(2);
     })()`);
+    for (const attempt of options.tries ?? []) {
+      const at = attempt.indexOf("::"), label = at < 0 ? attempt : attempt.slice(0, at), script = at < 0 ? attempt : attempt.slice(at + 2);
+      await evaluate(`(() => { ${script}; return true; })()`);
+      await sleep(800);
+      await measure(label);
+    }
     if (options.occlusion) {
       const hidden = await evaluate(OCCLUSION);
       for (const [kind, k] of Object.entries(hidden ?? {})) log(`hidden ${kind}: ${k.hidden} of ${k.meshes} meshes in view, ${k.hiddenTriangles} of ${k.triangles} triangles`);
       report.occlusion = hidden;
     }
-    if (load !== null && !options.occlusion) {
+    if (load !== null && !options.occlusion && !options.tries) {
       log(`dust: ${load} pictures' worth of puffs in the held picture`);
       for (const [label, script] of [["dust light", "__perfDust(0)"], ["dust heavy", "__perfDust(100)"], ["no dust", "__perfDust(0); __perfDustShown(false)"]]) {
         await evaluate(`${script}; true`);
@@ -724,7 +735,7 @@ async function main() {
       } catch (error) { log("no profile of", name + ":", error.message.slice(0, 120)); }
     }
     await sleep(options.seconds * 1000);
-    const stamp = `${race.track.replace(/\W+/g, "_")}`;
+    const stamp = `${report.race.track.replace(/\W+/g, "_")}`;
     for (const [session, name] of started) {
       const { profile } = await send("Profiler.stop", {}, session);
       const file = join(outDir, `${stamp}-${name.replace(/\W+/g, "_")}.cpuprofile`);
@@ -736,7 +747,7 @@ async function main() {
     }
   }
 
-  const reportFile = join(outDir, `${race.track.replace(/\W+/g, "_")}-${report.when.replace(/[:.]/g, "-")}.json`);
+  const reportFile = join(outDir, `${report.race.track.replace(/\W+/g, "_")}-${report.when.replace(/[:.]/g, "-")}.json`);
   writeFileSync(reportFile, JSON.stringify(report, null, 1));
   log("report:", reportFile);
   socket.close();

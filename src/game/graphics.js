@@ -33,7 +33,8 @@ export const GRAPHICS_MANY_POINTS = 5e6;
 
 const DROP = Object.freeze({
   off: VISUAL_OPTIONS.map((option) => option.key),
-  low: ["terrainSmoothing", "volumetricWeather", "groundDetail", "naturalLight", "lensEffects"],
+  // Reflective water among them: looked out over, it was 2.5 ms of a frame for half a 3,420 point picture (docs/CHANGELOG.md).
+  low: ["terrainSmoothing", "enhancedWater", "volumetricWeather", "groundDetail", "naturalLight", "lensEffects"],
   high: ["lensEffects"],
   max: [],
 });
@@ -58,7 +59,7 @@ export const GRAPHICS_FLAGS = Object.freeze({
 export const GRAPHICS_NOTES = Object.freeze({
   auto: msg("Picks Low, High or Max for this machine."),
   off: msg("The game's own picture, the default. None of the port's scenery."),
-  low: msg("The water, puddles, snow, paint, lamps and rich dust. No smoothed ground, volumetric weather, ground detail, natural light or lens."),
+  low: msg("Puddles, snow, paint, lamps and rich dust. No smoothed ground, reflective water, volumetric weather, ground detail, natural light or lens."),
   high: msg("Every part but the lens, the pass the picture can spare first."),
   max: msg("Every part, including the lens."),
   // Custom shows each part's switch under it, which says as much.
