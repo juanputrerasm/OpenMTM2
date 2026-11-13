@@ -4,63 +4,16 @@ What was built, milestone by milestone and stage by stage, as the plan recorded 
 current state and everything still open are in [PLAN.md](PLAN.md); a "Not done", "Left" or "Pending" line below is
 as it stood when it was written, and the plan's open items list is the one kept up to date.
 
-## v0.7.2
+## v0.7.3
 
-OpenMTM2's own physics (MTM2's with drivable meshes) as the default, tracks made of meshes (Carmageddon II's Beaver
-City as the first), the views on them, and Freestyle's trick physics under every model:
+Frame rate, measured and worked on from end to end (a kept harness, tools/perf-race.mjs): fewer draws, hidden scenery
+left out, a leak of the graphics card's memory from race to race closed, less dust, and fixes found on the way:
 
-- **OpenMTM2 physics, the default** (Options, Game, Physics; app/settings.js `PHYSICS_MODELS` "omtm2",
-  `resolvePhysics`): Monster Truck Madness 2's model with drivable meshes, for players who find CommPatch4 too far from
-  the game. Auto (by vehicle) picks it for an MTM2 truck on an MTM2 track (stock, CP3 or CP4) and Auto (by track) on
-  every MTM2 track; MTM2's own model stays for an MTM2 truck on another game's track. On a track with a DATA\<stem>.TXV
-  record (worker/sim-worker.js `trackTriangles`, ui/screens/race.js `cp4TrackTriangles`) its placed models collide by
-  their triangles, with CP4's [Collision] defaults and none of CP4's other rules (no 25 Hz tick, suspension or grip
-  changes), so a city converted as meshes (Beaver City) is driven on, not on its models' boxes. Everywhere else it is
-  MTM2's physics. The MTM2 and MTM1 physics keep the game's boxes; CP4 collisions, Classic boxes, turns the triangles
-  off. Tests: tests/cp4-track-triangles.test.mjs, tests/physics-models.test.mjs.
-- **Every surface box counts** (OpenPhotex `withSurfaceMeshes` `limit`): CP4 grips by the first 64 static boxes with an
-  .SRF and ignores the rest (CP4_EXE_ANALYSIS.md 5); OpenMTM2 by all of them, under the CommPatch4 and OpenMTM2 physics.
-- **Computer trucks on meshes** (not the game's; game/mesh-ground.js): on a track whose models collide by their
-  triangles, a model's box is no block to steer round (it was: the trucks steered off the very street they drove on).
-  The avoidance looks for the mesh's walls (rays at wheel height) and drops (the drivable surface every 16 ft down
-  each lane, each sample against the last, so a ramp is followed and a deck's edge or a bridge's side is a drop); the
-  check for an obstacle off the course reads the mesh under the truck, not the terrain under the city; a racer more
-  than 15 ft under its course line for 3 s has fallen off (a deck, a bridge into the river) and is lifted back, the
-  fall teaching that segment's pace; and the helicopter carries a truck over the mesh and sets it down on the deck
-  of its course, not on the street under it. Measured headless on Beaver City (Carmageddon II conversion, CP4
-  physics, 8 trucks, about 9.6 minutes of race time): Nice Beaver 24 checkpoints, 228 falls to the river and 60
-  helicopter lifts before, 112 checkpoints, no fall and no lift after; City of the Lost Giblets 94 checkpoints and
-  63 lifts before, 168 and 10 after. Tests: tests/mesh-ground.test.mjs.
-- **Views on meshes** (game/mesh-ground.js `meshGroundFromBuild`, `viewGroundOn`, `viewBlocked`,
-  `clearStandingView`; game/cameras.js `blocked`): on a track made for CP4 the chase views, the BlimpCam, the RaceCam
-  and the dust, tracks and spray stand on the meshes near the truck watched (the street, a freeway's deck, a tunnel's
-  floor), not on the terrain under the city, in the race and in replays. The ground is read from 6 ft over the truck's
-  middle (it was 20: Beaver City's tunnel roof is 26 ft over its floor, so a bounce made the roof the ground and Chase
-  Far rose over the tunnel or was pulled into the truck). The external views do not see through a model: a chase view
-  stops 1.5 ft in front of the first face between the truck and it (a roof, a wall, a building, the road under a
-  ramp), and the BlimpCam and the RaceCam move in front of it, their lens as the game's for the nearer distance.
-  Measured headless along Nice Beaver's course (261 places, Chase Far): 9 views through a model before, none after,
-  and none under the road. Tests: tests/mesh-ground.test.mjs.
-- **Dust and tracks by the game's surface flags** (game/tire-effects.js `raisesDust`, `keepsTread`, `greyDustOn`;
-  game/particles.js `DUST_BY_TYPE`, `dustTone`; render/tire-effects.js): which ground puffs dust and which keeps a
-  track is now the game's table (`0x4de180`): dust off Cement, Dirt and Sand, grey off Cement (concrete, asphalt) and a third as much there (`dustShare`),
-  tracks on Dirt, Mud, Grass, Gravel and Snow, in the classic and the rich particles alike. Before, cement raised no
-  dust and grass, mud and gravel did. The rich particles take the terrain texture's dustiness and colour only where
-  that texture is the tire's ground, not under a street's mesh. On a track made for CP4 under the OpenMTM2 physics a
-  tire's surface is read where it touches (`surfaceAtPoint`, as CP4): MTM2's reading from 100 ft over the hub missed
-  the .SRF faces, so Beaver City's streets read as the dirt under the city (measured headless on Nice Beaver: tires on
-  the ground read dirt 90 % and default 10 % before, cement throughout after). Tests: tests/tire-effects.test.mjs,
-  tests/particles.test.mjs.
-- **Trick physics under every physics model** (game/extensions/freestyle.js `freestyleRules`; OpenPhotex
-  sim/mtm2/truck/trick.ts): Freestyle's trick physics now drives under whichever model the run uses, 4x4 Evolution's
-  and CART's included (their steps take the same three strengths), and the "Trick physics with MTM1 and Evo physics
-  too" setting is gone. Tests: tests/freestyle.test.mjs.
+- **OpenPhotex 1.7.2** vendored: CP4 collision shapes answer ray and cylinder queries without allocating.
 - **Box collisions through a grid** (worker/box-pairs.js `forEachBoxPair`): the step no longer tries every moving box
   against every other box; a 64 ft grid on x and z hands over only the pairs whose bounding spheres can overlap, in
   the full loops' order, so the result is the same and a city track's thousands of props cost far less. Tests:
   tests/box-pairs.test.mjs.
-- **OpenPhotex 1.7.1 and OpenMTM2 Server 0.4.2** vendored: CP4 physics and trick handling in the library; the relay
-  rate raised to 49152 bytes a second, reliable relay frames at most 1024 bytes, and `knownVersion` for patch builds.
 - **Frame rate on city tracks, measured** (tools/perf-race.mjs, a kept harness: a real Chrome driven over the DevTools
   protocol, the player's truck under the autopilot, windows of frames with draw calls, triangles, GPU time, renderer
   time and CPU profiles of the page and the workers; `--throttle` slows the main thread as a slower processor would,
@@ -213,6 +166,60 @@ City as the first), the views on them, and Freestyle's trick physics under every
 - tools/perf-race.mjs puts the truck under the autopilot before the lights, so it leaves the line with the others:
   engaged after the first window it left ten seconds late and was measured driving alone, with less to draw than a
   race has.
+
+## v0.7.2
+
+OpenMTM2's own physics (MTM2's with drivable meshes) as the default, tracks made of meshes (Carmageddon II's Beaver
+City as the first), the views on them, and Freestyle's trick physics under every model:
+
+- **OpenMTM2 physics, the default** (Options, Game, Physics; app/settings.js `PHYSICS_MODELS` "omtm2",
+  `resolvePhysics`): Monster Truck Madness 2's model with drivable meshes, for players who find CommPatch4 too far from
+  the game. Auto (by vehicle) picks it for an MTM2 truck on an MTM2 track (stock, CP3 or CP4) and Auto (by track) on
+  every MTM2 track; MTM2's own model stays for an MTM2 truck on another game's track. On a track with a DATA\<stem>.TXV
+  record (worker/sim-worker.js `trackTriangles`, ui/screens/race.js `cp4TrackTriangles`) its placed models collide by
+  their triangles, with CP4's [Collision] defaults and none of CP4's other rules (no 25 Hz tick, suspension or grip
+  changes), so a city converted as meshes (Beaver City) is driven on, not on its models' boxes. Everywhere else it is
+  MTM2's physics. The MTM2 and MTM1 physics keep the game's boxes; CP4 collisions, Classic boxes, turns the triangles
+  off. Tests: tests/cp4-track-triangles.test.mjs, tests/physics-models.test.mjs.
+- **Every surface box counts** (OpenPhotex `withSurfaceMeshes` `limit`): CP4 grips by the first 64 static boxes with an
+  .SRF and ignores the rest (CP4_EXE_ANALYSIS.md 5); OpenMTM2 by all of them, under the CommPatch4 and OpenMTM2 physics.
+- **Computer trucks on meshes** (not the game's; game/mesh-ground.js): on a track whose models collide by their
+  triangles, a model's box is no block to steer round (it was: the trucks steered off the very street they drove on).
+  The avoidance looks for the mesh's walls (rays at wheel height) and drops (the drivable surface every 16 ft down
+  each lane, each sample against the last, so a ramp is followed and a deck's edge or a bridge's side is a drop); the
+  check for an obstacle off the course reads the mesh under the truck, not the terrain under the city; a racer more
+  than 15 ft under its course line for 3 s has fallen off (a deck, a bridge into the river) and is lifted back, the
+  fall teaching that segment's pace; and the helicopter carries a truck over the mesh and sets it down on the deck
+  of its course, not on the street under it. Measured headless on Beaver City (Carmageddon II conversion, CP4
+  physics, 8 trucks, about 9.6 minutes of race time): Nice Beaver 24 checkpoints, 228 falls to the river and 60
+  helicopter lifts before, 112 checkpoints, no fall and no lift after; City of the Lost Giblets 94 checkpoints and
+  63 lifts before, 168 and 10 after. Tests: tests/mesh-ground.test.mjs.
+- **Views on meshes** (game/mesh-ground.js `meshGroundFromBuild`, `viewGroundOn`, `viewBlocked`,
+  `clearStandingView`; game/cameras.js `blocked`): on a track made for CP4 the chase views, the BlimpCam, the RaceCam
+  and the dust, tracks and spray stand on the meshes near the truck watched (the street, a freeway's deck, a tunnel's
+  floor), not on the terrain under the city, in the race and in replays. The ground is read from 6 ft over the truck's
+  middle (it was 20: Beaver City's tunnel roof is 26 ft over its floor, so a bounce made the roof the ground and Chase
+  Far rose over the tunnel or was pulled into the truck). The external views do not see through a model: a chase view
+  stops 1.5 ft in front of the first face between the truck and it (a roof, a wall, a building, the road under a
+  ramp), and the BlimpCam and the RaceCam move in front of it, their lens as the game's for the nearer distance.
+  Measured headless along Nice Beaver's course (261 places, Chase Far): 9 views through a model before, none after,
+  and none under the road. Tests: tests/mesh-ground.test.mjs.
+- **Dust and tracks by the game's surface flags** (game/tire-effects.js `raisesDust`, `keepsTread`, `greyDustOn`;
+  game/particles.js `DUST_BY_TYPE`, `dustTone`; render/tire-effects.js): which ground puffs dust and which keeps a
+  track is now the game's table (`0x4de180`): dust off Cement, Dirt and Sand, grey off Cement (concrete, asphalt) and a third as much there (`dustShare`),
+  tracks on Dirt, Mud, Grass, Gravel and Snow, in the classic and the rich particles alike. Before, cement raised no
+  dust and grass, mud and gravel did. The rich particles take the terrain texture's dustiness and colour only where
+  that texture is the tire's ground, not under a street's mesh. On a track made for CP4 under the OpenMTM2 physics a
+  tire's surface is read where it touches (`surfaceAtPoint`, as CP4): MTM2's reading from 100 ft over the hub missed
+  the .SRF faces, so Beaver City's streets read as the dirt under the city (measured headless on Nice Beaver: tires on
+  the ground read dirt 90 % and default 10 % before, cement throughout after). Tests: tests/tire-effects.test.mjs,
+  tests/particles.test.mjs.
+- **Trick physics under every physics model** (game/extensions/freestyle.js `freestyleRules`; OpenPhotex
+  sim/mtm2/truck/trick.ts): Freestyle's trick physics now drives under whichever model the run uses, 4x4 Evolution's
+  and CART's included (their steps take the same three strengths), and the "Trick physics with MTM1 and Evo physics
+  too" setting is gone. Tests: tests/freestyle.test.mjs.
+- **OpenPhotex 1.7.1 and OpenMTM2 Server 0.4.2** vendored: CP4 physics and trick handling in the library; the relay
+  rate raised to 49152 bytes a second, reliable relay frames at most 1024 bytes, and `knownVersion` for patch builds.
 
 ## v0.7.1
 

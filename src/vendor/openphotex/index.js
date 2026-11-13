@@ -97,6 +97,6 @@ export * as cp4Sim from "./sim/cp4/index.js";
 export { CPR_DEFAULT_SETUP, cloneCprSetup, parseCprGarage, writeCprGarage } from "./cpr/garage.js";
 export { PodFormatError } from "./errors.js";
 /** The library version, as published in package.json. */
-export const VERSION = "1.7.1";
+export const VERSION = "1.7.2";
 export { parseMtmPlayerPro, writeMtmPlayerPro, newMtmDriver, PLAYER_PRO_VERSION } from "./mtm/player-pro.js";
 export { parseMtmHighScores, writeMtmHighScores, decipherHighScores, encipherHighScores, HIGH_SCORES_FILE } from "./mtm/high-scores.js";

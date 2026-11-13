@@ -290,8 +290,11 @@ See [the visuals guide](docs/VISUALS.md) for the rendering choices and their con
 - Options, Data imports the game's own drivers (`player.pro`) and Hall of Fame (`MTM2 High Scores`) and saves
   OpenMTM2's in the same files. The Start screen's Monster Manual is OpenMTM2's own guide to the game.
 - The Garage provides truck tuning. Options include rebindable keys, graphics presets, V-sync, a
-  frame-rate limit and GOLD mode cheats. The drop-down console controls opponents, laps, track,
-  weather, skill and truck selection.
+  frame-rate limit, anti-aliasing (Auto picks the cheapest that suits the preset), a picture size for
+  slower graphics chips, skipping scenery hidden behind other scenery, and GOLD mode cheats. The FPS
+  counter shows draw calls and triangles, and a click copies its figures with the track and settings
+  for a report. The drop-down console controls opponents, laps, track, weather, skill and truck
+  selection.
 
 ## In a headset
 
