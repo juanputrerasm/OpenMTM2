@@ -17,6 +17,7 @@ import * as THREE from "three";
 import { iceMosaic } from "../game/sheets.js";
 import { WATER_FRAME_SEQUENCE, waterFrameStep, waterOpacity } from "../game/weather.js";
 import { createBillboards } from "./billboards.js";
+import { steadyMipmaps } from "../shared/steady-mips.js";
 
 const GRAVITY = 32, BLOB_LIFE = 3, RIPPLE_LIFE = 0.9, BLOBS = 256, RIPPLES = 64;
 const SPAWN_EVERY = 0.045, MIN_SPEED = 4, NEAR_FT = 700, ICE_FULL_SECONDS = 100, ICE_START = 0.25, ICE_MAX = 0.5;
@@ -153,8 +154,12 @@ export function cropWaterFrame({ width, rgba }) {
 export function createWaterSurface(water, art, look = "enhanced") {
   const meshes = [water].flat().filter(Boolean);
   if (!meshes.length || !art?.water?.every(Boolean)) return null;
-  const frames = art.water.map((image) => {
-    const frame = cropWaterFrame(image);
+  // The frames' smaller pictures made the same far off (shared/steady-mips.js): filtered each by itself, the far water
+  // was each frame's mean colour in turn, a sea that pulsed grey and blue with the ripples' clock.
+  const cropped = art.water.map((image) => cropWaterFrame(image));
+  const alike = cropped.every((frame) => frame.width === cropped[0].width && frame.height === cropped[0].height);
+  const levels = alike ? steadyMipmaps(cropped) : null;
+  const frames = cropped.map((frame, index) => {
     const texture = new THREE.DataTexture(frame.rgba, frame.width, frame.height, THREE.RGBAFormat);
     texture.flipY = false;
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -163,7 +168,7 @@ export function createWaterSurface(water, art, look = "enhanced") {
     // Mipmapped in either picture: repeated 256 times over the level, unfiltered it shimmers off into the distance.
     texture.magFilter = look === "classic" ? THREE.NearestFilter : THREE.LinearFilter;
     texture.minFilter = look === "classic" ? THREE.NearestMipmapLinearFilter : THREE.LinearMipmapLinearFilter;
-    texture.generateMipmaps = true;
+    if (levels) { texture.mipmaps = levels[index]; texture.generateMipmaps = false; } else texture.generateMipmaps = true;
     texture.needsUpdate = true;
     return texture;
   });

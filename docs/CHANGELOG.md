@@ -183,6 +183,19 @@ City as the first), the views on them, and Freestyle's trick physics under every
   lies in out for itself (the banks' noise twice, the floor, the layer's sum). It now takes that slice from the same
   picture too, as much of it as the line is long in it. In a clear day's haze 0.4 to 0.7 ms of a frame at 3,420
   points; in Dense Fog nothing measured; pictures of the two alike.
+- **The game's water does not pulse far off** (shared/steady-mips.js, render/water-effects.js; seen once Reflective
+  water left Low): its eight ripple frames were each filtered down by themselves, so far away the sea was each frame's
+  mean colour in turn, greyer then bluer four times a second. Their smaller pictures are now mixed toward the frames'
+  common picture, wholly from the third halving on: far off every frame is the same water, near the eye the ripples
+  move as before.
+- **Occlusion culling left blending switched off behind three.js's back** (render/occlusion.js): the first
+  see-through thing drawn after the boxes were asked could be drawn solid on those frames. It now uses three.js's own
+  switch.
+- **Less of the scene gone over at every picture** (three.js places every object of a scene again each time it draws
+  one, shown or not): GOLD mode's collision boxes are made when first asked for (Ctrl+B) where they were some 1,200
+  hidden objects in every race on a city track (ui/gold-mode.js), the ground's chunks are placed only when their copy
+  of the world moves (`StillGroup`), and occlusion culling asks once a frame whether a group is shown, not once a mesh.
+  Nice Beaver at Low, main thread slowed four times: placing objects 7.8 percent of it to 4.3.
 - **A far truck is one still piece** (render/truck-object.js `farTruck`, past 600 ft and until back within 540): its
   body, its tires at their hubs and its axles joined into a draw or two, in the picture and in the sun's shadow,
   where its parts are a dozen each; without the wheels' turning, the suspension's travel or the dents. Not a truck

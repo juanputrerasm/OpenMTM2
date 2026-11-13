@@ -79,12 +79,24 @@ export function createOcclusion({ renderer, scene, camera }) {
     for (const item of out) item.mesh.visible = item.was;
     out.length = 0;
   };
-  const shownAbove = (mesh) => { for (let node = mesh.parent; node && node !== scene; node = node.parent) if (!node.visible) return false; return true; };
+  // Whether everything a mesh hangs from is shown: asked once a frame of each parent, which hundreds of meshes share.
+  const parentsShown = new Map();
+  const shownAbove = (mesh) => {
+    const parent = mesh.parent;
+    let shown = parentsShown.get(parent);
+    if (shown === undefined) {
+      shown = true;
+      for (let node = parent; node && node !== scene; node = node.parent) if (!node.visible) { shown = false; break; }
+      parentsShown.set(parent, shown);
+    }
+    return shown;
+  };
 
   /** Before the camera's picture: the answers that have come, which things are in view, which are left out, which are asked. */
   const prepare = () => {
     restore();
     frame++;
+    parentsShown.clear();
     camera.updateMatrixWorld();
     viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     frustum.setFromProjectionMatrix(viewProjection);
@@ -144,7 +156,10 @@ export function createOcclusion({ renderer, scene, camera }) {
     state.buffers.depth.setTest(true);
     state.buffers.depth.setFunc(THREE.LessEqualDepth);
     state.disable(gl.CULL_FACE);
-    state.disable(gl.BLEND);
+    // Through three.js's own switch for blending, which keeps a note of its own beside the graphics card's: switched off
+    // behind its back, the next see-through thing of the same blend as the last (the water, drawn first of them) was
+    // drawn solid on every frame a box was asked, and blended on the others: far water that blinked.
+    state.setBlending(THREE.NoBlending);
     gl.useProgram(program);
     gl.bindVertexArray(array);
     gl.uniformMatrix4fv(uViewProjection, false, viewProjection.elements);

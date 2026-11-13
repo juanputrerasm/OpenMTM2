@@ -46,8 +46,13 @@ export function createGoldMode(env) {
   const t = env.t ?? createStrings();
   const onOff = (on) => (on ? t("on") : t("off"));
   const totalTriangles = countTriangles(scene);
-  const overlay = createCollisionOverlay(build.sim.boxes, build.sim.ramps);
-  scene.add(overlay.object);
+  // The collision boxes' overlay is made when first asked for (Ctrl+B): two objects a box, some 1,200 on a city track,
+  // which three.js went over at every picture of every race to place them, shown or not.
+  let overlay = null;
+  const overlayNow = () => {
+    if (!overlay) { overlay = createCollisionOverlay(build.sim.boxes, build.sim.ramps); scene.add(overlay.object); }
+    return overlay;
+  };
   const fpsPanel = createTextPanel(font, { width: 80, scale });
   const zPanel = createTextPanel(font, { width: 150, scale });
   for (const [panel, cls] of [[fpsPanel, "gold-fps"], [zPanel, "gold-z"]]) {
@@ -140,7 +145,7 @@ export function createGoldMode(env) {
       return false;
     }
     if (chord && e.code === "KeyT") { done(command("autopilot").then((n) => flash(t("Autopilot: <<1>>", t(AUTOPILOT_NAMES[n]))))); return true; }
-    if (chord && e.code === "KeyB") { done(Promise.resolve(overlay.cycle()).then((m) => flash(t("Collision boxes: <<1>>", t(OVERLAY_NAMES[m] ?? m))))); return true; }
+    if (chord && e.code === "KeyB") { done(Promise.resolve(overlayNow().cycle()).then((m) => flash(t("Collision boxes: <<1>>", t(OVERLAY_NAMES[m] ?? m))))); return true; }
     if (chord && e.code === "KeyW") {
       const next = nextWeather(env.getWeather(), env.track.weatherMask);
       done(env.setWeather(next).then(() => flash(t("Weather: <<1>>.", t(weatherName(next))))));
@@ -239,8 +244,7 @@ export function createGoldMode(env) {
       scope.remove();
       win.removeEventListener("keydown", onKeyDown);
       win.removeEventListener("keyup", onKeyUp);
-      scene.remove(overlay.object);
-      overlay.dispose();
+      if (overlay) { scene.remove(overlay.object); overlay.dispose(); }
     },
   };
 }

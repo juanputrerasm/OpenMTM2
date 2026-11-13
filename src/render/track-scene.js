@@ -306,7 +306,8 @@ export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.at
   const detailMask = material.userData.detail ? terrain.detail.mask : null;
   const maskShares = (positions) => (detailMask ? { detailShare: new THREE.BufferAttribute(terrainMaskShares(positions, detailMask), 1, true) } : {});
   if (terrain.roadMask) addRoadMask(material, terrain.roadMask);
-  const group = new THREE.Group();
+  // Its chunks never move within it (`StillGroup`): placed in the world when their copy of it moves, not at every picture.
+  const group = new StillGroup();
   group.name = "terrainChunks";
   const side = CHUNK_CELLS * CELL_FT;
   if (terrain.relief) {
@@ -782,7 +783,8 @@ function boundInstances(mesh) {
 class StillGroup extends THREE.Group {
   updateMatrixWorld(force) {
     const parent = this.parent?.matrixWorld.elements ?? null;
-    const seen = (this.userData.parentSeen ??= new Float64Array(16).fill(NaN));
+    // (Kept on the group itself, not among its `userData`, which a copy of the group would take with it.)
+    const seen = (this._parentSeen ??= new Float64Array(16).fill(NaN));
     let moved = this.matrixWorldNeedsUpdate;
     if (parent) for (let i = 0; i < 16; i++) if (seen[i] !== parent[i]) { seen[i] = parent[i]; moved = true; }
     if (!moved && (parent || !force)) return;
