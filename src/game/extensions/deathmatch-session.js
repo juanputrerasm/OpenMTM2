@@ -76,8 +76,10 @@ export function createDeathmatchRuntime(payload, env) {
     const others = trucks.filter((t, j) => j !== i && running(c.trucks[j])).map((t) => t.state.pos);
     const spot = pickSpawn(spots, others, Math.random());
     if (!spot) return null;
+    // The spot is already set over its drivable surface (a deck, a street mesh); the session's ground is only the
+    // terrain and road there, so it can only raise the spot (frozen water in Snow), never sink it into the terrain.
     const y = ground.height(spot.pos[0], spot.pos[2]);
-    return { pos: [spot.pos[0], Number.isFinite(y) ? y + SPAWN.rideFt : spot.pos[1], spot.pos[2]], heading: spot.heading };
+    return { pos: [spot.pos[0], Number.isFinite(y) ? Math.max(spot.pos[1], y + SPAWN.rideFt) : spot.pos[1], spot.pos[2]], heading: spot.heading };
   }
 
   /** Truck `i` back in the fight: set down whole at a spawn spot, held a moment and protected. */

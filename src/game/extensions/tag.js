@@ -401,7 +401,8 @@ export function movableOf(box) {
  * for the terrain around it. Otherwise the square is `ROAM_FT` around `home` (`[x, z]`). Either way
  * it stays on the map.
  */
-export function roamRect(points, home) {
+export function roamRect(points, home, worldFt = WORLD_FT) {
+  // `worldFt`: the world's side (8192 ft, or a track format version 6 world's).
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, n = 0;
   const take = (x, z) => {
     if (!Number.isFinite(x) || !Number.isFinite(z)) return;
@@ -416,11 +417,11 @@ export function roamRect(points, home) {
   const wide = n > 1 && (maxX - minX > 160 || maxZ - minZ > 160);
   const margin = wide ? ROAM_MARGIN_FT : ROAM_FT;
   if (!wide) { minX = maxX = home[0]; minZ = maxZ = home[1]; }
-  return clampRect({ minX: minX - margin, maxX: maxX + margin, minZ: minZ - margin, maxZ: maxZ + margin });
+  return clampRect({ minX: minX - margin, maxX: maxX + margin, minZ: minZ - margin, maxZ: maxZ + margin }, worldFt);
 }
 
-function clampRect(rect) {
-  const limit = WORLD_FT - MAP_MARGIN;
+function clampRect(rect, worldFt = WORLD_FT) {
+  const limit = worldFt - MAP_MARGIN;
   const fit = (a, b) => {
     let min = Math.max(MAP_MARGIN, Math.min(a, b));
     let max = Math.min(limit, Math.max(a, b));

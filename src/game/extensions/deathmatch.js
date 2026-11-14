@@ -52,7 +52,7 @@ export function heliRefusal(allowed, me, T = HELI) {
  * ground; at most `most` of them.
  */
 export const SPAWN = Object.freeze({ stepFt: 120, randomCount: 48, maxSlope: 0.6, wetFt: 1.5, boxClearFt: 15, rideFt: 6, most: 64, marginFt: 300 });
-/** The terrain's side (256 cells of 32 ft), and the margin kept from its edge. */
+/** The retail terrain's side (256 cells of 32 ft; a track format version 6 world passes its own), and the margin kept from its edge. */
 export const WORLD_FT = 256 * 32, EDGE_FT = 64;
 
 export const DEATHMATCH_EXTENSION = Object.freeze({
@@ -143,10 +143,10 @@ export function keepOut(box) {
 }
 
 /** The rectangle a level without a course is played on: its objects and start slots, with a margin; the whole terrain without them. */
-export function levelRect(points) {
+export function levelRect(points, worldFt = WORLD_FT) {
   const inside = (points ?? []).filter((p) => Number.isFinite(p?.[0]) && Number.isFinite(p?.[2]));
-  const clamp = (v) => Math.max(EDGE_FT, Math.min(WORLD_FT - EDGE_FT, v));
-  if (inside.length < 2) return { minX: EDGE_FT, maxX: WORLD_FT - EDGE_FT, minZ: EDGE_FT, maxZ: WORLD_FT - EDGE_FT };
+  const clamp = (v) => Math.max(EDGE_FT, Math.min(worldFt - EDGE_FT, v));
+  if (inside.length < 2) return { minX: EDGE_FT, maxX: worldFt - EDGE_FT, minZ: EDGE_FT, maxZ: worldFt - EDGE_FT };
   const xs = inside.map((p) => p[0]), zs = inside.map((p) => p[2]);
   const rect = {
     minX: clamp(Math.min(...xs) - SPAWN.marginFt), maxX: clamp(Math.max(...xs) + SPAWN.marginFt),
@@ -179,23 +179,27 @@ export function goodSpot(p, heightAt, waterFt, keepOuts = []) {
  * The spawn spots of a track (`{ pos, heading }`, set down `SPAWN.rideFt` over the ground), at most `SPAWN.most`, the
  * same on every machine for the same track. `kind` "course" spreads them along `course` (a circuit, a rally, a drag
  * strip's lanes), "slots" takes `slots` (a Summit Rumble's start slots), anything else picks them at random over
- * `levelRect` of `slots` and `boxes` (`seed` the dice).
+ * `levelRect` of `slots` and `boxes` (`seed` the dice). `heightAt(x, z, refY)` is the drivable ground (game/spawn-ground.js),
+ * `refY` the height a course point runs at, undefined for a random point.
  */
-export function spawnSpots({ kind, course = [], slots = [], boxes = [], heightAt, waterFt = null, seed = 1 }) {
+export function spawnSpots({ kind, course = [], slots = [], boxes = [], heightAt, waterFt = null, seed = 1, worldFt = WORLD_FT }) {
   const keepOuts = boxes.map(keepOut).filter(Boolean);
-  const ride = (p, heading) => ({ pos: [p[0], heightAt(p[0], p[2]) + SPAWN.rideFt, p[2]], heading });
-  const good = (p) => goodSpot(p, heightAt, waterFt, keepOuts);
+  // A course point's height picks the surface it runs on (a street, not the deck over it); a random point has none, so
+  // it takes the highest (game/spawn-ground.js).
+  const at = (ref) => (x, z) => heightAt(x, z, ref);
+  const ride = (p, heading, ref) => ({ pos: [p[0], heightAt(p[0], p[2], ref) + SPAWN.rideFt, p[2]], heading });
+  const good = (p, ref) => goodSpot(p, at(ref), waterFt, keepOuts);
   let spots = [];
   if (kind === "course") {
     const along = coursePoints(course);
-    spots = along.filter((s) => good(s.pos)).map((s) => ride(s.pos, s.heading));
-    if (spots.length < 2) spots = along.map((s) => ride(s.pos, s.heading));
+    spots = along.filter((s) => good(s.pos, s.pos[1])).map((s) => ride(s.pos, s.heading, s.pos[1]));
+    if (spots.length < 2) spots = along.map((s) => ride(s.pos, s.heading, s.pos[1]));
   } else if (kind === "slots") {
     spots = slots.filter((s) => s?.pos).map((s) => ({ pos: [...s.pos], heading: s.heading ?? 0 }));
   }
   if (spots.length < 2) {
     const random = seeded(seed >>> 0 || 1);
-    const rect = levelRect([...slots.map((s) => s?.pos), ...keepOuts.map((k) => k.pos)]);
+    const rect = levelRect([...slots.map((s) => s?.pos), ...keepOuts.map((k) => k.pos)], worldFt);
     const tried = [];
     for (let k = 0; k < SPAWN.randomCount; k++) {
       const p = wanderPoint(rect, random);

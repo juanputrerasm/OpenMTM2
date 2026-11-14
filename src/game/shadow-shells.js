@@ -111,15 +111,16 @@ export function shellModelOf(bounds, positions, options) {
  * Which shells hold the point (x, y, z), game feet: their indexes in `shells`, in order, written into `out`, at most
  * `max` (SHELLS_LISTED). The count is returned. A shell is `{ pos, rot, min, max }`: where it stands (game feet), its
  * turn (row-major, body to world, as OpenPhotex's `eulerToMatrix`), and its model's extents; its box is those
- * extents turned with it, the bottom SHELL_FLOOR_FT lower. With `wraps` the world repeats every 8192 ft and the copy
+ * extents turned with it, the bottom SHELL_FLOOR_FT lower. With `wraps` the world repeats every `worldFt` (8192 ft, or a
+ * track format version 6 world's) and the copy
  * of the point nearest the shell is tested. Nothing is made: it runs each frame.
  */
-export function shellsHolding(shells, x, y, z, out, { max = SHELLS_LISTED, wraps = true } = {}) {
+export function shellsHolding(shells, x, y, z, out, { max = SHELLS_LISTED, wraps = true, worldFt = 8192 } = {}) {
   let count = 0;
   const cap = Math.min(max, out.length);
   for (let i = 0; i < shells.length && count < cap; i++) {
     const { pos, rot: m, min, max: top } = shells[i];
-    const dx = wraps ? mapWrap(x - pos[0]) : x - pos[0], dy = y - pos[1], dz = wraps ? mapWrap(z - pos[2]) : z - pos[2];
+    const dx = wraps ? mapWrap(x - pos[0], worldFt) : x - pos[0], dy = y - pos[1], dz = wraps ? mapWrap(z - pos[2], worldFt) : z - pos[2];
     // Into the shell's own frame: the turn's transpose.
     const bx = m[0] * dx + m[3] * dy + m[6] * dz;
     const by = m[1] * dx + m[4] * dy + m[7] * dz;

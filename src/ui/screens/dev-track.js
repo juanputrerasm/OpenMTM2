@@ -52,7 +52,7 @@ export default async function mount(container, context, { track }) {
   assemble();
 
   const controls = new OrbitControls(camera, canvas);
-  const start = build.viewpoint?.start ?? [4096, 0, 4096];
+  const start = build.viewpoint?.start ?? [(build.worldFt ?? 8192) / 2, 0, (build.worldFt ?? 8192) / 2];
   const ahead = build.viewpoint?.end ?? [start[0], start[1], start[2] + 100];
   controls.target.set(ahead[0], ahead[1], -ahead[2]);
   camera.position.set(start[0], start[1] + 60, -start[2]);

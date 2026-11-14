@@ -219,11 +219,15 @@ its own storage, so the game files are installed once more inside it. A phone sh
 - Play Deathmatch on any track: Combat's damage with no race. Wreck as many trucks as you can
   before the time runs out; the most wrecks wins, and wrecking yourself costs one. Wrecked trucks
   come back after a few seconds at a spot away from the fight, briefly protected. Credits come only
-  from attacking and buy repairs with X when repairs are on (off by default).
+  from attacking and buy repairs with X when repairs are on (off by default). Trucks spawn on the
+  drivable surface: a mesh street or deck, a bridge, a road, never the terrain under it.
 - Drive a Freestyle run on any track, alone against the clock, as at a Monster Jam show: big air,
   wheelies, donuts, flips, hits and saves are judged out of 10, with the score building live on the
   HUD and its breakdown in the Winner's Circle. Use all the time and keep moving; reversing without a
   reason and crashes cost points. Its trick physics works under every physics model.
+- The Computer Opponents dialog filters the available trucks by name, and in a single-player race or
+  tournament you can pick your start position on the grid (also in Options, Game), or leave it at
+  Random as the game does.
 - CPU trucks keep control better, get themselves unstuck, and on Professional drive back through a
   missed checkpoint instead of calling the helicopter.
 - CPU trucks contest the zone in Rumble events, while tire tracks, dust, sparks, splashes and moving
@@ -238,6 +242,8 @@ its own storage, so the game files are installed once more inside it. A phone sh
 - **Classic TCP/IP:** host or join games with the original MTM2 (retail 2.00.42 or Community
   Patch 3) by IP address, through a small desktop helper from the OpenMTM2 Server project.
 - Each machine simulates its own truck; remote trucks are smoothed, and results are shared at the end.
+- Instant Replay works online too: it plays over the race, which keeps running underneath with your
+  truck still in it.
 
 See [the multiplayer guide](docs/MULTIPLAYER.md) for the protocols, ports and server setup.
 

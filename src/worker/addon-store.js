@@ -49,7 +49,7 @@ export async function removeAddons() {
   await removePath(ADDON_DIR);
 }
 
-const isTrackScript = (entry) => /\.SI[T2]$/.test(entry.normalizedName);
+const isTrackScript = (entry) => /\.SI[T23]$/.test(entry.normalizedName);
 /** A vehicle's manifest: an MTM or 4x4 Evolution truck (`TRUCK\*.TRK`) or a CART Precision Racing car (`VEHICLE\*.CAR`). */
 const isVehicle = (entry) => /^(?:TRUCK[\\/][^\\/]+\.TRK|VEHICLE[\\/][^\\/]+\.CAR)$/.test(entry.normalizedName);
 

@@ -7630,5 +7630,29 @@
  {
   "tag": "Too many looping sounds on this track; '<<1>>' is silent.",
   "text": "Demasiados sonidos en bucle en esta pista; '<<1>>' queda en silencio."
+ },
+ {
+  "tag": "Track format: <<1>>",
+  "text": "Formato de pista: <<1>>"
+ },
+ {
+  "tag": "Start position",
+  "text": "Posición de salida"
+ },
+ {
+  "tag": "Your place on the starting grid in a single-player race and tournament; Random leaves it to chance, as the game does. Past the last truck's place, the last",
+  "text": "Tu lugar en la parrilla de salida en una carrera y un torneo de un jugador; Aleatorio lo deja a la suerte, como el juego. Más allá del lugar del último camión, el último"
+ },
+ {
+  "tag": "Filter",
+  "text": "Filtrar"
+ },
+ {
+  "tag": "Filter available trucks",
+  "text": "Filtrar camiones disponibles"
+ },
+ {
+  "tag": "Your place on the starting grid in a single-player race; Random leaves it to chance, as the game does",
+  "text": "Tu lugar en la parrilla de salida en una carrera de un jugador; Aleatorio lo deja a la suerte, como el juego"
  }
 ]

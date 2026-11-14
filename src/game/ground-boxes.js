@@ -13,12 +13,29 @@
 import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
 
 /**
+ * A track build's ground box layers and their scale (worker/track-build.js `sim`): `{ ra0, ra1, stepFt, baseFt, cells }`.
+ * A track format version 6 track's may be u16 layers on a 512-cell world, its heights base + value x stepFt (the
+ * specification's 8.3); every other track's are bytes, 2 ft a step, on 256 cells.
+ */
+export function groundBoxGrids(sim, cells = sim?.worldCells ?? 256) {
+  const Grid = sim?.groundBoxDepth === 16 ? Uint16Array : Uint8Array;
+  const grid = (g) => (!g ? null : g instanceof Grid ? g : new Grid(g.buffer ?? g));
+  return {
+    ra0: grid(sim?.ra0), ra1: grid(sim?.ra1),
+    // Other levels' steps (Hellbender's 1.5 ft) are the simulation worker's alone; these readers keep MTM's 2 ft for them.
+    stepFt: sim?.groundBoxDepth && sim.groundBoxStepFt > 0 ? sim.groundBoxStepFt : 2, baseFt: Number(sim?.groundBoxBaseFt) || 0, cells,
+  };
+}
+
+/**
  * The decks of a level, or null for one without ground boxes. `ra0` and `ra1` are its lower and upper
  * ground-box heights, `heights` its terrain (the simulation's).
  */
-export function createDecks({ heights, ra0, ra1 }) {
-  if (!heights || !ra0 || !ra1 || !ra0.some((lower, i) => lower !== ra1[i])) return null;
-  const terrain = mtm2Sim.createTerrain(heights);
+export function createDecks({ heights, heightsFt = null, ra0, ra1, stepFt = 2, baseFt = 0, cells = 256 }) {
+  // `heightsFt`, `cells`, `stepFt`, `baseFt`: a track format version 6 track's heights in feet, its world and box scale.
+  if ((!heights && !heightsFt) || !ra0 || !ra1 || !ra0.some((lower, i) => lower !== ra1[i])) return null;
+  const terrain = heights ? mtm2Sim.createTerrain(heights) : mtm2Sim.createTerrainFt(heightsFt, null, null, cells);
+  const scale = { stepFt, baseFt };
   return {
     /**
      * The top of the ground box that something at game (x, y, z) stands on, feet, or null where it
@@ -26,7 +43,7 @@ export function createDecks({ heights, ra0, ra1 }) {
      */
     topAt(x, z, y) {
       if (!(y > -Infinity)) return null;
-      const h = mtm2Sim.groundBoxHeightAt(terrain, ra0, ra1, x, z, y);
+      const h = mtm2Sim.groundBoxHeightAt(terrain, ra0, ra1, x, z, y, false, scale);
       return h === mtm2Sim.groundHeightAt(terrain, x, z) ? null : h;
     },
   };
@@ -42,12 +59,14 @@ export const CAMERA_BOX_MARGIN_FT = 1;
  * only over the terrain: an OpenMTM2 addition, so it does not fly out through a tunnel's roof or into its walls. Null for
  * a level without ground boxes.
  */
-export function createBoxSolid({ ra0, ra1 }, margin = CAMERA_BOX_MARGIN_FT) {
+export function createBoxSolid({ ra0, ra1, stepFt = 2, baseFt = 0, cells = 256 }, margin = CAMERA_BOX_MARGIN_FT) {
   if (!ra0 || !ra1 || !ra0.some((lower, i) => lower !== ra1[i])) return null;
-  const cell = (x, z) => ((Math.trunc(z * 256) & 0x1fe000) >> 13) * 256 + ((Math.trunc(x * 256) & 0x1fe000) >> 13);
+  // The view cell (x >> 13) & (N - 1), the specification's 8.1 (0x1fe000 on the retail 256-cell world).
+  const mask = cells - 1;
+  const cell = (x, z) => ((Math.trunc(z * 256) >> 13) & mask) * cells + ((Math.trunc(x * 256) >> 13) & mask);
   const inside = (x, y, z) => {
     const i = cell(x, z);
-    return ra0[i] !== ra1[i] && y > ra0[i] * 2 - margin && y < ra1[i] * 2 + margin;
+    return ra0[i] !== ra1[i] && y > baseFt + ra0[i] * stepFt - margin && y < baseFt + ra1[i] * stepFt + margin;
   };
   return (x, y, z) => inside(x, y, z) || (margin > 0 && (inside(x + margin, y, z) || inside(x - margin, y, z) || inside(x, y, z + margin) || inside(x, y, z - margin)));
 }

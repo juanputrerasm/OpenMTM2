@@ -10,24 +10,29 @@ import { VEG_CAST_SHADOW, VEG_FAR_SHADOW, VEG_KIND_GRASS, VEG_KIND_TREE, VEG_NO_
 import { isShadowShell, levelShells } from "../game/shadow-shells.js";
 import { collisionSoupOfModel } from "./models.js";
 
-const TILES = 256, TILE_FT = 32, WORLD_FT = 8192;
+const TILES = 256, TILE_FT = 32;
+/** The water texture's repeat on the ground plane, feet: one retail world (render/track-scene.js `createWater`). */
+const WATER_TEXTURE_FT = 8192;
 
 /**
  * One flat sheet per lake at its surface (`lakes`: worker/track-build.js `lakesOf`), over the 32 ft tiles the tile map
  * gives it: each row's runs of the lake's tiles merged into one quad, facing up. `positions` (scene feet), `uvs` the
  * world's x / 8192 and z / 8192 as the track's water plane has them (render/track-scene.js `createWater`), `indices`.
+ * The tile map is `lakes.cells` a side (256, or a track format version 6 world's N); the texture repeats every 8192 ft
+ * whatever the world's size, as the water plane's does.
  * Returns the bodies with their sheet added (`sheet`), those without a tile left out.
  */
 export function buildLakeSheets(lakes) {
   if (!lakes?.tileMap) return [];
   const runs = new Map();
-  for (let z = 0; z < TILES; z++) {
+  const tiles = lakes.cells ?? TILES;
+  for (let z = 0; z < tiles; z++) {
     let x = 0;
-    while (x < TILES) {
-      const id = lakes.tileMap[z * TILES + x];
+    while (x < tiles) {
+      const id = lakes.tileMap[z * tiles + x];
       if (!id) { x++; continue; }
       let end = x + 1;
-      while (end < TILES && lakes.tileMap[z * TILES + end] === id) end++;
+      while (end < tiles && lakes.tileMap[z * tiles + end] === id) end++;
       if (!runs.has(id)) runs.set(id, []);
       runs.get(id).push([x, end, z]);
       x = end;
@@ -44,7 +49,7 @@ export function buildLakeSheets(lakes) {
       corners.forEach(([cx, cz], c) => {
         const xf = cx * TILE_FT, zf = cz * TILE_FT, v = k * 4 + c;
         positions[v * 3] = xf; positions[v * 3 + 1] = body.levelFt; positions[v * 3 + 2] = -zf;
-        uvs[v * 2] = xf / WORLD_FT; uvs[v * 2 + 1] = zf / WORLD_FT;
+        uvs[v * 2] = xf / WATER_TEXTURE_FT; uvs[v * 2 + 1] = zf / WATER_TEXTURE_FT;
       });
       // Counter-clockwise seen from above in the scene (z mirrored), so the face looks up.
       const v = k * 4, i = k * 6;

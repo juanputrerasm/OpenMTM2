@@ -9,11 +9,12 @@
   Layout, little-endian (Traxx 1.7.1 TrackPODFalls.cpp BuildWFL / ParseWFL):
 
     0    "MWFL"
-    4    u16 major = 1 (0 and a newer major are refused)
-    6    u16 minor = 0, or 1 when the records carry the mist size (v1.1)
+    4    u16 major = 1 for a 256-cell world, 2 for a 512-cell one (track format version 6, section
+         9.3: the world's size picks it; 0 and a newer major are refused)
+    6    u16 minor = 0, or 1 when the records carry the mist size (v1.1, v2.1)
     8    u32 header size = 32
     12   u32 chunk count = 1
-    16   u16 tiles X = 256, u16 tiles Z = 256 (any other size is refused)
+    16   u16 tiles X, u16 tiles Z: 256 x 256 in version 1, 512 x 512 in version 2
     20   12 bytes zero
     32   directory, 16 bytes an entry: id[4], u32 version = 1, u32 offset, u32 size.
          Unknown ids are skipped. The first FALL entry is the one even when it is unusable (past
@@ -27,8 +28,9 @@
           4   u16 flags (1 freeze in snow, 2 splash: foam and droplets, 4 sound)
           6   u16 flow speed at the crest, 1/16 ft/s
           8   u32 crest height, 0.5 ft units (for a lake-fed fall its lake's height when written;
-              the lake's own height wins)
-          12  8 x (u32 x, u32 z) crest points, 1/16 ft (0..131071); unused points zero
+              the lake's own height wins); i32 in version 2
+          12  8 x (u32 x, u32 z) crest points, 1/16 ft, below 16 W (0..131071 in version 1); unused
+              points zero
           76  u8 opacity %, 77 u8 mist %, 78 u8 sound volume %, 79 u8 0
           80  char[16] sound stem (SOUND\<stem>.WAV; empty = no sound of its own), NUL-padded
           96  char[16] texture stem (a pod texture or .ANI base name; empty = the default), NUL-padded
@@ -69,14 +71,20 @@ function readName(b, o) {
 export function isWfl(bytes) {
     return bytes.length >= 4 && bytes[0] === 0x4d && bytes[1] === 0x57 && bytes[2] === 0x46 && bytes[3] === 0x4c;
 }
-/** Read a .WFL with Traxx 1.7.1's rules; a file Traxx would refuse throws a RangeError naming why. */
-export function parseWfl(bytes) {
+/**
+ * Read a .WFL with Traxx 1.7.1's rules; a file Traxx would refuse throws a RangeError naming why. Version 2 (track
+ * format version 6, section 9.3) holds N x N in its header and i32 crest heights. `cells`, the track's world size,
+ * refuses a file authored for another one (a version 1 file is 256).
+ */
+export function parseWfl(bytes, opts = {}) {
     if (bytes.length < WFL_HEADER || !isWfl(bytes))
         throw new RangeError("WFL: not an MWFL file");
     const major = r16(bytes, 4);
-    if (major === 0 || major > 1)
-        throw new RangeError(`WFL: major version ${major} is not readable${major > 1 ? " (needs a newer reader)" : ""}`);
-    if (r16(bytes, 16) !== 256 || r16(bytes, 18) !== 256)
+    if (major === 0 || major > 2)
+        throw new RangeError(`WFL: major version ${major} is not readable${major > 2 ? " (needs a newer reader)" : ""}`);
+    const cells = r16(bytes, 16);
+    const sizeOk = r16(bytes, 18) === cells && cells === (major === 1 ? 256 : 512);
+    if (!sizeOk || (opts.cells !== undefined && cells !== opts.cells))
         throw new RangeError("WFL: authored for another terrain size");
     const headerSize = r32(bytes, 8);
     const count = r32(bytes, 12);
@@ -107,7 +115,7 @@ export function parseWfl(bytes) {
             throw new RangeError(`WFL: fall ${i + 1} has ${np} points (2 to 8)`);
         const flags = r16(bytes, r + 4);
         const speed = r16(bytes, r + 6);
-        const height = r32(bytes, r + 8);
+        const height = major >= 2 ? r32(bytes, r + 8) | 0 : r32(bytes, r + 8);
         const points = [];
         for (let k = 0; k < np; k++)
             points.push({ x: r32(bytes, r + 12 + 8 * k), z: r32(bytes, r + 16 + 8 * k) });
@@ -122,7 +130,7 @@ export function parseWfl(bytes) {
             soundName: readName(bytes, r + 80), textureName: readName(bytes, r + 96),
         });
     }
-    return { major, minor: r16(bytes, 6), stride, falls };
+    return { major, cells, minor: r16(bytes, 6), stride, falls };
 }
 function putName(out, o, name, what) {
     if (name.length > WFL_NAME_LEN - 1)
@@ -135,14 +143,29 @@ function putName(out, o, name, what) {
     }
 }
 /**
+ * Whether a fall's height fits version 1, the 256-cell world's file: 0..4096 half-feet (the engine accepts 1..4096;
+ * 0 is left to its record check, as Traxx writes it).
+ */
+export function wflFallFitsV1(f) {
+    return Number.isInteger(f.height) && f.height >= 0 && f.height <= 4096;
+}
+/**
  * Write a .WFL exactly as Traxx 1.7.1 lays one out: v1.0 (128-byte records) unless some fall's mist
  * depth or height is neither 0 nor 100, then v1.1 (132). Fall i gets id i + 1. Validation of the
  * falls themselves (crest shape, source, names in the pod) is the caller's: this checks only what
  * the file cannot hold.
+ *
+ * `cells` is the world's size (track format version 6), and it picks the version (section 9.3):
+ * 256 writes version 1 (a fall above 4096 half-feet throws), 512 version 2.
  */
-export function writeWfl(falls) {
+export function writeWfl(falls, opts = {}) {
     if (falls.length < 1 || falls.length > WFL_MAX_FALLS)
         throw new RangeError("WFL: 1 to 64 falls");
+    const cells = opts.cells ?? 256;
+    if (cells !== 256 && cells !== 512)
+        throw new RangeError(`WFL: a world of ${cells} cells (256 or 512)`);
+    const major = cells === 512 ? 2 : 1;
+    const pointLimit = 16 * 32 * cells;
     const custom = (v) => v !== undefined && v !== 0 && v !== 100;
     const stride = falls.some((f) => custom(f.mistDepth) || custom(f.mistHeight)) ? WFL_STRIDE_V11 : WFL_STRIDE;
     const chunkOff = WFL_HEADER + WFL_DIRENTRY;
@@ -150,12 +173,12 @@ export function writeWfl(falls) {
     const out = new Uint8Array(chunkOff + chunkSize);
     const v = new DataView(out.buffer);
     out.set([0x4d, 0x57, 0x46, 0x4c]);
-    v.setUint16(4, 1, true);
+    v.setUint16(4, major, true);
     v.setUint16(6, stride === WFL_STRIDE_V11 ? 1 : 0, true);
     v.setUint32(8, WFL_HEADER, true);
     v.setUint32(12, 1, true);
-    v.setUint16(16, 256, true);
-    v.setUint16(18, 256, true);
+    v.setUint16(16, cells, true);
+    v.setUint16(18, cells, true);
     out.set([0x46, 0x41, 0x4c, 0x4c], WFL_HEADER);
     v.setUint32(WFL_HEADER + 4, 1, true);
     v.setUint32(WFL_HEADER + 8, chunkOff, true);
@@ -176,8 +199,21 @@ export function writeWfl(falls) {
         out[p + 2] = f.points.length;
         v.setUint16(p + 4, f.flags & 0xffff, true);
         v.setUint16(p + 6, f.speed & 0xffff, true);
-        v.setUint32(p + 8, f.height >>> 0, true);
-        f.points.forEach((pt, k) => { v.setUint32(p + 12 + 8 * k, pt.x >>> 0, true); v.setUint32(p + 16 + 8 * k, pt.z >>> 0, true); });
+        if (major === 1 && !wflFallFitsV1(f))
+            throw new RangeError(`WFL: fall ${i + 1} is ${f.height} half-feet high; a 256-cell world's falls (version 1) are 0..4096`);
+        if (!Number.isInteger(f.height))
+            throw new RangeError(`WFL: fall ${i + 1} height ${f.height} is not whole half-feet`);
+        if (major === 1)
+            v.setUint32(p + 8, f.height >>> 0, true);
+        else
+            v.setInt32(p + 8, f.height, true);
+        f.points.forEach((pt, k) => {
+            if (!(Number.isInteger(pt.x) && Number.isInteger(pt.z) && pt.x >= 0 && pt.z >= 0 && pt.x < pointLimit && pt.z < pointLimit)) {
+                throw new RangeError(`WFL: fall ${i + 1} point ${k + 1} (${pt.x}, ${pt.z}) is outside a ${cells}-cell world`);
+            }
+            v.setUint32(p + 12 + 8 * k, pt.x, true);
+            v.setUint32(p + 16 + 8 * k, pt.z, true);
+        });
         out[p + 76] = byte(f.opacity, "opacity");
         out[p + 77] = byte(f.mist, "mist");
         out[p + 78] = byte(f.volume, "volume");

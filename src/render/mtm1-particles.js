@@ -15,13 +15,14 @@ const TIRE_WIDTH = 4;
 
 /** A cell's mark follows its ground in this many squares a side. */
 const MARK_STEPS = 4;
-const nearest = (v, to) => v + Math.round((to - v) / WORLD_FT) * WORLD_FT;
 
 /**
  * `ground(x, z)` is the ground's height in game feet; `atlas` and `clr` the level's ground art and CLR words, for the
  * particles' colour.
  */
-export function createMtm1Particles({ scene, ground, atlas, clr, random = Math.random }) {
+export function createMtm1Particles({ scene, ground, atlas, clr, random = Math.random, worldFt = WORLD_FT }) {
+  // The copy of the world nearest the eye, at the world's size (8192 ft, or a track format version 6 world's).
+  const nearest = (v, to) => v + Math.round((to - v) / worldFt) * worldFt;
   const root = new THREE.Group();
   root.name = "mtm1-particles";
   scene.add(root);
@@ -42,6 +43,7 @@ export function createMtm1Particles({ scene, ground, atlas, clr, random = Math.r
     map: texture, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
   });
   const marks = createGroundMarks({
+    worldFt,
     onDrop: (cell) => {
       const mesh = meshes.get(cell.key);
       if (!mesh) return;
@@ -111,7 +113,7 @@ export function createMtm1Particles({ scene, ground, atlas, clr, random = Math.r
           state.last[k] = at;
           if (!tick || !throwsParticles(type) || Math.abs(state.speed) < 1) return;
           const thrown = tireThrow({ forward, right, rimSpeed: (t.radius ?? 3) * (tire.spin ?? 0), forwardSpeed: state.speed }, random);
-          const tone = groundTexel(atlas, clr, at[0], at[2]) ?? [120, 100, 80];
+          const tone = groundTexel(atlas, clr, at[0], at[2], worldFt) ?? [120, 100, 80];
           for (let p = 0; p < POINTS; p++) {
             const side = (p - 1) * (TIRE_WIDTH / 2);
             const from = [at[0] + right[0] * side, at[1] + 0.2, at[2] + right[2] * side];

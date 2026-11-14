@@ -466,7 +466,7 @@ export class SunShadows {
     _inverse.copy(_orientation).invert();
     const toLight = (x, y, z) => { _point.set(x, y, z).applyMatrix4(_inverse); return [_point.x, _point.y]; };
     const cascade = { serial: fit.serial, radius: fit.radius, x: fit.center.x, z: fit.center.z, lx: fit.lx, ly: fit.ly };
-    return changeReaches(cascade, this._world?.userData.shadowChanges, serial, { toLight, worldFt: WORLD_FT, mapSize: MAP_SIZE });
+    return changeReaches(cascade, this._world?.userData.shadowChanges, serial, { toLight, worldFt: this._world?.userData.worldFt ?? WORLD_FT, mapSize: MAP_SIZE });
   }
 
   /*
@@ -720,7 +720,7 @@ export class SunShadows {
     this._shellNow = new Uint8Array(ids.size);
     this._shellWas = new Uint8Array(ids.size);
     // A world of one copy (a stadium, a level whose edges do not meet) does not wrap. Kept, so a frame makes nothing.
-    this._shellQuery = { max: SHELLS_LISTED, wraps: (this._world?.getObjectByName("objects")?.userData.copyGroups?.length ?? 9) > 1 };
+    this._shellQuery = { max: SHELLS_LISTED, wraps: (this._world?.getObjectByName("objects")?.userData.copyGroups?.length ?? 9) > 1, worldFt: this._world?.userData.worldFt ?? WORLD_FT };
     const seen = new Set();
     this._scene.traverse((object) => {
       if (!object.isMesh || !object.castShadow || seen.has(object)) return;

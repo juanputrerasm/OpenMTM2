@@ -4,7 +4,7 @@
   supplied by the extension loader.
 */
 import { rosterSlot, startDragWeekend } from "../../app/drag-weekend.js";
-import { CPU_NAME_MAX, cpuNames } from "../../game/race-setup.js";
+import { CPU_NAME_MAX, START_PLACES, cpuNames, ordinal } from "../../game/race-setup.js";
 import { MAX_FIELD, MIN_FIELD } from "../../game/events/drag-event.js";
 import { el } from "../dom.js";
 import { currentDriver, getProfiles } from "../../app/profile-store.js";
@@ -525,13 +525,25 @@ async function chooseOpponents(trucks, playerTruck, initial, full = 8, watching 
     const availableList = el("select", { multiple: true, size: 10, "aria-label": t("Available trucks") });
     const selectedList = el("select", { multiple: true, size: 10, "aria-label": t("Selected opponents") });
     const availableHead = el("span", {}), selectedHead = el("span", {});
+    // A filter over the available trucks: those whose name or file holds the text typed, any case.
+    const filter = el("input", { type: "search", class: "opponent-filter", placeholder: t("Filter"), "aria-label": t("Filter available trucks") });
+    const matches = (item) => {
+      const text = filter.value.trim().toLowerCase();
+      return !text || String(item.name ?? "").toLowerCase().includes(text) || String(item.file ?? "").toLowerCase().includes(text);
+    };
+    // The player's place on the grid (settings.startPlace, also on the Options' Game page); no place while watching.
+    const startPlace = el("select", { "aria-label": t("Start position"), onchange: () => {
+      settings.startPlace = Number(startPlace.value);
+      saveSettings(settings);
+    } }, ...START_PLACES.map((n) => el("option", { value: n, selected: n === (Number(settings.startPlace) || 0) }, n ? t(ordinal(n)) : t("Random"))));
     const draw = () => {
       const picked = new Set(selected);
       spectatorBox.checked = spectator;
       note.textContent = spectator
         ? (selected.length === 1 ? t("Spectator mode: this truck races and you watch. Up to <<1>>.", full) : t("Spectator mode: these trucks race and you watch. Up to <<1>>.", full))
         : t("You race against up to <<1>>. Pick <<2>> to watch them race instead.", full - 1, full);
-      availableList.replaceChildren(...trucks.filter((item) => (spectator || item.file !== playerTruck) && !picked.has(item.file))
+      startPlace.disabled = spectator;
+      availableList.replaceChildren(...trucks.filter((item) => (spectator || item.file !== playerTruck) && !picked.has(item.file) && matches(item))
         .map((item) => el("option", { value: item.file }, item.name)));
       selectedList.replaceChildren(...selected.map((file) => {
         const item = trucks.find((truck) => truck.file === file);
@@ -609,7 +621,7 @@ async function chooseOpponents(trucks, playerTruck, initial, full = 8, watching 
     const dialog = el("dialog", { class: "opponents-modal", "aria-label": t("Computer Opponents") },
       el("h1", {}, t("Computer Opponents")),
       el("div", { class: "opponent-lists" },
-        el("label", {}, availableHead, availableList),
+        el("label", { class: "opponent-available" }, availableHead, filter, availableList),
         el("div", { class: "opponent-moves" },
           el("div", { class: "opponent-moves-group" }, el("button", { onclick: add }, t("Add >")), el("button", { onclick: remove }, t("< Remove")),
             el("button", { onclick: () => { const wasFull = selected.length === full; selected = []; afterRemove(wasFull); draw(); } }, t("Remove all"))),
@@ -619,12 +631,14 @@ async function chooseOpponents(trucks, playerTruck, initial, full = 8, watching 
           }, t("Fill"))),
         el("label", {}, selectedHead, selectedList)),
       el("label", { class: "form-row" }, `${t("Default computer opponents")} `, defaultCount),
+      el("label", { class: "form-row", title: t("Your place on the starting grid in a single-player race; Random leaves it to chance, as the game does") }, `${t("Start position")} `, startPlace),
       el("label", { class: "form-row opponent-spectator" }, spectatorBox, ` ${t("Spectator mode")}`),
       note,
       teamsPanel,
       el("div", { class: "screen-actions" },
         el("button", { onclick: () => { selected = before.selected; spectator = before.spectator; cancelled = true; dialog.close(); } }, t("Cancel")),
         el("button", { class: "primary", onclick: () => dialog.close() }, t("Done"))));
+    filter.addEventListener("input", draw);
     availableList.addEventListener("dblclick", add);
     selectedList.addEventListener("dblclick", remove);
     spectatorBox.addEventListener("change", () => {

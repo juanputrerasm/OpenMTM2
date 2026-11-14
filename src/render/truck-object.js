@@ -485,7 +485,7 @@ const _ma = new THREE.Matrix4(), _mb = new THREE.Matrix4();
 const _sa = new Array(16), _sb = new Array(16);
 
 /** Blend two snapshots for drawing: positions linearly, orientations by quaternion. */
-export function interpolatePose(a, b, alpha) {
+export function interpolatePose(a, b, alpha, worldFt = 8192) {
   const t = Math.min(1, Math.max(0, alpha));
   // Every truck, every frame: the working matrices and turns are kept (the pose made is new, as callers may keep it).
   _qa.setFromRotationMatrix(_ma.fromArray(toSceneMatrix(a.matrix, ORIGIN, _sa)));
@@ -496,7 +496,7 @@ export function interpolatePose(a, b, alpha) {
   const lerp = (x, y) => x + (y - x) * t;
   // A truck that was wrapped across the world between the two (a replay's frames either side of the seam) is blended
   // from the copy of where it was that is beside where it is.
-  const from = nearestCopy(a.pos, b.pos);
+  const from = nearestCopy(a.pos, b.pos, worldFt);
   return {
     ...b,
     pos: [lerp(from[0], b.pos[0]), lerp(from[1], b.pos[1]), lerp(from[2], b.pos[2])],

@@ -7,6 +7,7 @@
   plain data with typed arrays, listed by `transferablesOf` for postMessage.
 */
 import { TREE_FACE_INDICES } from "../game/drag-tree-face.js";
+import { msg } from "../game/strings.js";
 import { rumbleGrid } from "../game/race-setup.js";
 import { loadHdSky, loadWeatherArt } from "./weather-art.js";
 import { weatherSkyStem } from "../game/weather.js";
@@ -41,6 +42,7 @@ import { artStem, hdTextureLimit, loadAoMap, loadArtTexture, loadNormalMap, load
 /**
  * A level's usable Community Patch 4 lakes (docs/CP4_EXE_ANALYSIS.md 2): those with a height in 1..4096 half-feet and
  * a surface above the track's own water, as the engine keeps them (it skips the rest with BELOW_BODY0 / HEIGHT_RANGE).
+ * A .WTR version 2 (a track format version 6 track's) takes the terrain's own range instead (`level.lakeHeightRange`).
  */
 function lakesOf(level) {
   const wtr = level.lakes;
@@ -48,15 +50,18 @@ function lakesOf(level) {
   const levelFt = new Float32Array(256);
   const tileMap = new Uint8Array(wtr.tileMap);
   const bodies = [];
+  const [low, high] = level.lakeHeightRange?.(wtr.major ?? 1) ?? [1, 4096];
+  const kept = new Set();
   for (const lake of wtr.lakes) {
-    const ok = lake.height >= 1 && lake.height <= 4096 && (level.waterLevelFt === null || lake.heightFt > level.waterLevelFt);
+    const ok = lake.height >= low && lake.height <= high && (level.waterLevelFt === null || lake.heightFt > level.waterLevelFt);
     if (ok) {
       levelFt[lake.id] = lake.heightFt;
+      kept.add(lake.id);
       bodies.push({ id: lake.id, levelFt: lake.heightFt, reflective: lake.reflective, box: lake.box });
     }
   }
-  for (let i = 0; i < tileMap.length; i++) if (tileMap[i] && !levelFt[tileMap[i]]) tileMap[i] = 0;
-  return bodies.length ? { tileMap, levelFt, bodies } : null;
+  for (let i = 0; i < tileMap.length; i++) if (tileMap[i] && !kept.has(tileMap[i])) tileMap[i] = 0;
+  return bodies.length ? { tileMap, levelFt, bodies, cells: Math.round(Math.sqrt(tileMap.length)) } : null;
 }
 
 /** A level's lakes with each body's water sheet (worker/cp4-world.js `buildLakeSheets`). */
@@ -368,7 +373,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   // `smoothTiles` (the enhanced look's smooth textures): a small tile scaled up to the widest is blended, not blocky.
   const atlas = buildTerrainAtlas(decodedTerrain, 0, { smooth: smoothTiles });
   // A slot no cell and no ground box names is left out of the stacks (it would draw as the narrowest stack's checker).
-  const inUse = slotsInUse(level.clr, cpr ? [] : groundBoxSlots(level.groundBoxes));
+  const inUse = slotsInUse(level.clr, cpr ? [] : groundBoxSlots(level.groundBoxes, level.cells));
   // A smaller Texture size shrinks the stacks' budget with the area: 128 MB at 512, 32 MB at 256.
   const terrainStacks = buildTileStacks(fullTerrain.map((image, slot) => (inUse.has(slot) ? image : null)), { minSide: atlas.tileSide, maxSide: Math.min(HD_STACK_SIDE, hdTextureLimit()), budgetBytes: STACK_BUDGET * (hdTextureLimit() / HD_STACK_SIDE) ** 2, smooth: smoothTiles });
   // HD ground tiles may carry a normal map (`<stem>_N`, AUTHORING_HD_ART.md): a second atlas laid out as the first, flat
@@ -402,7 +407,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   // console's `overlap`) says which for this race, whatever the track; unsaid, a track draws as its own game did.
   const tileInset = (tileOverlap ?? sit.origin !== "MTM1") ? 2 : 0;
   const groundBoxes = cpr ? null : buildGroundBoxMesh(level.groundBoxes, atlas, level.lte, level.heights, cells,
-    { drawn: sit.origin === "MTM1" && !cells ? mtm1EdgeBoxDrawn() : null, tileInset, heightsFt: level.heights ? null : level.heightsFt });
+    { drawn: sit.origin === "MTM1" && !cells ? mtm1EdgeBoxDrawn() : null, tileInset, heightsFt: level.heights ? null : level.heightsFt,
+      stepFt: level.groundBoxes.stepFt ?? 2, baseFt: level.groundBoxes.baseFt ?? 0, grid: level.cells });
   const road = cpr ? await buildCprRoadLayer(vfs, level) : null;
   // The ground of a CPR track as the simulation has it: the terrain, and the road layer over it.
   const cprTerrain = cpr ? mtm2Sim.createTerrainGround(mtm2Sim.createTerrainFt(level.heightsFt), null, 0, null) : null;
@@ -626,8 +632,13 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   if (cpr) visuals = { smoothing: !!visuals.smoothing };
   // A Community Patch 4 Spline or Full Map track is already on an 8 ft grid that the game drives on (docs/CP4_EXE_ANALYSIS.md):
   // it is drawn as that grid, with no Smooth terrain or snow cover over it, and its drawn ground is the game's.
-  const fineTerrain = level.fineFt ? mtm2Sim.createTerrainFt(level.heightsFt, level.waterLevelFt, level.fineFt) : null;
+  // A track format version 6 world of other than 256 cells (docs/EXTENSIONS.md "Track format version 6") is drawn as the
+  // game's own ground too: the drawn ground, the snow cover and the maps over the world (game/terrain-relief.js,
+  // game/snow-cover.js, game/ground-maps.js) are OpenMTM2's additions made for a 256-cell world, and are left out on it.
+  const otherWorld = (level.cells ?? 256) !== 256;
+  const fineTerrain = level.fineFt || otherWorld ? mtm2Sim.createTerrainFt(level.heightsFt, level.waterLevelFt, level.fineFt, level.cells ?? 256) : null;
   if (fineTerrain) visuals = { ...visuals, smoothing: false, snow: false };
+  if (otherWorld) visuals = { ...visuals, cover: false, groundMap: false, puddles: false };
   let mesh, reliefData = null, snowData = null;
   let drawnGround = fineTerrain
     ? { heightAt: (x, z) => mtm2Sim.terrainHeightAt(fineTerrain, x, z), simAt: (x, z) => mtm2Sim.terrainHeightAt(fineTerrain, x, z), offsetAt: () => 0 }
@@ -669,9 +680,9 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     // The ground map's samples lie on the mesh's own: it reads the heights the mesh was cut from.
     sampledGround = relief.heightAtSample;
   } else if (level.fineFt) {
-    mesh = buildFineTerrainMesh({ fineFt: level.fineFt, sub: 4, clr: level.clr, lte: level.lte, atlas, tileInset });
+    mesh = buildFineTerrainMesh({ fineFt: level.fineFt, sub: 4, clr: level.clr, lte: level.lte, atlas, tileInset, grid: level.cells ?? 256 });
   } else {
-    mesh = buildTerrainMesh({ heights: level.heights, heightsFt: level.heightsFt, clr: level.clr, lte: cpr ? null : level.lte, atlas, footprint: cells, tileInset });
+    mesh = buildTerrainMesh({ heights: level.heights, heightsFt: level.heightsFt, clr: level.clr, lte: cpr ? null : level.lte, atlas, footprint: cells, tileInset, grid: level.cells ?? 256 });
   }
   const groundMap = visuals.groundMap || visuals.puddles ? buildGroundMap(sampledGround ?? drawnGround.heightAt, GROUND_MAP_SIDE) : null;
   // The driven line holds the deepest puddles: the trucks have churned it into potholes.
@@ -683,7 +694,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     const name = podPathTitle(sit.arena.modelName);
     models[name] = await loadModel(name);
     if (models[name]) {
-      const terrain = level.heights ? mtm2Sim.createTerrain(level.heights, level.waterLevelFt) : mtm2Sim.createTerrainFt(level.heightsFt, level.waterLevelFt, level.fineFt);
+      const terrain = level.heights ? mtm2Sim.createTerrain(level.heights, level.waterLevelFt) : mtm2Sim.createTerrainFt(level.heightsFt, level.waterLevelFt, level.fineFt, level.cells ?? 256);
       const xFt = sit.arena.x * 32, zFt = sit.arena.y * 32;
       if (!mtm1Stadium) {
         const y = mtm2Sim.groundHeightAt(terrain, xFt - sit.arena.sx * 16, zFt - sit.arena.sy * 16);
@@ -770,7 +781,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   return {
     problems: [...missing].sort(),
     /** Messages to show as the race begins, `{ text, args }` (an arg `{ tag }` is translated too): the waterfalls' (CP4_EXE_ANALYSIS.md 12.1.3). */
-    notices: trackFalls.notices,
+    // A version 6 track's .TXV warnings (a formatVersion above 6 may need a newer build: the specification's 5.2).
+    notices: [...(level.v6?.warnings ?? []).map((w) => ({ text: msg("Track format: <<1>>"), args: [w] })), ...trackFalls.notices],
     title: level.title,
     /** The level's music file in MUSIC.POD (the LVL names it), e.g. "farm.wav"; null when it names none. */
     musicName: level.lvl.musicName ?? null,
@@ -804,6 +816,13 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     /** Community Patch 4's 8 ft grid in feet (a Spline or Full Map track), which the simulation drives on, or null. */
     fineFt: level.fineFt,
     terrainMode: level.terrainMode,
+    /**
+     * The world (docs/EXTENSIONS.md "Track format version 6"): `worldCells` a side and `worldFt` (32 x worldCells), 256
+     * and 8192 but on a version 6 track. Everything that wraps or reads a grid takes them from here.
+     */
+    worldCells: level.cells ?? 256, worldFt: level.worldFt ?? 8192,
+    /** A version 6 track's .TXV keys (step, base), or null. */
+    formatV6: level.v6 ? { step: level.v6.terrainHeightStep, base: level.v6.terrainHeightBase, heightMap: level.v6.terrainHeightMap } : null,
     /**
      * Community Patch 4's lakes: `tileMap` (65536 tile ids, x + z * 256), `levelFt[id]` each lake's surface in feet,
      * and `bodies` for drawing ({ id, levelFt, reflective, box }). Null for none.
@@ -855,6 +874,12 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       textureValues: level.textureValues.slice(),
       ra0: level.groundBoxes.ra0 ? level.groundBoxes.ra0.slice() : null,
       ra1: level.groundBoxes.ra1 ? level.groundBoxes.ra1.slice() : null,
+      /**
+       * A track format version 6 track's ground boxes (the specification's 8.3): `groundBoxDepth` 16 for u16 layers,
+       * `groundBoxStepFt` the feet a step (2, or 1 / terrainHeightStep) and `groundBoxBaseFt` the base. Absent: MTM's.
+       */
+      ...(level.v6 ? { groundBoxDepth: level.groundBoxes.depth, groundBoxStepFt: level.groundBoxes.stepFt, groundBoxBaseFt: level.groundBoxes.baseFt } : {}),
+      worldCells: level.cells ?? 256,
       boxes: collisionBoxes,
       /** Each collidable model's triangles and .SRF surface types, for the CommPatch4 physics (`collisionSoups` above). */
       collisionSoups,

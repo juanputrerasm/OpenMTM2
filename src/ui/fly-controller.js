@@ -40,7 +40,7 @@ export const listFontScale = (deviceHeight) => Math.max(1, Math.round(deviceHeig
  * @param {() => void} [options.onListKey] what the O key does instead of showing and hiding the list (a watched race
  *   cycles the lap and clock with it)
  */
-export function createFlyController({ canvas, settings, save, course = [], courseOpen = false, groundAt, say = () => {}, blocked = () => false, baseFov = 60, font = null, t = createStrings(), onListKey = null }) {
+export function createFlyController({ canvas, settings, save, course = [], courseOpen = false, groundAt, say = () => {}, blocked = () => false, baseFov = 60, font = null, t = createStrings(), onListKey = null, worldFt = 8192 }) {
   const fly = createFlyCamera();
   const tour = createCourseTour(course, { open: courseOpen });
   let scheme = FLY_SCHEMES.includes(settings.flyControls) ? settings.flyControls : "traxx";
@@ -151,7 +151,7 @@ export function createFlyController({ canvas, settings, save, course = [], cours
     step(dt) {
       if (enabled && !blocked()) {
         const input = flyInput(scheme, held);
-        if (following && tour) stepCourseTour(tour, fly, dt, input, groundAt);
+        if (following && tour) stepCourseTour(tour, fly, dt, input, groundAt, worldFt);
         else stepFlyCamera(fly, { ...input, lookX, lookY, zoom: zoomSteps }, dt, scheme, groundAt);
         // The camera's place runs on without a seam; the world is drawn around it wherever it is
         // (render/track-scene.js `placeBlocks`), so flying on one way comes round to the same ground for ever.

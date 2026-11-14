@@ -34,7 +34,8 @@ function glowTexture() {
  * `lights` is the track build's `trackLights`; `ground(x, z)` the terrain height in game feet. `shafts` draws each
  * cone as light in the air ("Truck lamps", render/light-beam.js) instead of as a skin.
  */
-export function createTrackLights(scene, lights, ground, { shafts = false } = {}) {
+export function createTrackLights(scene, lights, ground, { shafts = false, worldFt = 8192 } = {}) {
+  // `worldFt`: the world's size, for each lamp's copy nearest the camera (a track format version 6 world may be 16384 ft).
   if (!lights?.length) return null;
   const root = new THREE.Group();
   root.name = "trackLights";
@@ -82,7 +83,7 @@ export function createTrackLights(scene, lights, ground, { shafts = false } = {}
       // The world is drawn as a window around the camera (track-scene.js `placeBlocks`): each lamp is lit at the copy
       // of its place nearest the camera, `shift` whole worlds from where the level has it (game feet: x, and z forward).
       for (const item of items) {
-        const [sx, sz] = blockShift(item.l.head[0], item.l.head[2], cx, cz);
+        const [sx, sz] = blockShift(item.l.head[0], item.l.head[2], cx, cz, worldFt);
         item.shift = [sx, sz];
         for (const part of [item.glow, item.cone]) if (part) part.position.set(item.l.head[0] + sx, item.l.head[1], -(item.l.head[2] + sz));
       }

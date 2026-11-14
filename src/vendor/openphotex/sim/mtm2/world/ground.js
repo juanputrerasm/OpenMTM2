@@ -1,5 +1,5 @@
 import { rampHeightAt } from "../collide/ramp.js";
-import { groundHeightAt, groundNormalAt, terrainWaterLevelAt } from "./terrain.js";
+import { groundHeightAt, groundNormalAt, terrainWaterLevelAt, terrainWorldFt } from "./terrain.js";
 import { MTM2_RULES, weatherGrip } from "../constants.js";
 import { terrainSurfaceValue } from "./surface.js";
 /** The grip factor of the ground's weather under its rules. */
@@ -27,5 +27,6 @@ export function createTerrainGround(terrain, surface, weather = 0, waterLevelFt 
         weather,
         ramps,
         rules,
+        worldFt: terrainWorldFt(terrain),
     };
 }

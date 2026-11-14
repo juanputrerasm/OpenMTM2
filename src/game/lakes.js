@@ -6,12 +6,16 @@
 
 const TILE_FT = 32, TILES = 256;
 
-/** The lake id (0 none) of the 32 ft tile under game (x, z), the world wrapping at 8192 ft. `lakes` is a build's. */
+/**
+ * The lake id (0 none) of the 32 ft tile under game (x, z), the world wrapping at 8192 ft, or at a track format version 6
+ * world's size (its tile map `lakes.cells` a side). `lakes` is a build's.
+ */
 export function lakeAt(lakes, x, z) {
   if (!lakes?.tileMap || !Number.isFinite(x) || !Number.isFinite(z)) return 0;
-  const col = ((Math.floor(x / TILE_FT) % TILES) + TILES) % TILES;
-  const row = ((Math.floor(z / TILE_FT) % TILES) + TILES) % TILES;
-  return lakes.tileMap[row * TILES + col];
+  const tiles = lakes.cells ?? TILES;
+  const col = ((Math.floor(x / TILE_FT) % tiles) + tiles) % tiles;
+  const row = ((Math.floor(z / TILE_FT) % tiles) + tiles) % tiles;
+  return lakes.tileMap[row * tiles + col];
 }
 
 /**
@@ -20,7 +24,9 @@ export function lakeAt(lakes, x, z) {
  */
 export function waterLevelAt(lakes, x, z, trackLevelFt = null) {
   const id = lakeAt(lakes, x, z);
-  return id && lakes.levelFt[id] ? lakes.levelFt[id] : trackLevelFt;
+  // Every id left on the map is a kept lake (worker/track-build.js `lakesOf`): its surface may be at or below 0 ft on a track
+  // format version 6 track.
+  return id ? lakes.levelFt[id] : trackLevelFt;
 }
 
 /** waterLakeOwnPass's default (docs/CP4_EXE_ANALYSIS.md 2): a lake further than this above the base plane has its own reflection pass. */

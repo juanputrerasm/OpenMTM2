@@ -38,7 +38,8 @@ export function checkpointSounds(script) {
  *   `objects` are the level's things that sound by themselves (a train, a crossing bell, a crowd);
  *   `hitInfo` what each collision box makes when it is hit; `musicOff` whether the jukebox plays in the music's place.
  */
-export function createWorldAudio(audio, { ambient, cues = ambient, weather, music, random = Math.random, objects = [], hitInfo = new Map(), onEvent = () => {}, musicOff = () => false }) {
+export function createWorldAudio(audio, { ambient, cues = ambient, weather, music, random = Math.random, objects = [], hitInfo = new Map(), onEvent = () => {}, musicOff = () => false, worldFt = 8192 }) {
+  // `worldFt`: the world's size, for each sound's nearest copy (a track format version 6 world may be 16384 ft).
   // The checkpoint and lap sounds: the level's script's (`cues`, its SOUNDnnn.TXT, which a race's instant replay passes
   // without its ambience), or the stock ones when it has none or names a WAV the install lacks (checkpointSounds).
   const cueNames = checkpointSounds(cues);
@@ -153,7 +154,7 @@ export function createWorldAudio(audio, { ambient, cues = ambient, weather, musi
       // A Community Patch 4 waterfall's loop (worker/cp4-falls.js; CP4_EXE_ANALYSIS.md 12.7): from its landing at the
       // copy of the world nearest the listener, at its volume and hearing, within the engine's sound range.
       if (e.fall !== undefined) {
-        e.pos = nearestCopy(e.positionFt, listener);
+        e.pos = nearestCopy(e.positionFt, listener, worldFt);
         const heard = Math.hypot(e.pos[0] - listener[0], e.pos[1] - listener[1], e.pos[2] - listener[2]) < FALL_SOUND_RANGE;
         if (heard && !e.voice) e.voice = audio.play(e.sound, { loop: true, gain: e.volume, hearing: e.hearing, randomStart: true, position: e.pos });
         else if (!heard && e.voice) { e.voice.then((v) => v?.stop()); e.voice = null; }

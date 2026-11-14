@@ -61,7 +61,7 @@ export const following = (env) => env.net?.authority === "follower";
  * would rather not hit (the covers and every movable object, which moves with the object).
  */
 export function chaseField(env) {
-  const { levelBoxes, walls, course, specs } = env;
+  const { levelBoxes, walls, course, specs, worldFt } = env;
   const home = [specs.reduce((sum, spec) => sum + spec.start.pos[0], 0) / specs.length, specs.reduce((sum, spec) => sum + spec.start.pos[2], 0) / specs.length];
   const covers = [], avoid = [];
   for (const box of levelBoxes) {
@@ -74,7 +74,7 @@ export function chaseField(env) {
     const cover = coverOf({ pos: wall.pos, reach: Math.hypot(wall.size[0], wall.size[2]) * 0.5, tall: wall.size[1] });
     if (cover) covers.push(cover);
   }
-  return { rect: roamRect(roamPoints(course), home), covers, avoid: [...covers, ...avoid] };
+  return { rect: roamRect(roamPoints(course), home, worldFt), covers, avoid: [...covers, ...avoid] };
 }
 
 /** A truck's speed, ft/s. */

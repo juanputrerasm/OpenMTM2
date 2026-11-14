@@ -7,7 +7,7 @@
 
   The track's falls share one vertex buffer (16 floats a vertex, positions in 1/256 ft from each fall's anchor) and one
   index buffer; each fall is a mesh of its own over its range of the indices, placed each frame at the copy of the world
-  nearest the camera (the world wraps at 8192 ft), left out beyond the draw range and culled by its own bounds. In the
+  nearest the camera (the world wraps at its size, W: 8192 ft on a 256-cell world), left out beyond the draw range and culled by its own bounds. In the
   shader: the draped water lifted off the ground and pulled toward the eye, the texture flowing down the sheet with a
   second layer over it, the ragged edges and foot from the engine's value noise, the foam strip where the water lands
   (SPLASH), or in Snow on a FREEZE fall the ice; then the scene's light and the weather's fog. Drawn see-through after
@@ -150,7 +150,7 @@ const CONTROLS = new WeakMap();
  * `look` the picture ("classic" keeps the texels sharp), `drawDistance` the world's reach in feet, `wraps` whether the
  * world repeats. `update(camera, dt)` once a frame; the weather through `setWaterfallWeather`.
  */
-export function createWaterfalls(falls, { look = "enhanced", drawDistance = 20000, wraps = true } = {}) {
+export function createWaterfalls(falls, { look = "enhanced", drawDistance = 20000, wraps = true, worldFt = WORLD_FT } = {}) {
   if (!falls?.list?.length || !falls.vertices?.length) return null;
   const group = new THREE.Group();
   group.name = "waterfalls";
@@ -246,7 +246,7 @@ export function createWaterfalls(falls, { look = "enhanced", drawDistance = 2000
         const fall = mesh.userData.fall, u = mesh.material.uniforms;
         // At the copy of the world nearest the eye (12.9).
         let [x, y, z] = fall.anchorFt;
-        if (wraps) { x += WORLD_FT * Math.round((gx - x) / WORLD_FT); z += WORLD_FT * Math.round((gz - z) / WORLD_FT); }
+        if (wraps) { x += worldFt * Math.round((gx - x) / worldFt); z += worldFt * Math.round((gz - z) / worldFt); }
         mesh.position.set(x, y, -z);
         const { min, max } = fall.bounds;
         mesh.visible = waterfallInRange(x + (min[0] + max[0]) / 512 - gx, z + (min[2] + max[2]) / 512 - gz, fall.bounds, drawDistance);

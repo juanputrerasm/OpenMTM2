@@ -42,9 +42,11 @@ function faceVertices(x0, x1, y0, y1, z0, z1) {
 const NORMALS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
 /** The texture slots a level's ground boxes name on any face. */
-export function groundBoxSlots({ ra0, ra1, cl0 }) {
+export function groundBoxSlots({ ra0, ra1, cl0 }, grid = 256) {
   const slots = new Set();
-  if (ra0 && ra1) for (const box of decodeGroundBoxes(ra0, ra1, cl0, 256)) for (const slot of box.faceTexture) slots.add(slot);
+  // The layers are value grids (a track format version 6 track's 16-bit pair already read as u16: worker/level-load.js),
+  // read a value a cell.
+  if (ra0 && ra1) for (const box of decodeGroundBoxes(ra0, ra1, cl0, grid)) for (const slot of box.faceTexture) slots.add(slot);
   return [...slots];
 }
 
@@ -52,15 +54,17 @@ export function groundBoxSlots({ ra0, ra1, cl0 }) {
  * The game's ground boxes for a level, or null when it has none. `atlas` is the terrain's
  * (buildTerrainAtlas), whose tiles are the texture slots the faces name.
  */
-export function buildGroundBoxMesh({ ra0, ra1, cl0 }, atlas, lte = null, heights = null, cells = null, { stepFt = STEP_FT, heightsFt = null, drawn = null, tileInset = 2 } = {}) {
+export function buildGroundBoxMesh({ ra0, ra1, cl0 }, atlas, lte = null, heights = null, cells = null, { stepFt = STEP_FT, baseFt = 0, heightsFt = null, drawn = null, tileInset = 2, grid = 256 } = {}) {
   if (!ra0 || !ra1) return null;
   // `stepFt`, `heightsFt`: a level whose height step is not MTM's 2 ft (Hellbender's 1.5), its ground given in feet.
-  const STEP = stepFt;
+  // `baseFt`, `grid`: a track format version 6 track's height base and cells a side (its 16-bit layers are read as u16
+  // values already, `stepFt` then 1 / terrainHeightStep: the specification's 8.3).
+  const STEP = stepFt, MASK = grid - 1;
   // Ground boxes are drawn with their terrain cell, so a stadium's footprint limits them too.
   // `drawn(box)`: false for a box the game never draws (track-build.js `mtm1EdgeBoxDrawn`).
   // `tileInset`: the terrain's tile crop (terrain-mesh.js `tileCropTexels`), so the boxes' faces follow the same overlap
   // choice as the ground (0 on an MTM1 track with "No overlap on MTM1 tracks").
-  const boxes = decodeGroundBoxes(ra0, ra1, cl0, 256).filter((b) => (!cells
+  const boxes = decodeGroundBoxes(ra0, ra1, cl0, grid).filter((b) => (!cells
     || (b.x >= cells.col0 && b.x < cells.col1 && b.y >= cells.row0 && b.y < cells.row1)) && (!drawn || drawn(b)));
   if (!boxes.length) return null;
   const quads = boxes.length * 6;
@@ -70,9 +74,9 @@ export function buildGroundBoxMesh({ ra0, ra1, cl0 }, atlas, lte = null, heights
   const indices = new Uint32Array(quads * 6);
   // Baked brightness, from the .LTE's ground-box-upper byte (byte 2 of 7) at the cell's corner.
   const shade = new Float32Array(quads * 4).fill(1);
-  const hasLte = !!lte && lte.length >= 256 * 256 * 7;
+  const hasLte = !!lte && lte.length >= grid * grid * 7;
   let q = 0;
-  const cell = (x, y) => ((y & 255) * 256 + (x & 255));
+  const cell = (x, y) => ((y & MASK) * grid + (x & MASK));
   const ground = (x, y) => (heightsFt ? heightsFt[cell(x, y)] : heights ? heights[cell(x, y)] * STEP_FT : -Infinity);
   // Side faces in scene order +X (east, col + 1), -X (west, col - 1), +Z (south, row - 1), -Z (north, row + 1).
   const NEIGHBOUR = { 0: [1, 0], 1: [-1, 0], 4: [0, -1], 5: [0, 1] };
@@ -82,7 +86,7 @@ export function buildGroundBoxMesh({ ra0, ra1, cl0 }, atlas, lte = null, heights
     const x0 = box.x * CELL_FT, x1 = x0 + CELL_FT;
     // Scene z of the cell's rows: row r sits at -r * 32.
     const z1 = -box.y * CELL_FT, z0 = z1 - CELL_FT;
-    const y0 = box.lower * STEP, y1 = Math.max(y0 + 0.01, box.upper * STEP);
+    const y0 = baseFt + box.lower * STEP, y1 = Math.max(y0 + 0.01, baseFt + box.upper * STEP);
     const visible = (face) => {
       if (face === 2) return true;
       if (face === 3) {
@@ -101,7 +105,7 @@ export function buildGroundBoxMesh({ ra0, ra1, cl0 }, atlas, lte = null, heights
       const bottom = Math.max(y0, Math.min(...EDGE[face].map(([dx, dy]) => ground(box.x + dx, box.y + dy))));
       if (bottom > y0 && bottom < y1) for (const k of [2, 3]) faces[face][k][1] = bottom;
     }
-    const light = hasLte ? lte[(box.y * 256 + box.x) * 7 + 2] / 255 : 1;
+    const light = hasLte ? lte[(box.y * grid + box.x) * 7 + 2] / 255 : 1;
     for (let face = 0; face < 6; face++) {
       if (!visible(face)) continue;
       const v = q * 4;

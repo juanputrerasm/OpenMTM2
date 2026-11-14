@@ -32,11 +32,11 @@ export function textureTypeValues(textureNames, tty) {
     }
     return out;
 }
-export function createSurfaceMap(clr, textureValues) {
-    if (clr.length !== TERRAIN_CELLS * TERRAIN_CELLS) {
-        throw new RangeError(`surface map needs ${TERRAIN_CELLS * TERRAIN_CELLS} cells, got ${clr.length}`);
+export function createSurfaceMap(clr, textureValues, cells = TERRAIN_CELLS) {
+    if (clr.length !== cells * cells) {
+        throw new RangeError(`surface map needs ${cells * cells} cells, got ${clr.length}`);
     }
-    return { clr, textureValues };
+    return cells === TERRAIN_CELLS ? { clr, textureValues } : { cells, clr, textureValues };
 }
 /** The type value of a texture word (unknown textures read 0). */
 export function textureWordValue(map, word) {
@@ -62,9 +62,10 @@ export function terrainSurfaceValue(terrain, map, x, z, waterLevelFt, snow = fal
         if (height <= level)
             return (snow ? FROZEN_WATER_TYPE : DEEP_WATER_TYPE) * 100;
     }
-    const col = (Math.trunc(x * 256) >> 13) & (TERRAIN_CELLS - 1);
-    const row = (Math.trunc(z * 256) >> 13) & (TERRAIN_CELLS - 1);
-    return textureWordValue(map, map.clr[row * TERRAIN_CELLS + col]);
+    const n = map.cells ?? TERRAIN_CELLS;
+    const col = (Math.trunc(x * 256) >> 13) & (n - 1);
+    const row = (Math.trunc(z * 256) >> 13) & (n - 1);
+    return textureWordValue(map, map.clr[row * n + col]);
 }
 export function surfaceType(value) {
     return Math.floor(value / 100);

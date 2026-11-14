@@ -32,9 +32,10 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 /**
  * The ground boxes standing up near `pos` as obstacles: `{ pos, radius }` for each 32 ft cell along the look from
  * `pos` toward `heading` whose top is a wall to a truck at `pos[1]`. `ra0`, `ra1` are the level's ground box layers
- * (bytes, `stepFt` feet each), `onCourse(x, z)` says a point lies on the course's own way.
+ * (bytes, `stepFt` feet each, over `baseFt`; `cells` a side: a track format version 6 world's may be 512 and 16-bit),
+ * `onCourse(x, z)` says a point lies on the course's own way.
  */
-export function groundBoxWalls(pos, heading, lookFt, { ra0, ra1, stepFt = 2, onCourse = null }, T = AVOID) {
+export function groundBoxWalls(pos, heading, lookFt, { ra0, ra1, stepFt = 2, baseFt = 0, cells = 256, onCourse = null }, T = AVOID) {
   if (!ra0 || !ra1) return [];
   const out = [];
   const seen = new Set();
@@ -44,11 +45,11 @@ export function groundBoxWalls(pos, heading, lookFt, { ra0, ra1, stepFt = 2, onC
   for (let d = T.sampleFt; d <= lookFt; d += T.sampleFt) {
     for (const off of [-side, 0, side]) {
       const x = pos[0] + sin * d + cos * off, z = pos[2] + cos * d - sin * off;
-      const col = (Math.trunc(x * 256) >> 13) & 255, row = (Math.trunc(z * 256) >> 13) & 255;
-      const i = row * 256 + col;
+      const col = (Math.trunc(x * 256) >> 13) & (cells - 1), row = (Math.trunc(z * 256) >> 13) & (cells - 1);
+      const i = row * cells + col;
       if (seen.has(i)) continue;
       seen.add(i);
-      const lo = ra0[i] * stepFt, hi = ra1[i] * stepFt;
+      const lo = baseFt + ra0[i] * stepFt, hi = baseFt + ra1[i] * stepFt;
       if (lo === hi || !(hi > feet + T.wallFt) || !(lo < pos[1] + T.overheadFt)) continue;
       // The cell's centre in the copy of the world the truck is in.
       const cx = Math.floor(x / T.cellFt) * T.cellFt + T.cellFt / 2, cz = Math.floor(z / T.cellFt) * T.cellFt + T.cellFt / 2;

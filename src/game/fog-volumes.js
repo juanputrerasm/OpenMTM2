@@ -94,18 +94,19 @@ export function withFallMists(volumes, mists) {
   return { volumes: out, noSlot };
 }
 
-const wrap = (d) => d - Math.round(d / WORLD_FT) * WORLD_FT;
+const wrap = (d, worldFt = WORLD_FT) => d - Math.round(d / worldFt) * worldFt;
 
 /**
  * The volumes drawn this frame (`FUN_1401b7610`): those the weather allows, not too thin, and not further than the
  * draw range plus a tile (horizontal distance, wrapped, less the volume's radius); the nearest `most`, nearest first.
- * `eye` is game [x, z]. Returns `{ volume, dx, dz }`, dx and dz the shortest way from the eye to the volume.
+ * `eye` is game [x, z]. Returns `{ volume, dx, dz }`, dx and dz the shortest way from the eye to the volume. The distance
+ * wraps at `worldFt`, the world's size (track format version 6's 9.3: W).
  */
-export function fogVolumesShown(volumes, eye, weather, rangeFt, most = FOG_VOLUMES_DRAWN) {
+export function fogVolumesShown(volumes, eye, weather, rangeFt, most = FOG_VOLUMES_DRAWN, worldFt = WORLD_FT) {
   const shown = [];
   for (const volume of volumes) {
     if (!volume.usable || !fogVolumeInWeather(volume, weather)) continue;
-    const dx = wrap(volume.centre[0] - eye[0]), dz = wrap(volume.centre[2] - eye[1]);
+    const dx = wrap(volume.centre[0] - eye[0], worldFt), dz = wrap(volume.centre[2] - eye[1], worldFt);
     const dist = Math.hypot(dx, dz);
     if (dist - Math.hypot(volume.half[0], volume.half[2]) > rangeFt + TILE_FT) continue;
     shown.push({ volume, dx, dz, dist });

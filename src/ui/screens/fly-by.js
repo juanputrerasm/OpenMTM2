@@ -36,7 +36,7 @@ import { createTrackWorld, disposeObject, moveObjects, skyColor, skyOf, updateSk
 import { createWaterSurface } from "../../render/water-effects.js";
 import { lakeMeshes } from "../../render/lakes.js";
 import { waterLevelAt } from "../../game/lakes.js";
-import { toSceneMatrix, wrapFt } from "../../shared/scene-frame.js";
+import { toSceneMatrix, worldFtOf, wrapFt } from "../../shared/scene-frame.js";
 import { createWeatherScene } from "../../render/weather-scene.js";
 import { terrainOfBuild } from "../../shared/build-terrain.js";
 import * as mtm2Sim from "../../vendor/openphotex/sim/mtm2/index.js";
@@ -96,6 +96,8 @@ export default async function mount(container, context, params) {
     return { unmount };
   }
   if (disposed) return { unmount };
+  // The world's size (8192 ft, or a track format version 6 world's: docs/EXTENSIONS.md).
+  const worldFt = worldFtOf(build);
 
   const look = context.settings.look === "enhanced" ? "enhanced" : "classic";
   const scene = new THREE.Scene();
@@ -128,7 +130,7 @@ export default async function mount(container, context, params) {
   const audio = context.menuAudio ?? createAudio(context.assets, context.settings.sound);
   const ownsAudio = !context.menuAudio;
   const ambience = await context.assets.call("ambience", { number: track.ambientSound ?? 0 }).catch(() => null);
-  const worldAudio = createWorldAudio(audio, { ambient: ambience, weather: weatherId, music: build.musicName ?? null, objects: build.soundObjects, musicOff: () => !!context.jukebox?.on });
+  const worldAudio = createWorldAudio(audio, { ambient: ambience, weather: weatherId, music: build.musicName ?? null, objects: build.soundObjects, worldFt, musicOff: () => !!context.jukebox?.on });
   // The jukebox plays on in the track's music's place (audio/jukebox.js).
   const unwatchJukebox = context.jukebox?.subscribe(() => worldAudio.refreshMusic()) ?? (() => {});
   audio.resume();
@@ -191,7 +193,7 @@ export default async function mount(container, context, params) {
     if (data) {
       flare = new SunFlare(world, data);
       flare.setMode(celestial(weatherId));
-      flareBlocked = (origin, direction) => sunBlocked((x, z) => mtm2Sim.groundHeightAt(terrain, x, z), origin, direction, true);
+      flareBlocked = (origin, direction) => sunBlocked((x, z) => mtm2Sim.groundHeightAt(terrain, x, z), origin, direction, true, worldFt);
       cleanups.push(() => flare.dispose());
     }
   }
@@ -209,13 +211,13 @@ export default async function mount(container, context, params) {
   // The level's moving objects (trains): no simulation runs here, so the fly-by steps them (game/level-movers.js).
   const movers = createLevelMovers(build.sim, terrain);
   const movedPositions = new Map();
-  const first = build.viewpoint?.start ?? [4096, 0, 4096];
+  const first = build.viewpoint?.start ?? [worldFt / 2, 0, worldFt / 2];
   const ahead = build.viewpoint?.end ?? [first[0], first[1], first[2] + 100];
   const yaw = Math.atan2(ahead[0] - first[0], ahead[2] - first[2]);
   const say = (text, seconds = 5) => caption.show(t(text), seconds);
   let paused = false;
   let gameConsole = null;
-  const flyer = createFlyController({
+  const flyer = createFlyController({ worldFt,
     canvas, settings: context.settings, save: () => saveSettings(context.settings), course: build.sim.course, courseOpen: !!build.sim.courseOpen,
     groundAt, say, blocked: () => paused || !!gameConsole?.open, baseFov: BASE_FOV,
     // The list of keys in the game's font, as the race's rows are.
@@ -297,13 +299,13 @@ export default async function mount(container, context, params) {
     },
     map: {
       usage: "map <sit>", help: msg("changes the track, by its SIT's name or its title"),
-      complete: async () => ((await context.assets.call("catalog").catch(() => ({ tracks: [] }))).tracks.map((item) => item.file.replace(/\.SI[T2]$/i, "").toLowerCase())),
+      complete: async () => ((await context.assets.call("catalog").catch(() => ({ tracks: [] }))).tracks.map((item) => item.file.replace(/\.SI[T23]$/i, "").toLowerCase())),
       run: async (args, rest) => {
         if (!rest) return usage("map <sit>", track.file);
-        const wanted = rest.trim().toUpperCase().replace(/\.SI[T2]$/, "");
+        const wanted = rest.trim().toUpperCase().replace(/\.SI[T23]$/, "");
         const catalog = await context.assets.call("catalog").catch(() => ({ tracks: [] }));
-        const stem = (item) => item.file.toUpperCase().replace(/\.SI[T2]$/, "");
-        const next = catalog.tracks.find((item) => stem(item) === wanted) ?? catalog.tracks.find((item) => item.name.toUpperCase() === wanted)
+        const stem = (item) => item.file.toUpperCase().replace(/\.SI[T23]$/, "");
+        const next = catalog.tracks.find((item) => item.file.toUpperCase() === rest.trim().toUpperCase()) ?? catalog.tracks.find((item) => stem(item) === wanted) ?? catalog.tracks.find((item) => item.name.toUpperCase() === wanted)
           ?? catalog.tracks.find((item) => item.name.toUpperCase().includes(wanted));
         if (!next) return t("No track named <<1>>.", wanted);
         again({ track: next, weather: undefined });
@@ -401,7 +403,7 @@ export default async function mount(container, context, params) {
         for (const m of moves) movedPositions.set(m.sitIndex, m.pos);
       }
       // The level's own sounds are placed in the one world, wherever the camera has flown to.
-      worldAudio.update(dt, [wrapFt(fly.pos[0]), fly.pos[1], wrapFt(fly.pos[2])], movedPositions);
+      worldAudio.update(dt, [wrapFt(fly.pos[0], worldFt), fly.pos[1], wrapFt(fly.pos[2], worldFt)], movedPositions);
       waterClock += dt;
       const bob = waterOffsetFt(waterClock, weatherScene.weather);
       for (const plane of waters) plane.position.y = bob;

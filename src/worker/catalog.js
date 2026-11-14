@@ -1,7 +1,7 @@
 /*
   The tracks and trucks an install offers.
 
-  Like the game's CRace::init (MONSTER_EXE_ANALYSIS.md section 3), every `.SIT` and every
+  Like the game's CRace::init (MONSTER_EXE_ANALYSIS.md section 3), every `.SIT` (and `.SI2`, `.SI3`) and every
   `.TRK` in the mounted PODs is content: there is no registry. The game hides WAR.SIT
   "Torture Pit" (unlocked on Sidewinder Canyon) and GRAVEY.SIT "The Graveyard"
   (showHiddenTrack), and CHUCK.TRK (the CHUCK cheat) when an add-on POD supplies it: the
@@ -11,7 +11,7 @@
 */
 import { isEvoSit, parseEvoSit } from "../vendor/openphotex/evo/sit.js";
 import { parseEvoLte } from "../vendor/openphotex/evo/lte.js";
-import { parseMtmSit } from "../vendor/openphotex/mtm/sit.js";
+import { isMtm2V6Situation, parseMtmSit } from "../vendor/openphotex/mtm/sit.js";
 import { parseTruckManifest } from "../vendor/openphotex/truck/manifest.js";
 import { podPathTitle } from "../vendor/openphotex/pod/paths.js";
 import { courseLengthFt } from "./cpr-road.js";
@@ -290,19 +290,23 @@ export async function buildCatalog(vfs) {
   const tracks = [];
   // Community Patch 3 writes a track that needs its engine as `.SI2`, which a 1998 install never lists; when a track is
   // there in both spellings the `.SI2` is the one its author meant for this engine.
+  // A track format version 6 situation (`.SI3`, docs/EXTENSIONS.md "Track format version 6") is a track of its own: a
+  // `.SIT` or `.SI2` of the same stem is a different track, listed beside it, never a fallback (the specification's 5.1).
   // The list keeps the mount order (POD.INI's), then each archive's own order, as the game's does: it is not sorted by name.
-  const stemOf = (path) => podPathTitle(path).replace(/\.SI[T2]$/i, "");
+  const stemOf = (path) => podPathTitle(path).replace(/\.SI[T23]$/i, "");
   const si2 = new Map(vfs.list(".SI2").map((hit) => [stemOf(hit.path), hit]));
   const order = (hit) => (vfs.allMounts ?? vfs.mounts).indexOf(hit.mount);
-  const situations = [...vfs.list(".SI2"), ...vfs.list(".SIT")]
+  const situations = [...vfs.list(".SI2"), ...vfs.list(".SIT"), ...vfs.list(".SI3")]
     .map((hit, index) => ({ hit, index })).sort((a, b) => order(a.hit) - order(b.hit) || a.index - b.index).map(({ hit }) => hit);
   const seenStems = new Set();
   const picked = [];
   for (const first of situations) {
-    const stem = stemOf(first.path);
+    const v6 = isMtm2V6Situation(first.path);
+    // One entry a stem for the `.SIT` / `.SI2` pair and one for the `.SI3`: their files (and so the tracks' keys) differ.
+    const stem = `${stemOf(first.path)}${v6 ? ".SI3" : ""}`;
     if (seenStems.has(stem)) continue;
     seenStems.add(stem);
-    picked.push(si2.get(stem) ?? first);
+    picked.push(v6 ? first : si2.get(stemOf(first.path)) ?? first);
   }
   // Other games' tracks are listed apart (CPR below; 4x4 Evolution with docs/CHANGELOG.md F4).
   const mtmSits = picked.filter((hit) => (hit.mount.family ?? "MTM") === "MTM");
@@ -342,6 +346,8 @@ export async function buildCatalog(vfs) {
         ambientSound: sit.ambientSound,
         level: sit.lvlName,
         hidden: HIDDEN_TRACKS.includes(file),
+        /** A track format version 6 track (`WORLD\<stem>.SI3`): its .TXV is checked when it is loaded. */
+        ...(isMtm2V6Situation(path) ? { formatVersion: 6 } : {}),
       });
     } catch (err) {
       problems.push(`${path}: ${err.message}`);

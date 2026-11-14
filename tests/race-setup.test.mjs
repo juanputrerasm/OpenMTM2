@@ -63,3 +63,21 @@ test("the computer drivers take the player's names where there are any, the game
   const field = raceEntrants({ playerTruck: "A.TRK", trucks, slots: 4, opponents: ["B.TRK"], names });
   assert.equal(field.find((d) => !d.player).name, "Zed");
 });
+
+test("Start position: the player's truck on the grid place picked, the others shuffled round it", async () => {
+  const { seatDrivers } = await import("../src/game/race-setup.js");
+  const drivers = [{ name: "Me", file: "ME.TRK", player: true }, ...[1, 2, 3, 4].map((i) => ({ name: `C${i}`, file: `C${i}.TRK`, player: false }))];
+  for (let place = 1; place <= 5; place++) {
+    const seated = seatDrivers(drivers, 8, Math.random, place);
+    assert.equal(seated[0].slot, place - 1, `place ${place}`);
+    assert.deepEqual(seated.map((d) => d.slot).sort(), [0, 1, 2, 3, 4], "every truck its own slot");
+  }
+  // Past the last truck's place: the last.
+  assert.equal(seatDrivers(drivers, 8, Math.random, 8)[0].slot, 4);
+  // 0 (Random) is the game's shuffle, unchanged.
+  const fixed = () => 0.5;
+  assert.deepEqual(seatDrivers(drivers, 8, fixed, 0), seatDrivers(drivers, 8, fixed));
+  // No player (spectator mode): nothing moved.
+  const watched = drivers.map((d) => ({ ...d, player: false }));
+  assert.deepEqual(seatDrivers(watched, 8, fixed, 1), seatDrivers(watched, 8, fixed));
+});

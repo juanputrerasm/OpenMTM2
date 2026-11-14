@@ -87,9 +87,9 @@ const CONTROLS = new WeakMap();
 
 /**
  * A track's fog volumes (`build.fogVolumes`, game/fog-volumes.js `fogVolumeOf`) as a group of at most 16 boxes, or null
- * for a track without any. `drawDistance` is the world's reach in feet; `wraps` whether the world repeats.
+ * for a track without any. `drawDistance` is the world's reach in feet; `wraps` whether the world repeats, every `worldFt`.
  */
-export function createFogVolumes(volumes, { drawDistance = 20000, wraps = true } = {}) {
+export function createFogVolumes(volumes, { drawDistance = 20000, wraps = true, worldFt = 8192 } = {}) {
   if (!volumes?.length) return null;
   const group = new THREE.Group();
   group.name = "fogVolumes";
@@ -121,7 +121,7 @@ export function createFogVolumes(volumes, { drawDistance = 20000, wraps = true }
     update(camera) {
       camera.getWorldPosition(eye);
       const gx = eye.x, gz = -eye.z;
-      const shown = fogVolumesShown(volumes, [gx, gz], weather, drawDistance);
+      const shown = fogVolumesShown(volumes, [gx, gz], weather, drawDistance, undefined, worldFt);
       const light = fogVolumeLight(weather);
       pool.forEach((mesh, i) => {
         const pick = shown[i];

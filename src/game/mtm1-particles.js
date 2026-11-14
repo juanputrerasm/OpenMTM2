@@ -116,12 +116,14 @@ export function trackTexels(x0, z0, x1, z1, width) {
  * texels are RGBA, clear where nothing is drawn. `onCell(cell)` hears of a cell made or changed, `onDrop(cell)` of one
  * given back.
  */
-export function createGroundMarks({ onCell = () => {}, onDrop = () => {} } = {}) {
+export function createGroundMarks({ onCell = () => {}, onDrop = () => {}, worldFt = WORLD_FT } = {}) {
+  // `worldFt`: the world's size (8192 ft, or a track format version 6 world's).
   const cells = new Map();
   const order = [];
-  const wrap = (v) => ((v % WORLD_FT) + WORLD_FT) % WORLD_FT;
+  const wrap = (v) => ((v % worldFt) + worldFt) % worldFt;
+  const across = worldFt / CELL_FT;
   function cellAt(x, z) {
-    const col = Math.floor(wrap(x) / CELL_FT), row = Math.floor(wrap(z) / CELL_FT), key = row * 256 + col;
+    const col = Math.floor(wrap(x) / CELL_FT), row = Math.floor(wrap(z) / CELL_FT), key = row * across + col;
     let cell = cells.get(key);
     if (!cell) {
       if (order.length >= MARKED_CELLS) {
@@ -157,12 +159,14 @@ export function createGroundMarks({ onCell = () => {}, onDrop = () => {} } = {})
  * gives it, `clr` the level's CLR words), turned and mirrored as the cell's word says (worker/terrain-mesh.js
  * `cellTileUvs`). Null when the atlas has no layout.
  */
-export function groundTexel(atlas, clr, x, z) {
+export function groundTexel(atlas, clr, x, z, worldFt = WORLD_FT) {
   const { rgba, width, tileSide: side, padding = 0, slots } = atlas ?? {};
   if (!rgba || !side || !clr) return null;
   const pitch = side + padding * 2, cols = Math.max(1, Math.round(width / pitch));
-  const fx = ((x % WORLD_FT) + WORLD_FT) % WORLD_FT / CELL_FT, fz = ((z % WORLD_FT) + WORLD_FT) % WORLD_FT / CELL_FT;
-  const col = Math.floor(fx) & 255, row = Math.floor(fz) & 255, word = clr[row * 256 + col];
+  // The .CLR is worldFt / 32 cells a side (256, or a track format version 6 world's N).
+  const n = worldFt / CELL_FT;
+  const fx = ((x % worldFt) + worldFt) % worldFt / CELL_FT, fz = ((z % worldFt) + worldFt) % worldFt / CELL_FT;
+  const col = Math.floor(fx) & (n - 1), row = Math.floor(fz) & (n - 1), word = clr[row * n + col];
   const slot = Math.min(word & 0x0fff, (slots ?? 1) - 1);
   const mirror = (word >> 12) & 3, rot = (word >> 14) & 3;
   // The cell's corners (row, col), (row, col + 1), (row + 1, col + 1), (row + 1, col) take these tile corners.

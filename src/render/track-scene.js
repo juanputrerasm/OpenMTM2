@@ -35,7 +35,7 @@ import { createEvoGrass, updateEvoGrass } from "./evo-grass.js";
 import { terrainOfBuild } from "../shared/build-terrain.js";
 import { DEFAULT_FRAME_SECONDS, keyframeWeights } from "../shared/keyframe-spline.js";
 import { blockShift, chunkTriangles, indexedBounds } from "../shared/object-chunks.js";
-import { WORLD_FT } from "../shared/scene-frame.js";
+import { WORLD_FT, worldFtOf } from "../shared/scene-frame.js";
 import { bleedCutout } from "../game/cutouts.js";
 import { fadesToBackdrop, installAtmosphere, screenColor, solidWhenNear, veilBackdropShader, veilSky } from "./atmosphere.js";
 import { BACKDROP_HAZED } from "../game/atmosphere.js";
@@ -52,7 +52,7 @@ import { terrainMaskShares } from "../shared/terrain-mask.js";
 installAtmosphere();
 
 /** The terrain grid: cells per side, feet per cell, and a chunk's side in cells. */
-const GRID = 256, CELL_FT = 32, CHUNK_CELLS = 64;
+const GRID_CELLS = 256, CELL_FT = 32, CHUNK_CELLS = 64;
 /**
  * How near the camera a chunk of the drawn ground is drawn at its fine level, feet from the
  * chunk's edge, and the play that keeps one at that range from changing back and forth.
@@ -291,7 +291,9 @@ const GROUND_ORDER = 0.75, FOREST_ORDER = 0.875;
  * `detail`: whether Community Patch 3's terrain extras are drawn (the enhanced look only): the HD tiles' normal maps
  * and, on a track with a painted mask, the detail normals.
  */
-export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.atlas, look), { detail = true } = {}) {
+export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.atlas, look), { detail = true, worldFt = WORLD_FT } = {}) {
+  // `terrain.grid`: the cells a side (worker/terrain-mesh.js), 256 but on a track format version 6 world of 512.
+  const GRID = terrain.grid ?? GRID_CELLS;
   const material = surfaceMaterial(map, look, terrain.hasLte, !!terrain.shadeLit);
   if (look !== "classic" && detail) {
     if (terrain.normalAtlas) {
@@ -305,7 +307,7 @@ export function createTerrain(terrain, look, map = createTerrainAtlas(terrain.at
   }
   // The painted mask at each vertex, for the detail (`addTerrainDetail`).
   const detailMask = material.userData.detail ? terrain.detail.mask : null;
-  const maskShares = (positions) => (detailMask ? { detailShare: new THREE.BufferAttribute(terrainMaskShares(positions, detailMask), 1, true) } : {});
+  const maskShares = (positions) => (detailMask ? { detailShare: new THREE.BufferAttribute(terrainMaskShares(positions, detailMask, worldFt), 1, true) } : {});
   if (terrain.roadMask) addRoadMask(material, terrain.roadMask);
   // Its chunks never move within it (`StillGroup`): placed in the world when their copy of it moves, not at every picture.
   const group = new StillGroup();
@@ -807,7 +809,7 @@ const NO_OFFSET = Object.freeze([0, 0]);
  * groups and the copies out of the camera's reach, so three.js does not look at each of their meshes for every
  * picture. Only the original's meshes cast shadows. `rounded` lights the camera-facing ones as round things.
  */
-export function placeObjects(library, objects, copies = [[0, 0]], { rounded = false } = {}) {
+export function placeObjects(library, objects, copies = [[0, 0]], { rounded = false, worldFt = WORLD_FT } = {}) {
   const byKey = new Map();
   // Where each SIT box is drawn, for moving it later: its meshes' name and its place among their instances.
   const slots = {};
@@ -823,7 +825,7 @@ export function placeObjects(library, objects, copies = [[0, 0]], { rounded = fa
   // Each model's parts joined where only their textures tell them apart (render/part-merge.js): fewer draws a model.
   // A camera-facing model keeps its own parts, whose materials the facing ones are made from.
   const joined = mergeModelParts([...byKey.values()].filter((entry) => !entry.facing).map((entry) => entry.parts));
-  const offsets = copies.map(([dx, dz]) => [dx * WORLD_FT, dz * WORLD_FT]);
+  const offsets = copies.map(([dx, dz]) => [dx * worldFt, dz * worldFt]);
   const group = new StillGroup();
   group.name = "objects";
   // Its meshes keep the materials they are made with (render/sun-shadows.js `setupMaterials`).
@@ -1015,7 +1017,8 @@ function showCopies(parts, camera, range) {
  */
 function centreCopies(parts, camera) {
   if (parts.copies.length < 2) return false;
-  const [dx, dz] = blockShift(WORLD_FT / 2, -WORLD_FT / 2, camera.position.x, camera.position.z);
+  const worldFt = parts.worldFt ?? WORLD_FT;
+  const [dx, dz] = blockShift(worldFt / 2, -worldFt / 2, camera.position.x, camera.position.z, worldFt);
   const { lattice } = parts;
   if (lattice.position.x === dx && lattice.position.z === dz) return false;
   lattice.position.set(dx, 0, dz);
@@ -1142,7 +1145,7 @@ function placeForest(parts, camera, range, wraps) {
   const cx = camera.position.x, cz = camera.position.z;
   let moved = false;
   const place = (object, [x, z], reach) => {
-    const [dx, dz] = wraps ? blockShift(x, z, cx, cz) : [0, 0];
+    const [dx, dz] = wraps ? blockShift(x, z, cx, cz, parts.worldFt ?? WORLD_FT) : [0, 0];
     if (object.position.x !== dx || object.position.z !== dz) { object.position.set(dx, 0, dz); object.updateMatrix(); moved = true; }
     let visible = range === Infinity || Math.hypot(x + dx - cx, z + dz - cz) <= range + reach;
     const lod = object.userData.forestLod;
@@ -1580,7 +1583,7 @@ export function placeBlocks(world, camera, viewRange = Infinity) {
       if (!sphere) continue;
       x = sphere.center.x; z = sphere.center.z;
     }
-    const [dx, dz] = blockShift(x, z, cx, cz);
+    const [dx, dz] = blockShift(x, z, cx, cz, world.userData.worldFt ?? WORLD_FT);
     if (o.position.x !== dx || o.position.z !== dz) { o.position.x = dx; o.position.z = dz; o.updateMatrix(); moved = true; }
     // A headset may draw the fog in. Do not submit a block wholly beyond that range; ordinary
     // flat rendering passes Infinity and leaves visibility to the camera frustum as before.
@@ -1862,13 +1865,15 @@ export function skyColor(sky) {
   return new THREE.Color().setRGB(r / n / 255, g / n / 255, b / n / 255, THREE.SRGBColorSpace);
 }
 
-export function createWater(levelFt, reach = 3) {
+export function createWater(levelFt, reach = 3, worldFt = WORLD_FT) {
   if (levelFt === null || levelFt === undefined) return null;
   // `reach`: how many worlds wide, for a level that is drawn once (its sea goes on past its edges); the texture keeps its size.
-  const geometry = new THREE.PlaneGeometry(8192 * reach, 8192 * reach);
-  if (reach !== 1) { const uv = geometry.getAttribute("uv"); for (let i = 0; i < uv.array.length; i++) uv.array[i] *= reach; }
+  // `worldFt`: the world's side (a track format version 6 world may be 16384 ft); the texture repeats every 8192 ft still.
+  const geometry = new THREE.PlaneGeometry(worldFt * reach, worldFt * reach);
+  const repeat = reach * (worldFt / WORLD_FT);
+  if (repeat !== 1) { const uv = geometry.getAttribute("uv"); for (let i = 0; i < uv.array.length; i++) uv.array[i] *= repeat; }
   geometry.rotateX(-Math.PI / 2);
-  geometry.translate(4096, levelFt, -4096);
+  geometry.translate(worldFt / 2, levelFt, -worldFt / 2);
   // Seen from below as well: under the surface the water is the ceiling (it is drawn from both sides).
   const material = new THREE.MeshLambertMaterial({ color: 0x2b5f7a, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide });
   const water = new THREE.Mesh(geometry, material);
@@ -1877,7 +1882,7 @@ export function createWater(levelFt, reach = 3) {
   // Three worlds wide and moved by whole worlds with the camera, so its edge is never in sight and its texture, which
   // repeats every world, stays where it was.
   water.userData.block = true;
-  water.userData.blockAt = [4096, -4096];
+  water.userData.blockAt = [worldFt / 2, -worldFt / 2];
   return water;
 }
 
@@ -1961,7 +1966,10 @@ export function createRoad(road, look) {
  */
 export function createTrackWorld(build, look, { backdrops: showBackdrops = false, drawDistance = 20000, naturalLight = false, terrainDetail = true, reflections = true, grass: grassRadius = 16 } = {}) {
   const world = new THREE.Group();
-  // The world wraps at 8192 ft, so its eight neighbouring copies are drawn too, kept around the camera (`centreCopies`);
+  // The world's size: 8192 ft, or a track format version 6 world's (docs/EXTENSIONS.md), for every copy and wrap below.
+  const worldFt = worldFtOf(build);
+  world.userData.worldFt = worldFt;
+  // The world wraps at 8192 ft (`worldFt`), so its eight neighbouring copies are drawn too, kept around the camera (`centreCopies`);
   // a stadium stands alone, and so does a level whose edges do not meet (`noWrap`).
   const copies = build.stadium || build.noWrap ? WORLD_COPIES.slice(0, 1) : WORLD_COPIES;
   // What each copy has for itself: the ground, the water and the animated objects.
@@ -1969,14 +1977,14 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
   tile.name = "tile";
   setReflectionSky(reflections && look !== "classic" && !build.stadium ? build.sky : null, look);
   const atlas = createTerrainAtlas(build.terrain.atlas, look);
-  tile.add(createTerrain({ ...build.terrain, roadMask: build.road?.mask ?? null }, look, atlas, { detail: terrainDetail }));
+  tile.add(createTerrain({ ...build.terrain, roadMask: build.road?.mask ?? null }, look, atlas, { detail: terrainDetail, worldFt }));
   const boxes = build.groundBoxes ? createGroundBoxes(build.groundBoxes, atlas, look) : null;
   if (boxes) tile.add(boxes);
   if (build.road) tile.add(createRoad(build.road, look));
   const library = createModelLibrary(build.models, build.modelTextures, look, { cleanEdges: naturalLight });
   const animated = placeAnimatedObjects(library, build.objects);
   if (animated) tile.add(animated);
-  const water = createWater(build.waterLevelFt, build.noWrap ? 5 : 1);
+  const water = createWater(build.waterLevelFt, build.noWrap ? 5 : 1, worldFt);
   if (water) tile.add(water);
   // Community Patch 4's lakes, each copy of the world its own (render/lakes.js).
   const lakes = createLakes(build.lakes);
@@ -1991,7 +1999,7 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
   const tiles = [tile];
   for (const [dx, dz] of copies.slice(1)) {
     const copy = tile.clone();
-    copy.position.set(dx * WORLD_FT, 0, dz * WORLD_FT);
+    copy.position.set(dx * worldFt, 0, dz * worldFt);
     copy.updateMatrix();
     copy.matrixAutoUpdate = false;
     // Drawn with the original's materials (render/sun-shadows.js `setupMaterials`).
@@ -2000,18 +2008,18 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
     tiles.push(copy);
   }
   // Every other object, in all the copies at once; 4x4 Evolution's trees by chunks around the camera (`createForest`).
-  const objects = placeObjects(library, build.objects.filter((o) => !o.forest), copies, { rounded: naturalLight });
+  const objects = placeObjects(library, build.objects.filter((o) => !o.forest), copies, { rounded: naturalLight, worldFt });
   lattice.add(objects);
   const forest = createForest(library, build.objects.filter((o) => o.forest), { rounded: naturalLight });
   if (forest) world.add(forest);
   // Community Patch 4's trees and grass (render/vegetation.js) and fog volumes (render/fog-volumes.js), placed each frame
   // at the copy of the world nearest the camera.
-  const vegetation = build.vegetation ? createVegetation(library, build.vegetation, { grass: grassRadius > 0 }) : null;
+  const vegetation = build.vegetation ? createVegetation(library, build.vegetation, { grass: grassRadius > 0, worldFt }) : null;
   if (vegetation) world.add(vegetation.group);
-  const fogVolumes = createFogVolumes(build.fogVolumes, { drawDistance, wraps: copies.length > 1 });
+  const fogVolumes = createFogVolumes(build.fogVolumes, { drawDistance, wraps: copies.length > 1, worldFt });
   if (fogVolumes) world.add(fogVolumes.group);
   // Community Patch 4 beta 0.53's waterfalls (render/waterfalls.js), each at the copy of the world nearest the camera.
-  const waterfalls = createWaterfalls(build.falls, { look, drawDistance, wraps: copies.length > 1 });
+  const waterfalls = createWaterfalls(build.falls, { look, drawDistance, wraps: copies.length > 1, worldFt });
   if (waterfalls) world.add(waterfalls.group);
   const backdrops = createBackdrops(build, look);
   if (backdrops && showBackdrops && !build.stadium) world.add(backdrops);
@@ -2023,13 +2031,13 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
   // The ground each copy covers (scene x and z), for telling which copies are in view. The
   // terrain's chunks share their vertices, so any one of them has the whole ground's.
   const vertices = tile.getObjectByName("terrain")?.geometry.attributes.position;
-  const ground = vertices ? new THREE.Box3().setFromBufferAttribute(vertices) : new THREE.Box3(new THREE.Vector3(0, 0, -WORLD_FT), new THREE.Vector3(WORLD_FT, 0, 0));
+  const ground = vertices ? new THREE.Box3().setFromBufferAttribute(vertices) : new THREE.Box3(new THREE.Vector3(0, 0, -worldFt), new THREE.Vector3(worldFt, 0, 0));
   // 4x4 Evolution's grass, around the camera (render/evo-grass.js).
   const grass = grassRadius > 0 && build.grass ? createEvoGrass(build.grass, terrainOfBuild(build), grassRadius, look) : null;
   if (grass) world.add(grass.mesh);
   if (backdrops && showBackdrops && !build.stadium) drawBackdropFirst(world);
   const parts = {
-    grass, forest, falling: [], library, lattice, vegetation, fogVolumes, waterfalls,
+    grass, forest, falling: [], library, lattice, vegetation, fogVolumes, waterfalls, worldFt,
     objects, byName: new Map(), placed: [], morphing: [], chunks: [], backdrops: backdrops && !build.stadium ? backdrops : null,
     copies: tiles.map((group) => ({
       group, shown: true,

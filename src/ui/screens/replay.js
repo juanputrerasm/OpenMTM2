@@ -31,7 +31,7 @@ import { ON_GROUND_FT, replayContacts } from "../../game/replay-effects.js";
 import { formatRaceTime } from "../../game/race-setup.js";
 import { createTrackWorld, disposeObject, moveObjects, skyColor, skyOf, updateTrackWorld, placeSky } from "../../render/track-scene.js";
 import { createTruckObject } from "../../render/truck-object.js";
-import { nearestCopy, toSceneMatrix, wrapFt } from "../../shared/scene-frame.js";
+import { nearestCopy, toSceneMatrix, worldFtOf, wrapFt } from "../../shared/scene-frame.js";
 import { createStartLamps } from "../../render/start-lamps.js";
 import { createTrackLights } from "../../render/track-lights.js";
 import { conformPose, createRelief, tireRadiusFt } from "../../game/terrain-relief.js";
@@ -55,7 +55,7 @@ import { createTruckAudio } from "../../audio/truck-audio.js";
 import { createWorldAudio } from "../../audio/world-audio.js";
 import { createReplaySound } from "../../game/replay-sound.js";
 import { createReplayGates } from "../../game/replay-gates.js";
-import { createBoxSolid } from "../../game/ground-boxes.js";
+import { createBoxSolid, groundBoxGrids } from "../../game/ground-boxes.js";
 import { screenSampled } from "../../game/aa.js";
 import { msg } from "../../game/strings.js";
 
@@ -98,6 +98,8 @@ export default async function mount(container, context, { replay, namesMode: sta
     sunShadows: context.settings.look === "enhanced" && replayFx,
   }).catch((err) => { loading.textContent = t("The replay's track could not be built: <<1>>", err.message); return null; });
   if (disposed || !build) return { unmount };
+  // The world's size (8192 ft, or a track format version 6 world's: docs/EXTENSIONS.md).
+  const worldFt = worldFtOf(build);
   loading.hidden = true;
 
   const [messageFont, hudFont, effectsArt] = await Promise.all([loadFont(context.assets, "FNT2_480"), loadFont(context.assets, "FNT1_480"), context.assets.call("effectsArt").catch(() => null)]);
@@ -134,7 +136,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   cleanups.push(() => { extensionScene.dispose(); disposeObject(scene); renderer.dispose(); });
 
   let shadows = null;
-  const playback = createPlayback(replay, { boxes: build.replayBoxes ?? null });
+  const playback = createPlayback(replay, { boxes: build.replayBoxes ?? null, worldFt });
   const drawn = replay.vehicles.map((vehicle) => {
     const model = build.truckModels[vehicle.truck.toUpperCase()];
     if (!model) return null;
@@ -156,7 +158,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   const worldAudio = createWorldAudio(audio, {
     ambient: inRace ? null : ambience, cues: ambience, weather: replay.weather ?? 0, music: inRace ? null : build.musicName ?? null, objects: build.soundObjects,
     hitInfo: new Map((build.sim.boxes ?? []).map((b) => [b.sitIndex, { hitSound: b.hitSound, type: b.type }])),
-    musicOff: () => !!context.jukebox?.on,
+    musicOff: () => !!context.jukebox?.on, worldFt,
   });
   // The jukebox plays on in the track's music's place (audio/jukebox.js).
   const unwatchJukebox = context.jukebox?.subscribe(() => worldAudio.refreshMusic()) ?? (() => {});
@@ -184,7 +186,8 @@ export default async function mount(container, context, { replay, namesMode: sta
     worldAudio.dispose();
     truckAudio.dispose();
     audio.stopAll?.();
-    audio.setEffectsPaused?.(inRace);
+    // A paused race's mixer goes back to paused; a network race that ran on under the replay keeps its effects.
+    audio.setEffectsPaused?.(inRace && !context.replayRaceRunning);
     if (!inRace) context.menuMusic?.start();
   });
   // With "Smooth terrain" the ground drawn is not quite the ground the trucks were recorded on (game/terrain-relief.js):
@@ -209,12 +212,12 @@ export default async function mount(container, context, { replay, namesMode: sta
   // The drawn ground, and the snow lying on it.
   const ground = scenery.surfaceAt;
   // On a track made for CP4 the views stand on its meshes near what they watch (game/mesh-ground.js).
-  const viewMesh = meshGroundFromBuild(build, { terrainHeight: (x, z) => ground(x, z), wrapDelta: (d) => d - 8192 * Math.round(d / 8192), worldFt: 8192 });
+  const viewMesh = meshGroundFromBuild(build, { terrainHeight: (x, z) => ground(x, z), wrapDelta: (d) => d - worldFt * Math.round(d / worldFt), worldFt });
   let viewRefY = 0;
   const viewGround = viewGroundOn(viewMesh, ground, () => viewRefY);
   // What the external views see through on meshes: nothing (game/mesh-ground.js `viewBlocked`).
   const viewSight = viewBlocked(viewMesh);
-  const trackLights = createTrackLights(scene, build.trackLights, ground, { shafts: visualSettings(context.settings).lamps });
+  const trackLights = createTrackLights(scene, build.trackLights, ground, { shafts: visualSettings(context.settings).lamps, worldFt });
   if (trackLights) cleanups.push(() => trackLights.dispose());
   // The start gantry's lamps, with "Truck lamps" (render/start-lamps.js): a replay is of the race, so the green is lit.
   const startLamps = visualSettings(context.settings).lamps ? createStartLamps({ world, scene, dark: !!WEATHER_LOOK[replay.weather ?? 0]?.headlights }) : null;
@@ -237,7 +240,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   // Every copy of the world has its own water plane (render/track-scene.js): they bob and are surfaced together.
   const waters = [];
   world.traverse((object) => { if (object.name === "water") waters.push(object); });
-  const waterFx = createWaterEffects({ scene, art: effectsArt, levelFt: build.waterLevelFt ?? null, ground, legacyIce: !scenery.water, blobs: !scenery.particles, rings: !scenery.particles && !scenery.water });
+  const waterFx = createWaterEffects({ worldFt, scene, art: effectsArt, levelFt: build.waterLevelFt ?? null, ground, legacyIce: !scenery.water, blobs: !scenery.particles, rings: !scenery.particles && !scenery.water });
   cleanups.push(() => waterFx.dispose());
   /*
     Dust, tracks, spray and sparks, as in the race (render/tire-effects.js). A replay records where each truck was and
@@ -250,7 +253,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   cleanups.push(() => tireFx?.dispose());
   window.__openmtm2Replay = { scene, camera, renderer, tireFx };
   cleanups.push(() => { delete window.__openmtm2Replay; });
-  const surfaces = !build.sim?.dirtEverywhere && build.sim?.clr && build.sim?.textureValues ? mtm2Sim.createSurfaceMap(new Uint16Array(build.sim.clr), new Int32Array(build.sim.textureValues)) : null;
+  const surfaces = !build.sim?.dirtEverywhere && build.sim?.clr && build.sim?.textureValues ? mtm2Sim.createSurfaceMap(new Uint16Array(build.sim.clr), new Int32Array(build.sim.textureValues), build.worldCells ?? 256) : null;
   // A level with no surface table (`dirtEverywhere`) is Dirt everywhere, as the race's simulation has it.
   const madeOf = surfaces || build.sim?.dirtEverywhere ? mtm2Sim.createTerrainGround(terrain, surfaces, replay.weather ?? 0, build.waterLevelFt ?? null) : null;
   const effectFlags = () => ({ dust: dustLevel(context.settings), tracks: context.settings.tireTracks !== false, sparks: sparkLevel(context.settings), splash: context.settings.waterSplash !== false });
@@ -302,7 +305,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   let turn = 0, zoom = 1;
   let clock = 0, rate = 1, playing = true;
   const chase = createChaseCamera();
-  const boxSolid = createBoxSolid({ ra0: build.sim.ra0, ra1: build.sim.ra1 });
+  const boxSolid = createBoxSolid(groundBoxGrids(build.sim, build.worldCells ?? 256));
   /** Where the watched truck was last drawn: the picture's place in its own unbroken space. */
   let drawAnchor = null;
   const straights = build.sim.course, centroid = courseCentroid(straights);
@@ -430,7 +433,7 @@ export default async function mount(container, context, { replay, namesMode: sta
     back. B flies the camera free, as a watched race's spectator does (ui/fly-controller.js).
   */
   const mouseLook = createCameraLook(() => lookOptions(context.settings));
-  const flyer = createFlyController({
+  const flyer = createFlyController({ worldFt,
     canvas, settings: context.settings, save: () => saveSettings(context.settings), course: build.sim.course ?? [], courseOpen: !!build.sim.courseOpen,
     groundAt: bareGround, say, baseFov: fovFor(1, fovBase(context.settings)), font: messageFont, t,
   });
@@ -495,7 +498,7 @@ export default async function mount(container, context, { replay, namesMode: sta
     }
     const yaw = pose.euler[2];
     // The course is in the simulation's world: these cameras are found there, then moved to where the picture is.
-    const sim = [wrapFt(pose.pos[0]), pose.pos[1], wrapFt(pose.pos[2])], off = [pose.pos[0] - sim[0], 0, pose.pos[2] - sim[2]];
+    const sim = [wrapFt(pose.pos[0], worldFt), pose.pos[1], wrapFt(pose.pos[2], worldFt)], off = [pose.pos[0] - sim[0], 0, pose.pos[2] - sim[2]];
     viewRefY = pose.pos[1];
     const stood = viewMode === 3 ? (centroid ? blimpCamera(sim, centroid) : blimpCameraNoCourse(sim, yaw, viewGround))
       : viewMode === 4 ? (raceCamera(straights, sim, pose.course ?? 0, viewGround) ?? blimpCameraNoCourse(sim, yaw, viewGround)) : null;
@@ -541,8 +544,8 @@ export default async function mount(container, context, { replay, namesMode: sta
     // The watched truck where it was last drawn (the picture's space has no seam), and the others beside it.
     const watched = state.trucks[focus] ?? state.trucks.find(Boolean);
     if (watched) {
-      watched.pos = drawAnchor = nearestCopy(watched.pos, drawAnchor ?? watched.pos);
-      for (const pose of state.trucks) if (pose && pose !== watched) pose.pos = nearestCopy(pose.pos, watched.pos);
+      watched.pos = drawAnchor = nearestCopy(watched.pos, drawAnchor ?? watched.pos, worldFt);
+      for (const pose of state.trucks) if (pose && pose !== watched) pose.pos = nearestCopy(pose.pos, watched.pos, worldFt);
     }
     state.trucks.forEach((pose, i) => {
       if (!pose || !drawn[i]) return;
@@ -565,7 +568,7 @@ export default async function mount(container, context, { replay, namesMode: sta
     const forwardFilm = playing && rate > 0;
     const jumped = filmClock === null || Math.abs(clock - filmClock) > 0.5;
     if (jumped) { replaySound.reset(state.trucks); gates.reset(clock < 0.5); }
-    const simPositions = state.trucks.map((pose) => (pose ? [wrapFt(pose.pos[0]), pose.pos[1], wrapFt(pose.pos[2])] : null));
+    const simPositions = state.trucks.map((pose) => (pose ? [wrapFt(pose.pos[0], worldFt), pose.pos[1], wrapFt(pose.pos[2], worldFt)] : null));
     if (!forwardFilm || jumped) { gates.follow(simPositions); lastHeight.length = 0; }
     filmClock = clock;
     hearEffects(forwardFilm);
@@ -596,7 +599,7 @@ export default async function mount(container, context, { replay, namesMode: sta
       const sounds = replaySound.frame(state.trucks, filmDt, weatherId, extras);
       truckAudio.update(filmDt, state.trucks.map((pose, i) => (pose ? { current: { pos: pose.pos }, sound: sounds[i] } : { current: { pos: [0, 0, 0] }, sound: null })), listener, null);
       const moved = new Map(state.objects.map((o) => [o.sitIndex, o.pos]));
-      worldAudio.update(filmDt, [wrapFt(listener[0]), listener[1], wrapFt(listener[2])], moved);
+      worldAudio.update(filmDt, [wrapFt(listener[0], worldFt), listener[1], wrapFt(listener[2], worldFt)], moved);
       const passed = gates.pass(simPositions);
       if (passed[focus] === "lap") worldAudio.lapDone();
       else if (passed[focus] === "checkpoint") worldAudio.checkpoint();

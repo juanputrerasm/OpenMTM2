@@ -14,7 +14,7 @@ import { CHECKPOINT_COLOR, NEXT_CHECKPOINT_COLOR, MAP_HALF_WIDTH_FT, boxCorners,
 import { nameTagScale, nameTransparency } from "./name-tag-style.js";
 import { MAP_OFF, openMapLabel, openMapMode, nextOpenMapMode } from "../game/course-map-labels.js";
 import { courseSegments, smoothCoursePath } from "../game/course-shape.js";
-import { mapWrap } from "../shared/scene-frame.js";
+import { WORLD_FT, mapWrap } from "../shared/scene-frame.js";
 
 /** Feet of ground over the strip's height at the truck's own scale, at zoom 1 (the tilt fits more ahead). */
 export const OPEN_MAP_SPAN_FT = 1100;
@@ -77,15 +77,16 @@ export function stripFade(f, lead, tail) {
 /** The fades along the strip (top, bottom) and across it (each side). */
 const FADE_TOP = 0.3, FADE_BOTTOM = 0.12, FADE_SIDE = 0.15;
 
-export function createOpenMap(course, { font = null, open = false, areas = null, summit = false, lineScale = 1, zoom = OPEN_MAP_DEFAULT_ZOOM } = {}) {
+export function createOpenMap(course, { font = null, open = false, areas = null, summit = false, lineScale = 1, zoom = OPEN_MAP_DEFAULT_ZOOM, worldFt = WORLD_FT } = {}) {
+  // `worldFt`: the world the map folds at (8192 ft, or a track format version 6 world's).
   const canvas = document.createElement("canvas");
   canvas.className = "race-openmap";
   const ctx = canvas.getContext("2d");
   const usable = (box) => !!(box && (box.pos ?? box.position) && (box.half ?? box.size));
   if (areas) areas = { zone: usable(areas.zone) ? areas.zone : null, summit: usable(areas.summit) ? areas.summit : null };
   const zoneMap = !!(areas?.zone || areas?.summit);
-  const segments = zoneMap ? [] : courseSegments(course);
-  const path = smoothCoursePath(segments, !open);
+  const segments = zoneMap ? [] : courseSegments(course, worldFt);
+  const path = smoothCoursePath(segments, !open, worldFt);
   let mode = openMapMode(1), names = 0;
   canvas.hidden = false;
   // The map's eased heading, and the truck and place it was eased for; the zoom asked for and the one drawn.
@@ -168,9 +169,9 @@ export function createOpenMap(course, { font = null, open = false, areas = null,
       /** A map-frame point `[right, ahead]` on the canvas, or null where the view cannot show it. */
       const screen = (r, a) => { const p = tiltProject(r, a, OPEN_MAP_TILT, eye); return p ? [cx + p[0] * k, cy - p[1] * k] : null; };
       // A mark is drawn at its copy nearest the player, a course edge where `wrapRuns` placed it (beta 0.53's rule).
-      const frame = (x, z, wrap = true) => toMapFrame(x, z, me.pos[0], me.pos[2], eased, wrap);
+      const frame = (x, z, wrap = true) => toMapFrame(x, z, me.pos[0], me.pos[2], eased, wrap, worldFt);
       const px = (x, z, wrap = true) => { const [r, a] = frame(x, z, wrap); return screen(r, a); };
-      const near = (x, z) => nearestToPlayer(x, z, me.pos[0], me.pos[2]);
+      const near = (x, z) => nearestToPlayer(x, z, me.pos[0], me.pos[2], worldFt);
       /** A polyline of world points `[x, z]`, cut where it runs behind the eye; `wrap` false for points already placed. */
       const polyline = (pts, closed, wrap = true) => {
         const minAhead = (eye * 0.2 - eye) / Math.sin(OPEN_MAP_TILT) + 1e-3;
@@ -210,7 +211,7 @@ export function createOpenMap(course, { font = null, open = false, areas = null,
         if (areas.zone) box(areas.zone, state === 2 ? "rgba(255,214,64,.55)" : "rgba(255,214,64,.25)", "rgba(255,214,64,.95)");
       }
       if (path.length > 1) {
-        const runs = wrapRuns(path, false, me.pos[0], me.pos[2]).map((run) => run.map((p) => [p.x, p.z]));
+        const runs = wrapRuns(path, false, me.pos[0], me.pos[2], worldFt).map((run) => run.map((p) => [p.x, p.z]));
         const stroke = () => { for (const run of runs) { polyline(run, false, false); ctx.stroke(); } };
         ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 5.5 * u * line; stroke();
         ctx.strokeStyle = "rgba(240,240,240,.92)"; ctx.lineWidth = 2.5 * u * line; stroke();
@@ -218,7 +219,7 @@ export function createOpenMap(course, { font = null, open = false, areas = null,
           // The start and the finish: a short bar across the line at each end.
           for (const [i, j] of [[0, 1], [path.length - 1, path.length - 2]]) {
             const [ax, az] = near(path[i][0], path[i][1]);
-            const a = px(ax, az, false), b = px(ax + mapWrap(path[j][0] - path[i][0]), az + mapWrap(path[j][1] - path[i][1]), false);
+            const a = px(ax, az, false), b = px(ax + mapWrap(path[j][0] - path[i][0], worldFt), az + mapWrap(path[j][1] - path[i][1], worldFt), false);
             if (!a || !b) continue;
             const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, nx = -(b[1] - a[1]) / l * 6 * u, ny = (b[0] - a[0]) / l * 6 * u;
             ctx.beginPath(); ctx.moveTo(a[0] - nx, a[1] - ny); ctx.lineTo(a[0] + nx, a[1] + ny); ctx.stroke();

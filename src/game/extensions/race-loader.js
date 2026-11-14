@@ -553,7 +553,7 @@ const DEATHMATCH = {
    * The spawn spots (the same on every machine for the track), and each truck's start on one of them, as far apart as
    * they go, by its grid slot.
    */
-  prepare(extension, { build, entrants, length, settings, groundHeightAt, raceType, grid }) {
+  prepare(extension, { build, entrants, length, settings, groundHeightAt, spawnHeightAt = null, raceType, grid }) {
     const slots = grid?.length ? grid : build.sim.grid ?? [];
     const first = slots[0]?.pos ?? null;
     const kind = spawnKind(raceType);
@@ -561,7 +561,7 @@ const DEATHMATCH = {
     const seed = first ? (Math.round(first[0]) * 73856093) ^ (Math.round(first[2]) * 19349663) : 1;
     const spots = spawnSpots({
       kind, course, slots: kind === "slots" ? build.sim.grid ?? slots : slots, boxes: build.sim.boxes ?? [],
-      heightAt: groundHeightAt, waterFt: build.waterLevelFt ?? null, seed,
+      heightAt: spawnHeightAt ?? groundHeightAt, waterFt: build.waterLevelFt ?? null, seed, worldFt: build.worldFt ?? 8192,
     });
     const count = Math.max(slots.length, ...entrants.map((e) => (e.slot ?? 0) + 1), entrants.length);
     const starts = startSpots(spots, count, first);
@@ -756,7 +756,8 @@ export const extensionKeepsRace = (extension) => !!extension?.keepsRace;
 
 /**
  * Build extension-owned race data after the track has loaded. `ctx` is `{ build, entrants, length, groundHeightAt,
- * settings, raceType, grid }`, `settings` the extension's own (game/extensions/loader.js `settingsForExtension`), `grid`
+ * spawnHeightAt, settings, raceType, grid }` (`spawnHeightAt` the drivable ground a truck is set down on,
+ * game/spawn-ground.js), `settings` the extension's own (game/extensions/loader.js `settingsForExtension`), `grid`
  * the start slots as the party modes fill them (game/race-setup.js `fillGrid`).
  */
 export function prepareExtensionRace(extension, ctx) {

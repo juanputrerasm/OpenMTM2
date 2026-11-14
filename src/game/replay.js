@@ -255,7 +255,8 @@ const nearAngle = (a, ref) => ref + ((((a - ref) % (2 * Math.PI)) + 3 * Math.PI)
  * (the shape `render/truck-object.js` takes, the axles at `restTravel`), their damage codes, and the
  * poses of the objects that have moved by then.
  */
-export function createPlayback(replay, { restTravel = [-4, -4], boxes = null } = {}) {
+export function createPlayback(replay, { restTravel = [-4, -4], boxes = null, worldFt = 8192 } = {}) {
+  // `worldFt`: the world the film was made on (a track format version 6 world may be 16384 ft), for the nearest copy.
   // The file's object numbers count the game's box table; the scene knows SIT indexes (`boxes`, as the recorder's).
   const sitIndexOf = (number) => (boxes ? boxes[number] : number);
   const { vehicles, objects } = timelines(replay);
@@ -283,7 +284,7 @@ export function createPlayback(replay, { restTravel = [-4, -4], boxes = null } =
         const { a, b, k, before, after } = between(list, t);
         const ra = a.record, rb = b.record, r0 = before.record, r3 = after.record;
         // Either side of the world's seam two frames are a world apart: each is taken as the copy beside the later one.
-        const p0 = nearestCopy(r0.ipos, rb.ipos), p1 = nearestCopy(ra.ipos, rb.ipos), p3 = nearestCopy(r3.ipos, rb.ipos);
+        const p0 = nearestCopy(r0.ipos, rb.ipos, worldFt), p1 = nearestCopy(ra.ipos, rb.ipos, worldFt), p3 = nearestCopy(r3.ipos, rb.ipos, worldFt);
         const pos = [0, 1, 2].map((n) => curve(p0[n], before.t, p1[n], a.t, rb.ipos[n], b.t, p3[n], after.t, k));
         // Angles the same way, each frame turned to lie the short way round from the next.
         const angles = [0, 1, 2].map((n) => {
@@ -314,7 +315,7 @@ export function createPlayback(replay, { restTravel = [-4, -4], boxes = null } =
         const kk = gap ? Math.max(0, 1 - (b.t - t) / FRAME_SECONDS) : k;
         const angles = [0, 1, 2].map((n) => lerpAngle(a.record.angles[n], b.record.angles[n], kk));
         mtm2Sim.eulerToMatrix(angles[0], angles[1], angles[2], matrix);
-        moved.push({ sitIndex, pos: lerpVec(nearestCopy(a.record.ipos, b.record.ipos), b.record.ipos, kk), matrix: [...matrix] });
+        moved.push({ sitIndex, pos: lerpVec(nearestCopy(a.record.ipos, b.record.ipos, worldFt), b.record.ipos, kk), matrix: [...matrix] });
       }
       // Each top-crush car's share at `t` (the last change at or before it), or null when the file has none.
       let crush = null;

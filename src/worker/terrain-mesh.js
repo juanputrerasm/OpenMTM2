@@ -297,7 +297,9 @@ export function cellTileUvs(word, atlas, out, tileInset = 2) {
  * The terrain mesh. `heights` is the level .RAW, `clr` its 16-bit colour grid, `lte` the
  * lighting map or null, `atlas` from buildTerrainAtlas.
  */
-export function buildTerrainMesh({ heights, heightsFt = null, clr, lte, atlas, footprint = null, tileInset = 2 }) {
+export function buildTerrainMesh({ heights, heightsFt = null, clr, lte, atlas, footprint = null, tileInset = 2, grid = GRID }) {
+  // `grid`: cells a side, 256 but on a track format version 6 world (512: docs/EXTENSIONS.md), its grids N x N.
+  const GRID = grid, MASK = grid - 1;
   const cells = GRID * GRID;
   const positions = new Float32Array(cells * 4 * 3);
   const normals = new Float32Array(cells * 4 * 3);
@@ -308,8 +310,8 @@ export function buildTerrainMesh({ heights, heightsFt = null, clr, lte, atlas, f
 
   // `heightsFt` (corner heights in feet) stands in for the byte heightfield on levels that are finer than 2 ft steps.
   const h = heightsFt
-    ? (row, col) => heightsFt[(row & 255) * GRID + (col & 255)]
-    : (row, col) => heights[(row & 255) * GRID + (col & 255)] * STEP_FT;
+    ? (row, col) => heightsFt[(row & MASK) * GRID + (col & MASK)]
+    : (row, col) => heights[(row & MASK) * GRID + (col & MASK)] * STEP_FT;
   // Smooth normal at a grid corner, by central differences, in scene axes (z mirrored).
   const cornerNormal = (row, col, out, o) => {
     const dx = (h(row, col + 1) - h(row, col - 1)) / (2 * CELL_FT);
@@ -332,7 +334,7 @@ export function buildTerrainMesh({ heights, heightsFt = null, clr, lte, atlas, f
         positions[p + 1] = h(r, c);
         positions[p + 2] = -(r * CELL_FT);
         cornerNormal(r, c, normals, p);
-        shade[v + k] = hasLte ? lte[((r & 255) * GRID + (c & 255)) * LTE_BYTES_PER_POINT] / 255 : 1;
+        shade[v + k] = hasLte ? lte[((r & MASK) * GRID + (c & MASK)) * LTE_BYTES_PER_POINT] / 255 : 1;
       }
 
       cellTileUvs(clr[cell], atlas, tile, tileInset);
@@ -357,7 +359,7 @@ export function buildTerrainMesh({ heights, heightsFt = null, clr, lte, atlas, f
       }
     }
   }
-  return { positions, normals, uvs, shade, indices, hasLte: !!hasLte };
+  return { positions, normals, uvs, shade, indices, hasLte: !!hasLte, grid };
 }
 
 /**
@@ -367,7 +369,8 @@ export function buildTerrainMesh({ heights, heightsFt = null, clr, lte, atlas, f
  * cell as on the coarse mesh. Normals by central differences over the fine grid. The same shape of result as
  * `buildTerrainMesh`.
  */
-export function buildFineTerrainMesh({ fineFt, sub = 4, clr, lte = null, atlas, tileInset = 2 }) {
+export function buildFineTerrainMesh({ fineFt, sub = 4, clr, lte = null, atlas, tileInset = 2, grid = GRID }) {
+  const GRID = grid, MASK = grid - 1;
   const side = GRID * sub, mask = side - 1, step = CELL_FT / sub, n = sub + 1;
   const perCell = n * n, cells = GRID * GRID;
   const positions = new Float32Array(cells * perCell * 3);
@@ -379,7 +382,7 @@ export function buildFineTerrainMesh({ fineFt, sub = 4, clr, lte = null, atlas, 
   // A Community Patch 4 Spline or Full Map track's 256 x 256 .LTE lights the fine grid as it does the coarse one's corners
   // (`buildTerrainMesh`): each fine point takes it between the four corners of its cell, bilinearly.
   const hasLte = !!lte && lte.length >= cells * LTE_BYTES_PER_POINT;
-  const lit = (r, c) => lte[((r & 255) * GRID + (c & 255)) * LTE_BYTES_PER_POINT] / 255;
+  const lit = (r, c) => lte[((r & MASK) * GRID + (c & MASK)) * LTE_BYTES_PER_POINT] / 255;
   const tile = new Float32Array(8);
   let ii = 0;
   for (let row = 0; row < GRID; row++) {
@@ -420,9 +423,9 @@ export function buildFineTerrainMesh({ fineFt, sub = 4, clr, lte = null, atlas, 
     }
   }
   return {
-    positions, normals, uvs, shade, indices, hasLte, indicesPerCell: sub * sub * 6,
+    positions, normals, uvs, shade, indices, hasLte, indicesPerCell: sub * sub * 6, grid,
     // The levels drawn further off (render/track-scene.js): a sub-cell of 2 x 2 in the middle distance, the cell far off.
-    levels: sub % 2 === 0 ? { mid: fineTerrainLevel({ sub, step: sub / 2 }), coarse: fineTerrainLevel({ sub, step: sub }) } : null,
+    levels: sub % 2 === 0 ? { mid: fineTerrainLevel({ sub, step: sub / 2, grid }), coarse: fineTerrainLevel({ sub, step: sub, grid }) } : null,
   };
 }
 

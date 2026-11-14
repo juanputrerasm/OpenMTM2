@@ -8,9 +8,38 @@ as it stood when it was written, and the plan's open items list is the one kept 
 
 Community Patch 4 beta 0.53: its waterfalls and its roofed arenas lit as outdoors (the new monster.exe and its
 renderer analysed, CP4_EXE_ANALYSIS.md 12 to 14); the course map across the world edge; reports from Beaver City, a
-track built of meshes; and three options moved:
+track built of meshes; three options moved; track format version 6; Deathmatch spawns on the drivable
+surface; the instant replay in network races; a filter and a start position in the Computer Opponents dialog:
 
-- **OpenPhotex 1.7.3** vendored: the `.WFL` waterfall reader and writer, and the game's waterfall build (`cp4Sim`).
+- **OpenPhotex 1.7.3** vendored: the `.WFL` waterfall reader and writer, the game's waterfall build (`cp4Sim`), and
+  track format version 6 (`.SI3`, the `.TXV` v6 keys, v6 heights, 16-bit ground boxes, `.WTR` and `.WFL` version 2).
+- **Track format version 6** (docs/EXTENSIONS.md "Track format version 6"; the open specification's draft of
+  2026-11-13): `WORLD\<stem>.SI3` tracks are listed beside the `.SIT` and `.SI2` ones (a `.SIT` of the same stem is
+  its own track), their `.TXV` keys checked (a bad one refuses the track with the key named, a formatVersion above 6
+  loads with a warning), their heights read on the track's own step and base (negative, or thousands of feet high),
+  their grid files checked against the world's size, 16-bit ground boxes, `.WTR` and `.WFL` version 2 on a 512-cell
+  world, version 1 on a 256-cell one (the world's size picks the version; any other pairing is refused), the
+  waterfalls built in the track's world on its own heights, and the world's size in the SIT's
+  places and the `.VEG`'s. The world may be 512 cells (16,384 ft) a side: every wrap, grid lookup, nearest
+  copy and copy of the world drawn takes the track's size from its build (`worldCells`, `worldFt`), where 8192 ft was
+  written in about forty files; the helpers take it as a parameter defaulting to 8192, so every other track behaves
+  as before. On a world of other than 256 cells the drawn ground, the snow cover's depth, the ground, cover, puddle
+  and fog floor maps are left out. Tests: tests/track-format-v6.test.mjs.
+- **Deathmatch spawns on the drivable surface**: the spawn spots, the filled start grid of every party mode and a
+  respawn were set over the bare terrain, so a truck started inside or under what it should stand on (a track made for
+  CP4's streets and decks, a level's ground boxes, CPR's road, 4x4 Evolution's rocks and decks). They now stand on the
+  highest drivable surface there (`game/spawn-ground.js`); a spot along a course keeps to the surface the course runs
+  at, so a street under an overpass stays the street. Tests: tests/spawn-ground.test.mjs.
+- **Instant replay in a network race** (ui/screens/race.js `showInstantReplay`, ui/screens/replay.js): an OpenMTM2
+  addition, the game has none with more than one networked player (MONSTER_EXE_ANALYSIS.md 14.4). The pause menu's
+  Instant replay now plays over a network race, which keeps stepping and talking to the others underneath with the
+  player's truck in it (its controls let go while the replay is up); the race's end closes the replay for the
+  results, and the race's sound effects are not left paused after it.
+- **Computer Opponents dialog: a filter and the start position** (ui/screens/race-select.js `chooseOpponents`,
+  game/race-setup.js `seatDrivers`, `START_PLACES`, ui/options-panel.js): a filter over the available trucks (name or
+  file, any case), and Start position (Random, the game's shuffle, or 1st to 8th; settings `startPlace`, also on the
+  Options' Game page) puts the player's truck on that grid place in a single-player race or tournament, past the last
+  truck's place the last; not in spectator mode, the demo or a drag weekend's lanes. Tests: tests/race-setup.test.mjs.
 - **The course map across the world edge** (render/minimap.js `wrapRuns`, `unwrapPath`, `nearestToPlayer`,
   game/course-shape.js, shared/scene-frame.js `mapWrap`; Community Patch 4 beta 0.53's rule, CP4_EXE_ANALYSIS.md 14):
   on a course laid out across the 8192 ft edge, the map (classic and OpenMTM2 styles) drew a line across the whole

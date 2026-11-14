@@ -82,26 +82,27 @@ const FAST_SIMULATION_S = 240;
  * moves), so the box of a cell, at a copy of the world, is the same object step after step, and the same numbers as a
  * box made afresh. The heights do not change in a race.
  */
-export function createGroundBoxCache(ra0, ra1, stepFt = 2) {
-  // By the exact start of the copy of the world (x, then z), then the cell, -1 to 256 each way.
+export function createGroundBoxCache(ra0, ra1, stepFt = 2, gridCells = 256, baseFt = 0) {
+  // By the exact start of the copy of the world (x, then z), then the cell, -1 to N each way. `gridCells` (N) and `baseFt`:
+  // a track format version 6 world's size and height base (its 16-bit layers as u16 grids, `stepFt` 1 / step).
   const kept = new Map();
-  const CELL = S.GROUND_BOX_CELL_FT;
+  const CELL = S.GROUND_BOX_CELL_FT, MASK = gridCells - 1, worldFt = gridCells * CELL;
   return {
     around(x, z, out = []) {
-      const col = (Math.trunc(x * 256) >> 13) & 255;
-      const row = (Math.trunc(z * 256) >> 13) & 255;
-      const baseX = x - S.wrapCoord(x), baseZ = z - S.wrapCoord(z);
+      const col = (Math.trunc(x * 256) >> 13) & MASK;
+      const row = (Math.trunc(z * 256) >> 13) & MASK;
+      const baseX = x - S.wrapCoord(x, worldFt), baseZ = z - S.wrapCoord(z, worldFt);
       let byZ = kept.get(baseX);
       if (!byZ) kept.set(baseX, byZ = new Map());
       let cells = byZ.get(baseZ);
       if (!cells) byZ.set(baseZ, cells = new Map());
       for (let dc = -1; dc <= 1; dc++) {
         for (let dr = -1; dr <= 1; dr++) {
-          const c = (col + dc) & 255, r = (row + dr) & 255;
-          const i = r * 256 + c;
-          const lo = ra0[i] * stepFt, hi = ra1[i] * stepFt;
+          const c = (col + dc) & MASK, r = (row + dr) & MASK;
+          const i = r * gridCells + c;
+          const lo = baseFt + ra0[i] * stepFt, hi = baseFt + ra1[i] * stepFt;
           if (lo === hi) continue;
-          const key = (col + dc + 1) * 258 + (row + dr + 1);
+          const key = (col + dc + 1) * (gridCells + 2) + (row + dr + 1);
           let box = cells.get(key);
           if (!box) {
             const h = hi - lo;
@@ -368,16 +369,20 @@ function nearestStraight(course, pos, heading) {
 }
 
 export function createSession(init) {
+  // The world: `worldCells` a side (256, or a track format version 6 world's N: docs/EXTENSIONS.md), 32 ft each. Every
+  // wrap, cell lookup and grid in the session takes its size from here (the specification's 8.1).
+  const worldCells = init.worldCells === 512 ? 512 : 256, worldFt = S.worldFtOf(worldCells);
+  const wrapDelta = (d) => S.wrapDelta(d, worldFt);
   // `heightsFt`: corner heights in feet, for a level finer than MTM2's 2 ft steps (CART Precision Racing).
   const terrain = init.heightsFt
-    ? S.createTerrainFt(new Float32Array(init.heightsFt), init.waterLevelFt ?? null, init.fineFt ? new Float32Array(init.fineFt) : null)
+    ? S.createTerrainFt(new Float32Array(init.heightsFt), init.waterLevelFt ?? null, init.fineFt ? new Float32Array(init.fineFt) : null, worldCells)
     : S.createTerrain(new Uint8Array(init.heights), init.waterLevelFt ?? null);
   // Community Patch 4's lakes: per 32 ft tile, deep water below the lake's surface (docs/CP4_EXE_ANALYSIS.md 2).
   if (init.lakes) S.setTerrainLakes(terrain, new Uint8Array(init.lakes.tileMap), new Float32Array(init.lakes.levelFt));
   // `dirtEverywhere` (a Terminal Velocity, Fury3 or Hellbender level): no surface map, so the ground is Dirt everywhere
   // (OpenPhotex `createTerrainGround`), with no MTM2 level rule over it.
   const surfaces = !init.dirtEverywhere && init.clr && init.textureValues
-    ? S.createSurfaceMap(new Uint16Array(init.clr), new Int32Array(init.textureValues))
+    ? S.createSurfaceMap(new Uint16Array(init.clr), new Int32Array(init.textureValues), worldCells)
     : null;
   let weather = init.weather ?? 0;
   /** How the computer trucks drive (Advanced, Computer trucks): "omtm2" (the port's), "mtm2", "mtm1" or "evo". */
@@ -441,7 +446,7 @@ export function createSession(init) {
     if (!wallCells.size || !(Math.abs(x) < 1e6) || !(Math.abs(z) < 1e6)) return;
     const seen = new Set();
     // The cells are the one world's: a cell past its edge is the cell at the other side.
-    const cells = S.WORLD_FT / WALL_CELL_FT, inWorld = (c) => ((c % cells) + cells) % cells;
+    const cells = worldFt / WALL_CELL_FT, inWorld = (c) => ((c % cells) + cells) % cells;
     for (let cx = Math.floor((x - r) / WALL_CELL_FT); cx <= Math.floor((x + r) / WALL_CELL_FT); cx++) {
       for (let cz = Math.floor((z - r) / WALL_CELL_FT); cz <= Math.floor((z + r) / WALL_CELL_FT); cz++) {
         for (const box of wallCells.get(inWorld(cx) * 65536 + inWorld(cz)) ?? []) {
@@ -473,7 +478,7 @@ export function createSession(init) {
   function facesAround(x, z, r, out) {
     if (!faceCells.size || !(Math.abs(x) < 1e6) || !(Math.abs(z) < 1e6)) return;
     const seen = new Set();
-    const cells = S.WORLD_FT / WALL_CELL_FT, inWorld = (c) => ((c % cells) + cells) % cells;
+    const cells = worldFt / WALL_CELL_FT, inWorld = (c) => ((c % cells) + cells) % cells;
     for (let cx = Math.floor((x - r) / WALL_CELL_FT); cx <= Math.floor((x + r) / WALL_CELL_FT); cx++) {
       for (let cz = Math.floor((z - r) / WALL_CELL_FT); cz <= Math.floor((z + r) / WALL_CELL_FT); cz++) {
         for (const face of faceCells.get(inWorld(cx) * 65536 + inWorld(cz)) ?? []) {
@@ -500,9 +505,13 @@ export function createSession(init) {
   const sonicTrack = !!init.sonicTrack;
   // The feet to a ground box's height step: MTM's 2, or a level's own (Hellbender's 1.5).
   const groundBoxStepFt = init.groundBoxStepFt > 0 ? init.groundBoxStepFt : 2;
-  const ra0 = init.ra0 ? new Uint8Array(init.ra0) : null;
-  const ra1 = init.ra1 ? new Uint8Array(init.ra1) : null;
-  const groundBoxes = createGroundBoxCache(ra0, ra1, groundBoxStepFt);
+  // A track format version 6 track's ground boxes (the specification's 8.3): u16 layers when `groundBoxDepth` is 16, and
+  // the terrain's base under both depths.
+  const groundBoxBaseFt = Number(init.groundBoxBaseFt) || 0;
+  const BoxGrid = init.groundBoxDepth === 16 ? Uint16Array : Uint8Array;
+  const ra0 = init.ra0 ? new BoxGrid(init.ra0) : null;
+  const ra1 = init.ra1 ? new BoxGrid(init.ra1) : null;
+  const groundBoxes = createGroundBoxCache(ra0, ra1, groundBoxStepFt, worldCells, groundBoxBaseFt);
   const levelBoxes = [];
   /** Moving objects: type 10 boxes and their SIT bvel (MTM2_PHYSICS.md 14.18). */
   const movingObjects = [];
@@ -575,7 +584,7 @@ export function createSession(init) {
   // The meshes a computer racer drives on (game/mesh-ground.js): the static models that collide by their triangles.
   // Their boxes are no blocks to steer round; their walls and drops are read from the triangles.
   const triMeshes = cp4Triangles
-    ? createMeshGround(levelBoxes.filter((b) => b.shape && !(b.mass > 0) && !movingBoxes.has(b)), { terrainHeight: (x, z) => ground.height(x, z), wrapDelta: S.wrapDelta, worldFt: S.WORLD_FT })
+    ? createMeshGround(levelBoxes.filter((b) => b.shape && !(b.mass > 0) && !movingBoxes.has(b)), { terrainHeight: (x, z) => ground.height(x, z), wrapDelta, worldFt })
     : null;
   const meshBoxes = new Set(triMeshes?.boxes ?? []);
   const allRamps = (init.ramps ?? []).map((r) => S.createRamp(r, r.bounds)).filter(Boolean);
@@ -763,9 +772,9 @@ export function createSession(init) {
     const layers = (x, z) => {
       const g = ground.height(x, z);
       if (!ra0 || !ra1) return [g];
-      const i = (((Math.trunc(z * 256) >> 13) & 255) << 8) | ((Math.trunc(x * 256) >> 13) & 255);
+      const i = ((Math.trunc(z * 256) >> 13) & (worldCells - 1)) * worldCells + ((Math.trunc(x * 256) >> 13) & (worldCells - 1));
       if (ra0[i] === ra1[i]) return [g];
-      const lo = ra0[i] * 2, hi = ra1[i] * 2;
+      const lo = groundBoxBaseFt + ra0[i] * groundBoxStepFt, hi = groundBoxBaseFt + ra1[i] * groundBoxStepFt;
       const out = lo > g + 12 ? [g, hi] : [Math.max(g, hi)];
       out.box = lo > g + 12 ? [false, true] : [hi > g + 0.5];
       return out;
@@ -893,7 +902,7 @@ export function createSession(init) {
   /** An online room's extension race: "owner" decides the mode's state, "follower" takes it (game/extensions/session-loader.js). */
   const netRole = { authority: init.net?.authority ?? null };
   const extensionSession = createExtensionSession(extensionPayload, {
-    step: STEP, trucks, race, levelBoxes, dirty, wallsAround, walls: init.walls,
+    step: STEP, trucks, race, levelBoxes, dirty, wallsAround, walls: init.walls, worldFt,
     ground, course, specs, ramps: allRamps, weather: () => weather, watchHeadway, net: netRole,
     // The helicopter for a truck, set down on course segment `segment` (as for a missed checkpoint).
     liftTo: (t, segment) => liftToSegment(t, segment),
@@ -950,7 +959,7 @@ export function createSession(init) {
     const near = (x, z, r, box) => {
       const range = r + box.radius + 10;
       // The short way round: a box across the world's seam is as near as one beside the truck.
-      return Math.abs(S.wrapDelta(box.pos[0] - x)) < range && Math.abs(S.wrapDelta(box.pos[2] - z)) < range;
+      return Math.abs(wrapDelta(box.pos[0] - x)) < range && Math.abs(wrapDelta(box.pos[2] - z)) < range;
     };
     const nearTruck = (box) => trucks.some((t) => near(t.state.pos[0], t.state.pos[2], t.radius, box));
     // A truck that is not the player's own does not bring in a type 11 box or one with no model (MTM2 and CP4,
@@ -994,7 +1003,7 @@ export function createSession(init) {
     const at = fallen.findIndex((h) => h.id === box.tree);
     if (at < 0) fallen.push(hit); else if (hit.speed > fallen[at].speed) fallen[at] = hit;
   }
-  const crushCars = (init.topCrush ?? []).map((car) => S.createTopCrush(car, car.bodyBounds ?? null, car.cabBounds ?? null));
+  const crushCars = (init.topCrush ?? []).map((car) => S.createTopCrush(car, car.bodyBounds ?? null, car.cabBounds ?? null, worldFt));
   const crushCtx = { groundNormal: (x, z) => ground.normal(x, z, [0, 0, 0]), dt: STEP, edges: S.createEdgeState() };
   /** The pair tests (14.14, 14.17, 14.19, 14.20, 14.21), trucks first in list order. */
   /** When each pair of trucks last pushed on each other (its step count), for the crash sound's new meetings. */
@@ -1008,7 +1017,7 @@ export function createSession(init) {
         const f = a.state.extForce, f0 = f[0], f1 = f[1], f2 = f[2];
         // How fast they close on each other, along the line between them, before the pair's response.
         const closing = closingSpeedOf(a.state, b.state);
-        const met = S.collideTrucks({ s: a.state, p: a.params }, { s: b.state, p: b.params }, STEP, rules);
+        const met = S.collideTrucks({ s: a.state, p: a.params }, { s: b.state, p: b.params }, STEP, rules, worldFt);
         // A hull against a hull: the pair's forces changed. Remember the hardest hit and where the trucks met.
         const force = Math.hypot(f[0] - f0, f[1] - f1, f[2] - f2);
         if (force > 0) {
@@ -1043,14 +1052,14 @@ export function createSession(init) {
       wallsAround(t.state.pos[0], t.state.pos[2], t.radius, t.nearBoxes);
       // Each test is made with the truck as the copy nearest the thing it is tested against (OpenPhotex world/wrap.ts):
       // what stands across the world's seam is met as what stands beside the truck is.
-      const near = (thing, test) => S.withNearest(t.state, thing.pos[0], thing.pos[2], test);
+      const near = (thing, test) => S.withNearest(t.state, thing.pos[0], thing.pos[2], test, worldFt);
       for (const box of t.nearBoxes) {
         if (box.tree) { near(box, () => knockTree(t, box)); continue; }
         near(box, () => S.collideTruckImmovableBox(t.state, t.params, box, STEP, rules));
       }
       nearFaces.length = 0;
       facesAround(t.state.pos[0], t.state.pos[2], t.radius, nearFaces);
-      for (const face of nearFaces) S.withNearest(t.state, face.centre[0], face.centre[2], () => S.collideTruckFace(t.state, t.params, face, STEP));
+      for (const face of nearFaces) S.withNearest(t.state, face.centre[0], face.centre[2], () => S.collideTruckFace(t.state, t.params, face, STEP), worldFt);
       for (const box of listed) {
         const collide = () => {
           const touch = near(box, () => S.collideTruckBox(t.state, t.params, box, STEP, rules));
@@ -1063,7 +1072,7 @@ export function createSession(init) {
       for (const car of crushCars) near(car, () => S.collideTruckTopCrush(car, t.state, t.params, crushCtx));
       // Ramp sides and front ends are walls (14.19), for ramps within reach of the truck.
       for (const ramp of ground.ramps) {
-        const d = Math.hypot(S.wrapDelta(ramp.pos[0] - t.state.pos[0]), ramp.pos[1] - t.state.pos[1], S.wrapDelta(ramp.pos[2] - t.state.pos[2]));
+        const d = Math.hypot(wrapDelta(ramp.pos[0] - t.state.pos[0]), ramp.pos[1] - t.state.pos[1], wrapDelta(ramp.pos[2] - t.state.pos[2]));
         if (d < ramp.radius + t.radius) near(ramp, () => S.collideTruckRamp(ramp, t.state, t.params));
       }
       grounds.push(...t.nearBoxes);
@@ -1701,7 +1710,7 @@ export function createSession(init) {
       if (meshBoxes.has(box)) continue;
       // `still`: only what never moves (a moving object, as Castle Nugget's sliding gate, passes).
       if (still && movingBoxes.has(box)) continue;
-      const dx = S.wrapDelta(box.pos[0] - s.pos[0]), dz = S.wrapDelta(box.pos[2] - s.pos[2]);
+      const dx = wrapDelta(box.pos[0] - s.pos[0]), dz = wrapDelta(box.pos[2] - s.pos[2]);
       if (Math.abs(dx) > reach + box.radius || Math.abs(dz) > reach + box.radius) continue;
       boxObstacles(box, out, [s.pos[0] + dx - box.pos[0], s.pos[2] + dz - box.pos[2]]);
     }
@@ -1709,7 +1718,7 @@ export function createSession(init) {
     wallsAround(s.pos[0], s.pos[2], reach, walls);
     for (const w of walls) {
       if (w.tree) continue;
-      boxObstacles(w, out, [s.pos[0] + S.wrapDelta(w.pos[0] - s.pos[0]) - w.pos[0], s.pos[2] + S.wrapDelta(w.pos[2] - s.pos[2]) - w.pos[2]]);
+      boxObstacles(w, out, [s.pos[0] + wrapDelta(w.pos[0] - s.pos[0]) - w.pos[0], s.pos[2] + wrapDelta(w.pos[2] - s.pos[2]) - w.pos[2]]);
     }
     if (ra0 && ra1 && course.length) {
       const m = s.matrix, b = s.bvel;
@@ -1724,7 +1733,7 @@ export function createSession(init) {
         const spot = spotOnSegment(seg, [x, 0, z]);
         return spot && spot.distance < (seg.trackWidth ?? 16) / 2 + COURSE_ROOM_FT;
       });
-      out.push(...groundBoxWalls(s.pos, heading, look, { ra0, ra1, stepFt: groundBoxStepFt, onCourse }));
+      out.push(...groundBoxWalls(s.pos, heading, look, { ra0, ra1, stepFt: groundBoxStepFt, baseFt: groundBoxBaseFt, cells: worldCells, onCourse }));
     }
     if (triMeshes && !still) {
       const m = s.matrix, b = s.bvel;
@@ -1933,7 +1942,7 @@ export function createSession(init) {
     // Moving objects move before the frame's list is built, once the race runs.
     if (go) {
       for (const { box, bvel } of movingObjects) {
-        S.stepMovingObject(box, bvel, terrain, ra0, ra1, STEP, weather === S.WEATHER.SNOW);
+        S.stepMovingObject(box, bvel, terrain, ra0, ra1, STEP, weather === S.WEATHER.SNOW, { stepFt: groundBoxStepFt, baseFt: groundBoxBaseFt });
         dirty.add(box);
       }
     }
@@ -1974,7 +1983,7 @@ export function createSession(init) {
     // two steps does not cross the world.
     const wrapAfter = () => {
       for (const t of trucks) {
-        const [dx, dz] = S.wrapTruck(t.state);
+        const [dx, dz] = S.wrapTruck(t.state, worldFt);
         if (!dx && !dz) continue;
         if (t.previous) { t.previous.pos[0] += dx; t.previous.pos[2] += dz; }
         t.wraps = (t.wraps ?? 0) + 1;
@@ -2005,7 +2014,7 @@ export function createSession(init) {
     if (box.sitIndex === undefined) return;
     if (t.snd.hit && touch.speed <= t.snd.hit.force) return;
     const s = t.state;
-    t.snd.hit = { sitIndex: box.sitIndex, force: touch.speed, offset: [S.wrapDelta(box.pos[0] - s.pos[0]), box.pos[1] - s.pos[1], S.wrapDelta(box.pos[2] - s.pos[2])] };
+    t.snd.hit = { sitIndex: box.sitIndex, force: touch.speed, offset: [wrapDelta(box.pos[0] - s.pos[0]), box.pos[1] - s.pos[1], wrapDelta(box.pos[2] - s.pos[2])] };
   }
 
   /**

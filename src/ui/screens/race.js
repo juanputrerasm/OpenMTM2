@@ -16,6 +16,7 @@
   is the app's one shared renderer, so a headset session carries over from race to race.
 */
 import { clearStandingView, meshGroundFromBuild, viewBlocked, viewGroundOn } from "../../game/mesh-ground.js";
+import { createSpawnGround } from "../../game/spawn-ground.js";
 import { createMtm1Particles } from "../../render/mtm1-particles.js";
 import { createEvoParticles } from "../../render/evo-particles.js";
 import { createEvoLifeScene } from "../../render/evo-life.js";
@@ -91,7 +92,7 @@ import { createCrashDamage, crashDamageMessage } from "../../game/crash-damage.j
 import { createCaption } from "../../render/caption.js";
 import { courseLoop, createCourseMap } from "../../render/minimap.js";
 import { createOpenMap } from "../../render/open-map.js";
-import { createBoxSolid } from "../../game/ground-boxes.js";
+import { createBoxSolid, groundBoxGrids } from "../../game/ground-boxes.js";
 import { createSummitSounds } from "../../game/summit-sounds.js";
 import { coveredAt } from "../../game/ground-maps.js";
 import { createCockpit, finderAngle } from "../../render/cockpit.js";
@@ -103,7 +104,7 @@ import {
   setStartLights, skyColor, skyOf, updateSky, updateTrackWorld, placeSky,
 } from "../../render/track-scene.js";
 import { createTruckObject, interpolatePose } from "../../render/truck-object.js";
-import { nearestCopy, toSceneMatrix, wrapFt } from "../../shared/scene-frame.js";
+import { nearestCopy, toSceneMatrix, worldFtOf, wrapFt } from "../../shared/scene-frame.js";
 import { conformPose, createRelief, tireRadiusFt } from "../../game/terrain-relief.js";
 import { trackVisuals, visualSettings } from "../../game/visuals.js";
 import { applyGraphics, drawnPixelRatio } from "../../game/graphics.js";
@@ -453,6 +454,8 @@ async function mountRace(container, context, params, owned = []) {
   const build = await buildRequest;
   offLoadProgress();
   if (disposed) return { unmount };
+  // The world's size (8192 ft, or a track format version 6 world's: docs/EXTENSIONS.md): the wrap and the nearest copy.
+  const worldFt = worldFtOf(build);
   if (build.problems?.length && !demo) {
     const go = await loadReport(view, context, track, { heading: msg("Files this track names are missing"), lines: build.problems, fatal: false });
     if (!go || disposed) return { unmount };
@@ -466,7 +469,7 @@ async function mountRace(container, context, params, owned = []) {
   // A Summit Rumble's map shows the summit and the scoring zone (checkpoints 0 and 1, 6.3), not a course.
   // Options, Advanced, OMTM2: Course map. The OpenMTM2 map (a strip on the right) or MTM2's own, from the next race.
   const minimap = (context.settings.mapStyle === "classic" ? createCourseMap : createOpenMap)(build.sim.course, {
-    font: hudFont, open: !!build.sim.courseOpen, summit: !!summit, zoom: context.settings.openMapZoom,
+    font: hudFont, open: !!build.sim.courseOpen, worldFt, summit: !!summit, zoom: context.settings.openMapZoom,
     areas: summit ? { zone: build.sim.checkpoints?.[0]?.gate ?? null, summit: build.sim.checkpoints?.[1]?.gate ?? null } : null,
   });
   // Each map keeps its own Map key mode: the classic one starts off, the OpenMTM2 one shown.
@@ -478,17 +481,21 @@ async function mountRace(container, context, params, owned = []) {
   cleanups.push(() => minimap.dispose(), () => board.dispose());
   const extensionTerrain = extension ? terrainOfBuild(build) : null;
   const extensionGround = (x, z) => mtm2Sim.groundHeightAt(extensionTerrain, x, z);
+  // Where a party mode sets a truck down: the drivable surface (ground boxes, road and track meshes), not only the terrain.
+  const spawnGround = extension ? createSpawnGround(build, extensionTerrain) : null;
   // A party mode on a track with too few start slots (a free roam level has one, or none) gets a grid round the first;
   // a room fills a full one, the same on every machine, since its vehicle numbers are the slots.
-  const grid = extension ? fillGrid(build.sim.grid, net ? 8 : Math.min(8, drivers?.length ?? 8), extensionGround, build.sim.start) : build.sim.grid;
+  const grid = extension ? fillGrid(build.sim.grid, net ? 8 : Math.min(8, drivers?.length ?? 8), spawnGround, build.sim.start) : build.sim.grid;
   const entrants = eventPass
     ? eventPass.entrants.filter((e) => build.truckModels[e.file] && e.slot < grid.length)
     // A network race's slot is its vehicle number's grid place (the host's 0x87).
     : net ? drivers.filter((d) => build.truckModels[d.file] && d.vehicle - 1 < grid.length).map((d) => ({ ...d, slot: d.vehicle - 1 }))
-    : seatDrivers(drivers.filter((d) => build.truckModels[d.file]), grid.length);
+    // Single player: the player's own grid place when one is picked (Start position), else the shuffle.
+    : seatDrivers(drivers.filter((d) => build.truckModels[d.file]), grid.length, Math.random,
+      spectator || demo ? 0 : Number(params.startPlace ?? context.settings.startPlace) || 0);
   const extensionRace = prepareExtensionRace(extension, {
     build, entrants, length: laps, settings: settingsForExtension(raceRules, extension),
-    groundHeightAt: extensionGround, raceType: track.raceType, grid,
+    groundHeightAt: extensionGround, spawnHeightAt: spawnGround, raceType: track.raceType, grid,
     // The teams (and roles) picked in the Computer Opponents dialog; a room's are its own.
     picks: extension && !net ? entrantTeamPicks(context.settings, extension, entrants) : null,
   });
@@ -563,7 +570,7 @@ async function mountRace(container, context, params, owned = []) {
   const worldAudio = createWorldAudio(audio, {
     ambient: ambience, weather: weatherId, music: musicName, objects: build.soundObjects,
     hitInfo: new Map(build.sim.boxes.map((b) => [b.sitIndex, { hitSound: b.hitSound, type: b.type }])),
-    musicOff: () => !!context.jukebox?.on,
+    musicOff: () => !!context.jukebox?.on, worldFt,
   });
   // The jukebox plays on through the race in the track's music's place, and can be started or stopped from Options.
   const unwatchJukebox = context.jukebox?.subscribe(() => worldAudio.refreshMusic()) ?? (() => {});
@@ -654,7 +661,7 @@ async function mountRace(container, context, params, owned = []) {
   const ground = scenery.surfaceAt;
   // On a track made for CP4 the views stand on its meshes near what they watch, not on the terrain under the city
   // (game/mesh-ground.js): the chase, BlimpCam and RaceCam views and the tire effects.
-  const viewMesh = meshGroundFromBuild(build, { terrainHeight: (x, z) => ground(x, z), wrapDelta: (d) => d - 8192 * Math.round(d / 8192), worldFt: 8192 });
+  const viewMesh = meshGroundFromBuild(build, { terrainHeight: (x, z) => ground(x, z), wrapDelta: (d) => d - worldFt * Math.round(d / worldFt), worldFt });
   let viewRefY = 0;
   const viewGround = viewGroundOn(viewMesh, ground, () => viewRefY);
   // What the external views see through on meshes: nothing (game/mesh-ground.js `viewBlocked`).
@@ -740,7 +747,7 @@ async function mountRace(container, context, params, owned = []) {
     if (data) {
       flare = new SunFlare(world, data);
       flare.setMode(celestialFor(weatherId));
-      flareBlocked = (origin, direction) => sunBlocked((x, z) => mtm2Sim.groundHeightAt(terrain, x, z), origin, direction, true);
+      flareBlocked = (origin, direction) => sunBlocked((x, z) => mtm2Sim.groundHeightAt(terrain, x, z), origin, direction, true, worldFt);
     }
     cleanups.push(() => { shadows?.dispose?.(); flare?.dispose(); });
   }
@@ -758,6 +765,9 @@ async function mountRace(container, context, params, owned = []) {
     textureValues: build.sim.textureValues.buffer,
     dirtEverywhere: !!build.sim.dirtEverywhere,
     groundBoxStepFt: build.sim.groundBoxStepFt ?? null,
+    // A track format version 6 track's ground boxes: u16 layers (`groundBoxDepth` 16) over its height base.
+    groundBoxDepth: build.sim.groundBoxDepth ?? 8,
+    groundBoxBaseFt: build.sim.groundBoxBaseFt ?? 0,
     ra0: build.sim.ra0?.buffer ?? null,
     ra1: build.sim.ra1?.buffer ?? null,
     boxes: build.sim.boxes,
@@ -1028,7 +1038,7 @@ async function mountRace(container, context, params, owned = []) {
         track, tracks: catalog.tracks, laps, weather: weatherId, entrants, setup: params.setup ?? null, saved,
         damage: entrants.map((_, i) => crash.code(i)), sitText,
       });
-      const link = el("a", { href: URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" })), download: `${track.file.replace(/\.sit$/i, "")}.mtm` });
+      const link = el("a", { href: URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" })), download: `${track.file.replace(/\.si[t23]$/i, "")}.mtm` });
       document.body.append(link); link.click(); link.remove();
       setTimeout(() => URL.revokeObjectURL(link.href), 10000);
       say(t("Race saved"), 3);
@@ -1048,8 +1058,9 @@ async function mountRace(container, context, params, owned = []) {
     el("button", { class: "primary", onclick: () => setPaused(false) }, t("Resume")),
     // A loaded race starts again from its start, not from where it was saved.
     el("button", { hidden: !!net, "data-menu-sound": "STARTOFF", onclick: () => context.router.go("race", { ...params, resume: undefined }, { replace: true }) }, t("Restart race")),
-    // The game has no instant replay with more than one networked player (MONSTER_EXE_ANALYSIS.md 14.4).
-    el("button", { hidden: !!net, onclick: () => showInstantReplay() }, t("Instant replay")),
+    // The game has no instant replay with more than one networked player (MONSTER_EXE_ANALYSIS.md 14.4). An OpenMTM2
+    // addition: in a network race it plays over the race, which runs on underneath with the player's truck in it.
+    el("button", { onclick: () => showInstantReplay() }, t("Instant replay")),
     // Monster Truck Madness 2's saved game (game/saved-race.js): the race as it is now, to load later here or in the game.
     el("button", { hidden: !canSave, onclick: () => saveRace() }, t("Save race")),
     // The console, for a keyboard whose key for it is hard to find; the race stays paused under it.
@@ -1070,7 +1081,8 @@ async function mountRace(container, context, params, owned = []) {
   );
   /**
    * The pause menu's instant replay: up to the last hour of the race, played over the paused race in the replay screen's own
-   * scene. Its Back returns to the pause menu, the race as it was.
+   * scene. Its Back returns to the pause menu, the race as it was. A network race does not stop for it: the race steps on
+   * underneath (the player's truck still in it, its controls let go), and its end closes the replay for the results.
    */
   let replaying = null;
   async function showInstantReplay() {
@@ -1086,9 +1098,11 @@ async function mountRace(container, context, params, owned = []) {
     };
     // The replay has sounds of its own: the race's trucks are hushed under it; its ambience and music play on.
     truckAudio.setMuted(true);
-    replaying = { screen: null };
+    replaying = { screen: null, close };
     const { default: mountReplay } = await import("./replay.js");
     const inner = Object.create(context);
+    // A network race runs on under the replay: its sound effects are not left paused when the replay closes.
+    inner.replayRaceRunning = !!net;
     inner.router = { back: close, go: (...args) => { close(); return context.router.go(...args); }, stack: context.router.stack };
     // The replay's sound knows the race's music plays on and its mixer is paused under it (ui/screens/replay.js).
     inner.replayInRace = true;
@@ -1388,7 +1402,7 @@ async function mountRace(container, context, params, owned = []) {
   const seat = relief ? { simAt: relief.simAt, simSlopeAt: relief.simSlopeAt, offsetAt: (x, z) => scenery.groundAt(x, z) - relief.simAt(x, z) } : null;
   const seated = (pose, i) => (seat ? conformPose(pose, seat, seats[i].hubs, seats[i].radius, weatherScene.weather === 5 ? build.waterLevelFt ?? null : null) : pose);
   // Community Patch 3 track lights (box type 12), lit at night (render/track-lights.js).
-  const trackLights = createTrackLights(scene, build.trackLights, ground, { shafts: richLamps });
+  const trackLights = createTrackLights(scene, build.trackLights, ground, { shafts: richLamps, worldFt });
   if (trackLights) cleanups.push(() => trackLights.dispose());
   // The start gantry's lamps as lamps, with "Truck lamps" (render/start-lamps.js); else the game's coloured faces.
   const startLamps = richLamps ? createStartLamps({ world, scene, dark: !!WEATHER_LOOK[weatherId]?.headlights }) : null;
@@ -1400,7 +1414,7 @@ async function mountRace(container, context, params, owned = []) {
   // Every copy of the world has its own water plane (render/track-scene.js): they bob and are surfaced together.
   const waters = [];
   world.traverse((object) => { if (object.name === "water") waters.push(object); });
-  const waterFx = createWaterEffects({ scene, art: effectsArt, levelFt: build.waterLevelFt ?? null, ground, legacyIce: !scenery.water, blobs: !scenery.particles, rings: !scenery.particles && !scenery.water });
+  const waterFx = createWaterEffects({ worldFt, scene, art: effectsArt, levelFt: build.waterLevelFt ?? null, ground, legacyIce: !scenery.water, blobs: !scenery.particles, rings: !scenery.particles && !scenery.water });
   cleanups.push(() => waterFx.dispose());
   // Dust, tire tracks and sparks (render/tire-effects.js), each switched in Options.
   // In the dark a shower of sparks lights what is about it.
@@ -1419,7 +1433,7 @@ async function mountRace(container, context, params, owned = []) {
   cleanups.push(() => tireFx.dispose());
   // MTM1 particles (Options, Advanced; render/mtm1-particles.js) take the place of the dust, the spray and the tracks.
   const mtm1Particles = context.settings.mtm1Particles
-    ? createMtm1Particles({ scene, ground, atlas: build.terrain?.atlas ?? null, clr: build.sim?.clr ? new Uint16Array(build.sim.clr) : null }) : null;
+    ? createMtm1Particles({ worldFt, scene, ground, atlas: build.terrain?.atlas ?? null, clr: build.sim?.clr ? new Uint16Array(build.sim.clr) : null }) : null;
   if (mtm1Particles) cleanups.push(() => mtm1Particles.dispose());
   // 4x4 Evolution's tire debris on its own tracks (Options, Advanced; render/evo-particles.js), beside the dust.
   const evoParticles = !mtm1Particles && /^EVO/.test(build.game ?? "") && context.settings.evoParticles !== false
@@ -1457,7 +1471,7 @@ async function mountRace(container, context, params, owned = []) {
   cleanups.push(() => audio.setUnderwater?.(false));
   const chase = createChaseCamera();
   // The ground boxes the chase camera keeps out of (a tunnel's roof and walls).
-  const boxSolid = createBoxSolid({ ra0: build.sim.ra0, ra1: build.sim.ra1 });
+  const boxSolid = createBoxSolid(groundBoxGrids(build.sim, build.worldCells ?? 256));
   const straights = raceCourse, centroid = courseCentroid(straights);
   // Community Patch 3's racing line (Options, Cameras, "Racing line"; render/race-line.js): in a Circuit or a Rally.
   const raceLine = context.settings.raceLine && !net && (track.raceType === "circuit" || track.raceType === "rally") && straights?.length
@@ -1612,7 +1626,7 @@ async function mountRace(container, context, params, owned = []) {
   /** Where the watched truck was last drawn, game feet: the picture's place in its own unbroken space. */
   let drawAnchor = null;
   /** A drawn position (which may be worlds from the simulation's) as the simulation has it, for what is placed in the world. */
-  const inWorld = (pos) => [wrapFt(pos[0]), pos[1], wrapFt(pos[2])];
+  const inWorld = (pos) => [wrapFt(pos[0], worldFt), pos[1], wrapFt(pos[2], worldFt)];
   // An extension race ends as a Rumble does, all at once; one played on the track's race ends as that race does.
   let raceEnd = createRaceEnd({ summit: summit || (!!gameMode && !keepsRace), spectator });
   let cameraTarget = 0;
@@ -1624,7 +1638,7 @@ async function mountRace(container, context, params, owned = []) {
    */
   let flyShows = 0;
   const showFlyList = () => flyer?.showList(!!flyer.enabled && flyShows === 1);
-  const flyer = spectator || canLeave ? createFlyController({
+  const flyer = spectator || canLeave ? createFlyController({ worldFt,
     canvas, settings: context.settings, save: () => saveSettings(context.settings), course: build.sim.course, courseOpen: !!build.sim.courseOpen,
     groundAt: groundHeightFn(terrain), say: (text, seconds) => say(text, seconds ?? 4), baseFov: fovFor(1, fovBase(context.settings)), font: hudFont, t,
     blocked: () => paused || finishing || !!gameConsole?.open || !!replaying || !!context.optionsDialog?.isConnected,
@@ -1975,6 +1989,8 @@ async function mountRace(container, context, params, owned = []) {
   };
 
   const finish = async () => {
+    // A network race that ends under an instant replay goes on to its results.
+    replaying?.close?.();
     finishing = true;
     // The game leaves the race for a silent loading screen: every engine, loop and level sound stops here.
     truckAudio.dispose();
@@ -2146,7 +2162,8 @@ async function mountRace(container, context, params, owned = []) {
     if (fpsCounter.visible !== !!context.settings.fpsCounter) fpsCounter.setVisible(!!context.settings.fpsCounter);
     fpsCounter.update(dt);
     syncVrHud();
-    if (replaying) return;
+    // A network race steps on under an instant replay (the simulation and the network), drawing nothing.
+    if (replaying && !net) return;
     // The draw distance follows the Options at once (Save in the pause menu's dialog).
     const cells = Math.max(16, Math.min(256, context.settings.drawCells ?? 128));
     if (cells !== drawnCells) {
@@ -2245,8 +2262,9 @@ async function mountRace(container, context, params, owned = []) {
         .catch((err) => { if (!disposed) { showMessage(err.message); reportError(err, { where: "simulation step" }); } })
         .finally(() => { busy = false; });
     }
+    if (replaying) return;
     if (latest) {
-      const shown = latest.poses.map((p, i) => seated(interpolatePose(p.previous, p.current, latest.alpha), i));
+      const shown = latest.poses.map((p, i) => seated(interpolatePose(p.previous, p.current, latest.alpha, worldFt), i));
       // The world is a torus (MONSTER_EXE_ANALYSIS.md "The wrapping world"): every truck is drawn, heard and labelled
       // at the copy nearest the one the camera is on, as the game draws each at the copy nearest the view.
       // The picture's own space runs on without a seam: the watched truck is drawn at the copy nearest where it was drawn
@@ -2256,10 +2274,10 @@ async function mountRace(container, context, params, owned = []) {
       // The free camera (spectator mode) flies where it likes: the trucks are drawn at the copy nearest it, or they would
       // stay behind on the world it left.
       const flown = flyer?.enabled ? [camera.position.x, camera.position.y, -camera.position.z] : null;
-      watchedPose.pos = drawAnchor = nearestCopy(watchedPose.pos, flown ?? drawAnchor ?? watchedPose.pos);
+      watchedPose.pos = drawAnchor = nearestCopy(watchedPose.pos, flown ?? drawAnchor ?? watchedPose.pos, worldFt);
       for (const p of shown) {
-        if (p !== watchedPose) p.pos = nearestCopy(p.pos, watchedPose.pos);
-        if (p.heli?.pos) p.heli.pos = nearestCopy(p.heli.pos, watchedPose.pos);
+        if (p !== watchedPose) p.pos = nearestCopy(p.pos, watchedPose.pos, worldFt);
+        if (p.heli?.pos) p.heli.pos = nearestCopy(p.heli.pos, watchedPose.pos, worldFt);
       }
       shownPoses = shown;
       tireFx.update({
@@ -2414,7 +2432,7 @@ async function mountRace(container, context, params, owned = []) {
       // What the mode draws as the race runs (Combat's loose wheels, debris, smoke and the sparks of a bare axle).
       extensionScene.update?.({
         state: extensionNow ?? null, wheels: latest?.wheels ?? null, poses: shownPoses, drawn, dt: paused ? 0 : dt, camera, effects: tireFx, flags: effectFlags(),
-        near: (pos) => nearestCopy(pos, shownPoses?.[cameraTarget]?.pos ?? pos), floorAt: (x, z, y) => tireFloor(x, z, y),
+        near: (pos) => nearestCopy(pos, shownPoses?.[cameraTarget]?.pos ?? pos, worldFt), floorAt: (x, z, y) => tireFloor(x, z, y),
       });
     }
     vr.update({ state: latest?.poses[0].current ?? startPose, timing: !!latest?.race, message: caption.active, light: weatherScene.lightLevel() });
@@ -2424,7 +2442,7 @@ async function mountRace(container, context, params, owned = []) {
     if (blimp && !paused) {
       blimp.update(dt);
       // The blimp flies in the simulation's world: drawn at the copy nearest the camera.
-      const blimpAt = nearestCopy(blimp.state.pos, [camera.position.x, 0, -camera.position.z]);
+      const blimpAt = nearestCopy(blimp.state.pos, [camera.position.x, 0, -camera.position.z], worldFt);
       blimpObject.position.set(blimpAt[0], blimpAt[1], -blimpAt[2]);
       blimpObject.rotation.y = -blimp.state.heading;
       blimpObject.visible = viewMode !== 3;
@@ -2582,10 +2600,10 @@ async function mountRace(container, context, params, owned = []) {
 
   /** Another track by its SIT's name (or its title), with the same trucks and settings. Returns what went wrong, or null. */
   async function loadTrackByName(name) {
-    const wanted = name.trim().toUpperCase().replace(/\.SI[T2]$/, "");
+    const wanted = name.trim().toUpperCase().replace(/\.SI[T23]$/, "");
     const catalog = await context.assets.call("catalog").catch(() => ({ tracks: [] }));
-    const stem = (item) => item.file.toUpperCase().replace(/\.SI[T2]$/, "");
-    const next = catalog.tracks.find((item) => stem(item) === wanted) ?? catalog.tracks.find((item) => item.name.toUpperCase() === wanted)
+    const stem = (item) => item.file.toUpperCase().replace(/\.SI[T23]$/, "");
+    const next = catalog.tracks.find((item) => item.file.toUpperCase() === name.trim().toUpperCase()) ?? catalog.tracks.find((item) => stem(item) === wanted) ?? catalog.tracks.find((item) => item.name.toUpperCase() === wanted)
       ?? catalog.tracks.find((item) => item.name.toUpperCase().includes(wanted));
     if (!next) return t("No track named <<1>>.", wanted);
     context.router.go("race", { ...params, track: next, mode: next.raceType, laps: next.defaultLaps, freeRoam: !!params.freeRoam || !!next.freeRoamOnly }, { replace: true });
@@ -2766,7 +2784,7 @@ async function mountRace(container, context, params, owned = []) {
       },
       map: {
         usage: "map <sit>", help: msg("changes the track, by its SIT's name or its title"),
-        complete: async () => ((await context.assets.call("catalog").catch(() => ({ tracks: [] }))).tracks.map((item) => item.file.replace(/\.SI[T2]$/i, "").toLowerCase())),
+        complete: async () => ((await context.assets.call("catalog").catch(() => ({ tracks: [] }))).tracks.map((item) => item.file.replace(/\.SI[T23]$/i, "").toLowerCase())),
         run: async (args, rest) => (rest ? (await loadTrackByName(rest)) ?? t("Loading <<1>>.", rest) : usage("map <sit>", track.file)),
       },
       weather: {

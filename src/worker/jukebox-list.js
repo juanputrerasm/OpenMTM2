@@ -61,7 +61,7 @@ export async function buildJukeboxList(vfs, tracks = []) {
     if (track.scope && track.scope !== "MTM") continue;
     if (track.game && track.game !== "MTM1" && track.game !== "MTM2") continue;
     try {
-      const stem = podPathTitle(track.path).toUpperCase().replace(/\.SIT$/, "");
+      const stem = podPathTitle(track.path).toUpperCase().replace(/\.SI[T3]$/, "");
       const lvlTitle = track.level ? podPathTitle(track.level) : `${stem}.LVL`;
       const bytes = (await vfs.read(`LEVELS\\${lvlTitle}`)) ?? (await vfs.read(`LEVELS\\${stem}.LVL`));
       const music = bytes ? parseMtmLvl(bytes).musicName : null;

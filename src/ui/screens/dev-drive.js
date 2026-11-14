@@ -58,6 +58,8 @@ export default async function mount(container, context, { track, truckFile }) {
     dirtEverywhere: !!build.sim.dirtEverywhere,
     ra0: build.sim.ra0?.buffer ?? null,
     ra1: build.sim.ra1?.buffer ?? null,
+    // A track format version 6 track's world and ground box scale (worker/track-build.js).
+    worldCells: build.worldCells ?? 256, groundBoxDepth: build.sim.groundBoxDepth ?? 8, groundBoxStepFt: build.sim.groundBoxDepth ? build.sim.groundBoxStepFt : null, groundBoxBaseFt: build.sim.groundBoxBaseFt ?? 0,
     boxes: build.sim.boxes,
     ramps: build.sim.ramps,
     waterLevelFt: build.waterLevelFt,

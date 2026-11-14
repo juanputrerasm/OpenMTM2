@@ -192,7 +192,9 @@ export function vegClumpAt(clumps, tile, i) {
  * as Traxx does; clumps must already be grouped by tile in ascending (tz, tx) order.
  * `rule` and `info` are written verbatim when given (CRLF text).
  */
-export function writeMtm2Veg(veg) {
+export function writeMtm2Veg(veg, { cells } = {}) {
+    if (cells !== undefined)
+        checkMtm2VegBounds(veg, cells);
     const parts = [];
     const enc = (s) => Uint8Array.from(s, (c) => c.charCodeAt(0) & 0xff);
     if (veg.species.length) {
@@ -297,4 +299,23 @@ export function writeMtm2Veg(veg) {
         offset += b.length;
     });
     return out;
+}
+/**
+ * Refuse a .VEG whose placements fall outside an N-cell world (track format version 6, section
+ * 9.2): TREE x and z in 0 to W * 256 (exclusive) 1/256 ft units, W = 32 N ft, and GRAS tile numbers
+ * 0 to N - 1. With N = 256 that is CP4's own bound (x and z below 0x200000). The layout does not
+ * change with N; the header's tile counts stay 256 as Traxx writes them.
+ */
+export function checkMtm2VegBounds(veg, cells) {
+    const limit = cells * 32 * VEG_UNITS_PER_FT;
+    const t = veg.trees;
+    for (let i = 0; i < t.count; i++) {
+        const x = t.position[3 * i], z = t.position[3 * i + 2];
+        if (x < 0 || x >= limit || z < 0 || z >= limit)
+            throw new RangeError(`VEG: tree ${i} at (${x}, ${z}) is outside a ${cells}-cell world (0 to ${limit} 1/256 ft)`);
+    }
+    for (const tile of veg.clumps.tiles) {
+        if (tile.tx >= cells || tile.tz >= cells)
+            throw new RangeError(`VEG: grass tile (${tile.tx}, ${tile.tz}) is outside a ${cells}-cell world (0 to ${cells - 1})`);
+    }
 }

@@ -33,7 +33,7 @@ export const iceOpacity = (seconds) => Math.min(ICE_MAX, ICE_START + Math.max(0,
  * (render/tire-effects.js). `rings` false leaves out the ripples: the port's own water, and the port's own particles,
  * stir rings in the water itself (render/water-ripples.js). With neither, nothing is thrown.
  */
-export function createWaterEffects({ scene, art, levelFt, ground, random = Math.random, legacyIce = true, blobs: showBlobs = true, rings: showRings = true }) {
+export function createWaterEffects({ scene, art, levelFt, ground, random = Math.random, legacyIce = true, blobs: showBlobs = true, rings: showRings = true, worldFt = 8192 }) {
   const root = new THREE.Group();
   root.name = "waterEffects";
   scene.add(root);
@@ -45,12 +45,13 @@ export function createWaterEffects({ scene, art, levelFt, ground, random = Math.
     texture.flipY = false;
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(8192 / 64, 8192 / 64);
+    // Over the whole world (`worldFt`: 8192 ft, or a track format version 6 world's), a tile every 64 ft.
+    texture.repeat.set(worldFt / 64, worldFt / 64);
     texture.magFilter = texture.minFilter = THREE.LinearFilter;
     texture.needsUpdate = true;
-    const geometry = new THREE.PlaneGeometry(8192, 8192);
+    const geometry = new THREE.PlaneGeometry(worldFt, worldFt);
     geometry.rotateX(-Math.PI / 2);
-    geometry.translate(4096, 0.04, -4096);
+    geometry.translate(worldFt / 2, 0.04, -worldFt / 2);
     ice = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0, depthWrite: false, fog: true }));
     ice.name = "ice";
     ice.visible = false;

@@ -15,7 +15,7 @@
   skipped, in the picture and in the shadow map. Pure: the renderer (render/track-scene.js) makes the meshes.
 */
 
-/** A block's side in feet, and the world's. */
+/** A block's side in feet, and the retail world's (a track format version 6 world passes its own to `blockShift`). */
 export const OBJECT_CHUNK_FT = 512, BLOCK_WORLD_FT = 8192;
 
 /** The block a point (scene feet) stands in, as a key. */
@@ -28,10 +28,11 @@ export function objectChunk(matrix) {
 
 /**
  * The whole worlds to move a thing centred at (x, z) by, `[dx, dz]`, so that it is the copy nearest the camera at
- * (cameraX, cameraZ). Scene feet; the camera may be any number of worlds from where the thing was made.
+ * (cameraX, cameraZ). Scene feet; the camera may be any number of worlds from where the thing was made. `worldFt` the
+ * world's size.
  */
-export function blockShift(x, z, cameraX, cameraZ) {
-  return [Math.round((cameraX - x) / BLOCK_WORLD_FT) * BLOCK_WORLD_FT || 0, Math.round((cameraZ - z) / BLOCK_WORLD_FT) * BLOCK_WORLD_FT || 0];
+export function blockShift(x, z, cameraX, cameraZ, worldFt = BLOCK_WORLD_FT) {
+  return [Math.round((cameraX - x) / worldFt) * worldFt || 0, Math.round((cameraZ - z) / worldFt) * worldFt || 0];
 }
 
 /**

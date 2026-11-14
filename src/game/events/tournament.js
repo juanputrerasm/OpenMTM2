@@ -27,7 +27,7 @@ export const DRAG_FASTEST_POINTS = 50;
 /** The final's winner: 250 with one round, and 50 more for every round before it (350 from 8 trucks, 300 from 4). */
 export const dragFinalPoints = (rounds) => 250 + 50 * (rounds - 1);
 
-const stemOf = (file) => String(file).toUpperCase().replace(/\.SI[T2]$/, "");
+const stemOf = (file) => String(file).toUpperCase().replace(/\.SI[T23]$/, "");
 
 /**
  * A tournament read from a `.TRN` (`{ name, descriptionFile, hasDrag, events: [{ file, laps }] }`), each event tied to
@@ -36,7 +36,7 @@ const stemOf = (file) => String(file).toUpperCase().replace(/\.SI[T2]$/, "");
  */
 export function tournamentFromTrn(trn, tracks, { source = null, stock = false } = {}) {
   const events = trn.events.slice(0, MAX_EVENTS).map((event) => {
-    const track = tracks.find((t) => stemOf(t.file) === stemOf(event.file)) ?? null;
+    const track = tracks.find((t) => t.file.toUpperCase() === String(event.file).toUpperCase()) ?? tracks.find((t) => stemOf(t.file) === stemOf(event.file)) ?? null;
     const laps = track?.raceType === "circuit" ? Math.max(1, Math.min(MAX_LAPS, event.laps || track.defaultLaps || 1)) : 0;
     const problem = !track ? `${event.file} is not installed` : track.freeRoamOnly || track.raceType === "freeroam" ? `${track.name} has no race on it`
       : !["circuit", "rally", "drag"].includes(track.raceType) ? `${track.name} is not a circuit, a rally or a drag strip` : null;

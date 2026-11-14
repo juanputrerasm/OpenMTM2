@@ -724,3 +724,77 @@ judged ("Back flip!", "Donuts x2!", "What a save!"), the crowd's YeeHaw for a sp
 is hidden. The Winner's Circle shows the score with its decimal, the time the run used, and the categories under the
 table (the adapter's `result`).
 
+
+## Track format version 6
+
+Not a game mode: an OpenMTM2 extension of the track format, from the open specification "MTM2 track format version 6:
+taller tracks and larger worlds" (https://openmtm2.github.io/proposals/track-format-v6, draft of 2026-11-13). The
+files are read by OpenPhotex 1.7.3 (`readTxvV6`, `decodeMtm2V6Heights`, `checkMtm2GridSize`, `parseWtr` version 2,
+`checkMtm2VegBounds`, the `mtm2Sim` world-size parameters); what the game does with them is here.
+
+What OpenMTM2 supports:
+
+- **Listing.** Every `WORLD\<stem>.SI3` in the mounted archives is a track (worker/catalog.js), with
+  `formatVersion: 6` in its catalog entry. A `.SIT` or `.SI2` of the same stem is a different track, listed beside it
+  (the specification's 5.1); the two are told apart by their file (`CRAZY4X.SI3`, `CRAZY4X.SIT`). A name typed at the
+  console (`map`, Ctrl+L) matches a whole file name first, then a stem. A saved game's race index counts no `.SI3`
+  track, since no build of the game lists one.
+- **The .TXV.** A `.SI3` track's `DATA\<stem>.TXV` is read by `readTxvV6` (worker/level-load.js `readV6World`): a
+  missing record, a formatVersion below 6 or a key of section 6 out of range refuses the track with the message
+  naming the key. A formatVersion above 6 loads, and its warning is said as the race begins ("Track format: ...").
+  A `.SIT` or `.SI2` track's .TXV is read as before; its version 6 keys are ignored.
+- **Heights.** With `terrainHeightMap`, heights are `terrainHeightBase + sample / terrainHeightStep` feet, held exactly
+  in 32-bit floats (`mtm2V6HeightsFt`, the 1/128 ft store of 7.3), on an N or 4N grid, spline expanded at N. They may
+  be negative and thousands of feet high. Without it (256 cells only) the heights follow Community Patch 4's rules
+  exactly as for any other track; the `.RAW` the level names is not needed when the map is given.
+- **The world.** N (256 or 512) cells a side, W = 32 N feet. The build carries `worldCells` and `worldFt`
+  (worker/track-build.js), and everything that wraps or reads a grid takes them from it: the simulation's terrain,
+  surface map, ground boxes, per-frame truck wrap, truck pairs, top-crush cars and moving objects (`mtm2Sim`'s
+  parameters, worker/sim-worker.js), the SIT's negative places (+W at load), the copies of the world drawn around the
+  camera and every nearest copy (shared/scene-frame.js `nearestCopy`, `mapWrap`, `wrapFt`, shared/object-chunks.js
+  `blockShift`, all with the world's size as a parameter defaulting to 8192), the course maps, the sounds, the
+  replays, the fly-by camera, the lakes, the vegetation, the fog volumes' distance (9.3) and the extensions' play
+  areas. A larger world is not drawn further: the draw distance, the chunks and the cells drawn are unchanged.
+- **Grid files.** `.CLR`, `.LTE`, `.RA0` to `.RA5`, `.CL0` to `.CL2` are checked against N (`checkMtm2GridSize`) and
+  a file of the wrong size refuses the track. `.RA0`/`.RA1` (and `.RA4`/`.RA5`) may be 16-bit, both of a pair alike:
+  a box's heights are base + 2 ft a byte, or base + value / step (8.3); without `terrainHeightMap` step 128 and base 0.
+- **Lakes and vegetation.** The world's size picks the `.WTR` version (9.1; worker/level-load.js `readLevelLakes`):
+  version 1 (256 x 256) on a 256-cell track, version 2 (512 x 512) on a 512-cell one; any other pairing is left out
+  with a warning, as a damaged file. A track that is not `.SI3` reads version 1 only, as Community Patch 4 does. A
+  version 2 lake is kept anywhere in the terrain's range (`wtrHeightRange`), at or below 0 ft too. A `.VEG` with a tree or a grass tile
+  outside the world is left out with a warning, as a damaged one always was (`checkMtm2VegBounds`).
+- **Waterfalls.** The world's size picks the `.WFL` version (9.3; worker/level-load.js `readLevelFalls` with the
+  world's cells): version 1 (256 x 256) on a 256-cell track, version 2 (512 x 512) on a 512-cell one; any other
+  pairing, a version 2 file on a 256-cell `.SI3` among them, is "damaged (authored for a different terrain size)". The falls are built in the track's world (worker/cp4-falls.js): crest segments measured
+  the short way at W, the direction check and the walk's water on the N x N `TMAP`, a version 2 crest height checked
+  against the terrain's range (`fallHeightRange`, from the track's step and base, or 128 and 0 without
+  `terrainHeightMap`), and the walk run on the track's heights as the 32-bit h128 store of 7.3 (`fallGround` with
+  `h128`) on its N x N or 4N x 4N grid; without `terrainHeightMap` on Community Patch 4's 16-bit store as before. The
+  mist and sound lie in [0, W), the drawn sheets at their nearest copy. A track that is not `.SI3` reads a `.WFL` as
+  beta 0.53 does: any major version but 1 "needs a newer build".
+
+What OpenMTM2 leaves out on a world of other than 256 cells, as additions of its own made for a 256-cell world: the
+drawn ground (Smooth terrain), the snow cover's depth, the ground, cover and puddle maps the water, rain and snow
+read, and the fog's floor map (game/terrain-relief.js, game/snow-cover.js, game/ground-maps.js, game/fog-floor.js).
+A Spline or Full Map track already went without the first two.
+
+The specification's section 10 item 8, what the Community Patch 4 analysis has not traced, as OpenMTM2 has it:
+
+- **Camera far plane and fog distance.** Unchanged: the Draw distance and the weathers' fog are the same on any world
+  (8.1: a larger world is not drawn further). The fog volumes' distance wraps at W.
+- **Sky and sun placement.** The sky dome, the flat MTM1 sky and the backdrops stand round the camera, whatever the
+  world's size or height. The sun flare's test of the ground between the eye and the sun wraps at W; its reach
+  stays 12,000 ft.
+- **Placed objects' visibility around the view.** The world's eight neighbouring copies are placed W apart, and kept
+  round the camera at W; the trees, grass, lamps, fog volumes and waterfalls are each placed at the copy nearest
+  the camera, at W / 2.
+- **Overhead map.** Both course maps fold at W / 2 (`mapWrap`, `wrapRuns`, `courseSegments`).
+- **The AI's search for its course segment.** Unchanged: the computer trucks look for their straight by plain
+  distance, as the game does, which takes nothing the short way across the edge.
+- **Replays and saved games.** A replay's and a saved game's positions are text feet, and a replay is played back
+  with its nearest copy at W / 2. A saved game of a `.SI3` track is found again by its track name and level.
+- **Values assumed to fit fewer bits.** None found in OpenMTM2's own code: positions are 64-bit numbers, the
+  network's truck state 32-bit floats (1/500 ft at 16,384 ft), heights 32-bit floats. The ground boxes' 16-bit
+  layers stay `Uint16Array` from the worker to the simulation and the screens (game/ground-boxes.js `groundBoxGrids`).
+  The ground map's half floats (the water's and the weather's) are left out on a larger world as above; on a tall
+  256-cell track they hold heights to about 65,000 ft from the water, coarser far from it.

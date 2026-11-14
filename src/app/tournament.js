@@ -81,7 +81,7 @@ export async function abandonTournament(context) {
 }
 
 const trackOf = (t, event) => t.tracks.find((item) => item.file.toUpperCase() === event.file.toUpperCase())
-  ?? t.tracks.find((item) => item.file.toUpperCase().replace(/\.SI[T2]$/, "") === event.file.toUpperCase().replace(/\.SI[T2]$/, ""));
+  ?? t.tracks.find((item) => item.file.toUpperCase().replace(/\.SI[T23]$/, "") === event.file.toUpperCase().replace(/\.SI[T23]$/, ""));
 
 /**
  * Run the tournament's current event: a circuit or a rally on the race screen with the field's trucks, a drag strip as

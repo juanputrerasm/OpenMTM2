@@ -151,7 +151,7 @@ export function startTourNear(tour, x, z) {
  * Carry the camera `dt` seconds along the tour. `input.move` or `input.throttle` (-1..1) changes the speed. The
  * camera eases to its place and its heading, so joining the course and its corners are not jumps.
  */
-export function stepCourseTour(tour, camera, dt, input = {}, groundAt = null) {
+export function stepCourseTour(tour, camera, dt, input = {}, groundAt = null, worldFt = 8192) {
   const change = (input.move ?? 0) || (input.throttle ?? 0) || -(input.pitch ?? 0);
   tour.speed = clamp(tour.speed + change * TOUR_SPEED_PER_S * dt, TOUR_MIN_FT_S, TOUR_MAX_FT_S);
   tour.at = (tour.at + tour.speed * dt) % tour.total;
@@ -160,8 +160,8 @@ export function stepCourseTour(tour, camera, dt, input = {}, groundAt = null) {
   const ground = groundAt ? Math.max(groundAt(here[0], here[1]), groundAt(...tourPoint(tour, tour.at + 40)), groundAt(...tourPoint(tour, tour.at + 80))) : 0;
   const ease = Math.min(1, dt * 3);
   // The world is a torus: the camera goes to the copy of its place on the course that is nearest it, so a course (or a
-  // camera) that crosses the world's edge is followed across it and not back round the world.
-  const near = nearestCopy([here[0], 0, here[1]], camera.pos), lookAt = nearestCopy([ahead[0], 0, ahead[1]], camera.pos);
+  // camera) that crosses the world's edge is followed across it and not back round the world (`worldFt` its size).
+  const near = nearestCopy([here[0], 0, here[1]], camera.pos, worldFt), lookAt = nearestCopy([ahead[0], 0, ahead[1]], camera.pos, worldFt);
   camera.pos[0] += (near[0] - camera.pos[0]) * ease;
   camera.pos[2] += (near[2] - camera.pos[2]) * ease;
   camera.pos[1] += (ground + TOUR_HEIGHT_FT - camera.pos[1]) * Math.min(1, dt * 2);

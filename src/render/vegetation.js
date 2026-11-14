@@ -95,7 +95,8 @@ function fadeDepthMaterial(material, uniforms) {
  * holds the species' models), or null. `grass` false leaves the grass out.
  * @returns {{ group: THREE.Group, update: (camera: THREE.Camera, range?: number, wraps?: boolean) => boolean, dispose: () => void } | null}
  */
-export function createVegetation(library, vegetation, { grass = true } = {}) {
+export function createVegetation(library, vegetation, { grass = true, worldFt = 8192 } = {}) {
+  // `worldFt`: the world's size, for each chunk's copy nearest the eye (a track format version 6 world may be 16384 ft).
   if (!vegetation?.species?.length) return null;
   const group = new THREE.Group();
   group.name = "vegetation";
@@ -167,7 +168,7 @@ export function createVegetation(library, vegetation, { grass = true } = {}) {
       let moved = false;
       for (const mesh of chunks) {
         const { centre: [x, z], half, reach } = mesh.userData.veg;
-        const [dx, dz] = wraps ? blockShift(x, z, ex, ez) : [0, 0];
+        const [dx, dz] = wraps ? blockShift(x, z, ex, ez, worldFt) : [0, 0];
         if (mesh.position.x !== dx || mesh.position.z !== dz) { mesh.position.set(dx, 0, dz); mesh.updateMatrix(); moved = true; }
         const edge = Math.hypot(Math.max(0, Math.abs(x + dx - ex) - half), Math.max(0, Math.abs(z + dz - ez) - half));
         const visible = edge <= reach && edge <= range;

@@ -6,8 +6,9 @@
 import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
 
 export function terrainOfBuild(build) {
+  // A track format version 6 world has `worldCells` a side (worker/track-build.js); its heights are always in feet.
   const terrain = build.heightsFt
-    ? mtm2Sim.createTerrainFt(new Float32Array(build.heightsFt), build.waterLevelFt ?? null, build.fineFt ? new Float32Array(build.fineFt) : null)
+    ? mtm2Sim.createTerrainFt(new Float32Array(build.heightsFt), build.waterLevelFt ?? null, build.fineFt ? new Float32Array(build.fineFt) : null, build.worldCells ?? 256)
     : mtm2Sim.createTerrain(new Uint8Array(build.heights), build.waterLevelFt ?? null);
   return withLakes(terrain, build.lakes);
 }
@@ -33,5 +34,7 @@ export function simGroundOfBuild(build) {
     cprLine: build.sim.cprLine ?? null,
     meshGround: build.sim.meshGround ?? null,
     faces: build.sim.faces ?? null,
+    // A track format version 6 world's cells a side (worker/track-build.js `worldCells`), 256 otherwise.
+    worldCells: build.worldCells ?? 256,
   };
 }

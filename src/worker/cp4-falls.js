@@ -7,7 +7,7 @@
   render/waterfalls.js. Falls never touch the simulation (12.10).
 */
 import {
-  FALL_SOUND_LOOP_ROOM, FALL_WEATHER_SNOW, buildFallMeshes, fallGround, fallMists, fallSound, fallTextureName, fallWater,
+  FALL_SOUND_LOOP_ROOM, FALL_WEATHER_SNOW, buildFallMeshes, fallGround, fallHeightRange, fallMists, fallSound, fallTextureName, fallWater,
 } from "../vendor/openphotex/sim/cp4/falls.js";
 import { parseAnimations } from "../vendor/openphotex/tv/ani.js";
 import { podPathTitle } from "../vendor/openphotex/pod/paths.js";
@@ -32,8 +32,17 @@ const ANIMATION_FRAMES = 8, ANIMATIONS = 64;
  * The walk's ground (12.2.3) from a loaded level (worker/level-load.js): its heights as the engine holds them, in 1/128 ft
  * a step (v >> 1 at 1/64 ft is what the engine reads), on the 8 ft grid for a Spline or Full Map track and on the 32 ft
  * corners otherwise, for OpenPhotex `fallGround`. The level's feet are exact multiples of 1/64, so nothing is lost.
+ *
+ * A track format version 6 track with a terrainHeightMap holds its heights as the specification's 7.3 does (the h128
+ * store, 1/128 ft in 32 bits, `h128: true`) on its N x N or 4N x 4N grid (9.3): the level's feet are that store over
+ * 128 exactly (OpenPhotex `mtm2V6HeightsFt`), so nothing is lost either.
  */
 export function fallHeights(level) {
+  if (level.v6?.terrainHeightMap) {
+    const h128 = (feet) => Int32Array.from(feet, (ft) => Math.round(ft * 128));
+    const mode = level.fineFt ? (level.terrainMode === "fine" ? "fine" : "spline") : "classic16";
+    return { mode, coarse: h128(level.heightsFt), fine: level.fineFt ? h128(level.fineFt) : null, h128: true };
+  }
   const units = (feet) => Uint16Array.from(feet, (ft) => Math.round(ft * 128));
   if (level.fineFt) return { mode: level.terrainMode === "fine" ? "fine" : "spline", coarse: units(level.heightsFt), fine: units(level.fineFt) };
   if (level.heights) return { mode: "classic8", coarse: Uint16Array.from(level.heights, (b) => b << 8), fine: null };
@@ -64,11 +73,18 @@ export function fallBuildNotices(meshes) {
  * Build the falls of a read file (12.1.5, 12.2) on the level's terrain and water: `heights` as `fallHeights` gives them,
  * `tileMap` the .WTR's tile map, `lakes` the lakes the WTR loader kept (`{ id, height }`, height in half feet, the
  * engine's lake table), `waterLevelFt` the .LVL's water. Null for a file that was not read.
+ *
+ * `cells` is the world's N and `terrain` its height step and base (`{ step, base }`, none without a terrainHeightMap):
+ * a track format version 6 track's falls are built in its world (the specification's 9.3), the crest heights of a
+ * version 2 file checked against the terrain's range (OpenPhotex `fallHeightRange`). The defaults are the 256 world's.
  */
-export function buildFalls(file, { heights, tileMap = null, lakes = [], waterLevelFt = null }) {
+export function buildFalls(file, { heights, tileMap = null, lakes = [], waterLevelFt = null, cells = 256, terrain = {} }) {
   if (!file || !(file.size > 0) || file.status !== 0) return null;
-  const table = { lakes, tileMap };
-  return buildFallMeshes(file.falls, { ...table, ground: fallGround(heights), water: fallWater(table, waterLevelFt) });
+  const table = { lakes, tileMap, cells };
+  return buildFallMeshes(file.falls, {
+    ...table, heightRange: fallHeightRange(file.major, terrain),
+    ground: fallGround(heights, { cells, h128: !!heights.h128 }), water: fallWater(table, waterLevelFt),
+  });
 }
 
 /**
@@ -84,7 +100,7 @@ export function fallSoundObjects(meshes, { weather = 0, used = 0, player = null 
     if (s.silent === null) loud.push({ fall, s });
   }
   if (player) {
-    const d2 = ({ s }) => mapWrap(s.position[0] - player[0]) ** 2 + mapWrap(s.position[2] - player[2]) ** 2;
+    const d2 = ({ fall, s }) => mapWrap(s.position[0] - player[0], fall.worldFt) ** 2 + mapWrap(s.position[2] - player[2], fall.worldFt) ** 2;
     loud.sort((a, b) => d2(a) - d2(b));
   }
   const room = Math.max(0, FALL_SOUND_LOOP_ROOM - used);
@@ -162,7 +178,10 @@ export async function trackAnimations(vfs, level) {
  */
 export async function buildTrackFalls(level, { heights, tileMap, lakes, waterLevelFt, sitVolumes = [], used = 0, weather = 0, player = null, animations = [], loadImage = async () => null, loadRipple = async () => null }) {
   const notices = fallReadNotices(level.falls);
-  const meshes = buildFalls(level.falls, { heights, tileMap, lakes, waterLevelFt });
+  // A track format version 6 track's world and height range (9.3); without a terrainHeightMap, CP4's (step 128, base 0).
+  const v6 = level.v6?.terrainHeightMap ? level.v6 : null;
+  const terrain = v6 ? { step: v6.terrainHeightStep, base: v6.terrainHeightBase } : {};
+  const meshes = buildFalls(level.falls, { heights, tileMap, lakes, waterLevelFt, cells: level.cells ?? 256, terrain });
   notices.push(...fallBuildNotices(meshes));
   if (!meshes) return { falls: null, fogVolumes: sitVolumes, sounds: [], notices };
   for (const r of meshes.refused) console.info(`Waterfall ${r.id}: REFUSED ${r.reason}`);

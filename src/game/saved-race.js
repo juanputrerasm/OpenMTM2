@@ -20,10 +20,11 @@ const bare = (file) => String(file ?? "").replace(/^.*[\\/]/, "").toUpperCase();
 /**
  * The race's index as the game numbers it: its place among the Monster Truck Madness 2 tracks in the catalog's order,
  * the order the archives were found in, Torture Pit left out unless unlocked (MONSTER_EXE_ANALYSIS.md 3). 0 when the
- * track is not one of them (another game's).
+ * track is not one of them (another game's, or a track format version 6 track).
  */
 export function raceIndexOf(track, tracks) {
-  const own = tracks.filter((t) => (t.game ?? "MTM2") === "MTM2" && bare(t.file) !== "WAR.SIT");
+  // A track format version 6 track (`.SI3`) is in no list the game makes (docs/EXTENSIONS.md): it is not counted.
+  const own = tracks.filter((t) => (t.game ?? "MTM2") === "MTM2" && bare(t.file) !== "WAR.SIT" && t.formatVersion !== 6);
   return Math.max(0, own.findIndex((t) => t.path === track.path || bare(t.file) === bare(track.file)));
 }
 
@@ -72,7 +73,7 @@ export function readSavedGame(bytes, { tracks, trucks }) {
   const named = (sit.trackName && own.find((t) => t.name?.toUpperCase() === sit.trackName.toUpperCase() && t.level?.toUpperCase() === sit.lvlName?.toUpperCase()))
     ?? (sit.trackName && own.find((t) => t.name?.toUpperCase() === sit.trackName.toUpperCase()))
     ?? own.find((t) => sit.lvlName && t.level?.toUpperCase() === sit.lvlName.toUpperCase())
-    ?? own.filter((t) => bare(t.file) !== "WAR.SIT")[game.raceIndex];
+    ?? own.filter((t) => bare(t.file) !== "WAR.SIT" && t.formatVersion !== 6)[game.raceIndex];
   if (!named) throw new Error(msg("The saved race's track is not installed."));
   const byFile = new Map(trucks.map((t) => [bare(t.file), t.file]));
   const player = byFile.get(bare(game.playerTruck));

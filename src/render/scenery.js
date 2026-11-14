@@ -9,7 +9,7 @@
 import * as THREE from "three";
 import { aaFor } from "../game/aa.js";
 import { createDrawnGround } from "../game/drawn-ground.js";
-import { createDecks } from "../game/ground-boxes.js";
+import { createDecks, groundBoxGrids } from "../game/ground-boxes.js";
 import { FOG_AMOUNTS, weatherLevel } from "../game/atmosphere.js";
 import { buildFogFloor } from "../game/fog-floor.js";
 import { DEFAULT_GROUND, meanTone, tileTones } from "../game/lighting.js";
@@ -74,7 +74,8 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
   const puddleTexture = on.puddles ? createPuddleTexture(build.puddles) : null;
   const shelterTexture = on.puddles || on.snow ? createShelterTexture(build.cover ?? null) : null;
   // Where the fog lies: on the land taken broadly, and along the course on the course's own height (game/fog-floor.js).
-  const fogFloor = on.weather && ground ? buildFogFloor({ heightAt: ground, segments: build.sim?.course ?? [] }) : null;
+  // The fog's floor map spans one 8192 ft world (game/fog-floor.js), an OpenMTM2 addition: left out on a larger one.
+  const fogFloor = on.weather && ground && (build.worldFt ?? 8192) === 8192 ? buildFogFloor({ heightAt: ground, segments: build.sim?.course ?? [] }) : null;
   // As thick as the Volumetric weather slider asks (game/atmosphere.js `FOG_AMOUNTS`).
   const volume = on.weather ? createWeatherVolume({ scene, camera, sun, ground, groundTexture, random, indoor: !!build.stadium, fogFloor, amount: FOG_AMOUNTS[weatherLevel(settings)] }) : null;
   // The waves the trucks stir, in the level's water and in the puddles alike (render/water-ripples.js).
@@ -149,7 +150,10 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
     The ground boxes' tops, a bridge's deck (game/ground-boxes.js): what is over one stands on it, not on the ground under
     the bridge. `deckAt(x, z, y)` is the top under something at game (x, y, z), or null where it is over the ground.
   */
-  const decks = createDecks({ heights: build.heights, ra0: build.sim?.ra0 ?? null, ra1: build.sim?.ra1 ?? null });
+  // A track format version 6 track's heights are in feet, its boxes on its own scale (game/ground-boxes.js `groundBoxGrids`).
+  const decks = build.formatV6
+    ? createDecks({ heights: build.heights, heightsFt: build.heightsFt, ...groundBoxGrids(build.sim, build.worldCells ?? 256) })
+    : createDecks({ heights: build.heights, ra0: build.sim?.ra0 ?? null, ra1: build.sim?.ra1 ?? null });
   const deckAt = decks ? (x, z, y) => decks.topAt(x, z, y) : () => null;
   /** What something at game (x, y, z) stands over, feet: the deck it is over, else the drawn ground and the snow on it. */
   const floorAt = decks ? (x, z, y) => deckAt(x, z, y) ?? surfaceAt(x, z) : (x, z) => surfaceAt(x, z);
@@ -159,6 +163,8 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
     word, bits 0-11: MTM2_PHYSICS.md 2.3).
   */
   const cells = on.particles && build.sim?.clr && build.terrain?.atlas ? build.sim.clr : null;
+  // The .CLR's cells a side: 256, or a track format version 6 world's N.
+  const cellsWide = build.worldCells ?? GRID;
   const textures = cells ? tileTones(build.terrain.atlas).map((tone, slot) => {
     const type = Math.floor(((build.terrain.atlas.slotValues ?? build.sim.textureValues)?.[slot] ?? 0) / 100);
     return Object.freeze({ tone, type, dust: groundDust(tone, type) });
@@ -200,7 +206,7 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
     /** What is drawn over the scene, which the puffs are drawn in (render/over-scene.js), or null where there is nothing to draw it with. */
     over,
     /** The ground texture the terrain wears at game (x, z): `{ tone, type, dust }`, or null where that is not known. */
-    groundAt: textures ? (x, z) => textures[cells[(Math.floor(z / CELL_FT) & (GRID - 1)) * GRID + (Math.floor(x / CELL_FT) & (GRID - 1))] & 0x0fff] ?? null : () => null,
+    groundAt: textures ? (x, z) => textures[cells[(Math.floor(z / CELL_FT) & (cellsWide - 1)) * cellsWide + (Math.floor(x / CELL_FT) & (cellsWide - 1))] & 0x0fff] ?? null : () => null,
   } : null;
   return {
     volume, groundSurface, groundDetail, water, lightRig, gloss, lens, particles,

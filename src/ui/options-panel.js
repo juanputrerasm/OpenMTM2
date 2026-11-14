@@ -23,7 +23,7 @@ import { AA_CHOICES, AA_HINT, aaSetting } from "../game/aa.js";
 import { GRAPHICS_HINT, GRAPHICS_PRESETS, RENDER_SCALES, applyGraphics, detectGraphics, graphicsChoice, graphicsLabel } from "../game/graphics.js";
 import { graphicsHardware } from "../app/graphics-hardware.js";
 import { VISUAL_OPTIONS } from "../game/visuals.js";
-import { CPU_NAMES, CPU_NAME_MAX, cpuNames } from "../game/race-setup.js";
+import { CPU_NAMES, CPU_NAME_MAX, START_PLACES, cpuNames, ordinal } from "../game/race-setup.js";
 import { CAMERA_SYSTEMS, FOV_ACROSS_MAX, FOV_ACROSS_MIN, GAME_FOV_ACROSS_DEG, SHORT_VIEW_CHOICES, shortViews } from "../game/cameras.js";
 import { EXTENSIONS, REPAIR_CHOICES, setExtensionSetting, settingsForExtension } from "../game/extensions/loader.js";
 import { FPS_LIMITS } from "../render/frame-limit.js";
@@ -976,6 +976,9 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         save();
       } }, ...[0, 1, 2, 3, 4, 5, 6, 7].map((n) => el("option", { value: n, selected: n === (settings.defaultOpponents ?? 3) }, String(n)))),
       msg("How many computer trucks race by default; the Races screen picks which")),
+      row(msg("Start position"), el("select", { "aria-label": t("Start position"), "data-opt": "Start position", onchange: (event) => { settings.startPlace = Number(event.target.value); save(); } },
+        ...START_PLACES.map((n) => el("option", { value: n, selected: n === (Number(settings.startPlace) || 0) }, n ? t(ordinal(n)) : t("Random")))),
+      msg("Your place on the starting grid in a single-player race and tournament; Random leaves it to chance, as the game does. Past the last truck's place, the last")),
       row(msg("Opponent frame rate"), el("select", { "aria-label": t("Opponent frame rate"), "data-opt": "Opponent frame rate", onchange: (event) => { settings.opponentFps = Number(event.target.value); save(); } },
         ...[15, 20, 24, 30, 45, 60].map((n) => el("option", { value: n, selected: n === (settings.opponentFps ?? 30) }, `${n} FPS`))),
       msg("The frame rate the computer trucks drive as if the game ran at: they steer by the frame, so it changes how they handle. 30 is the standard")),

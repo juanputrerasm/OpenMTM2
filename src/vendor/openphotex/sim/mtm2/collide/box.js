@@ -82,19 +82,23 @@ export const MAX_GROUND_BOXES = 600;
  * the game places it by its own cell, a world away from a truck at the other edge). Every face is
  * solid, as in the game: a wheel climbs onto a box only when its hub was above the top the step
  * before (§14.14 step 3), so a step taller than the hub is a wall. `stepFt` is the feet to a height
- * step, for a level whose steps are not MTM2's 2 ft (Hellbender's are 1.5).
+ * step, for a level whose steps are not MTM2's 2 ft (Hellbender's are 1.5). A track format version 6 world passes
+ * its cells (N, 256 or 512) and its terrain base in feet; a 16-bit layer passes its u16 grids with `stepFt` 1 / step
+ * (section 8.3: base + 2 * byte, or base + value / step).
  */
-export function groundBoxesAround(ra0, ra1, x, z, out = [], stepFt = 2) {
-    const col = (Math.trunc(x * 256) >> 13) & 255;
-    const row = (Math.trunc(z * 256) >> 13) & 255;
+export function groundBoxesAround(ra0, ra1, x, z, out = [], stepFt = 2, cells = 256, baseFt = 0) {
+    const m = cells - 1;
+    const col = (Math.trunc(x * 256) >> 13) & m;
+    const row = (Math.trunc(z * 256) >> 13) & m;
     // Where the point's own copy of the world begins. A neighbouring cell across the map's edge is read wrapped, as in
     // the game, but its box is placed beside the point (the game places it a world away, where the truck never meets it).
-    const baseX = x - wrapCoord(x), baseZ = z - wrapCoord(z);
+    const worldFt = cells * GROUND_BOX_CELL_FT;
+    const baseX = x - wrapCoord(x, worldFt), baseZ = z - wrapCoord(z, worldFt);
     for (let dc = -1; dc <= 1; dc++) {
         for (let dr = -1; dr <= 1; dr++) {
-            const c = (col + dc) & 255, r = (row + dr) & 255;
-            const i = r * 256 + c;
-            const lo = ra0[i] * stepFt, hi = ra1[i] * stepFt;
+            const c = (col + dc) & m, r = (row + dr) & m;
+            const i = r * cells + c;
+            const lo = baseFt + ra0[i] * stepFt, hi = baseFt + ra1[i] * stepFt;
             if (lo === hi)
                 continue;
             const h = hi - lo;

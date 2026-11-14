@@ -72,16 +72,29 @@ export function raceDrivers({ playerTruck, trucks, slots = 8, opponents = DEFAUL
   return drivers;
 }
 
-/** `drivers` (`raceDrivers`) on a grid of `slots`: as many as it holds, the start slots shuffled among them. */
-export function seatDrivers(drivers, slots, random = Math.random) {
+/**
+ * `drivers` (`raceDrivers`) on a grid of `slots`: as many as it holds, the start slots shuffled among them. `place` (an
+ * OpenMTM2 addition, Options and the Computer Opponents dialog: Start position) puts the player's truck on that grid
+ * place, 1 the pole, past the last truck's place the last; 0 or none leaves it to the shuffle, as the game does.
+ */
+export function seatDrivers(drivers, slots, random = Math.random, place = 0) {
   const seated = drivers.slice(0, Math.min(8, slots));
   const order = seated.map((_, i) => i);
   for (let i = order.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
     [order[i], order[j]] = [order[j], order[i]];
   }
+  const me = seated.findIndex((d) => d.player);
+  if (me >= 0 && Number.isInteger(place) && place > 0) {
+    const want = Math.min(place, seated.length) - 1;
+    const holder = order.indexOf(want);
+    [order[me], order[holder]] = [order[holder], order[me]];
+  }
   return seated.map((d, i) => ({ ...d, slot: order[i] }));
 }
+
+/** The grid places a player may pick (Start position): 0 the shuffle, then 1 to 8. */
+export const START_PLACES = Object.freeze([0, 1, 2, 3, 4, 5, 6, 7, 8]);
 
 /** A race time as the HUD prints it, `%02d:%05.2f` (minutes, seconds). */
 export function formatRaceTime(seconds) {
@@ -146,7 +159,8 @@ export function fillGrid(grid, count, heightAt = null, start = null) {
   const out = slots.length ? [...slots] : [first];
   const h = first.heading ?? 0;
   const fwd = [Math.sin(h), Math.cos(h)], right = [Math.cos(h), -Math.sin(h)];
-  const ground = (x, z) => (heightAt ? heightAt(x, z) : null);
+  // The first slot's height picks the surface the grid is on (a deck, a street mesh; game/spawn-ground.js).
+  const ground = (x, z) => (heightAt ? heightAt(x, z, first.pos[1]) : null);
   const base = ground(first.pos[0], first.pos[2]);
   const ride = base === null || !Number.isFinite(base) ? null : Math.max(2, Math.min(20, first.pos[1] - base));
   const clear = (x, z) => out.every((slot) => Math.hypot(slot.pos[0] - x, slot.pos[2] - z) >= PARTY_GRID_CLEAR_FT);
