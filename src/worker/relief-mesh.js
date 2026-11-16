@@ -207,7 +207,9 @@ export function buildReliefMesh({ heights, clr, lte, atlas, footprint = null, re
     const length = Math.hypot(sunVector[0], sunVector[1], sunVector[2]) || 1;
     sun = [-sunVector[0] / length, -sunVector[1] / length, -sunVector[2] / length];
   }
-  const lit = (dx, dz) => AMBIENT_SHARE + (1 - AMBIENT_SHARE) * Math.max(0, (-dx * sun[0] + sun[1] - dz * sun[2]) / Math.hypot(dx, 1, dz));
+  // A sun below the horizon reaches no ground: the ray toward it meets the ground (Community Patch 4's bake, CP4_EXE_ANALYSIS.md 15.8).
+  const sunUp = !!sun && sun[1] > 0;
+  const lit = (dx, dz) => AMBIENT_SHARE + (sunUp ? (1 - AMBIENT_SHARE) * Math.max(0, (-dx * sun[0] + sun[1] - dz * sun[2]) / Math.hypot(dx, 1, dz)) : 0);
 
   const tile = new Float32Array(8), cornerShade = new Float32Array(4), cornerLit = new Float32Array(4);
   // Two numbers written by every slope and read straight after. A plain array's elements box; these do not.

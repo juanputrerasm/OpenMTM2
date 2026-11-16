@@ -11,6 +11,8 @@
 #   CP4_DIR=~/games/cp4beta052 tools/re/decompile.sh cp4  (Community Patch 4 beta 0.52, x64, into re/cp4/)
 #   CP4B2_DIR=~/games/mtm2 tools/re/decompile.sh cp4b2    (Community Patch 4 beta 0.53, x64, into re/cp4b2/)
 #   CP4B2DLL_DIR=~/games/mtm2 tools/re/decompile.sh cp4b2dll  (beta 0.53's trid3d11.dll renderer, into re/cp4b2dll/)
+#   CP4B3_DIR=~/Downloads/Beta0.53_hotfix3 tools/re/decompile.sh cp4b3       (beta 0.53 hotfix 3, x64, into re/cp4b3/)
+#   CP4B3DLL_DIR=~/Downloads/Beta0.53_hotfix3 tools/re/decompile.sh cp4b3dll (hotfix 3's trid3d11.dll, into re/cp4b3dll/)
 # Needs Ghidra (brew install ghidra) and Python 3. Takes a few minutes.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -72,6 +74,20 @@ elif [ "$TARGET" = cp4b2dll ]; then
   # Beta 0.53's Direct3D 11 renderer (trid3d11.dll): the gpuWaterfall* / foam entry points the exe calls.
   GAME_DIR=${CP4B2DLL_DIR:-$HOME/games/mtm2}
   WORK="$REPO/re/cp4b2dll"
+  EXE=trid3d11.dll
+  SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
+elif [ "$TARGET" = cp4b3 ]; then
+  # Community Patch 4 beta 0.53 hotfix 3 (monster.exe, still "2.0.52.2", built Nov 15 2026): water detail
+  # maps (_WDTL/_WMSK), normal strength, waterfall roughFrom / flow tubes / slab back face, slope-cutoff
+  # shadows (docs/CP4_EXE_ANALYSIS.md 15). Hotfix 2 is superseded by it. No source code.
+  GAME_DIR=${CP4B3_DIR:-$HOME/Downloads/Beta0.53_hotfix3}
+  WORK="$REPO/re/cp4b3"
+  EXE=monster.exe
+  SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
+elif [ "$TARGET" = cp4b3dll ]; then
+  # Hotfix 3's Direct3D 11 renderer (trid3d11.dll): shore field, water detail, terrShadowFacing, hill cut.
+  GAME_DIR=${CP4B3DLL_DIR:-$HOME/Downloads/Beta0.53_hotfix3}
+  WORK="$REPO/re/cp4b3dll"
   EXE=trid3d11.dll
   SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
 else

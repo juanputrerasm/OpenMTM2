@@ -4,7 +4,8 @@
   track's water is. Unlike the track's water a lake does not bob: the meshes are named "lake", not
   "water", so the screens' bob (which moves every "water" plane) leaves them where they are, and
   the water's look takes them by that name (render/water-surface.js `createWaterSystem`, or the
-  game's animated surface, render/water-effects.js `createWaterSurface`).
+  game's animated surface, render/water-effects.js `createWaterSurface`). With the Reflective water a lake's water also
+  goes on past its tiles where the ground is under it, fading out (`shoreMesh`), so its outline is not the tiles' steps.
 */
 import * as THREE from "three";
 
@@ -38,6 +39,32 @@ export function createLakes(lakes) {
     mesh.userData.lakeId = body.id;
     mesh.userData.reflective = body.reflective !== false;
     group.add(mesh);
+    if (body.shore) group.add(shoreMesh(body, material));
   }
   return group;
+}
+
+/*
+  A lake's shore (worker/cp4-world.js `lakeShore`, OpenMTM2's own): the water going on past the lake's tiles where the
+  ground is under its surface, fading out with `aDry`. Only the Reflective water fades it (render/water-surface.js), so
+  it is shown only when that water takes it: under the plain water it would be a wider set of tiles.
+*/
+function shoreMesh(body, material) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(body.shore.positions, 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(body.shore.uvs, 2));
+  geometry.setAttribute("aDry", new THREE.BufferAttribute(body.shore.dry, 1));
+  const normals = new Float32Array(body.shore.positions.length);
+  for (let i = 1; i < normals.length; i += 3) normals[i] = 1;
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+  geometry.setIndex(new THREE.BufferAttribute(body.shore.indices, 1));
+  geometry.computeBoundingSphere();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = "lake";
+  mesh.visible = false;
+  mesh.userData.levelFt = body.levelFt;
+  mesh.userData.lakeId = body.id;
+  mesh.userData.reflective = body.reflective !== false;
+  mesh.userData.shore = true;
+  return mesh;
 }

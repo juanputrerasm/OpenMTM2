@@ -150,6 +150,8 @@ export class SunFlare {
     this._flareOn = false;
     for (const { standing } of this._layers) standing.visible = false;
     if (this._mode !== "sun" || !showFlare) return;
+    // A sun below the horizon flares nowhere: a ray toward it meets the ground, as the rays below would find in the end.
+    if (toSun.y <= 0) return;
     camera.getWorldDirection(_forward);
     if (_forward.dot(toSun) <= 0) return;
     if (cover) return;

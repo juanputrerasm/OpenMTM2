@@ -50,6 +50,8 @@ import { WATER_WAVES, WATER_WAVE_LAYOUT, waveLoopSeconds } from "../game/water-w
 import { cloudNoise, waveFieldTexture, waveNoise } from "./noise-textures.js";
 import { RAIN_RINGS_GLSL, mirrorSky, skyAlongGlsl } from "./water-common.js";
 import { lakeReflectionPlan } from "../game/lakes.js";
+import { generatedDetailNormal } from "../shared/detail-normal.js";
+import { TERRAIN_MASK_FT } from "../shared/terrain-mask.js";
 
 const RAIN = 4, SNOW = 5;
 /** The game's opacity for the frozen water of Snow. */
@@ -58,6 +60,33 @@ const ICE_OPACITY = waterOpacity(SNOW);
 const CLOCK_SECONDS = 4096;
 const glsl = (n) => n.toFixed(4);
 const luminance = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+
+/** The clock Normal-Water's layers drift on wraps here, seconds: a whole number of each layer's repeats (CP4_EXE_ANALYSIS.md 15.2.5). */
+const DETAIL_CLOCK_SECONDS = 3600;
+
+/**
+ * Community Patch 4's Normal-Water textures for a track's water detail (worker/track-build.js `loadWaterDetail`): the
+ * detail normal (the track's `_WDTL`, else the generated map, shared/detail-normal.js), wrapping, mipmapped, filtered
+ * as the engine's eight-times anisotropic sampler; and the mask, one byte a texel, over the whole world once
+ * (`detail.worldFt`, 8192 ft or a track format version 6 world's own; the detail normal is a tile, whatever the world).
+ */
+function waterDetailTextures(detail) {
+  if (!detail?.mask) return null;
+  const own = detail.detail ?? generatedDetailNormal();
+  const normal = new THREE.DataTexture(own.rgba, own.width, own.height, THREE.RGBAFormat, THREE.UnsignedByteType);
+  const mask = new THREE.DataTexture(detail.mask.data, detail.mask.width, detail.mask.height, THREE.RedFormat, THREE.UnsignedByteType);
+  for (const texture of [normal, mask]) {
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.generateMipmaps = true;
+    texture.unpackAlignment = 1;
+    texture.needsUpdate = true;
+  }
+  normal.anisotropy = 8;
+  return { normal, mask, strength: detail.strength ?? 1, worldFt: detail.worldFt > 0 ? detail.worldFt : TERRAIN_MASK_FT };
+}
 
 /** Numbers for the graphics card to read as they are, four to a texel: no filtering, no mipmaps. */
 function dataTexture(data, width, height) {
@@ -68,11 +97,21 @@ function dataTexture(data, width, height) {
   return texture;
 }
 
+/**
+ * How a lake's shore fades (render/lakes.js, OpenMTM2's own): fully water up to the first share of its reach, gone by the
+ * second, the edge moved either way by up to half the third with the cloud noise.
+ */
+export const LAKE_SHORE_FADE = Object.freeze([0.3, 0.9, 0.5]);
+
 const VERTEX = /* glsl */ `
 varying vec3 vWorld;
 varying vec3 vView;
+// A lake's shore (render/lakes.js): 0 at the lake's tiles to 1 at the shore's reach; 0 on every other plane (no attribute).
+attribute float aDry;
+varying float vDry;
 #include <shadowmap_pars_vertex>
 void main() {
+  vDry = aDry;
   vec4 world = modelMatrix * vec4( position, 1.0 );
   vec4 view = viewMatrix * world;
   vWorld = world.xyz;
@@ -92,6 +131,7 @@ void main() {
 const PRELUDE = /* glsl */ `
 varying vec3 vWorld;
 varying vec3 vView;
+varying float vDry;
 #include <packing>
 #include <shadowmap_pars_fragment>
 // uSunShare: the sun's share of the daylight on the water, which a shadow takes away
@@ -170,6 +210,8 @@ const SETUP = /* glsl */ `
 
 /** The end of each one's `main`: the colour out, through the curve and the fog. */
 const FINISH = /* glsl */ `
+  // A lake's shore fades out toward its reach, its edge broken by the cloud noise so it does not run straight.
+  if ( vDry > 0.0 ) alpha *= 1.0 - smoothstep( ${LAKE_SHORE_FADE[0].toFixed(2)}, ${LAKE_SHORE_FADE[1].toFixed(2)}, vDry + ( cloud.g - 0.5 ) * ${LAKE_SHORE_FADE[2].toFixed(2)} );
   gl_FragColor = vec4( color, alpha );
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -552,6 +594,19 @@ uniform vec3 uGustAt;
 uniform vec3 uSunGlint;
 // the colour of the silt the trucks stir up: the level's ground's
 uniform vec3 uSiltTone;
+/*
+  Community Patch 4 beta 0.53 hotfixes 2 and 3 (docs/CP4_EXE_ANALYSIS.md 15.2, 15.4). Normal-Water: the detail normal
+  (\`uWaterDetail\`, the track's _WDTL or the generated map) and its mask over the whole world (\`uWaterMask\`, red);
+  uWaterDetailAt: on (the mask is the switch), the strength, the detail's clock (seconds, wrapped at a whole number of
+  every layer's repeats), the world's width in feet (the mask covers it once).
+*/
+uniform sampler2D uWaterDetail, uWaterMask;
+uniform vec4 uWaterDetailAt;
+// How much of this point the scene's fog hides, 0 to 1.
+float waterFogShare() {
+  if ( mtmFog[ 0 ].x > 0.5 ) return mtmFogHides( vView );
+  return uFogRange.z > 0.5 ? smoothstep( uFogRange.x, uFogRange.y, - vView.z ) : 0.0;
+}
 // The field at one of its sizes, at the map point \`at\`, as strong as \`gain\`: its slope, onto \`slope\` (the map's axes),
 // and the mean square of what of it is too fine to show at this distance, onto \`rough\`.
 void waveAt( int size, vec2 at, float gain, inout vec2 slope, inout float rough ) {
@@ -611,11 +666,32 @@ ${SETUP}
     // Churned water is rough: what it mirrors blurs, and its glints spread.
     rough += 0.05 * churned;
   }
+  /*
+    Community Patch 4's Normal-Water (CP4_EXE_ANALYSIS.md 15.2.5): two layers of the detail normal drifting slowly, one
+    repeating every 64 ft and one every 118.7 ft (69 times 8192 ft), tiles whatever the world's size, scaled by the
+    mask, which covers the world once (black the base strength, white 5x), faded where a point covers more than 1.5 to 5 ft and with the fog, added to the slope before the mirror, the
+    Fresnel and the glint read it. Its derivatives are taken here, where every point of the water takes them.
+  */
+  vec2 detail = vec2( 0.0 );
+  vec2 detailDx = dFdx( at ), detailDy = dFdy( at );
+  if ( uWaterDetailAt.x > 0.5 ) {
+    float detailSeen = 1.0 - waterFogShare();
+    float detailLod = 1.0 - smoothstep( 1.5, 5.0, max( length( detailDx ), length( detailDy ) ) );
+    if ( detailSeen > 0.0 && detailLod > 0.0 ) {
+      float mk = textureGrad( uWaterMask, at / uWaterDetailAt.w, detailDx / uWaterDetailAt.w, detailDy / uWaterDetailAt.w ).r;
+      vec2 nA = textureGrad( uWaterDetail, at / 64.0 + uWaterDetailAt.z * vec2( 0.020, 0.010 ), detailDx / 64.0, detailDy / 64.0 ).rg * 2.0 - 1.0;
+      vec2 nB = textureGrad( uWaterDetail, at * ${(0.26953125 / 32).toFixed(9)} + uWaterDetailAt.z * vec2( - 0.010, 0.015 ), detailDx * ${(0.26953125 / 32).toFixed(9)}, detailDy * ${(0.26953125 / 32).toFixed(9)} ).rg * 2.0 - 1.0;
+      detail = - ( nA + nB ) * ( 0.02 * ( 1.0 + 4.0 * mk ) * detailLod * detailSeen * uWaterDetailAt.y );
+    }
+  }
+  slope += detail;
   // The scene mirrors z, so a slope along the map's second axis leans the other way.
   vec3 face = normalize( vec3( - slope.x, 1.0, slope.y ) );
-  if ( under ) face = - face;
+  // What the water mirrors leans with the detail half as much again: it wobbles the reflection 2.5 times its slope share.
+  vec3 mirrorFace = normalize( vec3( - ( slope.x + 1.5 * detail.x ), 1.0, slope.y + 1.5 * detail.y ) );
+  if ( under ) { face = - face; mirrorFace = - mirrorFace; }
   float glance = 0.02 + 0.98 * pow( clamp( 1.0 - dot( eye, face ), 0.0, 1.0 ), 5.0 );
-  vec3 back = reflect( - eye, face );
+  vec3 back = reflect( - eye, mirrorFace );
   // How far the roughness spreads what the water mirrors, radians either way: twice the slope's spread along an axis.
   rough = max( rough, 1e-4 );
   float spread = 2.0 * sqrt( 0.5 * rough );
@@ -674,7 +750,10 @@ ${SETUP}
       not clear. The bed's own colour through the water is the ground's to give (\`dressBed\`). A glint stands over all.
     */
     alpha = 1.0 - ( 1.0 - glance ) * ( 1.0 - hides );
-    vec3 seen = mirrored * glance + ( 1.0 - glance ) * hides * body + sparkle;
+    // The detail reads as light and dark facets from any angle: CP4's brightness at 2.4 times its slope (its waves' own
+    // share of that shade has no counterpart here, whose waves shade through the mirror and the glint).
+    float detailShade = clamp( 1.0 + 2.4 * dot( detail, vec2( 0.6, 0.8 ) ), 0.7, 1.3 );
+    vec3 seen = ( mirrored * glance + ( 1.0 - glance ) * hides * body ) * detailShade + sparkle;
     alpha = max( alpha, clamp( dot( sparkle, vec3( 0.2126, 0.7152, 0.0722 ) ), 0.0, 1.0 ) );
     color = seen / max( alpha, 1e-3 );
     // Foam where the water meets the shore, lapping in and out, as bright as the day: a lace, broken and thin, not a line.
@@ -757,7 +836,7 @@ const BED = /* glsl */ `
  *   (render/water-ripples.js), which the water is told its level and its ice each frame.
  * @returns the water, or null where the level has none
  */
-export function createWaterSystem({ world, groundTexture = null, lights = {}, ripples = null, reflection = null, groundTone = [0.2, 0.16, 0.12] }) {
+export function createWaterSystem({ world, groundTexture = null, lights = {}, ripples = null, reflection = null, groundTone = [0.2, 0.16, 0.12], detail = null }) {
   const meshes = [];
   let level = null;
   world.traverse((object) => { if (object.name === "water") { meshes.push(object); level ??= object.userData.levelFt ?? null; } });
@@ -767,6 +846,8 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
   if (!meshes.length && !lakes.length) return null;
   // The marks the trucks leave in the ice, which the graphics card reads as two small pictures of numbers.
   const ice = createIceMarks();
+  // Community Patch 4's Normal-Water (`detail`, a build's `waterDetail`).
+  const detailMaps = waterDetailTextures(detail);
   const uniforms = {
     // The scene's lights, for the sun's shadow maps (`sunReaches`).
     ...THREE.UniformsUtils.clone(THREE.UniformsLib.lights),
@@ -788,6 +869,8 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
     ...(ripples?.uniforms ?? { uRipples: { value: null }, uRippleAt: { value: new THREE.Vector4() } }),
     // The land in the water (render/water-reflection.js).
     ...(reflection?.uniforms ?? { uLand: { value: null }, uLandOn: { value: 0 } }),
+    uWaterDetail: { value: detailMaps?.normal ?? null }, uWaterMask: { value: detailMaps?.mask ?? null },
+    uWaterDetailAt: { value: new THREE.Vector4(detailMaps ? 1 : 0, detailMaps?.strength ?? 1, 0, detailMaps?.worldFt ?? TERRAIN_MASK_FT) },
   };
   // The open water and the ice, two programs over the one set of uniforms: the planes wear one or the other.
   const made = (fragmentShader) => new THREE.ShaderMaterial({ uniforms, vertexShader: VERTEX, fragmentShader, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false, lights: true });
@@ -807,6 +890,8 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
   const replaced = new Set();
   // The water takes the shadows of the hills and of what stands round it; it casts none.
   for (const mesh of [...meshes, ...lakes]) { replaced.add(mesh.material); mesh.material = mesh.userData.openWater ?? material; mesh.receiveShadow = true; mesh.castShadow = false; }
+  // A lake's shore is drawn only by this water, which fades it (render/lakes.js).
+  for (const mesh of lakes) if (mesh.userData.shore) mesh.visible = true;
   for (const old of replaced) old.dispose();
   // The ground as the water's bed.
   const bed = { uBed: { value: new THREE.Vector4(level ?? -1e6, 0, 1, 0) }, uBedWaves: { value: waveNoise() } };
@@ -833,7 +918,7 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
   const landLight = { sun: uniforms.uSun.value, sunLight: new THREE.Color(), skyLight: new THREE.Color(), horizon: uniforms.uHorizon.value, fade: [0, 0], haze: 0 };
   let levelNow = level, frozenNow = false;
 
-  let clock = 0, bobClock = 0, snowSeconds = 0, snowStart = 0, begun = false, wasFrozen = false, gustAt = 0;
+  let clock = 0, bobClock = 0, snowSeconds = 0, snowStart = 0, begun = false, wasFrozen = false, gustAt = 0, detailClock = 0;
   const waveLoop = [0, 0, 0, 0];
   // Each size's way on the map: the wind's, turned by its own amount; and 1 / its size.
   WATER_WAVE_LAYOUT.sizesFt.forEach((size, i) => {
@@ -851,6 +936,8 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
       const look = WEATHER_LOOK[weather] ?? WEATHER_LOOK[0], frozen = weather === SNOW;
       // The game holds the water still in Snow; so are the waves, and the bob.
       if (!frozen) clock = (clock + dt) % CLOCK_SECONDS;
+      if (!frozen) detailClock = (detailClock + dt) % DETAIL_CLOCK_SECONDS;
+      uniforms.uWaterDetailAt.value.z = detailClock;
       bobClock += dt;
       // A race that begins in Snow has some of it down already; snow that comes on later starts from nothing (game/atmosphere.js).
       if (frozen && !wasFrozen) { snowSeconds = 0; snowStart = begun ? 0 : SNOW_START; }
@@ -909,6 +996,9 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
         uniforms.uSunColor.value.setScalar(look.sun * light * 1.4);
         uniforms.uSunGlint.value.setScalar(look.sun * light * 3);
       }
+      // A sun below the horizon sends nothing off the water: CP4's glint is Blinn about the way to the sun, which gives
+      // almost none there (CP4_EXE_ANALYSIS.md 15.8).
+      if (uniforms.uSun.value.y <= 0) { uniforms.uSunColor.value.setScalar(0); uniforms.uSunGlint.value.setScalar(0); }
       uniforms.uDaylight.value.copy(daylight);
       // Stirred and silted in Rain.
       uniforms.uScatter.value.setRGB(...WATER_SCATTER).lerp(part.setRGB(...WATER_SILT_TONE), weather === RAIN ? WATER_SILT : 0);
@@ -961,6 +1051,8 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
      * on the water, `scatter` the water's own colour.
      */
     under: { way: uniforms.uSun.value, sun: shafting, daylight: uniforms.uDaylight.value, scatter: uniforms.uScatter.value },
+    /** The water's uniforms, kept up to date each frame, for what is drawn as this water elsewhere (render/waterfall-water.js). */
+    uniforms,
     /** Before a frame is drawn with `view`: how deep the fog over the eye lies, for the sky in the water. */
     prepare(view) {
       view.getWorldPosition(eyeAt);
@@ -969,11 +1061,14 @@ export function createWaterSystem({ world, groundTexture = null, lights = {}, ri
       reflection?.render(eyeAt, frozenNow ? null : levelNow, landLight);
     },
     dispose() {
+      for (const mesh of lakes) if (mesh.userData.shore) mesh.visible = false;
       material.dispose();
       iceMaterial.dispose();
       skyOnly?.dispose();
       uniforms.uIceMarks.value.dispose();
       uniforms.uIceGrid.value.dispose();
+      detailMaps?.normal.dispose();
+      detailMaps?.mask.dispose();
       dressed.clear();
     },
   };

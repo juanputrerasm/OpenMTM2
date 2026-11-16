@@ -25,13 +25,17 @@ export function detectImageFormat(bytes) {
   return null;
 }
 
+/** The largest side Community Patch 4 beta 0.53 hotfix 3 takes for a track's detail art (`_DTL`, `_WDTL`; CP4_EXE_ANALYSIS.md 15.2.1, 15.3). */
+export const DETAIL_MAX_DIM = 2048;
+
 /**
- * Reject anything the engine could not use. Returns a reason string, or null if acceptable.
+ * Reject anything the engine could not use. Returns a reason string, or null if acceptable. `max` is the largest side
+ * (HDTEX_MAX_DIM, Community Patch 3's; DETAIL_MAX_DIM for Community Patch 4's detail art).
  */
-export function hdDimensionRefusal(name, width, height) {
+export function hdDimensionRefusal(name, width, height, max = HDTEX_MAX_DIM) {
   if (width !== height) return `${name}: ${width}x${height} is not square`;
-  if (width < HDTEX_MIN_DIM || width > HDTEX_MAX_DIM) {
-    return `${name}: ${width}x${height} is outside ${HDTEX_MIN_DIM}..${HDTEX_MAX_DIM}`;
+  if (width < HDTEX_MIN_DIM || width > max) {
+    return `${name}: ${width}x${height} is outside ${HDTEX_MIN_DIM}..${max}`;
   }
   if ((width & (width - 1)) !== 0) return `${name}: ${width}x${height} is not a power of two`;
   return null;

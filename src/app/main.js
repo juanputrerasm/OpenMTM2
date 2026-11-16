@@ -2,7 +2,7 @@
   Boot: check the browser has what the game needs, then open the first screen.
 */
 import { Router } from "./router.js";
-import { loadSettings } from "./settings.js";
+import { cp4NormalsOf, loadSettings } from "./settings.js";
 import { applyGraphics } from "../game/graphics.js";
 import { graphicsHardware } from "./graphics-hardware.js";
 import { createStrings } from "../game/strings.js";
@@ -89,7 +89,8 @@ async function boot() {
     // Options, Graphics: Texture size, the largest side HD art keeps (worker/art-texture.js `setHdTextureLimit`).
     const textureSide = Number(context.settings.textureSize) || 1024;
     // Community Patch 4 beta 0.53's waterfalls (Options, Advanced, CP4: "Waterfalls"), read with the track.
-    if (type === "trackRender") return { hdWeather: context.settings.hdWeather !== false, originalBackdrops: !!context.settings.originalBackdrops, waterfalls: context.settings.cp4Waterfalls !== false, textureSide, ...(payload ?? {}) };
+    // And its hotfixes' Always On Normal-Terrain / Normal-Water and their strengths, which pick the track's detail masks.
+    if (type === "trackRender") return { hdWeather: context.settings.hdWeather !== false, originalBackdrops: !!context.settings.originalBackdrops, waterfalls: context.settings.cp4Waterfalls !== false, waterfallDroplets: context.settings.cp4WaterfallDroplets !== false, cp4Normals: cp4NormalsOf(context.settings), textureSide, ...(payload ?? {}) };
     if (type === "truckPreview") return { textureSide, ...(payload ?? {}) };
     if (type === "sky") return { hdWeather: context.settings.hdWeather !== false, ...(payload ?? {}) };
     return payload;

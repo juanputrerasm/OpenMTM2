@@ -50,6 +50,22 @@ export async function findWeatherArt(source) {
 }
 
 /**
+ * The pictures in the folder's MaskArt folder (any case), `{ name, file }` with `name` the upper-case file name: every PNG
+ * and TGA there, Community Patch 4's track masks and detail maps (`<level>_MASK`, `_DTL`, `_WMSK`, `_WDTL`;
+ * worker/art-texture.js). Their names are the levels', so a source that cannot list its files has none found.
+ */
+export async function findMaskArt(source) {
+  const found = [];
+  const listed = source.list ? await source.list() : null;
+  for (const path of listed ?? []) {
+    const match = /^MASKART\/([^/]+\.(?:PNG|TGA))$/i.exec(path);
+    const file = match && await source.getFile(path);
+    if (file) found.push({ name: match[1].toUpperCase(), file });
+  }
+  return found;
+}
+
+/**
  * The game's videos (game/videos.js): `SYSTEM/EXTRAS.INI`, whose `[Video]` section lists them, and every `.SMK` under
  * `VIDEOS/`, each `{ name, file }` with `name` the upper-case path (`VIDEOS/WIN/WIN01.SMK`, `EXTRAS.INI`). Where the
  * source cannot list its files, the videos EXTRAS.INI names are looked up one by one. None: an empty list.
@@ -83,7 +99,7 @@ export async function findVideos(source) {
  * @param {{ getFile(path: string): Promise<File|null> }} source
  * @returns {Promise<{ ok: boolean, message: string, podIni?: string,
  *   files?: { name: string, file: File }[], missing?: string[], totalBytes?: number,
- *   warnings?: string[], weatherArt?: { name: string, file: File }[], videos?: { name: string, file: File }[] }>}
+ *   warnings?: string[], weatherArt?: { name: string, file: File }[], maskArt?: { name: string, file: File }[], videos?: { name: string, file: File }[] }>}
  */
 export async function inspectSource(source) {
   let exeVersion = null;
@@ -122,10 +138,12 @@ export async function inspectSource(source) {
   const totalBytes = files.reduce((sum, f) => sum + f.file.size, 0);
   const warnings = [...ini.warnings];
   const weatherArt = await findWeatherArt(source).catch(() => []);
+  const maskArt = await findMaskArt(source).catch(() => []);
   const videos = await findVideos(source).catch(() => []);
   return {
     exeVersion,
     weatherArt,
+    maskArt,
     videos,
     edition: isTrialPodSet(files.map((f) => f.name)) ? "trial" : "full",
     ok: missing.length === 0,

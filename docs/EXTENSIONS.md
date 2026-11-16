@@ -772,13 +772,23 @@ What OpenMTM2 supports:
   `h128`) on its N x N or 4N x 4N grid; without `terrainHeightMap` on Community Patch 4's 16-bit store as before. The
   mist and sound lie in [0, W), the drawn sheets at their nearest copy. A track that is not `.SI3` reads a `.WFL` as
   beta 0.53 does: any major version but 1 "needs a newer build".
+- **Masks and detail normals.** A painted mask covers the track's own world once (9.5): the terrain's `_MASK` is read
+  at the ground's vertices over W (shared/terrain-mask.js `terrainMaskShares` with the world's size), the water's
+  `_WMSK` over W too (worker/track-build.js `loadWaterDetail` hands the world's size to render/water-surface.js), and
+  Always On Normal-Terrain's default mask is one texel a tile of the N x N grid. A `_MASK` keeps up to 1024 a side on a
+  256-cell world and twice that, 2048, on a 512-cell one (`terrainMaskSide`); a `_WMSK` keeps up to 4096 on either.
+  The detail normals (`_DTL`, `_WDTL`) are tiles of 64 ft and 118.7 ft whatever the world's size. On a 256-cell world
+  nothing changes.
+- **The track's own water.** The `.LVL` `!waterHeight` is read as it is, half feet, with no 510 ft cap
+  (worker/level-load.js `lvlWaterLevelFt`; the specification's 10, item 7): a version 6 track's water may stand
+  anywhere in its terrain's range, below 0 ft too. 0 is still no water.
 
 What OpenMTM2 leaves out on a world of other than 256 cells, as additions of its own made for a 256-cell world: the
 drawn ground (Smooth terrain), the snow cover's depth, the ground, cover and puddle maps the water, rain and snow
 read, and the fog's floor map (game/terrain-relief.js, game/snow-cover.js, game/ground-maps.js, game/fog-floor.js).
 A Spline or Full Map track already went without the first two.
 
-The specification's section 10 item 8, what the Community Patch 4 analysis has not traced, as OpenMTM2 has it:
+The specification's section 10 item 9, what the Community Patch 4 analysis has not traced, as OpenMTM2 has it:
 
 - **Camera far plane and fog distance.** Unchanged: the Draw distance and the weathers' fog are the same on any world
   (8.1: a larger world is not drawn further). The fog volumes' distance wraps at W.

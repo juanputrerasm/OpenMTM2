@@ -187,6 +187,8 @@ export function createGroundBoxes(boxes, map, look) {
 
 /** Detail strength where the mask is black (`terrDetail` 10), and the feet a detail pattern spans. */
 const TERRAIN_DETAIL = 0.1, TERRAIN_DETAIL_REP_FT = 64;
+/** The most the detail's own sun term moves the light either way (Community Patch 4 beta 0.53 hotfix 3, CP4_EXE_ANALYSIS.md 15.3). */
+const DETAIL_SUN_MOST = 0.3;
 
 /**
  * Community Patch 3's terrain detail on a lit terrain material: a detail normal tiling in world space every
@@ -198,6 +200,13 @@ const TERRAIN_DETAIL = 0.1, TERRAIN_DETAIL_REP_FT = 64;
  * So the mask comes in at the vertices (`detailShare`, `terrainMaskShares`), and without the track's own detail normal
  * (`<level>_DTL`) the pattern is the shared detail noise, whose height and slopes are what the engine's generated map
  * holds. Only a track's own `_DTL` takes a texture of its own.
+ *
+ * `detail.strength` is Community Patch 4's Normal-Terrain Strength (1 but with its Always On default mask): it scales
+ * the whole detail, its tilt, its occlusion and its sun term. Its hotfix 3 sun term no longer fades with a high sun: the
+ * detail's light is its lean toward the sun's bearing (straight overhead, the diagonal) times lerp(0.5, 1, the sun's
+ * horizontal share), clamped +-DETAIL_SUN_MOST. The lit normal already gives the lean times that share (the 0.53 form,
+ * which vanished overhead), so what the hotfix adds on top is the rest, lean * 0.5 * (1 - share), on the colour as the
+ * engine adds it to the light it multiplies the texture by. None while the sun is below the horizon.
  */
 function addTerrainDetail(material, detail, look) {
   const own = detail.detail ?? null;
@@ -209,7 +218,7 @@ function addTerrainDetail(material, detail, look) {
       t.magFilter = THREE.LinearFilter;
       return t;
     })() } } : { mtmDetailNoise: { value: detailNoise() } }),
-    detailParams: { value: new THREE.Vector2(TERRAIN_DETAIL, 1 / TERRAIN_DETAIL_REP_FT) },
+    detailParams: { value: new THREE.Vector2(TERRAIN_DETAIL * (detail.strength ?? 1), 1 / TERRAIN_DETAIL_REP_FT) },
   };
   material.userData.detail = uniforms;
   // Composed with the ground's other hooks (render/shader-hooks.js), early, so their lines and these stay beside each other.
@@ -236,7 +245,18 @@ function addTerrainDetail(material, detail, look) {
         vec2 detailTilt = (detailTexel.xy * 2.0 - 1.0) * detailStrength * 4.0;
         vec3 detailWorld = normalize(inverseTransformDirection(normal, viewMatrix) + vec3(detailTilt.x, 0.0, -detailTilt.y));
         normal = normalize((viewMatrix * vec4(detailWorld, 0.0)).xyz);
-        diffuseColor.rgb *= mix(1.0, detailTexel.z, min(1.0, 0.6 * detailStrength * 2.0));`);
+        diffuseColor.rgb *= mix(1.0, detailTexel.z, min(1.0, 0.6 * detailStrength * 2.0));
+        #if NUM_DIR_LIGHTS > 0
+        {
+          // The sun's bearing in game axes (the scene's z is the game's mirrored), straight overhead the diagonal.
+          vec3 detailToSun = inverseTransformDirection(directionalLights[ 0 ].direction, viewMatrix);
+          vec2 detailSunXZ = vec2(detailToSun.x, -detailToSun.z);
+          float detailSunH = length(detailSunXZ);
+          vec2 detailSunD = detailSunH > 1e-3 ? detailSunXZ / detailSunH : vec2(0.70710678);
+          float detailSunLit = detailToSun.y > 0.0 ? clamp(dot(detailTilt, detailSunD) * 0.5 * (1.0 - min(detailSunH, 1.0)), -${DETAIL_SUN_MOST.toFixed(2)}, ${DETAIL_SUN_MOST.toFixed(2)}) : 0.0;
+          diffuseColor.rgb *= 1.0 + detailSunLit;
+        }
+        #endif`);
   });
 }
 
@@ -511,10 +531,17 @@ function modelMaterial(mesh, map, normalMap, aoMap = null, look = "enhanced") {
     blending: flags & F.ADDITIVE ? THREE.AdditiveBlending : THREE.NormalBlending,
   };
   if (!(flags & F.LIT)) return new THREE.MeshBasicMaterial(props);
+  /*
+    Only a shiny face (a Gouraud facet, `mesh.shiny`) has the sun's highlight, at the record's specPower (32 when unset):
+    the renderer DLL's specEnable (docs/CP3_EXE_ANALYSIS.md 6, CP4_EXE_ANALYSIS.md 15.12). Every other lit face, a
+    tree's leaves among them, has none: three.js's default specular would put a sheen on it, and with the enhanced
+    look's highlight the sunlit leaves went white.
+  */
+  const shiny = !!mesh.shiny && look !== "classic";
   const material = new THREE.MeshPhongMaterial({
     ...props, normalMap, aoMap, flatShading: look === "classic",
-    shininess: Math.max(0, record.specPower ?? 0),
-    ...(look !== "classic" ? { specular: new THREE.Color(CP3_SHINE, CP3_SHINE, CP3_SHINE), shininess: record.specPower > 0.5 ? record.specPower : CP3_SHINE_POWER } : {}),
+    specular: shiny ? new THREE.Color(CP3_SHINE, CP3_SHINE, CP3_SHINE) : new THREE.Color(0, 0, 0),
+    shininess: record.specPower > 0.5 ? record.specPower : CP3_SHINE_POWER,
     emissive: flags & F.EMISSIVE ? new THREE.Color(0xffffff) : new THREE.Color(0x000000),
     emissiveIntensity: flags & F.EMISSIVE ? clamp01(record.emissive ?? 0) : 0,
   });
@@ -1654,7 +1681,7 @@ export function updateTrackWorld(world, camera, dt, { viewRange = Infinity, fine
     const localX = camera.position.x - parts.lattice.position.x, localZ = camera.position.z - parts.lattice.position.z;
     if ((parts.forest || parts.falling.length) && placeForest(parts, camera, viewRange, parts.copies.length > 1)) bumpShadowStatic(world);
     if (parts.vegetation?.update(camera, viewRange, parts.copies.length > 1)) bumpShadowStatic(world);
-    parts.fogVolumes?.update(camera);
+    parts.fogVolumes?.update(camera, dt);
     parts.waterfalls?.update(camera, dt);
     for (const chunk of parts.chunks) {
       const dx = Math.abs(chunk.x - localX), dz = Math.abs(chunk.z - localZ);

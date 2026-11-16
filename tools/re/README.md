@@ -27,8 +27,12 @@ into `re/cpr/`. Community Patch 3's 64-bit `monster.exe` (`docs/MONSTER_EXE_ANAL
 reads it as 64-bit code. Its author published no source code. Community Patch 4: beta 0.52 with `tools/re/decompile.sh cp4` (into
 `re/cp4/`, `CP4_DIR`, default `~/games/cp4beta052`) and beta 0.53 with `tools/re/decompile.sh cp4b2` (into
 `re/cp4b2/`, `CP4B2_DIR`, default `~/games/mtm2`), whose renderer `trid3d11.dll` is `cp4b2dll` (into
-`re/cp4b2dll/`); `FDIFF=cp4:cp4b2` diffs a function between the two betas. Neither has published source.
-Every helper below reads MTM2 unless `RE_TARGET` is `mtm1`, `evo1`, `evo2`, `cpr`, `cp3`, `cp4`, `cp4b2` or `cp4b2dll`;
+`re/cp4b2dll/`); `FDIFF=cp4:cp4b2` diffs a function between the two betas. The original 0.53 binaries are kept in
+`re/cp4b2/ghidra/` and `re/cp4b2dll/ghidra/` (the helpers read them there, since `~/games/mtm2` now holds a hotfix).
+Beta 0.53 hotfix 3 (`docs/CP4_EXE_ANALYSIS.md` 15) is `tools/re/decompile.sh cp4b3` (into `re/cp4b3/`, `CP4B3_DIR`,
+default `~/Downloads/Beta0.53_hotfix3`) and its `trid3d11.dll` `cp4b3dll` (into `re/cp4b3dll/`);
+`FDIFF=cp4b2:cp4b3` and `FDIFF=cp4b2dll:cp4b3dll` diff a function across the hotfix. None has published source.
+Every helper below reads MTM2 unless `RE_TARGET` is `mtm1`, `evo1`, `evo2`, `cpr`, `cp3`, `cp4`, `cp4b2`, `cp4b2dll`, `cp4b3` or `cp4b3dll`;
 `fdiff.py` takes `FDIFF=evo1:evo2` and `match.py` `MATCH=cpr:mtm1` (any two targets).
 
 This analyses `MONSTER.EXE` from the install, exports every function decompiled to

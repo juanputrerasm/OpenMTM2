@@ -7,15 +7,18 @@
   Lakes have no tide and can never sit at or below body 0 (the engine skips such a lake and logs
   BELOW_BODY0 / TOUCHES_BODY0), and heights outside 1..4096 are refused (HEIGHT_RANGE).
 
-  Layout, little-endian (Traxx TrackPODLakes.cpp BuildWTR / ParseWTR):
+  Layout, little-endian (Traxx 1.7.3 TrackPODLakes.cpp BuildWTR / ParseWTR):
 
     0    "MWTR"
     4    u16 major = 1 (a reader refuses a newer major)
-    6    u16 minor = 0
+    6    u16 minor = 0, or 1 for a file built with Traxx 1.7.3's edge rule
     8    u32 header size = 32
     12   u32 chunk count
     16   u16 tiles X = 256, u16 tiles Z = 256
-    20   12 bytes zero
+    20   u32 flags: bit 0 = the lakes were filled with the edge rule (water crosses between tiles only
+         through an edge whose lowest point is at or below the lake's height); clear = the tile rule
+         (Traxx 1.7.0 to 1.7.2). The tile map is final either way: the flag says how it was made.
+    24   8 bytes zero
     32   directory, 16 bytes a chunk: id[4], u32 version = 1, u32 offset, u32 size
          BODY, then TMAP. Unknown ids are skipped, the first of a duplicate wins.
 
@@ -50,6 +53,8 @@ export const WTR_TILES = 65536;
 /** Feet per .WTR height unit (the .LVL water scale). */
 export const WTR_HEIGHT_FT = 0.5;
 export const WTR_FLAG_REFLECTIVE = 1;
+/** Header flags (byte 20) bit 0: the lakes were filled with the edge rule. */
+export const WTR_HEADER_EDGE_RULE = 1;
 const r16 = (b, o) => b[o] | (b[o + 1] << 8);
 const r32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
 const i32 = (b, o) => b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24);
@@ -121,7 +126,8 @@ export function parseWtr(bytes, { cells } = {}) {
             tileCount: r32(bytes, r + (major === 2 ? 48 : 44)),
         });
     }
-    return { major, minor: r16(bytes, 6), tilesX, tilesZ, lakes, tileMap: tmap === null ? null : bytes.slice(tmap, tmap + tiles) };
+    const headerFlags = r32(bytes, 20);
+    return { major, minor: r16(bytes, 6), headerFlags, edgeRule: (headerFlags & WTR_HEADER_EDGE_RULE) !== 0, tilesX, tilesZ, lakes, tileMap: tmap === null ? null : bytes.slice(tmap, tmap + tiles) };
 }
 /**
  * The valid lake heights, in half-feet, inclusive: version 1's 1..4096, or version 2's
@@ -134,8 +140,10 @@ export function wtrHeightRange(major, step = 128, base = 0) {
  * Write a .WTR as Traxx 1.7 lays one out. Lake i gets id i + 1, which tileMap must use. The tile
  * map is N * N bytes, and N picks the version (9.1): 256 x 256 writes version 1 (heights 1..4096,
  * the CP4 file; a lake outside that throws), 512 x 512 version 2. `version`, when given, must agree.
+ * `edgeRule` marks a file filled with the edge rule as Traxx 1.7.3 does (minor 1, header flags bit 0);
+ * without it the header is Traxx 1.7.0's (minor 0, flags 0).
  */
-export function writeWtr(lakes, tileMap, { version } = {}) {
+export function writeWtr(lakes, tileMap, { version, edgeRule = false } = {}) {
     const cells = Math.round(Math.sqrt(tileMap.length));
     if (cells * cells !== tileMap.length || (cells !== 256 && cells !== 512))
         throw new RangeError("WTR: tile map must be 256 x 256 or 512 x 512 bytes");
@@ -155,10 +163,12 @@ export function writeWtr(lakes, tileMap, { version } = {}) {
     const v = new DataView(out.buffer);
     out.set([0x4d, 0x57, 0x54, 0x52]);
     v.setUint16(4, major, true);
+    v.setUint16(6, edgeRule ? 1 : 0, true);
     v.setUint32(8, WTR_HEADER, true);
     v.setUint32(12, 2, true);
     v.setUint16(16, cells, true);
     v.setUint16(18, cells, true);
+    v.setUint32(20, edgeRule ? WTR_HEADER_EDGE_RULE : 0, true);
     const dir = (o, id, off, size) => {
         for (let i = 0; i < 4; i++)
             out[o + i] = id.charCodeAt(i);

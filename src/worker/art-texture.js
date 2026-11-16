@@ -6,10 +6,16 @@
   this is exactly the old path.
 
   A texture may also carry a normal map, `ART\<stem>_N.PNG` or `.TGA` (never a .RAW): linear data, DirectX green-down.
+
+  A track's masks and detail art (`_MASK`, `_WMSK`, `_DTL`, `_WDTL`) are looked for in a `MaskArt\` folder first
+  (Community Patch 4, CP4_EXE_ANALYSIS.md 15.2.1): for each extension, MaskArt\ when the file is there (an archive's
+  entry, then the game folder's loose MaskArt folder, which the install copies to `install/MASKART`), else ART\.
 */
 import { decodeRawTexture, rawTextureSide } from "../vendor/openphotex/texture/raw.js";
 import { loadTextureSource } from "./level-load.js";
-import { decodeTrueColorTexture, hdDimensionRefusal } from "./image-decoder.js";
+import { DETAIL_MAX_DIM, decodeTrueColorTexture, hdDimensionRefusal } from "./image-decoder.js";
+import { readFile } from "../shared/opfs.js";
+import { INSTALL_DIR } from "./install-store.js";
 
 /** The largest side an HD texture keeps (Options, Graphics: Texture size); larger art is box-filtered down as it loads. */
 export const HD_TEXTURE_SIDES = Object.freeze([1024, 512, 256]);
@@ -34,15 +40,69 @@ async function hdImage(vfs, stem) {
   return null;
 }
 
-/** A PNG or TGA by stem at whatever size it has (a terrain mask is a picture of the level, not a texture), or null. */
-export async function loadPlainImage(vfs, stem) {
+/** Where the install keeps the game folder's loose MaskArt folder (install/inspect-source.js `findMaskArt`). */
+export const MASK_ART_DIR = `${INSTALL_DIR}/MASKART`;
+
+/** A file of the install's MaskArt folder by name (`NAME.PNG`), its bytes, or null. */
+export async function readMaskArt(name) {
+  try {
+    const file = await readFile(`${MASK_ART_DIR}/${name}`);
+    return file ? new Uint8Array(await file.arrayBuffer()) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Names whose art Community Patch 4 looks for in MaskArt\ first. */
+const MASK_ART_NAME = /_(?:MASK|WMSK|WDTL|DTL)$/;
+
+/**
+ * The bytes of `<stem>.<extension>` as Community Patch 4 finds a mask or detail map: MaskArt\ when it is there (an
+ * archive's entry, then the install's loose folder), else ART\. Other stems are read from ART\ alone.
+ */
+async function readArt(vfs, stem, extension, maskArt) {
+  if (MASK_ART_NAME.test(stem)) {
+    const masked = (await vfs.read(`MASKART\\${stem}.${extension}`)) ?? (await maskArt(`${stem}.${extension}`));
+    if (masked) return masked;
+  }
+  return vfs.read(`ART\\${stem}.${extension}`);
+}
+
+/**
+ * A PNG or TGA by stem at whatever size it has (a terrain mask is a picture of the level, not a texture), or null.
+ * `maskArt` reads the install's MaskArt folder (tests stand in for it).
+ */
+export async function loadPlainImage(vfs, stem, { maskArt = readMaskArt } = {}) {
   for (const extension of ["PNG", "TGA"]) {
-    const bytes = await vfs.read(`ART\\${stem}.${extension}`);
+    const bytes = await readArt(vfs, stem, extension, maskArt);
     if (!bytes) continue;
     try {
       const image = await decodeTrueColorTexture(bytes, `${stem}.${extension}`, extension);
       return { width: image.width, height: image.height, rgba: new Uint8ClampedArray(image.rgba), source: extension };
     } catch { /* not usable: the next source */ }
+  }
+  return null;
+}
+
+/**
+ * A track's detail normal (`<level>_DTL`, `<level>_WDTL`) as Community Patch 4 beta 0.53 hotfix 3 loads it
+ * (CP4_EXE_ANALYSIS.md 15.2.1, 15.3): PNG then TGA, each from MaskArt\ first; a side over DETAIL_MAX_DIM (2048) is
+ * refused, and the engine's generated map stands in (null here); any other size is loaded, even one that is not a square
+ * power of two (the engine warns that it mips less cleanly). Shrunk to the Texture size as HD art is. Or null.
+ */
+export async function loadDetailImage(vfs, stem, { maskArt = readMaskArt } = {}) {
+  for (const extension of ["PNG", "TGA"]) {
+    const bytes = await readArt(vfs, stem, extension, maskArt);
+    if (!bytes) continue;
+    let image;
+    try {
+      image = await decodeTrueColorTexture(bytes, `${stem}.${extension}`, extension);
+    } catch { continue; /* not usable: the next source */ }
+    if (image.width > DETAIL_MAX_DIM || image.height > DETAIL_MAX_DIM) return null;
+    // (hdDimensionRefusal with the hotfix's cap names what is odd about it; the engine loads it anyway.)
+    const odd = hdDimensionRefusal(`${stem}.${extension}`, image.width, image.height, DETAIL_MAX_DIM);
+    const loaded = { width: image.width, height: image.height, rgba: new Uint8ClampedArray(image.rgba), source: extension, ...(odd ? { odd } : {}) };
+    return loaded.width > hdLimit || loaded.height > hdLimit ? shrinkImage(loaded, hdLimit) : loaded;
   }
   return null;
 }

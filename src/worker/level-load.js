@@ -79,6 +79,14 @@ export function readLevelLakes(bytes, { cells = GRID, v6 = false } = {}) {
   }, "lakes");
 }
 
+/**
+ * The track's own water level in feet from the .LVL `!waterHeight` (half feet), or null for none (0, or no line). No
+ * range is imposed: the game's 0..510 ft is what its ground can reach, and a version 6 track's water spans its own
+ * terrain range, 2 * terrainHeightBase to 2 * (terrainHeightBase + 65536 / terrainHeightStep) half feet (the
+ * specification's section 10, item 7), so the value is read as it is on every track.
+ */
+export const lvlWaterLevelFt = (waterHeight) => (waterHeight ? waterHeight / 2 : null);
+
 /** A level name's stem as the waterfall loader takes it: up to the first '.', at most 63 characters (CP4_EXE_ANALYSIS.md 12.1.1). */
 export const fallStem = (name) => podPathTitle(name).split(".")[0].slice(0, 63);
 
@@ -298,7 +306,7 @@ export async function loadLevel(vfs, sitPath, sitBytes = null, { waterfalls = tr
     groundBoxes,
     sky,
     /** The water level in feet (the LVL's `!waterHeight` is in half feet), or null for none. */
-    waterLevelFt: lvl.waterHeight ? lvl.waterHeight / 2 : null,
+    waterLevelFt: lvlWaterLevelFt(lvl.waterHeight),
   };
 }
 

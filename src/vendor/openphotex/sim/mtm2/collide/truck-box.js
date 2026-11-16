@@ -2,24 +2,35 @@ import { truckRadius } from "../truck/recovery.js";
 import { HULL_ORDER, WHEEL_ORDER, depthInside, faceNormal, nearestFace } from "./faces.js";
 import { cornerNearTriangles, triangleBox, triHullPoints, triTireWall, triWheelSupport } from "../../cp4/truck-tri.js";
 import { lastHub, pushPoint, setBoxForce, setTruckForce, toBody, toWorld, touched, truckMass, unit, } from "./truck-pair.js";
-/** The sphere and separating-axis early out (§14.14 step 1). */
-export function truckBoxSeparated(s, p, box, dt) {
+/**
+ * The sphere and separating-axis early out (§14.14 step 1). A box that takes Community Patch 4's triangle path
+ * (`rules`, `triangleBox`) is separated only past both its own faces and its model's triangles: CP4 widens each slab to
+ * the shape's bounds in the box frame (OpenMTM2 docs/CP4_EXE_ANALYSIS.md 11.2, `FUN_1403af350` with `FUN_1401815f0`),
+ * so a model that stands above its origin (a deck 16 ft tall on a box centred on its base, which reaches 8 ft up) is
+ * still met above the box's top. Its pair sphere is CP4's too: twice the truck's radius and the box's (`FUN_1403767f0`).
+ */
+export function truckBoxSeparated(s, p, box, dt, rules) {
     const R = truckRadius(p);
+    const tri = rules ? triangleBox(box, rules) : false;
     const dx = s.pos[0] - box.pos[0], dy = s.pos[1] - box.pos[1], dz = s.pos[2] - box.pos[2];
-    if (dx * dx + dy * dy + dz * dz >= (R + box.radius) ** 2)
+    const reach = tri ? 2 * (R + box.radius) : R + box.radius;
+    if (dx * dx + dy * dy + dz * dz >= reach ** 2)
         return true;
     const d = toBody(box.matrix, dx, dy, dz);
     const iv = toWorld(s.matrix, s.bvel[0], s.bvel[1], s.bvel[2]);
     const v = toBody(box.matrix, iv[0] - box.vel[0], iv[1] - box.vel[1], iv[2] - box.vel[2]);
+    const shape = tri ? box.shape : null;
     for (let k = 0; k < 3; k++) {
+        const lo = shape ? Math.min(-box.half[k], shape.min[k]) : -box.half[k];
+        const hi = shape ? Math.max(box.half[k], shape.max[k]) : box.half[k];
         if (d[k] <= 0) {
             const vk = v[k] < 0 ? 0 : v[k];
-            if (d[k] + R + vk * dt < -box.half[k])
+            if (d[k] + R + vk * dt < lo)
                 return true;
         }
         else {
             const vk = v[k] > 0 ? 0 : v[k];
-            if (d[k] - R + vk * dt > box.half[k])
+            if (d[k] - R + vk * dt > hi)
                 return true;
         }
     }
@@ -33,7 +44,7 @@ export function truckBoxSeparated(s, p, box, dt) {
  * `s.prevPos` and `s.prevMatrix` are the truck's pose before this step's move.
  */
 export function collideTruckBox(s, p, box, dt, rules) {
-    if (truckBoxSeparated(s, p, box, dt))
+    if (truckBoxSeparated(s, p, box, dt, rules))
         return null;
     const mt = truckMass(p);
     const pushable = box.mass !== 0 && box.mass < mt;
@@ -56,7 +67,7 @@ export function collideTruckBox(s, p, box, dt, rules) {
             tireContactPoint(s, p, box, i, pair, dt);
         }
     }
-    if (box.mass > 0 && !truckBoxSeparated(s, p, box, dt)) {
+    if (box.mass > 0 && !truckBoxSeparated(s, p, box, dt, rules)) {
         for (let c = 0; c < 8; c++) {
             if (tri && !cornerNearTriangles(box, c, rules))
                 continue;
@@ -80,7 +91,7 @@ export function collideTruckBox(s, p, box, dt, rules) {
 }
 /** The immovable case only, whatever the box's mass (ground boxes have none). Returns the contact, as `collideTruckBox`. */
 export function collideTruckImmovableBox(s, p, box, dt, rules) {
-    if (truckBoxSeparated(s, p, box, dt))
+    if (truckBoxSeparated(s, p, box, dt, rules))
         return null;
     const touch = { hit: null };
     const tri = triangleBox(box, rules);

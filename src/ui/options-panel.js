@@ -6,7 +6,7 @@ import { buildKind, defaultSkin } from "../install/exe-version.js";
 import { el } from "./dom.js";
 import { showAlert, showConfirm } from "./dialogs.js";
 import { fullscreenButton } from "./display-mode.js";
-import { AI_BEHAVIOURS, LANGUAGES, PHYSICS_MODELS, applyMtm1Classic, applyMtm2Classic, applyOpenMtm2, clearSettings, languageOf, optionsFile, physicsModel, readOptionsFile, saveSettings } from "../app/settings.js";
+import { AI_BEHAVIOURS, CP4_NORMAL_STRENGTH, LANGUAGES, PHYSICS_MODELS, applyMtm1Classic, applyMtm2Classic, applyOpenMtm2, clearSettings, languageOf, optionsFile, physicsModel, readOptionsFile, saveSettings } from "../app/settings.js";
 import { offlineStatusText } from "../app/offline.js";
 import { loadStrings } from "../app/strings-store.js";
 import { locName, msg } from "../game/strings.js";
@@ -596,7 +596,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       target.textContent = t("Copying <<1>> <<2>>%", name, total ? Math.round((copied / total) * 100) : 100);
     });
     try {
-      const done = await context.assets.call("reloadInstall", { files: found.files, podIni: found.podIni, exeVersion: found.exeVersion ?? null, weatherArt: found.weatherArt ?? [], videos: settings.copyVideos ? found.videos ?? [] : [], force: true });
+      const done = await context.assets.call("reloadInstall", { files: found.files, podIni: found.podIni, exeVersion: found.exeVersion ?? null, weatherArt: found.weatherArt ?? [], maskArt: found.maskArt ?? [], videos: settings.copyVideos ? found.videos ?? [] : [], force: true });
       const lines = [t("<<1>> archives mounted, in POD.INI order.", done.archives.length)];
       if (done.added.length) lines.push(t("Read again: <<1>>.", done.added.join(", ")));
       if (done.removed.length) lines.push(t("Removed: <<1>>.", done.removed.join(", ")));
@@ -938,6 +938,20 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       toggle(msg("CP4 substeps offline"), "cp4SubstepsOffline", msg("Under the CommPatch4 physics: each 40 ms tick runs as four 10 ms steps offline too, as Community Patch 4 always does online. From the next race")),
       toggle(msg("Roofed arenas lit as outdoors"), "cp4ShadowShells", msg("Community Patch 4 beta 0.53's outside light: with Smooth textures, while the camera is inside a big roofed building (500 ft or more across, its roof covering 70% of it), the building casts no sun shadow, so the trucks and the floor under it are lit as in the open. The building is still drawn. From the next race")),
       toggle(msg("Waterfalls"), "cp4Waterfalls", msg("Community Patch 4 beta 0.53's waterfalls: the falls a track's .WFL places are drawn, with their mist and their sound. Off, the file is not read. From the next race")),
+      toggle(msg("Waterfall droplets"), "cp4WaterfallDroplets", msg("Community Patch 4 beta 0.53 hotfix 3's waterfall droplets: spray thrown up where a fall with SPLASH lands, in water or on dry ground, near the player. Needs Waterfalls. From the next race")),
+      // Community Patch 4 beta 0.53 hotfixes 2 and 3 (CP4_EXE_ANALYSIS.md 15.1), in its menu's order.
+      toggle(msg("Always On Normal-Terrain"), "cp4TerrainNormalAlways", msg("Community Patch 4's terrain detail on every track: a track without a painted mask gets one from its ground textures, dark ground twice as detailed as bright. A track's own mask always wins. Needs CP3 Terrain detail (Enhanced look). From the next race")),
+      slider(msg("Normal-Terrain Strength"), {
+        ...CP4_NORMAL_STRENGTH, value: settings.cp4TerrainNormalStrength ?? 100, format: (v) => `${v}%`,
+        set: (v) => { settings.cp4TerrainNormalStrength = v; save(); },
+        title: msg("Default mask only - a track's own mask is unchanged. From the next race"),
+      }),
+      toggle(msg("Always On Normal-Water"), "cp4WaterNormalAlways", msg("Community Patch 4's water detail on every track: small drifting ripples on the Reflective water of a track without its own water mask. A track's own mask always wins. From the next race")),
+      slider(msg("Normal-Water Strength"), {
+        ...CP4_NORMAL_STRENGTH, value: settings.cp4WaterNormalStrength ?? 100, format: (v) => `${v}%`,
+        set: (v) => { settings.cp4WaterNormalStrength = v; save(); },
+        title: msg("Default mask only - a track's own mask is unchanged. From the next race"),
+      }),
       sub(msg("OMTM2")),
       row(msg("Terrain overlap"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.terrainOverlap !== false, "aria-label": t("Terrain overlap"), "data-opt": "Terrain overlap", onchange: (event) => { settings.terrainOverlap = event.target.checked; save(); } }),
         msg("The ground tiles overlap by two pixels, as Monster Truck Madness 2 draws them. Off, they meet edge to edge, as MTM1 draws them. Some HD texture packs need it on. From the next race")),

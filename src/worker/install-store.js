@@ -107,7 +107,13 @@ async function copyWeatherArt(weatherArt = []) {
   for (const { name, file } of weatherArt) await copyFile(file, `${INSTALL_DIR}/WEATHERART/${name.toUpperCase()}`, () => {});
 }
 
-export async function copyInstall({ files, podIni, exeVersion = null, weatherArt = [], videos = [], edition = "full" }, onProgress) {
+/** The MaskArt folder's pictures (install/inspect-source.js `findMaskArt`), copied afresh to `install/MASKART` (worker/art-texture.js). */
+async function copyMaskArt(maskArt = []) {
+  await removePath(`${INSTALL_DIR}/MASKART`);
+  for (const { name, file } of maskArt) await copyFile(file, `${INSTALL_DIR}/MASKART/${name.toUpperCase()}`, () => {});
+}
+
+export async function copyInstall({ files, podIni, exeVersion = null, weatherArt = [], maskArt = [], videos = [], edition = "full" }, onProgress) {
   await removeInstall();
   const total = files.reduce((sum, f) => sum + f.file.size, 0);
   let copied = 0;
@@ -119,11 +125,13 @@ export async function copyInstall({ files, podIni, exeVersion = null, weatherArt
   }
   await writeBytesToFile(`${INSTALL_DIR}/POD.INI`, new TextEncoder().encode(podIni));
   await copyWeatherArt(weatherArt);
+  await copyMaskArt(maskArt);
   await copyVideos(videos);
   const manifest = {
     format: MANIFEST_FORMAT,
     archives: files.map(({ name, file }) => ({ name, size: file.size, modified: file.lastModified ?? null })),
     weatherArt: weatherArt.map(({ name }) => name.toUpperCase()),
+    maskArt: maskArt.map(({ name }) => name.toUpperCase()),
     videos: videos.map(({ name }) => name.toUpperCase()),
     exeVersion,
     // "trial" for the MTM2 trial (install/required-pods.js `isTrialPodSet`), else "full".
@@ -141,7 +149,7 @@ export async function copyInstall({ files, podIni, exeVersion = null, weatherArt
  * date (Reload POD.INI: a POD rebuilt with the same name, size and date is still read afresh).
  * Returns the manifest with `added`, `removed` and `kept` archive names.
  */
-export async function syncInstall({ files, podIni, exeVersion = null, weatherArt = [], videos = [], force = false, edition = "full" }, onProgress) {
+export async function syncInstall({ files, podIni, exeVersion = null, weatherArt = [], maskArt = [], videos = [], force = false, edition = "full" }, onProgress) {
   const old = await readManifest();
   const before = new Map((old?.archives ?? []).map((a) => [a.name, a]));
   const wanted = new Set(files.map((f) => f.name));
@@ -164,11 +172,13 @@ export async function syncInstall({ files, podIni, exeVersion = null, weatherArt
   }
   await writeBytesToFile(`${INSTALL_DIR}/POD.INI`, new TextEncoder().encode(podIni));
   await copyWeatherArt(weatherArt);
+  await copyMaskArt(maskArt);
   await copyVideos(videos);
   const manifest = {
     format: MANIFEST_FORMAT,
     archives: files.map(({ name, file }) => ({ name, size: file.size, modified: file.lastModified ?? null })),
     weatherArt: weatherArt.map(({ name }) => name.toUpperCase()),
+    maskArt: maskArt.map(({ name }) => name.toUpperCase()),
     videos: videos.map(({ name }) => name.toUpperCase()),
     exeVersion,
     // "trial" for the MTM2 trial (install/required-pods.js `isTrialPodSet`), else "full".

@@ -7584,6 +7584,14 @@
   "text": "Las cascadas de la beta 0.53 de Community Patch 4: se dibujan las cascadas que coloca el .WFL de una pista, con su bruma y su sonido. Desactivado, el archivo no se lee. Desde la próxima carrera"
  },
  {
+  "tag": "Waterfall droplets",
+  "text": "Gotas de las cascadas"
+ },
+ {
+  "tag": "Community Patch 4 beta 0.53 hotfix 3's waterfall droplets: spray thrown up where a fall with SPLASH lands, in water or on dry ground, near the player. Needs Waterfalls. From the next race",
+  "text": "Las gotas de las cascadas del hotfix 3 de la beta 0.53 de Community Patch 4: la espuma que salta donde cae una cascada con SPLASH, en el agua o en tierra seca, cerca del jugador. Necesita Cascadas. Desde la próxima carrera"
+ },
+ {
   "tag": "empty file",
   "text": "archivo vacío"
  },
@@ -7654,5 +7662,33 @@
  {
   "tag": "Your place on the starting grid in a single-player race; Random leaves it to chance, as the game does",
   "text": "Tu lugar en la parrilla de salida en una carrera de un jugador; Aleatorio lo deja a la suerte, como el juego"
+ },
+ {
+  "tag": "Always On Normal-Terrain",
+  "text": "Normal-Terrain siempre activo"
+ },
+ {
+  "tag": "Community Patch 4's terrain detail on every track: a track without a painted mask gets one from its ground textures, dark ground twice as detailed as bright. A track's own mask always wins. Needs CP3 Terrain detail (Enhanced look). From the next race",
+  "text": "El detalle del terreno de Community Patch 4 en todas las pistas: una pista sin máscara pintada recibe una hecha con sus texturas de suelo, con el suelo oscuro el doble de detallado que el claro. La máscara propia de una pista siempre manda. Necesita Detalle del terreno de CP3 (aspecto mejorado). Desde la próxima carrera"
+ },
+ {
+  "tag": "Normal-Terrain Strength",
+  "text": "Intensidad de Normal-Terrain"
+ },
+ {
+  "tag": "Default mask only - a track's own mask is unchanged. From the next race",
+  "text": "Solo la máscara por defecto: la máscara propia de una pista no cambia. Desde la próxima carrera"
+ },
+ {
+  "tag": "Always On Normal-Water",
+  "text": "Normal-Water siempre activo"
+ },
+ {
+  "tag": "Community Patch 4's water detail on every track: small drifting ripples on the Reflective water of a track without its own water mask. A track's own mask always wins. From the next race",
+  "text": "El detalle del agua de Community Patch 4 en todas las pistas: pequeñas ondas a la deriva en el Agua reflectante de una pista sin máscara de agua propia. La máscara propia de una pista siempre manda. Desde la próxima carrera"
+ },
+ {
+  "tag": "Normal-Water Strength",
+  "text": "Intensidad de Normal-Water"
  }
 ]

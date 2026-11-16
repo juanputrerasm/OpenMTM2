@@ -9,7 +9,9 @@ as it stood when it was written, and the plan's open items list is the one kept 
 Community Patch 4 beta 0.53: its waterfalls and its roofed arenas lit as outdoors (the new monster.exe and its
 renderer analysed, CP4_EXE_ANALYSIS.md 12 to 14); the course map across the world edge; reports from Beaver City, a
 track built of meshes; three options moved; track format version 6; Deathmatch spawns on the drivable
-surface; the instant replay in network races; a filter and a start position in the Computer Opponents dialog:
+surface; the instant replay in network races; a filter and a start position in the Computer Opponents dialog;
+then beta 0.53 hotfixes 2 and 3 (CP4_EXE_ANALYSIS.md 15 and 16: the detail maps, the waterfalls rebuilt, the fog
+volumes as the renderer DLL draws them) and fixes from playing CP4 tracks:
 
 - **OpenPhotex 1.7.3** vendored: the `.WFL` waterfall reader and writer, the game's waterfall build (`cp4Sim`), and
   track format version 6 (`.SI3`, the `.TXV` v6 keys, v6 heights, 16-bit ground boxes, `.WTR` and `.WFL` version 2).
@@ -89,6 +91,57 @@ surface; the instant replay in network races; a filter and a start position in t
   leave, nearest the player's start first. The engine's load messages show as the race begins. Not ported: the
   droplets, the foam zones and the landing rings. An option under Advanced, CP4, "Waterfalls", on by default
   (settings version 16 turns it on for older saves). Tests: tests/cp4-falls.test.mjs, with Fila's 0.53 sandbox opt-in.
+
+- **OpenPhotex 1.7.3** re-vendored for the hotfixes: the waterfall build as hotfix 3 does it (`sim/cp4/fall-sheet.js`
+  flow tubes, split, ribbons, slab back face, speed advect and relaxation; `sim/cp4/fall-droplets.js` the droplet
+  emitter; mist per stream), `.WFL` rough from (byte 130, Traxx 1.7.3), the `.WTR` header's minor and edge-rule flag,
+  and the truck-box early out by CP4's rule.
+- **Normal-Water and Normal-Terrain** (hotfixes 2 and 3, CP4_EXE_ANALYSIS.md 15.1 to 15.3; worker/track-build.js
+  `loadWaterDetail`, worker/art-texture.js `loadDetailImage`, shared/detail-normal.js, shared/terrain-mask.js
+  `defaultTerrainMask`, render/water-surface.js): a track's `_WMSK` and `_WDTL` put the engine's drifting detail
+  ripples on the Reflective water and CP4's lakes (the generated normal map when the track has no `_WDTL`, built with
+  the engine's float32 steps); `_DTL`, `_WDTL` and the masks are read from the game folder's MaskArt first, up to 2048
+  a side, odd shapes loaded. Options under Advanced, CP4: Always On Normal-Terrain (a default mask from the ground
+  textures), Normal-Terrain Strength, Always On Normal-Water, Normal-Water Strength (0 to 300 %, the default masks
+  only); the terrain detail gains hotfix 3's sun term. Tests: tests/cp4-hotfix.test.mjs.
+- **The sun below the horizon** (15.8; game/lighting.js `sunBelowHorizon`, render/sun-shadows.js, render/sun-flare.js,
+  render/water-surface.js, worker/relief-mesh.js): no direct light, cast shadows, glint or flare from a sun under the
+  horizon, as the engine's formulas give.
+- **Waterfalls as hotfix 3 builds them** (16; worker/cp4-falls.js, render/waterfalls.js, game/fog-volumes.js
+  `withFallMists`): columns that meet merge into flow tubes, torn triangles are dropped, ribbons fill the gaps, the
+  sheet has a back face as thick as the engine's slab, the speed is advected down the sheet, a landing per stream with
+  its own mist (and mist on dry landings), and a fall's rough from (where the whitewater starts, or none) is read.
+- **The enhanced look on the falls** (16.7, 16.10; render/waterfall-water.js, game/waterfalls.js `FALL_WHITEWATER`,
+  `FALL_WATER_LOOK`): in the enhanced picture a fall that is not frozen wears CP4's enhanced look: whitewater from the
+  drop, the speed and the impact, the froth cells and gaps, the veil, Normal-Water on the sheet; its water body is
+  OpenMTM2's own, from the Reflective water (its colour, sky, Fresnel and glint), and without Reflective water the falls
+  fill the same values from the scene's light and sky themselves, so they never fall back to the game's ripple texture.
+  Tests: tests/cp4-falls-enhanced.test.mjs.
+- **Waterfall droplets** (16.5; render/waterfall-spray.js, OpenPhotex's emitter): spray thrown up where a SPLASH fall
+  lands, in water or on dry ground, near the player: one instanced draw. Option "Waterfall droplets" under Advanced,
+  CP4, on by default.
+- **Fog volumes as the renderer DLL draws them** (15.11; game/fog-volumes.js, render/fog-volumes.js): 12 jittered
+  samples a ray ending at the scene's depth, the wisps from the DLL's 64 cubed noise volume drifting with the
+  volume's wind, the superellipse rounding and the frayed edge, smootherstep fades. OpenMTM2's own: the ground under a
+  volume ends its lines of sight (a 32 x 32 height map a volume), so fog no longer fills the hill it sits on, and a
+  waterfall's mist is softened at its edges and top (`FALL_MIST_SOFTEN`). Tests: tests/cp4-fog-volumes-dll.test.mjs.
+- **No white leaves** (15.12; render/track-scene.js `modelMaterial`): only a shiny (Gouraud) face takes the sun's
+  highlight, as in the DLL's object material; lit foliage and other matt faces had a strong white specular.
+- **A lake's shore** (worker/cp4-world.js `lakeShore`, render/lakes.js, render/water-surface.js; OpenMTM2's own, CP4
+  draws a lake as whole 32 ft tiles): with Reflective water a lake's water goes on up to two tiles past its tiles
+  where the ground lies under its surface, cut by the terrain and meshes as the track's water is and faded out with
+  noise, so its edge follows the shore instead of the tiles' steps. Drawing only: those tiles stay dry for the trucks.
+  Tests: tests/lake-shore.test.mjs.
+- **Trucks no longer stick in a model standing above its origin** (OpenPhotex `truckBoxSeparated`; CP4_EXE_ANALYSIS.md
+  11.2, CP4's pair early out): the separation test between a truck and a triangle-collision model used the model's
+  box alone, so a ramp built above its origin was skipped while the wheels were in it and they caught in its
+  surface. It now reaches 2 (R + r) and spans the shape's own bounds, as CP4 does.
+- **Track format version 6, more**: a painted mask covers the track's own world (`_MASK` up to 2048 a side on a
+  512-cell world, `_WMSK` over its width), and the `.LVL` water height is read with no 510 ft cap, so a version 6
+  track's water may stand anywhere in its terrain's range (worker/level-load.js `lvlWaterLevelFt`;
+  docs/EXTENSIONS.md). The boxes near the trucks are listed through a grid on the world's wrap (worker/sim-worker.js),
+  with the same list and order: on Liberty City's 6,600 boxes the old all-pairs test took 94% of the simulation.
+- **tools/re**: decompile targets `cp4b3` and `cp4b3dll` for hotfix 3's monster.exe and trid3d11.dll.
 
 ## v0.7.3
 

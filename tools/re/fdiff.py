@@ -21,7 +21,10 @@ TARGETS = {
     "evo2": ("evo2/out", "~/games/evo2", "4x42.exe"),
     "cpr": ("cpr/out", "~/games/cpr", "CART.EXE"),
     "cp4": ("cp4/out", "~/games/cp4beta052", "monster.exe"),
-    "cp4b2": ("cp4b2/out", "~/games/mtm2", "monster.exe"),
+    "cp4b2": ("cp4b2/out", os.path.join(REPO, "re/cp4b2/ghidra"), "monster.exe"),
+    "cp4b2dll": ("cp4b2dll/out", os.path.join(REPO, "re/cp4b2dll/ghidra"), "trid3d11.dll"),
+    "cp4b3": ("cp4b3/out", "~/Downloads/Beta0.53_hotfix3", "monster.exe"),
+    "cp4b3dll": ("cp4b3dll/out", "~/Downloads/Beta0.53_hotfix3", "trid3d11.dll"),
 }
 n1, n2 = os.environ.get("FDIFF", "mtm1:mtm2").split(":")
 

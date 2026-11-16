@@ -954,6 +954,18 @@ export function createSession(init) {
    * This frame's boxes (MTM2_PHYSICS.md 14.15): those within r + R + 10 ft on x and z of a truck
    * or of a box already listed, and those moving faster than 0.1 ft/s; then the ramps (14.19).
    */
+  const LIST_CELL_FT = 256, listCells = Math.max(1, Math.round(worldFt / LIST_CELL_FT));
+  const listGrid = new Map();
+  /** Calls `fn(cell)` for each grid cell (on the wrap) the square of half side `reach` about (x, z) covers, until it returns true. */
+  function eachListCell(x, z, reach, fn) {
+    const x0 = Math.floor((x - reach) / LIST_CELL_FT), x1 = Math.floor((x + reach) / LIST_CELL_FT);
+    const z0 = Math.floor((z - reach) / LIST_CELL_FT), z1 = Math.floor((z + reach) / LIST_CELL_FT);
+    const nx = Math.min(listCells, x1 - x0 + 1), nz = Math.min(listCells, z1 - z0 + 1);
+    for (let j = 0; j < nz; j++) {
+      const cz = (((z0 + j) % listCells) + listCells) % listCells;
+      for (let i = 0; i < nx; i++) if (fn(cz * listCells + ((((x0 + i) % listCells) + listCells) % listCells))) return;
+    }
+  }
   function listBoxes() {
     listed.length = 0;
     const near = (x, z, r, box) => {
@@ -966,17 +978,41 @@ export function createSession(init) {
     // OpenPhotex `listedByComputerTruck`); the player's truck and the listed objects bring in every box.
     const truckBringsIn = (box) => trucks.some((t, i) => near(t.state.pos[0], t.state.pos[2], t.radius, box)
       && (i === 0 || !mtm2Listing || S.listedByComputerTruck(box.type, box.hasModel, networkDrivers)));
+    // "Near a box already listed", without testing every listed box: the boxes listed so far stand in a grid on the
+    // world's wrap, each in the cells its reach covers (its radius + 10 ft either way), and a box asks only the cells
+    // it covers (its radius either way). Two boxes are near only when those squares overlap, so the answer, the list
+    // and its order are the same as testing them all (a box still sees exactly the boxes listed before it). A city of
+    // 6,600 boxes listed one another all over the map: testing each against every listed box took 94 percent of the
+    // simulation (gta3conversion's Liberty City, 25 steps a second).
+    listGrid.clear();
+    const listedNear = (box) => {
+      let hit = false;
+      eachListCell(box.pos[0], box.pos[2], box.radius, (cell) => {
+        const there = listGrid.get(cell);
+        if (there) for (const o of there) if (near(o.pos[0], o.pos[2], o.radius, box)) { hit = true; return true; }
+        return false;
+      });
+      return hit;
+    };
+    const addListed = (box) => {
+      listed.push(box);
+      eachListCell(box.pos[0], box.pos[2], box.radius + 10, (cell) => {
+        const there = listGrid.get(cell);
+        if (there) there.push(box); else listGrid.set(cell, [box]);
+        return false;
+      });
+    };
     for (const box of levelBoxes) {
       if (box.ghost) continue;
       const moving = Math.hypot(box.vel[0], box.vel[1], box.vel[2]) > 0.1;
-      if (moving || truckBringsIn(box) || listed.some((o) => near(o.pos[0], o.pos[2], o.radius, box))) listed.push(box);
+      if (moving || truckBringsIn(box) || listedNear(box)) addListed(box);
     }
     // An extension's own loose objects (Combat's lost wheels) are always in the list: every truck meets them.
-    for (const box of extensionSession?.movableBoxes?.() ?? []) listed.push(box);
-    for (const box of mutator?.movableBoxes() ?? []) listed.push(box);
+    for (const box of extensionSession?.movableBoxes?.() ?? []) addListed(box);
+    for (const box of mutator?.movableBoxes() ?? []) addListed(box);
     ground.ramps.length = 0;
     for (const ramp of allRamps) {
-      if (nearTruck(ramp) || listed.some((o) => near(o.pos[0], o.pos[2], o.radius, ramp))) ground.ramps.push(ramp);
+      if (nearTruck(ramp) || listedNear(ramp)) ground.ramps.push(ramp);
     }
   }
 

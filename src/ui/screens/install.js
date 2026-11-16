@@ -245,6 +245,8 @@ export default async function mount(container, context, { requiredMissing = [] }
         edition: result.edition ?? "full",
         // Community Patch 3's loose WeatherArt folder (worker/weather-art.js).
         weatherArt: (result.weatherArt ?? []).map(({ name, file }) => ({ name, file: installEntry(file) })),
+        // Community Patch 4's loose MaskArt folder: track masks and detail maps (worker/art-texture.js).
+        maskArt: (result.maskArt ?? []).map(({ name, file }) => ({ name, file: installEntry(file) })),
         // The game's videos and the EXTRAS.INI that lists them (game/videos.js).
         // Only when the setup's "Copy the game's videos" is ticked (off by default).
         videos: settings.copyVideos ? (result.videos ?? []).map(({ name, file }) => ({ name, file: installEntry(file) })) : [],

@@ -2219,6 +2219,16 @@ engine's rules (CP4_EXE_ANALYSIS.md 2, 3, 4 and, for beta 0.53's waterfalls, 12)
 - Each lake is a flat sheet at its own surface over the 32 ft tiles of the .WTR's tile map, a
   row's run of tiles one quad (`buildLakeSheets`; `src/render/lakes.js` draws them, in every copy
   of the world). A lake does not bob: the track's water rises and falls, a lake stays where it is.
+- **The shore** (OpenMTM2's own; Community Patch 4 stops a lake at its tiles' edges): with "Reflective water" a lake's
+  water also goes on past its tiles, up to two tiles out (`LAKE_SHORE`, worker/cp4-world.js `lakeShore`).
+  - It covers the tiles that are no lake's, have ground under the lake's surface somewhere and do not dip to the
+    track's own water.
+  - It fades out with the distance from the lake's tiles (`LAKE_SHORE_FADE`, render/water-surface.js), its edge broken
+    by noise.
+  - The terrain and the meshes cut it where they rise over it, as they cut the track's water. So the outline follows
+    them and the low ground beside the lake rather than the tiles' steps.
+  - It is drawn only: those tiles stay dry for the trucks.
+  - Without "Reflective water" a lake keeps its tiles.
 - It looks as the track's water does. With "Reflective water" it is that water
   (render/water-surface.js): waves, the sky, the sun's glint and the light through the depth to
   its bed (the ground map gives the depth). Without, it wears the game's animated frames, as the
@@ -2268,19 +2278,24 @@ engine's rules (CP4_EXE_ANALYSIS.md 2, 3, 4 and, for beta 0.53's waterfalls, 12)
   met, but drawn as fog (`src/render/fog-volumes.js`). Each frame the nearest 16 the weather's mask
   allows are drawn, those beyond the draw distance and a tile left out (game/fog-volumes.js
   `fogVolumesShown`), at the copy of the world nearest the eye.
-- Each is drawn on its box's faces (from inside, the far faces, over everything in front of
-  them): every pixel sums the fog along its line of sight through the box in 24 steps. The
-  engine gives its renderer the extinction 3 / vis a foot, the height falloff 1 / half, the soft
-  edge, top and bottom, the max opacity and the roundness; how its renderer (`trid3d11.dll`,
-  not in the CP4 beta) turns those into a density is not known. **An approximation pending the
-  renderer's RE**, after Fila's own description of the feature: the density is the extinction at
-  the bottom and halves every `half` ft upward; it eases in over `edge` from the sides (the
-  footprint a rectangle at roundness 0, an ellipse at 1, between them a mix of the two distances),
-  over `top` from the top and `bot` from the bottom; the opacity is 1 - e^-sum, held to maxOp.
-  The colour is the volume's times the weather's light (Cloudy 0.7, Rain 0.3, Dusk 0.375, Night
-  0.25, Pitch Black 0.05), and the scene's fog veils the volume as it does everything else.
-- Not drawn: the wisps. The line of sight stops at the box, not at what stands in it: the ground
-  inside a volume is fogged by the depth of the box behind it.
+- Each is drawn as Community Patch 4's renderer DLL draws it (beta 0.53 hotfix 3's `trid3d11.dll`,
+  CP4_EXE_ANALYSIS.md 15.11):
+  - Every pixel sums the fog along its line of sight through the box in 12 jittered steps.
+  - The density is the extinction 3 / vis a foot at the floor, halving every `half` ft upward.
+  - `wisp` breaks it up with a drifting 3D noise (the DLL's 64 x 64 x 64 volume, a tile `wsize` x 8 ft across,
+    drifting at `wspd` ft/s), which also frays the outline inward.
+  - The footprint is a superellipse from a near rectangle (roundness 0) to an ellipse (1).
+  - The sides, top and bottom fade in over `edge`, `top` and `bot` with a smootherstep.
+  - The opacity is 1 - e^-sum, held to maxOp.
+  - The colour is the volume's times the weather's light (Cloudy 0.7, Rain 0.3, Dusk 0.375, Night 0.25, Pitch Black
+    0.05), and the scene's fog veils the volume as it does everything else.
+- The DLL ends each line where it meets the scene (its depth). OpenMTM2 instead:
+  - draws the faces toward the eye with the depth test, so what stands in front of the box hides it;
+  - ends the line inside the box where it first meets the ground, from a 32 x 32 map of the drawn ground under the box
+    made at load (game/fog-volumes.js `fogVolumeGround`).
+
+  Trees and rocks standing in the fog do not end the line. From inside the box, its far faces are drawn over
+  everything.
 
 ### Waterfalls
 
@@ -2302,17 +2317,29 @@ Beta 0.53's `WORLD\<stem>.WFL` (CP4_EXE_ANALYSIS.md 12, its 12.14 says what of i
   with SPLASH. In Snow a FREEZE fall takes look 3, the ice: no flow, no foam, the texture recoloured between two ice
   blues and shaded by a three-octave noise. Then the scene's light (ambient, the light rig's sky and ground, the sun on
   the sheet's normal) and the weather's fog. See-through, after the water and the lakes, before the fog volumes; the
-  water's mirror draws the falls too, cut at its plane. Looks 1 and 2 are Community Patch 4's own Enhanced and
-  Realistic lake water, which the port does not have: "Reflective water" keeps look 0.
+  water's mirror draws the falls too, cut at its plane.
+- **Enhanced look** (`src/render/waterfall-water.js`): in the enhanced picture a fall that is not frozen wears a look
+  built on OpenMTM2's water in place of look 0 (with "Reflective water" it reads that water's light, sky and
+  Normal-Water; without it the falls work the same light and sky out for themselves, without Normal-Water) (Community Patch 4's looks 1 and 2 are built on its
+  own lake water, which the port does not have): the water's own colour in the same daylight, seen through the sheet as
+  thick as the engine has it, milky where it runs fast as the wakes are, the same sky mirrored through the same Fresnel
+  term and the same glint, small ripples riding down with it; over it hotfix 3's whitewater as the engine rules it (W
+  from the drop, the speed past the fall's roughFrom and the impact, the clear lip, froth from cellular noise eroded by
+  W, the gaps showing the water, the veil of a tall fall, the softer back face) and Normal-Water as the lakes have it.
+  The foam strip where it lands is white over the pool's own churned water. The numbers to tune are
+  `src/game/waterfalls.js` `FALL_WATER_LOOK`.
 - **Texture**: the game's ripple (`RIPPL100` .. `RIPPL800` and back, a quarter second a frame, held in Snow), or the
   fall's own stem: the track's .ANI animation of that name (frames and delay, as the engine plays the track's
   animations), else the still `ART\<stem>.RAW` (or its HD picture), else the ripple.
 - **Mist**: each fall's mist box (OpenPhotex `fallMist`) is a fog volume after the SIT's (game/fog-volumes.js
-  `withFallMists`), drawn as they are, while the 64 slots last; a FREEZE fall's is not drawn in Snow.
+  `withFallMists`), drawn as they are, while the 64 slots last; a FREEZE fall's is not drawn in Snow. OpenMTM2's own:
+  the mist fades out over more of its box than the engine's 20 ft sides and 5 ft top, so its outline does not show
+  (`FALL_MIST_SOFTEN`: the sides over 0.85 of the footprint's smaller half extent, the top over 0.6 of the height).
 - **Sound**: a fall with the SOUND flag and a stem loops `SOUND\<stem>.WAV` from its landing (src/audio/world-audio.js),
   at its volume, heard further by its hearing (1 to 2), to 1000 ft. The falls nearest the player's start take the
   room the track's own looping sounds leave of 30; an empty stem or a FREEZE fall in Snow is silent.
-- Not drawn: the droplets, the foam zones and the landing rings (CP4_EXE_ANALYSIS.md 12.14 says why).
+- Not drawn: the foam zones and the landing rings (CP4_EXE_ANALYSIS.md 12.14 says why). The droplets are drawn since
+  hotfix 3 (`src/render/waterfall-spray.js`, Options' "Waterfall droplets").
 
 ### The Spline and Full Map terrain
 

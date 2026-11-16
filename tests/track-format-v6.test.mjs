@@ -18,7 +18,9 @@ import { createBoxSolid, groundBoxGrids } from "../src/game/ground-boxes.js";
 import { lakeAt, waterLevelAt } from "../src/game/lakes.js";
 import { buildLakeSheets } from "../src/worker/cp4-world.js";
 import { fogVolumesShown } from "../src/game/fog-volumes.js";
-import { readLevelFalls, readLevelLakes, readV6World } from "../src/worker/level-load.js";
+import { lvlWaterLevelFt, readLevelFalls, readLevelLakes, readV6World } from "../src/worker/level-load.js";
+import { terrainMaskSide } from "../src/worker/track-build.js";
+import { parseMtmLvl } from "../src/vendor/openphotex/index.js";
 import { buildTrackFalls, fallHeights, fallReadNotices } from "../src/worker/cp4-falls.js";
 import { writeWfl } from "../src/vendor/openphotex/mtm/wfl.js";
 import { writeWtr } from "../src/vendor/openphotex/mtm/wtr.js";
@@ -248,6 +250,37 @@ test("the ground's mesh, its chunks and the detail mask follow the world's cells
   // A mask spans the whole world: its right half is past 8192 ft on a 512-cell one.
   const mask = { width: 2, height: 1, rgba: new Uint8Array([0, 0, 0, 255, 255, 255, 255, 255]) };
   assert.deepEqual([...terrainMaskShares(new Float32Array([12288, 0, 0]), mask, W512)], [255]);
+});
+
+test("a painted mask covers the world once: px = floor(ft * size / W), 8192 ft or 16384 ft (9.5)", () => {
+  // A 4-texel strip, 0, 85, 170, 255: each texel's centre reads its own value.
+  const mask = { width: 4, height: 1, rgba: new Uint8Array([0, 0, 0, 255, 85, 85, 85, 255, 170, 170, 170, 255, 255, 255, 255, 255]) };
+  const read = (x, worldFt) => terrainMaskShares(new Float32Array([x, 0, 0]), mask, worldFt)[0];
+  for (const [W, texel] of [[8192, 2048], [W512, 4096]]) {
+    for (let px = 0; px < 4; px++) assert.equal(read(px * texel + texel / 2, W), px * 85, `${W}: texel ${px}`);
+    // The world wraps at W: a point a world further reads the same texel.
+    assert.equal(read(W + texel / 2, W), 0);
+  }
+  // On a 512-cell world the 256-cell texel's place is half way: 12288 ft is the fourth texel, not past the mask's end.
+  assert.equal(read(12288 + 2048, W512), 255);
+  // The 256-cell default is unchanged.
+  assert.equal(read(3 * 2048 + 1024), 255);
+  // A _MASK keeps twice the side on a 512-cell world; 256 cells as before.
+  assert.equal(terrainMaskSide(256), 1024);
+  assert.equal(terrainMaskSide(), 1024);
+  assert.equal(terrainMaskSide(512), 2048);
+});
+
+test("the track's own water height has no 510 ft cap: a version 6 track's spans its terrain's range (10, item 7)", () => {
+  const lvl = (water) => parseMtmLvl(["1", "TEXT", "X.RAW", "X.CLR", "X.ACT", "X.TEX", "", "", "", "", "", "!waterHeight", String(water), ""].join("\r\n"));
+  // Retail half feet, as before.
+  assert.equal(lvlWaterLevelFt(lvl(40).waterHeight), 20);
+  assert.equal(lvlWaterLevelFt(lvl(0).waterHeight), null);
+  assert.equal(lvlWaterLevelFt(undefined), null);
+  // Step 32, base -100: the range is 2 * -100 to 2 * (-100 + 2048) half feet, -100 ft to 1948 ft.
+  assert.equal(lvlWaterLevelFt(lvl(2 * (-100 + 65536 / 32)).waterHeight), 1948);
+  assert.equal(lvlWaterLevelFt(lvl(-200).waterHeight), -100);
+  assert.equal(lvlWaterLevelFt(lvl(1022).waterHeight), 511);
 });
 
 test("an extension's play area fits the world's size", () => {

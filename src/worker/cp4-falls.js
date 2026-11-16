@@ -1,13 +1,15 @@
 /*
-  Community Patch 4 beta 0.53's waterfalls (docs/CP4_EXE_ANALYSIS.md 12; docs/VISUALS.md, "Waterfalls") as the track
-  build hands them on, beside worker/cp4-world.js's lakes. The .WFL is read in worker/level-load.js by the engine's
-  parser; the sheets are built by OpenPhotex (sim/cp4/falls.ts: the walk, the budget, the vertices, the mist, the sound)
+  Community Patch 4's waterfalls as beta 0.53 hotfix 3 builds them (docs/CP4_EXE_ANALYSIS.md 12 and 16; docs/VISUALS.md,
+  "Waterfalls") as the track build hands them on, beside worker/cp4-world.js's lakes. The .WFL is read in
+  worker/level-load.js by the engine's parser; the sheets are built by OpenPhotex (sim/cp4/falls.ts and fall-sheet.ts:
+  the walk, the budget with the back face, the flow tubes, ribbons and slab, the landing streams, the mist, the sound)
   on the track's own terrain and water; this picks what the engine picks at load: the ground the walk runs on, the
-  on-screen messages, each fall's texture, which falls' sounds find room, and the mist's fog slots. The drawing is
-  render/waterfalls.js. Falls never touch the simulation (12.10).
+  on-screen messages, each fall's texture, which falls' sounds find room, and the mist's fog slots, one a stream. The
+  drawing is render/waterfalls.js, the droplets render/waterfall-spray.js. Falls never touch the simulation (12.10).
 */
 import {
-  FALL_SOUND_LOOP_ROOM, FALL_WEATHER_SNOW, buildFallMeshes, fallGround, fallHeightRange, fallMists, fallSound, fallTextureName, fallWater,
+  FALL_GRAPHICS_DEFAULTS, FALL_SOUND_LOOP_ROOM, FALL_WEATHER_SNOW, buildFallMeshes, fallGround, fallHeightRange, fallMists, fallSound, fallTextureName,
+  fallWater,
 } from "../vendor/openphotex/sim/cp4/falls.js";
 import { parseAnimations } from "../vendor/openphotex/tv/ani.js";
 import { podPathTitle } from "../vendor/openphotex/pod/paths.js";
@@ -77,6 +79,8 @@ export function fallBuildNotices(meshes) {
  * `cells` is the world's N and `terrain` its height step and base (`{ step, base }`, none without a terrainHeightMap):
  * a track format version 6 track's falls are built in its world (the specification's 9.3), the crest heights of a
  * version 2 file checked against the terrain's range (OpenPhotex `fallHeightRange`). The defaults are the 256 world's.
+ *
+ * The slab's `[Graphics] wfDepthScale` and `waterfallBulk` (16.2.1) keep their defaults (100 %): OpenMTM2 has no ini.
  */
 export function buildFalls(file, { heights, tileMap = null, lakes = [], waterLevelFt = null, cells = 256, terrain = {} }) {
   if (!file || !(file.size > 0) || file.status !== 0) return null;
@@ -84,6 +88,7 @@ export function buildFalls(file, { heights, tileMap = null, lakes = [], waterLev
   return buildFallMeshes(file.falls, {
     ...table, heightRange: fallHeightRange(file.major, terrain),
     ground: fallGround(heights, { cells, h128: !!heights.h128 }), water: fallWater(table, waterLevelFt),
+    wfDepthScale: FALL_GRAPHICS_DEFAULTS.wfDepthScale, waterfallBulk: FALL_GRAPHICS_DEFAULTS.waterfallBulk,
   });
 }
 
@@ -166,17 +171,17 @@ export async function trackAnimations(vfs, level) {
 /**
  * Everything of the falls the track build hands on (`level` from worker/level-load.js):
  * - `falls`: for render/waterfalls.js, the track's one vertex buffer (16 floats a vertex, OpenPhotex `FALL_VERTEX`) and
- *   index buffer, `list` per built fall (its anchor, index range, bounds, flags, opacity 0..1, crest speed, texture (an
- *   index into `textures`, or -1 for the ripple) and its columns, spacing and vertices), `textures` and `ripple` (the
- *   eight RIPPL frames, or null); null
- *   when no fall was built;
- * - `fogVolumes`: `sitVolumes` with the mist volumes after them (12.4);
+ *   index buffer, `list` per built fall (its anchor, index range, bounds, flags, opacity 0..1, crest speed, roughFrom,
+ *   texture (an index into `textures`, or -1 for the ripple) and its columns, spacing and vertices), `textures` and
+ *   `ripple` (the eight RIPPL frames, or null), and `droplets`: what the droplets' emitter needs of each fall (16.5:
+ *   OpenPhotex `stepFallDroplets`), or null when `droplets` is off; null when no fall was built;
+ * - `fogVolumes`: `sitVolumes` with the mist volumes after them, one a landing stream (16.4);
  * - `sounds`: the falls' entries for `soundObjects` (12.7), `used` being the track's own looping sounds;
  * - `notices`: the on-screen messages (12.1.3), `{ text, args }`.
  * `heights`, `tileMap`, `lakes` and `waterLevelFt` as `buildFalls` takes them; `weather` the race's; `player` where the
  * player's truck starts (game feet) or null; `loadImage(name)` an ART texture; `loadRipple()` the eight RIPPL frames.
  */
-export async function buildTrackFalls(level, { heights, tileMap, lakes, waterLevelFt, sitVolumes = [], used = 0, weather = 0, player = null, animations = [], loadImage = async () => null, loadRipple = async () => null }) {
+export async function buildTrackFalls(level, { heights, tileMap, lakes, waterLevelFt, sitVolumes = [], used = 0, weather = 0, player = null, animations = [], loadImage = async () => null, loadRipple = async () => null, droplets = true }) {
   const notices = fallReadNotices(level.falls);
   // A track format version 6 track's world and height range (9.3); without a terrainHeightMap, CP4's (step 128, base 0).
   const v6 = level.v6?.terrainHeightMap ? level.v6 : null;
@@ -186,9 +191,11 @@ export async function buildTrackFalls(level, { heights, tileMap, lakes, waterLev
   if (!meshes) return { falls: null, fogVolumes: sitVolumes, sounds: [], notices };
   for (const r of meshes.refused) console.info(`Waterfall ${r.id}: REFUSED ${r.reason}`);
   for (const d of meshes.dropped) console.info(`Waterfall ${d.id}: DROPPED, nothing fits in the vertex budget (${d.left} left)`);
+  // The engine logs these only with waterBodyLog (16.2.2): no message on screen.
+  if (level.falls.roughInvalid > 0) console.info(`Waterfalls: roughFrom 251..254 on ${level.falls.roughInvalid} fall(s): invalid, treated as 0 (engine default)`);
   const mist = fallMists(meshes.falls, { sitFogVolumes: sitVolumes.length });
   const { volumes, noSlot } = withFallMists(sitVolumes, mist.mists);
-  for (const slot of [...mist.noSlot, ...noSlot]) console.info(`Waterfall ${meshes.falls[slot]?.id}: NO mist (no fog slot free, ${sitVolumes.length} volumes)`);
+  for (const { slot, stream } of [...mist.noSlot, ...noSlot]) console.info(`Waterfall ${meshes.falls[slot]?.id}: NO mist for stream ${stream} (no fog slot free, ${sitVolumes.length} volumes)`);
   const { sounds, noRoom } = fallSoundObjects(meshes, { weather, used, player });
   for (const stem of noRoom) notices.push({ text: msg("Too many looping sounds on this track; '<<1>>' is silent."), args: [stem] });
   if (!meshes.falls.length) return { falls: null, fogVolumes: volumes, sounds, notices };
@@ -201,9 +208,15 @@ export async function buildTrackFalls(level, { heights, tileMap, lakes, waterLev
       slot: f.slot, id: f.id, flags: f.flags, anchorFt: f.anchorFt, firstIndex: f.firstIndex, indexCount: f.indexCount,
       // What the engine's log says of it (12.1.7), for a look at the build.
       columns: f.columns, spacing: f.spacing, vertexCount: f.vertexCount, shortened: f.shortened,
-      bounds: f.bounds, opacity: Math.min(1, Math.max(0, f.opacity / 100)), crestSpeed: f.crestSpeedFtPerSec,
+      mergedColumns: f.mergedColumns, ribbonVertexCount: f.ribbonVertexCount, backVertexCount: f.backVertexCount, streamCount: f.streams.length,
+      bounds: f.bounds, opacity: Math.min(1, Math.max(0, f.opacity / 100)), crestSpeed: f.crestSpeedFtPerSec, roughFrom: f.roughFrom,
       texture: textureOf[i] === "ripple" ? -1 : textureOf[i],
     })),
+    // The droplets' emitter's inputs (16.5): plain data, so the race thread can run it.
+    droplets: droplets ? meshes.falls.map((f) => ({
+      slot: f.slot, id: f.id, flags: f.flags, worldFt: f.worldFt, rngSeed: f.rngSeed, crestSpeedFtPerSec: f.crestSpeedFtPerSec,
+      totalColumns: f.totalColumns, streams: f.streams.map((s) => ({ ...s })),
+    })) : null,
   };
   return { falls, fogVolumes: volumes, sounds, notices };
 }

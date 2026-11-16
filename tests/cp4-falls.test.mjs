@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeWfl } from "../src/vendor/openphotex/mtm/wfl.js";
 import { FALL_FILE_STATUS_TEXT, FALL_MIST_WEATHER_NO_SNOW, fallGround, readFallFile } from "../src/vendor/openphotex/sim/cp4/falls.js";
+import { createFallDroplets, stepFallDroplets } from "../src/vendor/openphotex/sim/cp4/fall-droplets.js";
 import { parsePod } from "../src/vendor/openphotex/pod/parse.js";
 import { readPodEntry } from "../src/vendor/openphotex/pod/lookup.js";
 import {
@@ -88,6 +89,7 @@ test("the mist goes after the SIT's fog volumes, with FREEZE's weather mask, whi
   assert.equal(out.fogVolumes[0], sit[0]);
   const mist = out.fogVolumes[1];
   assert.equal(mist.fall, 0);
+  assert.equal(mist.stream, 0, "one volume a landing stream (16.4)");
   assert.equal(mist.wmask, FALL_MIST_WEATHER_NO_SNOW, "not in Snow on a FREEZE fall");
   // The landing is the LVL water, 10 ft: the floor 2 ft under it.
   assert.equal(mist.centre[1] - mist.half[1], 8);
@@ -110,8 +112,15 @@ test("a mist volume lies W across the landing and L along it", () => {
   // A box's width runs along the game's (cos psi, -sin psi).
   assert.ok(Math.abs(Math.cos(v.heading) - 0) < 1e-12 && Math.abs(-Math.sin(v.heading) - 1) < 1e-12);
   assert.equal(v.extinction, 3 / 100);
-  const { volumes, noSlot } = withFallMists([], [{ slot: 3, mist }]);
-  assert.deepEqual([volumes.length, volumes[0].fall, noSlot], [1, 3, []]);
+  // OpenMTM2's softer mist: the sides over at least 0.85 of the smaller half extent, the top over 0.6 of the height.
+  assert.equal(v.edge, 15, "the engine's own fade, 20 held to the smaller half extent, is already wider");
+  assert.equal(v.top, 12);
+  const wide = fallMistVolume({ ...mist, lengthFt: 80, fog: { ...mist.fog, l: 80 } });
+  assert.equal(wide.edge, 0.85 * 30);
+  const { volumes, noSlot } = withFallMists([], [{ slot: 3, stream: 1, mist }]);
+  assert.deepEqual([volumes.length, volumes[0].fall, volumes[0].stream, noSlot], [1, 3, 1, []]);
+  const full = Array.from({ length: FOG_VOLUMES_KEPT }, () => volumes[0]);
+  assert.deepEqual(withFallMists(full, [{ slot: 3, stream: 2, mist }]).noSlot, [{ slot: 3, stream: 2 }]);
 });
 
 test("sounds: silent without a stem and frozen in Snow, nearest the player first, in the room the track's loops leave (12.7)", async () => {
@@ -204,6 +213,36 @@ test("the shader's clock, the ripple's frames and an animation's (12.8, 12.9)", 
   // Half its diagonal is 32 ft: 968 ft to its nearest reach, against the range plus a 32 ft tile.
   assert.equal(waterfallInRange(1000, 0, bounds, 940), true, "within the range plus a tile of its nearest reach");
   assert.equal(waterfallInRange(1000, 0, bounds, 930), false);
+});
+
+test("hotfix 3: a dry spring's mist, roughFrom and the droplets' inputs reach the build; Waterfall droplets off leaves them out", async () => {
+  const { level, opts } = synthetic({ falls: [
+    { source: 0, flags: SPLASH, speed: 64, height: 120, points: [ft16(3000, 3000), ft16(3000, 3030)], opacity: 100, mist: 100, volume: 0, soundName: "", roughFrom: 40 },
+  ] });
+  // No water at all: the spring lands on dry ground.
+  const out = await buildTrackFalls(level, { ...opts, waterLevelFt: null, lakes: [] });
+  const [f] = out.falls.list;
+  assert.equal(f.roughFrom, 40);
+  assert.ok(f.streamCount >= 1);
+  assert.ok(out.fogVolumes.length >= 1, "a dry landing has its mist (16.4)");
+  const d = out.falls.droplets;
+  assert.equal(d.length, 1);
+  assert.equal(d[0].streams[0].water, false);
+  assert.equal(d[0].totalColumns, d[0].streams.reduce((n, s) => n + s.columns, 0));
+  // The race thread's emitter runs on them: a dry stream throws droplets near the player.
+  const s0 = d[0].streams[0];
+  const bursts = stepFallDroplets(createFallDroplets(d), d, { dt: 0.1, player: [s0.x, s0.z], enabled: true });
+  assert.ok(bursts.length > 0);
+  const off = await buildTrackFalls(level, { ...opts, waterLevelFt: null, lakes: [], droplets: false });
+  assert.equal(off.falls.droplets, null);
+  assert.ok(transferablesOf({ falls: out.falls }).includes(out.falls.vertices.buffer));
+});
+
+test("Waterfall droplets is on by default", async () => {
+  const { DEFAULT_SETTINGS, migrateSettings } = await import("../src/app/settings.js");
+  assert.equal(DEFAULT_SETTINGS.cp4WaterfallDroplets, true);
+  assert.equal(migrateSettings({ version: 16 }).cp4WaterfallDroplets, true);
+  assert.equal(migrateSettings({ version: 16, cp4WaterfallDroplets: false }).cp4WaterfallDroplets, false);
 });
 
 test("Waterfalls is on by default, and on for saves before version 16", async () => {

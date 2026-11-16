@@ -162,3 +162,6 @@ __pycache__/
 
 # Local knowledge graph
 /graphify-out/
+
+# tools/perf-race.mjs reports and profiles
+/perf-out/

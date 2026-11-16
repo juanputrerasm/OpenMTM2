@@ -20,9 +20,10 @@ const WATER_TEXTURE_FT = 8192;
  * world's x / 8192 and z / 8192 as the track's water plane has them (render/track-scene.js `createWater`), `indices`.
  * The tile map is `lakes.cells` a side (256, or a track format version 6 world's N); the texture repeats every 8192 ft
  * whatever the world's size, as the water plane's does.
- * Returns the bodies with their sheet added (`sheet`), those without a tile left out.
+ * Returns the bodies with their sheet added (`sheet`), those without a tile left out. With `heightAt` (the drawn ground at
+ * game feet) each also has its shore (`shore`, `lakeShore`), null where it has none.
  */
-export function buildLakeSheets(lakes) {
+export function buildLakeSheets(lakes, { heightAt = null, waterLevelFt = null } = {}) {
   if (!lakes?.tileMap) return [];
   const runs = new Map();
   const tiles = lakes.cells ?? TILES;
@@ -56,9 +57,89 @@ export function buildLakeSheets(lakes) {
       indices[i] = v; indices[i + 1] = v + 1; indices[i + 2] = v + 2;
       indices[i + 3] = v; indices[i + 4] = v + 2; indices[i + 5] = v + 3;
     });
-    out.push({ ...body, sheet: { positions, uvs, indices } });
+    out.push({ ...body, sheet: { positions, uvs, indices }, shore: heightAt ? lakeShore(lakes, body, heightAt, waterLevelFt) : null });
   }
   return out;
+}
+
+/**
+ * OpenMTM2's own, not the engine's (Community Patch 4 draws a lake over its tiles only, CP4_EXE_ANALYSIS.md 16.8): how far
+ * a lake's water reaches past its tiles, in tiles, and the cells of that shore, feet.
+ */
+export const LAKE_SHORE = Object.freeze({ reachTiles: 2, cellFt: 16 });
+
+/**
+ * A lake's shore (`buildLakeSheets` with `heightAt`): the water going on past the lake's tiles where the ground is still
+ * under its surface, so its outline follows the ground and the meshes (the depth test cuts it where they rise over it,
+ * as it cuts the track's water) rather than the tiles' steps, and fades out within LAKE_SHORE.reachTiles of the lake.
+ * Over the tiles within that reach that are no lake's and have ground under the surface somewhere (sampled at the
+ * cells' corners): a sheet at the lake's surface of LAKE_SHORE.cellFt cells, each corner with `dry`, its distance from
+ * the lake's tiles over the reach (0 at the lake, 1 at the reach). Only the drawing: the tiles stay dry for the trucks.
+ * `heightAt(x, z)` is the drawn ground at game feet; a tile whose ground dips to the track's own water (`waterLevelFt`,
+ * null for none) is left to that water. Null when the lake has no such tile.
+ */
+export function lakeShore(lakes, body, heightAt, waterLevelFt = null) {
+  const tiles = lakes.cells ?? TILES, map = lakes.tileMap;
+  const reach = LAKE_SHORE.reachTiles, per = TILE_FT / LAKE_SHORE.cellFt, step = LAKE_SHORE.cellFt;
+  const wrap = (t) => ((t % tiles) + tiles) % tiles;
+  const own = (tx, tz) => map[wrap(tz) * tiles + wrap(tx)] === body.id;
+  // The tiles of the shore: no lake's, within the reach of this one's (Chebyshev), with ground under the surface.
+  const shore = [];
+  const seen = new Uint8Array(tiles * tiles);
+  for (let tz = 0; tz < tiles; tz++) for (let tx = 0; tx < tiles; tx++) {
+    if (map[tz * tiles + tx] !== body.id) continue;
+    for (let dz = -reach; dz <= reach; dz++) for (let dx = -reach; dx <= reach; dx++) {
+      const x = tx + dx, z = tz + dz;
+      if (x < 0 || z < 0 || x >= tiles || z >= tiles) continue;
+      const k = z * tiles + x;
+      if (seen[k] || map[k]) continue;
+      seen[k] = 1;
+      let wet = false, low = Infinity;
+      for (let j = 0; j <= per; j++) for (let i = 0; i <= per; i++) {
+        const h = heightAt(x * TILE_FT + i * step, z * TILE_FT + j * step);
+        if (h < body.levelFt) wet = true;
+        low = Math.min(low, h);
+      }
+      // Not over the track's own water: there the lake's sheet would float over it.
+      if (wet && !(waterLevelFt !== null && low <= waterLevelFt)) shore.push([x, z]);
+    }
+  }
+  if (!shore.length) return null;
+  // How far a point is from the lake's own tiles, feet (searched within the reach and a tile).
+  const distance = (x, z) => {
+    const cx = Math.floor(x / TILE_FT), cz = Math.floor(z / TILE_FT);
+    let best = Infinity;
+    for (let dz = -reach - 1; dz <= reach + 1; dz++) for (let dx = -reach - 1; dx <= reach + 1; dx++) {
+      const tx = cx + dx, tz = cz + dz;
+      if (!own(tx, tz)) continue;
+      const ex = Math.max(tx * TILE_FT - x, 0, x - (tx + 1) * TILE_FT), ez = Math.max(tz * TILE_FT - z, 0, z - (tz + 1) * TILE_FT);
+      best = Math.min(best, Math.hypot(ex, ez));
+    }
+    return best;
+  };
+  // Corners shared between the shore's cells.
+  const index = new Map(), positions = [], uvs = [], dry = [], indices = [];
+  const corner = (x, z) => {
+    const key = `${x},${z}`;
+    let v = index.get(key);
+    if (v === undefined) {
+      v = positions.length / 3;
+      index.set(key, v);
+      positions.push(x, body.levelFt, -z);
+      uvs.push(x / WATER_TEXTURE_FT, z / WATER_TEXTURE_FT);
+      dry.push(Math.min(1, distance(x, z) / (reach * TILE_FT)));
+    }
+    return v;
+  };
+  for (const [tx, tz] of shore) {
+    for (let j = 0; j < per; j++) for (let i = 0; i < per; i++) {
+      const x0 = tx * TILE_FT + i * step, z0 = tz * TILE_FT + j * step;
+      const a = corner(x0, z0), b = corner(x0 + step, z0), c = corner(x0 + step, z0 + step), d = corner(x0, z0 + step);
+      // Counter-clockwise seen from above in the scene (z mirrored), as the lake's own quads.
+      indices.push(a, b, c, a, c, d);
+    }
+  }
+  return { positions: Float32Array.from(positions), uvs: Float32Array.from(uvs), dry: Float32Array.from(dry), indices: Uint32Array.from(indices), tiles: shore.length };
 }
 
 /**

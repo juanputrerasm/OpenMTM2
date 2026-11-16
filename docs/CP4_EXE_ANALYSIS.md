@@ -17,6 +17,7 @@ addresses (`FUN_...` or bare hex) and globals are for this exact build. World co
 | Version | 2.0.52.2, PE32+ x86-64, image base 0x140000000 |
 | Version in the MP join packet | 0x3402 (CP3: 0x3400, retail 0x0201) |
 | Beta 0.53 build (sections 12 to 14) | `monster.exe`, 13,263,360 bytes, MD5 `2d80e10e5282f22a3e0e27e9d899d259`, still "Version 2.0.52.2"; renderer `trid3d11.dll` 1,728,000 bytes, MD5 `ec27cca6329136786f034a6bb30a8240` |
+| Beta 0.53 hotfix 3 build (sections 15 and 16) | `monster.exe`, 13,360,128 bytes, MD5 `824016242dec6b0ff3af464c71a7f976`, built Nov 15 2026, still "Version 2.0.52.2"; renderer `trid3d11.dll` 1,853,440 bytes, MD5 `8f355a861c661952f58b795029a7bdf3`; supersedes hotfix 2 (not analysed separately) |
 
 ---
 
@@ -256,10 +257,8 @@ the heading axis the box rotation's. The nearest `fogVolumeMax`
 **Shader inputs (CONFIRMED in the exe):** base is the bottom face, half-extents w, l, h * 0.5;
 **extinction = 3 / vis** (about 5 % transmission after vis ft); height falloff = 1 / half; soft edge
 = min(edge, half the smaller of w and l); soft top = min(top, h); soft bottom = min(bot, h); wisp
-frequency = 1 / (wsize * 8), phase scrolled at wspd. **UNKNOWN:** the density integral itself, the
-roundness shape and the wisp noise live in the renderer DLLs (`trid3d11.dll` / `trivk.dll`), which
-are not in the CP4 beta folder. INFERRED from the inputs: density ~ extinction x
-exp(-height over the bottom x falloff), shaped by the soft edges.
+frequency = 1 / (wsize * 8), phase scrolled at wspd. The density integral, the roundness shape and the wisp noise are
+the renderer DLL's: beta 0.53 hotfix 3 ships `trid3d11.dll`, read in 15.11.
 
 **Weather ids = wmask bit order (CONFIRMED):** 0 Clear, 1 Cloudy, 2 Foggy, 3 Dense Fog, 4 Rain,
 5 Snow, 6 Dusk, 7 Night, 8 Pitch Black.
@@ -736,6 +735,15 @@ model's triangles. The tire block, truck and contact offsets are retail's (`MTM2
 - **Grid** (`FUN_140179ef0`): cell = (product of the active padded extents / max(1, 2 nTri))^(1/k), each
   axis ceil(size / cell) clamped 1..96, the largest axis x3/4 while the total exceeds 32768; overflow
   falls back to a classic box. Speed only.
+- **Pair early out** (CONFIRMED, `FUN_1403767f0`, `FUN_1403af350`, `FUN_1401815f0`):
+  - The truck-against-box pair is skipped when the centres are at least 2 x (truck radius + box radius) apart.
+  - Then comes retail's per-axis slab test (MTM2_PHYSICS.md 14.14 step 1), but for a box on the triangle path each
+    slab is widened to the union of the box's faces and the shape's bounds in the box frame.
+  - So a model that stands above its origin (the box centred on it reaches only half the model's height up) is still
+    tested where its triangles are.
+  - OpenMTM2 had used the box's faces alone. A truck on a 16 ft deck built up from its origin was dropped from the
+    test once it rose past 8 ft plus its radius over the origin, fell back, and hung there with its wheels sunk in the
+    deck (fog_test's SMTEST ramp). OpenPhotex `truckBoxSeparated` now takes the rules.
 - **Ray query** (`FUN_140183a30`): grid walk, Moller-Trumbore **double-sided**, det eps 1e-8, t in
   0..maxLen, nearest hit (ties to the lower triangle index); returns t, the unit normal **turned to face
   the ray origin**, the point and the triangle.
@@ -1462,10 +1470,12 @@ Approximated:
 - The DLL works on the texture's values as they are: the port does too, then turns the result to linear light.
 
 Not ported:
-- Looks 1 and 2: Community Patch 4's own Enhanced and Realistic lake water, which OpenMTM2 does not have. Its
-  "Reflective water" is another water, so a fall keeps look 0 under it.
-- Droplets (5): the burst's look, lifetime and gravity are the DLL's spray shader, not exe data, and the gate needs two
-  graphics options whose names are not traced and an enhanced water mode OpenMTM2 does not have.
+- Looks 1 and 2 as such: they are built on Community Patch 4's own Enhanced and Realistic lake water, which OpenMTM2
+  does not have. In its enhanced picture OpenMTM2 now draws falls with an enhanced look of its own instead (the
+  engine's look 1 by its rule, 8.3), built on its water plus the engine's hotfix 3 whitewater rules (16.7, 16.10);
+  look 0 in the classic picture, look 3 in Snow on a FREEZE fall either way.
+- Droplets (5) were not ported for 0.53; they are since hotfix 3 (16.5, 16.10), behind OpenMTM2's own "Waterfall
+  droplets" option instead of the engine's look 1/2 and spray gate.
 - Foam zones (6.1) and landing rings (6.2): both feed the lake shader of looks 1 and 2 only.
 - `waterBodyLog` / waterfalls.txt (1.7) and `waterfallDebug` (1.6): the port logs refusals, drops and missing mist to the
   console instead.
@@ -1535,3 +1545,1128 @@ so W(d) lies in [-4096, 4096) ft.
 - Unchanged: the zoom, the view, the labels and colours. Checkpoints are not drawn on this map. The
   Summit Rumble square is still drawn unwrapped.
 
+## 15. Beta 0.53 hotfixes 2 and 3: Normal-Water, Normal-Terrain strength, shore field, shadow cuts, water range
+
+Hotfix 3 (build string "Nov 15 2026") supersedes hotfix 2. The forum posts put water detail ("Normal-Water"), the
+shore field and the shadow toggles in hotfix 2 and the two strength sliders in hotfix 3; only the hotfix 3 binaries
+were analysed, so every rule below is hotfix 3's.
+
+### 15.1 New ini keys and menu entries (CONFIRMED, reader `14022a1a0`, writer `14022ec10`, menu `14018ed70`, setter by id in the options handler)
+
+All in `.\system\monster.ini`, section `[Graphics]`. The exe now writes a key only when its value changed: the writer
+`140229280` caches each section with `GetPrivateProfileSectionA` and skips an identical `key=value`.
+
+| Key | Default | Range | Menu label (id), hint |
+|---|---|---|---|
+| `accurateShadowSlopeCutoff` | 1 | 0/1 | "Accurate Shadows-Slope cutoff" (99), after "Terrain Shadow Map"; hint "No truck/object shadow on ground a hill hides from the sun - needs Terrain Shadow Map" |
+| `terrNormalAlways` (0.53) | 0 | 0/1 | "Always On Normal-Terrain" (0x5c); hint "Next track load - a track's own mask always wins" |
+| `terrNormalStrength` | 100 | 0..300 (clamped on read and set) | slider "Normal-Terrain Strength" (100), 0..300, suffix "%"; hint "Default mask only - a track's own mask is unchanged" |
+| `waterNormalAlways` | 0 | 0/1 | "Always On Normal-Water" (0x62); hint "Enhanced / Realistic Water; next track load - a track's own mask always wins" |
+| `waterNormalStrength` | 100 | 0..300 | slider "Normal-Water Strength" (0x65), 0..300, "%"; hint "Default mask only - a track's own mask is unchanged" |
+| `realisticWaterFoamStyle` | 1 | 0 plain, non-zero bubbly | none (ini only) |
+
+Menu order in the graphics list: Advanced Shadows, Terrain Shadow Map, Accurate Shadows-Slope cutoff, Facing-Object
+Shadows, Far Distance Fog, Always On Normal-Terrain, Normal-Terrain Strength, Always On Normal-Water, Normal-Water
+Strength, No Self-Truck Reflection (new hint "Costs GPU"), Enhanced Water, Realistic Water ("Turns Enhanced Water
+off"), Contact Foam (new hint "Enhanced / Realistic Water; costs GPU"), Advanced Tire Trails, ...
+
+DLL-only keys (read by `trid3d11.dll`, never written by the exe, no menu): `terrShadowFacing` (default 0, values 0..2,
+anything above 2 reads as 0; `APIDLLgpuTerrainState` `180027fe0`), `waterDetailDbg` (default 0, `18000fc40`),
+`foamDebug` (default 0, 1..5 debug paints, `APIDLLgpuDrawWaterContactFoam` `18001f7e0`).
+
+New DLL exports: `APIDLLgpuWaterDetailNormalUpload` (`1800285c0`), `APIDLLgpuWaterDetailMaskUpload` (`1800284d0`),
+`APIDLLgpuSetDetailStrength` (`180024270`), `APIDLLgpuShoreFieldUpload` (`1800259a0`), `APIDLLgpuSkidUpdate3`
+(`180026240`). Exe wrappers: `14012ef00` normal upload, `14012eee0` mask upload, `14012e5c0` set strength,
+`14012e9e0` shore field upload, `14012eaa0` skid update 3, `14012e170` lightmap upload, `14012eda0` terrain state.
+
+### 15.2 Normal-Water: the water detail normal
+
+#### 15.2.1 Loader (CONFIRMED, `140220440`, at level load; logs to `hdtex.txt` when `[Graphics] hdLog`)
+
+- Stem = the level file name up to the first '.' (up to 127 chars). An empty stem clears both textures.
+- Names: `<stem>_WDTL.raw` (the detail normal) and `<stem>_WMSK.raw` (the mask). The `.raw` only carries the stem:
+  the HD lookup (`140063e70` -> `1400642e0`) tries `<stem>_WDTL.PNG`, then `.TGA`; for each extension the folder is
+  `MaskArt\` when the file exists there, else `art\` (`140064060`: names ending `_MASK`, `_WMSK`, `_WDTL` or `_DTL`
+  look in MaskArt first). "Exists" is a mounted pod entry first, then a loose file. A real legacy `.RAW` of that name
+  is never used (the lookup returns "legacy only", which the loader treats as no file). The HD path is on by default
+  (`DAT_140aede00` = 1).
+- Each candidate is sniffed by magic: a JPEG, GIF, BMP, DDS or WebP renamed to .PNG is refused with "is actually a ...
+  - re-save it as PNG"; a PNG needs a valid IHDR; otherwise the PNG/TGA decoder (`140167b80`) gives RGBA8.
+- `_WDTL` size rule: either side above **2048** -> "too large (max 2048). Using the generated map." and the generated
+  map is used. Not square, not a power of two, or under 32 -> a warning ("not a square power of two in 32..2048.
+  Loading it anyway, but it will mip less cleanly than a 256x256 map.") and **it is loaded anyway**. None found ->
+  "no supplied map - looked for MaskArt\%s (and the pod ART\). Using the generated one."
+- `_WMSK`: any size, no colour check, no size limit. Found -> uploaded with invPeriod = 2^-21 (`1408b40bc`,
+  4.76837e-07 = 1 / 2097152, one world of 8192 ft in 1/256 ft units): **the mask covers the whole world once**.
+- No `_WMSK`: with `waterNormalAlways` = 1 a 4 x 4 default mask is uploaded whose every texel is R = G = B = 0,
+  A = 255 (`1408b1d50`): uniform black, the base strength everywhere ("waterMask: none supplied - Always On
+  Normal-Water: uniform default mask"), and the "default mask in use" flag `DAT_145d2a0ac` is set. With 0: no mask
+  ("Water detail OFF for this track").
+- The mask is the switch: no mask bound = no water detail, even with a supplied `_WDTL`.
+- The exe keeps CPU copies of both and re-uploads them when the renderer is recreated (`1401f7600` compares the device
+  generation), as it now does for the terrain's `_DTL` / `_MASK`.
+
+#### 15.2.2 The generated detail normal (CONFIRMED, `18001b8b0`, built lazily by `18000faf0` the first time a mask is bound)
+
+256 x 256, RGBA8, wrapping. Identical noise to the terrain's generated detail (same seed, `18000c5f0`), but without the
+terrain's smoothing passes (INFERRED from the structure of `18000c5f0`, which adds a 7 x 7 sum and more).
+
+1. Height field h[256][256] = 0 (row y, column x).
+2. Five octaves with lattice size g = 4, 8, 16, 32, 64 and amplitude a = 1, 1/2, 1/4, 1/8, 1/16. Before each octave,
+   g * g lattice values are drawn in order (index r * g + c) from one xorshift32 stream that carries on across the
+   octaves: seed 0x92d68ca2; per draw s ^= s << 13; s ^= s >> 17 (logical); s ^= s << 5; value = (s & 0xffff) / 65535.
+3. Cell size cs = 256 / g pixels. For pixel (x, y): c0 = x / cs, c1 = (c0 + 1) mod g, r0 = y / cs, r1 = (r0 + 1) mod g,
+   fx = (x mod cs) / cs, fy = (y mod cs) / cs, wx = (3 - 2 fx) fx^2, wy = (3 - 2 fy) fy^2;
+   h += a * lerp(lerp(L[r0][c0], L[r0][c1], wx), lerp(L[r1][c0], L[r1][c1], wx), wy).
+4. Normal per pixel with wrap: dx = -(h[y][x+1] - h[y][x-1]) * 20, dy = -(h[y+1][x] - h[y-1][x]) * 20,
+   len = sqrt(dx^2 + dy^2 + 1); R = int(((dx / len) * 0.5 + 0.5) * 255 + 0.5), G likewise from dy, B = A = 255.
+
+Upload (`180018a90`) into an RGBA8 texture; sampler `18000fb60`: anisotropic x8 (falling back to trilinear), wrap.
+
+#### 15.2.3 Which water (CONFIRMED, water pixel shader text at `180145a10`)
+
+Only the Enhanced and Realistic looks (water style >= 1) and not the snow ice (style >= 1 with the ice flag skips the
+motion entirely). The Original look (the ripple texture) never gets it; the author's note "does not work with the
+original ripple texture". INFERRED: the WTR lakes draw with the same pixel shader (`APIDLLgpuDrawWaterSurfaceLake`), so
+they get it too. Waterfalls have their own copy (`gWfDet`), not covered here.
+
+#### 15.2.4 Constants per draw (CONFIRMED, `18000fc40`)
+
+- x = `waterDetailDbg`.
+- y (mask uv per uv tile) = invPeriod * U, where U = engine units per ground tile (8192 for a 32 ft tile), but 0 (detail
+  off) unless a mask is bound, invPeriod > 0, U > 0.5 and a normal map exists (supplied or generated).
+- z (feet per uv tile) = U / 256.
+- w (strength) = the value from `APIDLLgpuSetDetailStrength`, clamped 0..3.
+
+`1401f7600` (every frame) calls SetDetailStrength(terrain, water) with terrain = terrNormalStrength / 100 when the
+terrain's default mask is in use (`DAT_145d2a080`), else 1.0; water = waterNormalStrength / 100 when the water's default
+mask is in use (`DAT_145d2a0ac`), else 1.0. So the sliders only scale the Always-On default masks; a track's own mask
+always draws at 1.0.
+
+#### 15.2.5 Shader term (CONFIRMED, `180145a10`)
+
+Coordinates: uv = the per-tile uv (tile index plus fraction; u = world x, v = world z). us = uv with the tile index made
+signed (uv - 8192 where uv >= 4096) for the derivatives and the mask; un = uv wrapped to the 256-tile world period for the
+pattern. t = the water clock (seconds; the drift speeds are whole repeats per 600 s, so the wrap never pops).
+
+- Fades: watt = 1 - saturate(fog) (the per-vertex distance fog factor); footprint pxFt = max(|ddx us|, |ddy us|) * z;
+  lod = 1 - smoothstep(1.5, 5.0, pxFt).
+- Mask: mk = the mask's red channel at us * y (wrap sampler): one mask over the world.
+- Layer A: nA = 2 * tex(un * 0.5 + t * (0.020, 0.010)).rg - 1: a repeat every 2 tiles (64 ft), drifting 0.020 and
+  0.010 repeats per second (1.28 and 0.64 ft/s on 32 ft tiles).
+- Layer B: nB = 2 * tex(un * 0.26953125 + t * (-0.010, 0.015)).rg - 1: 69 repeats per 256 tiles (118.7 ft), drifting
+  -0.010 and 0.015 repeats per second.
+- Detail slope d = -(nA + nB) * 0.02 * (1 + 4 mk) * lod * watt * w. Black mask = base strength, white = 5x (the
+  terrain's own rule). Peak slope about 0.03 at base strength, like the ambient ripple.
+- Use: d is added to the water's world slope before the Fresnel and the sun glint read it. The reflection offset is
+  (slope + 1.5 d) * reflection-distortion: the detail wobbles the reflection 2.5x its slope share. The shade factor
+  is clamp(1 + 0.5 (rings . k) + 0.8 (slope . k) + 2.4 (d . k), 0.7, 1.3) with k = (0.6, 0.8); since slope already holds
+  d, the detail reads at 0.8 + 2.4 = 3.2, four times a ripple's brightness share.
+- `waterDetailDbg` = 1 paints (saturate(0.5 + 16 d), 0.5, 1); magenta = no mask bound.
+
+### 15.3 Normal-Terrain changes (CONFIRMED, `14021d470`; diff against 0.53 `14021a220`)
+
+- `_DTL` cap 1024 -> **2048** (both messages now print the cap). The rest of the rule is unchanged: above the cap the
+  generated map, otherwise loaded even when not a square power of two. MaskArt\ then art\, PNG then TGA, as 15.2.1.
+- Mask meaning (unchanged): the shader multiplies the detail by 1 + 4 * mask.r (white = 5x). The loader's log text
+  still says "WHITE = double it", which the shader does not do. A mask more than 25% coloured (sampled every 7th texel,
+  at most 4096 samples, max-min of RGB >= 25) logs the `_MASK_ref` warning and loads anyway.
+- Always-On default mask (unchanged since 0.53, `14021ca90`): 256 x 256, one texel per ground tile (row = tile z,
+  column = tile x). Per tile, L = 0.299 R + 0.587 G + 0.114 B of the tile texture's average colour (`14021dc70`, from
+  the decoded art; a missing or black average falls back to the palette colour of the tile's legacy index). Strength
+  v = 2 when L <= 75; 2 - (L - 75) * 0.58 / 34 when 75 < L < 109; 1.42 * (109 / L)^2 when L >= 109; then v = max(v, 1).
+  Mask byte = int((v - 1) * 0.25 * 255 + 0.5), so 1 + 4 * mask = v: dark ground 2x, ground brighter than about L 130 1x.
+- New: `terrNormalStrength` scales the terrain detail only while that default mask is in use (15.2.4). In the DLL the
+  terrain detail amount is terrDetail (default 10) * 0.01 * that strength (`180017420`): it scales the detail normal's
+  tilt, its occlusion darkening (0.6 * amount * mask factor * (1 - ao)) and its sun term.
+- New (shader `1801384f8`): the detail's sun term is -dot(dn.xy, sunXZ / |sunXZ|) * lerp(0.5, 1, |sunXZ|), clamped
+  +-0.3, where sunXZ is the horizontal part of the unit sun direction; with the sun straight overhead it uses the
+  diagonal (0.7071, 0.7071) at half weight. 0.53 used -dot((dn.x, 0, dn.y), sun), which vanished with a high sun.
+
+### 15.4 Shore field and shore foam
+
+#### 15.4.1 When it is built (CONFIRMED, `14021b710`, called every frame from `1401f7600`, rebuilt only when its key changes)
+
+All of: Enhanced or Realistic water on; `realisticWaterContactFoamOn` (Contact Foam, default 1);
+`realisticWaterShoreFoam` (default 1); `realisticWaterContactFoam` (strength %, default 100) >= 1; the renderer has the
+contact foam (`APIDLLgpuWaterContactFoamAvailable`). Then it is built when the level has WTR lakes, or painted water
+(`paintedWater` on and a painted table present), or level water (the level water height `wref` is non-zero and the
+level kind `DAT_145aabc98` is not 4). Key = (level id, wref, lake count, painted): a change rebuilds, otherwise nothing
+runs. wref = the level's water height (`DAT_140af3550`) or its override (`DAT_145cf3dc4`), engine units; it is the
+stable mean water level the shader also gets (`gEnhFall.z`).
+
+#### 15.4.2 Build (CONFIRMED, `14021b710`, rows `1401e6c20` on up to 8 threads, finish `14021ad00`)
+
+- Grid 2048 x 2048 over the 8192 ft world: sample (i, j) at x = j * 4 + 2 ft, z = i * 4 + 2 ft (row = z).
+- Water level at the sample's tile: the WTR lake covering that tile (`140250640`, the lake table), else the painted
+  water table (when `paintedWater`), else wref when level water applies, else none.
+- Depth (ft) = (level - ground height at the sample) / 256, ground from the terrain query `140203c00` (classic or fine
+  grid). No water level: depth = -1 (dry). Wet = depth > 0. "~%d%% wet" counts every 16th sample.
+- Shore segments: marching squares over every 2 x 2 cell of samples (wrapping at 2048): a side whose ends differ in
+  wetness gets a crossing at the linear zero of depth. Two crossings make one segment; four (a saddle) make two,
+  paired by whether the sign of the four depths' sum matches the first corner's wetness. "%d shore segments" counts
+  them. **Only ground that crosses the water level makes a shoreline** (deep vertical walls make none; ground under
+  water everywhere makes none).
+- Distance: a buffer of squared distances (in samples) starts at 17; each segment writes min(current, squared distance
+  from the sample to the segment) to the samples within its bounding box +-4 samples where that value is under 16.
+  So distances are exact up to 4 samples = 16 ft and capped there.
+- Encoding, R8G8 (`DXGI_FORMAT_R8G8_UNORM`, linear filter, wrap; `1800259a0`): sd = min(sqrt(dist2) * 4, 16) ft,
+  negative on the dry side; R = round((sd / 32 + 0.5) * 255). G = round((clamp(depth, -16, 16) / 32 + 0.5) * 255).
+  So R = 0.5 at the shoreline, +16 ft water side, -16 ft land side; G is signed depth over -16..16 ft.
+- Log: "shoreField: %dx%d built in %d ms (%d shore segments, ~%d%% wet, wref %d, lakes %d, painted %d)". If the DLL
+  refuses the upload: "renderer refused the upload - the screen-space shore taps stay" (the 0.53 screen-space search
+  runs instead).
+
+#### 15.4.3 Contact foam constants (CONFIRMED, exe `1401f7600` at `1401f8195`; DLL `18001f7e0`)
+
+The exe passes six floats: [0] object foam width 384 units (1.5 ft) plus 0.5 when `realisticWaterFoamStyle` is non-zero
+(the style flag rides in the fraction); [1] object strength = pct * 0.6 / 100; [2] enable bits, 1 objects + 2 shoreline
+(3 when `realisticWaterShoreFoam`, else 1); [3] shoreline width SW = 1024 units (4 ft); [4] shoreline strength =
+pct * 0.6 / 100; [5] shallow reach SR = 2048 units (8 ft). pct = `realisticWaterContactFoam` clamped 0..300. The DLL
+adds bit 4 when the shore field texture is bound. All widths are constants, not ini keys.
+
+#### 15.4.4 Shore term in the foam shader (CONFIRMED, `18015e7a0` / `180165cb0` / `18016cdd0`)
+
+With the field bound (bit 4) the shoreline comes only from it; the screen-space taps are skipped.
+
+- f = the field at uv / 256 (wrapped): sdFt = (R - 0.5) * 32, dpFt = (G - 0.5) * 32.
+- Tide: shift = (pixel's calm plane height - mean level) / 256 ft when the mean level is non-zero; |shift| > 0.75 ft
+  means a lake or painted surface built at its own level: shift = 0. When non-zero: grad = 2 * length of the G
+  difference across +-2 texels (+-8 ft) on each axis (ft of depth per ft of ground); sdFt += shift * min(1 / max(grad,
+  0.025), 40); dpFt += shift. The water plane bobs +-0.25 ft about the mean, so the band follows the waterline on a
+  gentle beach.
+- dFt = max(sdFt, 0) (the land side is at the shore), dpFt = max(dpFt, 0).
+- Footprint fp = min(fwidth(sdFt), 32) ft (halved in the half-res pass); SWft = 4, SRft = max(8, SWft).
+- Bank band: bestS = (1 - smoothstep(0, 1, dFt / min(SWft + fp, 12))) * SWft / (SWft + fp).
+- Shallow band: bestU = (1 - smoothstep(0, 1, length(dFt, dpFt) / min(SRft + fp, 15))) * SRft / (SRft + fp).
+- shore = max(bestS, bestU); objects' contact foam (best) is found as in 0.53.
+- No foam where the terrain or something nearer is in front of the water pixel, inside a waterfall foam zone, or once
+  watt = 1 - saturate(fog) <= 0.01.
+
+Plain style (`realisticWaterFoamStyle` = 0, `18015e7a0`): n = 0.65 N(uv * 14 + 0.15 t) + 0.35 N(uv * 37 - 0.2 t)
+(value noise with smoothstep blend on the integer hash h = x * 73856093 ^ z * 19349663; h ^= h >> 13; h *= 0x5bd1e995;
+h ^= h >> 15; (h & 0xffffff) / 2^24); nm = lerp(0.7, 1, n) * watt; foam = saturate(max(best * nm * objStrength,
+shore * nm * shoreStrength)). Colour = lerp((0.82, 0.87, 0.93) * bright, fog colour, fog), bright = clamp(1.7 *
+mean(fog colour) + 0.12, 0.12, 1); alpha = 0.85 * foam * zone mask, blended source-alpha.
+
+Bubbly style (non-zero, default; `180165cb0` + blur `1801748f0` / `180174fe0` + composite `18016cdd0`):
+- Half-resolution closeness pass: per half-res pixel (prox = max(best, shore), strength of the stronger source *
+  watt * zone, band width in half-res pixels, coverage 1); hidden water writes nothing.
+- Separable 9-tap Gaussian per axis, sigma = clamp(0.35 * band width, 0.35, 2.0), normalised, the band width carried
+  unblurred.
+- Composite at full res: bilinear from the half-res buffer, divided by coverage. pr = saturate(prox + (N(fmod(uv, 64) * 6
+  + t * (0.02, -0.015)) - 0.5) * 0.45 * saturate(3 prox)); foam = saturate(pr^2 (3 - 2 pr) * lerp(0.55, 1, pat) *
+  strength); alpha = 0.85 * foam * zone mask.
+- pat = saturate(0.35 c1 + 0.25 c2 + 0.15 c3 + 0.25 N(u * 6 + t * (0.02, -0.015))), u = fmod(uv, 64), with Worley F1
+  cells (3 x 3 neighbourhood, point offsets from the hash at the cell and at the cell + (17.31, 5.87)):
+  c1 = smoothstep(0.15, 0.55, F1(32 u + t (0.05, 0.03))) (about 1 ft), c2 = smoothstep(0.20, 0.60, F1(96 u - t (0.04,
+  -0.06))) (about 4 in), c3 = smoothstep(0.20, 0.65, F1(288 u + t (0.03, 0.05))) (about 1 in). Each fades to its mean
+  (0.62, 0.60, 0.60) as pix * scale goes 0.35 -> 0.9, pix = sqrt(fwidth(u).x * fwidth(u).y).
+- When the half-res targets or the smoothed shaders fail, the full-res pass applies the same shaping per pixel.
+
+### 15.5 terrShadowFacing (CONFIRMED, DLL `180027fe0`, terrain pixel shader `1801384f8`)
+
+- `[Graphics] terrShadowFacing`, read once by the DLL, default 0; no menu entry (the menu's "Facing-Object Shadows" is
+  an older, unrelated option).
+- It acts in the terrain's **receive** of the sun shadow map (both the single map and the cascades), only while that
+  receive is on. Not in the caster pass, not in the lightmap bake.
+- Rule: n = normalize(cross(ddx(world pos), ddy(world pos))), flipped to point up (or, for a face within 0.02 of
+  vertical, toward the camera horizontally). L = the shadow camera's forward axis (third column of the shadow VP:
+  m02, m12, m22, normalised, flipped to point down; the world sun direction when degenerate).
+  sunFace = smoothstep(-0.02, 0.06, -dot(n, L)); shadow = lerp(1, shadow, sunFace).
+- So a face turned from the sun receives no cast shadow (its baked darkness stays). Mode 2 paints the gate
+  (red = turned away, green = sun-facing).
+
+### 15.6 accurateShadowSlopeCutoff: the hill-cut plane (CONFIRMED)
+
+- Needs Terrain Shadow Map (`terrainShadowMap`, default 1): the baked lightmap path. Bake `1401f27b0` / rows
+  `1401e5da0`; the hill-cut plane is a byte map the size of the lightmap (default 1024 x 1024 over the world, 8 ft a
+  texel; clamped 64..4096, 2048 in one mode), built in the same pass.
+- Per texel: ground height there (in Snow, weather 5, raised to the level water and the lake surface: the ice is
+  solid); one ray toward the sun (`14021c1e0`). Hill-cut = 1 when the ray is blocked by the terrain heightfield; when the first hit is a ground
+  box or tile slab, the ray is cast again with the boxes ignored and hill-cut = 1 only if the terrain still blocks it.
+  So 1 = "the terrain alone hides this spot from the sun". Written as 255 or 0.
+- Exception: hill-cut 0 when any of the 3 x 3 tiles around has a tile slab (its two heights differ) whose lower height
+  is more than 2 ft above the texel's ground. INFERRED: a box underside overhead, so overhangs keep their shadows.
+- Upload (`1800226b0`): the exe uploads the lightmap (positive size), then, when `accurateShadowSlopeCutoff` is on,
+  calls again with the negative size; the DLL interleaves the two into one R8G8 texture (R intensity, G hill-cut),
+  falling back to R8 alone on failure ("lightmap: hill-cut plane %s (%dx%d)"). Toggling re-uploads.
+- Shader (`1801384f8`): hillCut = the lightmap's G (an R8 map reads 0); after the receive and the facing gate,
+  shadow = lerp(shadow, 1, hillCut * saturate(selfShade)). selfShade is the weather self-shade
+  (`APIDLLgpuSetTerrainShade`, 1 full .. 0 flat). Trucks' and objects' shadows vanish on ground a hill already hides,
+  which the baked intensity already darkens. Only the day cached path reads the lightmap.
+
+### 15.7 Water draw range (CONFIRMED, Enhanced/Realistic water tile gather in `1401fa8f0`, 0.53 `1401f9320`)
+
+R = the terrain view radius in tiles (Max Terrain Visibility, `DAT_140af34d8`; the GPU terrain cache's radius, at most
+120, `DAT_140af3548`, when that path is in use). Tiles are taken around the camera tile and clamped to the level's tile
+bounds (+-2 tiles).
+
+- 0.53: dx, dz in [-R, R] and dx^2 + dz^2 <= (R + 1)^2: a disc, short of the square terrain.
+- Hotfix: dx, dz in [-R, R - 1], no radius test: the same 2R x 2R square as the terrain.
+- Unchanged: the Original look's per-tile water in the GPU terrain path still keeps the disc (`1401f8700`:
+  dx^2 + dz^2 <= (R + 1)^2); the CPU ring path draws water with the terrain in square rings.
+
+### 15.8 Sun below the horizon
+
+- CONFIRMED unchanged: the sun disc and moon (`1404bd9c0`, `1404bdd50`), the sky-sun direction (`1404e2150`: the LVL
+  sun vector with y halved, normalised) and the flare draw (`1404e1920`) are 0.53's.
+- CONFIRMED new: the shadow-facing gate (15.5) flips the shadow camera axis to point down; the Normal-Terrain sun term
+  (15.3) no longer depends on the sun's height.
+- INFERRED from the formulas: the baked ray march (`14021c1e0`) steps toward the sun; with the sun below the horizon
+  the ray descends and meets the ground, so every texel bakes as shadowed and hill-cut 1. The Realistic glint is
+  Blinn on H = normalize(V + toSun), so a sun under the horizon gives almost none. UNKNOWN: where the exe changed for
+  "the engine places the sun anywhere"; no clamp on the LVL sun vector was found in 0.53 or the hotfix.
+
+### 15.9 Other hotfix changes
+
+- Realistic sun glint by weather (CONFIRMED, `1401fa8f0`): 0.53 left it off in Foggy, Dense Fog, Night and Pitch Black;
+  the hotfix also turns it off in Cloudy and Rain (on in Clear, Snow, Dusk).
+- HD art size (CONFIRMED, `140064800`, 0.53 `1400647b0`): the "square power of two" range for HD textures went from
+  32..1024 to 32..2048. Out of range is not refused: it is resampled, logged with the 8-bit page size it maps to (32 up
+  to 44 px, 64 under 128, else 256).
+- `APIDLLgpuSkidUpdate2` is now a forwarder to `APIDLLgpuSkidUpdate3`, which takes one more float: the two ends of a
+  trail quad get their own value (`1404bcb60` passes the trail record's +0x5c and +0x58, both negated when +0x84 is
+  set; 0.53 sent +0x58 to both ends). INFERRED: a per-end lateral value so trails join smoothly; the exe falls back to
+  SkidUpdate2, then SkidUpdate.
+- Reverse-Z (CONFIRMED): every vertex shader gets the engine's reversed projection (built by `1401ecbf0`); the water's
+  coplanar bias was rescaled for it (distant water flicker fix).
+- DX11 shader cache (CONFIRMED, `180006fe0`): compiled shaders kept in `shadercache\dx11\%016llx.dxbc`, tagged "MTM2
+  dx11 shader cache v%u / d3dcompiler %d".
+- Debug aids for the menu slowdown / empty frames: `drawgate.txt`, `presentgate.txt`, `shot.now`, `frozenshot_%lu.png`.
+
+### 15.10 In OpenMTM2
+
+What was built from sections 15.1 to 15.9, by item, with every place it differs from the engine. Nothing here was
+copied from the decompiled code or the DLL's HLSL; both were only read to settle details the rules left open (the
+float32 arithmetic of 15.2.2).
+
+#### Settings and options (A, B)
+
+- `src/app/settings.js` DEFAULT_SETTINGS: `cp4TerrainNormalAlways: false`, `cp4TerrainNormalStrength: 100`,
+  `cp4WaterNormalAlways: false`, `cp4WaterNormalStrength: 100` (the engine's defaults). `migrateSettings` clamps the
+  strengths to 0..300 (as the engine clamps them on reading); new keys take their defaults, so SETTINGS_VERSION stays 16.
+  `cp4NormalsOf(settings)` is what the track build is handed; `CP4_NORMAL_STRENGTH` (0..300, step 5).
+- `src/ui/options-panel.js`, Advanced, CP4, after Waterfalls and in the engine's menu order: "Always On Normal-Terrain",
+  "Normal-Terrain Strength" (slider, %), "Always On Normal-Water" and "Normal-Water Strength" (slider, %). The presets
+  are unchanged (the engine's defaults are off).
+- `src/app/main.js` passes `cp4Normals` with every `trackRender` request; `src/worker/asset-worker.js` hands it to
+  `buildTrackRender`. The strengths are applied at track load ("from the next race"), not every frame as the engine does.
+
+#### A. Normal-Water (15.2)
+
+- Loading, `src/worker/track-build.js` `loadWaterDetail`: `<level>_WMSK` with `loadPlainImage` (red channel kept, one
+  byte a texel, any size, shrunk only past 4096 a side for the graphics card; the engine sets no limit) and `<level>_WDTL`
+  with the new `loadDetailImage`. No `_WMSK`: with Always On Normal-Water a 4 x 4 black mask (the base strength everywhere),
+  else no water detail at all (the mask is the switch, even with a `_WDTL`). Strength = the slider / 100 with the default
+  mask, 1 with the track's own. Returned as `build.waterDetail = { mask, detail, defaultMask, strength }`.
+- `src/worker/art-texture.js`: `loadDetailImage(vfs, stem)` (PNG then TGA; a side over 2048 is refused and the generated
+  map is used; any other size loads, the odd shape noted as `odd` from `hdDimensionRefusal(..., DETAIL_MAX_DIM)`; shrunk to
+  the Texture size as HD art is). Stems ending `_MASK`, `_WMSK`, `_WDTL`, `_DTL` are read from MaskArt first, per
+  extension: an archive entry `MASKART\<name>`, then the game folder's loose `MaskArt` folder, then `ART\`.
+  `src/worker/image-decoder.js` `hdDimensionRefusal` takes the largest side (`max`, default CP3's 1024);
+  `DETAIL_MAX_DIM = 2048`.
+- MaskArt folder: `src/install/inspect-source.js` `findMaskArt` (every PNG / TGA under `MaskArt/`, any case; only where
+  the source can list its files, since the names are the levels'), copied to `install/MASKART` by
+  `src/worker/install-store.js` `copyMaskArt` at install and at Reload POD.INI (`src/ui/screens/install.js`,
+  `src/ui/options-panel.js`), listed in the manifest as `maskArt`. An install made before this has no MaskArt copy until
+  POD.INI is reloaded.
+- Generated map: `src/shared/detail-normal.js` `buildDetailNormal` / `generatedDetailNormal` (cached), the 15.2.2 recipe
+  with the engine's float32 steps (Math.fround); built on the page, once a session, so the worker never transfers it.
+  Test: `tests/cp4-hotfix.test.mjs` (pixel (0, 0)'s height from draws 0, 16, 80, 336 and 1360 of an independent BigInt
+  xorshift, its normal from the wrapped neighbours, and six texels as built).
+- Shader, `src/render/water-surface.js`, the open-water program only (`WATER_FRAGMENT`; not the ice program, not the
+  game's ripple water in `water-effects.js`): `waterDetailTextures` (normal RGBA8, mask R8, both repeat-wrapped and
+  mipmapped, the normal anisotropic x8), uniforms `uWaterDetail`, `uWaterMask`,
+  `uWaterDetailAt` (on, strength, clock, the world's feet).
+  Layers at `at / 64` and `at * 0.26953125 / 32` (69 to a world, so the planes moving by whole worlds never shift it),
+  drift (0.020, 0.010) and (-0.010, 0.015) repeats a second on a clock wrapped at 3600 s (a whole number of repeats of
+  each), mask at `at / W` (W the world's width: 8192 ft, or a track format version 6 world's own; row = game z, as
+  the terrain mask), `d = -(nA + nB) * 0.02 * (1 + 4 mk) * lod * watt *
+  strength`, `lod = 1 - smoothstep(1.5, 5, pxFt)` from `dFdx` / `dFdy` of the map point. `slope += d` feeds the Fresnel,
+  the glint and the under-water view; the mirror uses `slope + 1.5 d` (`mirrorFace`); the mirrored light and the water's
+  body are scaled by `clamp(1 + 2.4 d . (0.6, 0.8), 0.7, 1.3)`. CP4's lakes (`render/lakes.js`) wear the same program and
+  so get it too, as 15.2.3 infers for the engine.
+- Differences: `watt` is 1 - the scene's fog at the point (`mtmFogHides`, or the linear fog), not the engine's per-vertex
+  fog factor; the brightness factor leaves the sun's glint out (OpenMTM2's glint is its own, Cox and Munk), and the
+  engine's other two shade terms (waves 0.5, slope 0.8) have no counterpart, so only the detail's 2.4 is applied (as
+  the working notes proposed); `waterDetailDbg` is not ported.
+- Waterfalls: not done. The notes leave the falls to the waterfall analyst; for that work, the DLL's fall shader has its own
+  Normal-Water copy (`gWfDet`: x the debug paint, y the mask's 1 / period, 0 = off, z the strength; the same two layers,
+  0.02 x (1 + 4 mask) x footprint x distance fade), in the waterfall HLSL strings at `180177aa0` / `180179750`.
+  `src/render/waterfalls.js` was not edited.
+
+#### B. Normal-Terrain (15.3)
+
+- `_DTL`: `loadDetailImage` (2048 cap, odd shapes loaded, MaskArt first), in `loadTerrainDetail` (`track-build.js`).
+- Always On Normal-Terrain: with no `_MASK`, `cp4TerrainNormalAlways` builds the default mask,
+  `src/shared/terrain-mask.js` `defaultTerrainMask(clr, colors, cells)` (one grey texel a tile, row = tile z, slot = CLR
+  bits 0-11), `defaultMaskStrength(luma)` (2 to 75, the line to 1.42 at 109, 1.42 (109 / L)^2 above, at least 1) and
+  `defaultMaskByte(v)` = int((v - 1) * 0.25 * 255 + 0.5). Colours: `averageColor` of each tile texture as decoded (the
+  plain sRGB byte average; a large HD tile read every few texels). Difference: where that average is missing or black the
+  engine uses the palette colour of the tile's legacy index; here the legacy RAW tile's own average stands in. The
+  terrain's vertices read it through `terrainMaskShares` as they read a painted mask. Needs "CP3 Terrain detail" on and
+  the Enhanced look, as any terrain detail here.
+- Normal-Terrain Strength: `strength` in the build (the slider / 100 with the default mask, 1 with the track's own);
+  `src/render/track-scene.js` `addTerrainDetail` multiplies `TERRAIN_DETAIL` by it, which scales the tilt, the occlusion
+  and the sun term together, as the DLL's amount does.
+- The sun term (hotfix 3): OpenMTM2's detail tilts the lit (Lambert) normal, whose first-order response is the lean times
+  the sun's horizontal share, the 0.53 form that vanished with a high sun. `addTerrainDetail` now adds the rest of the
+  hotfix form, `lean . sunD * 0.5 * (1 - sunH)` (sunD the sun's unit bearing, the diagonal straight overhead), clamped
+  +-0.3, as a factor on the colour, so the total is `lean . sunD * lerp(0.5, 1, sunH)`. None with the sun below the
+  horizon. Differences: the engine adds its term to the light it multiplies the texture by, here it multiplies the colour
+  (the same where that light is about 1); the lean is OpenMTM2's own (4x the engine's slope gain, as the existing detail
+  had it), and the +-0.3 clamp is on the added part.
+- Not done: 15.9's general HD art range (32..2048, resampled instead of refused). `HDTEX_MAX_DIM` stays CP3's 1024 for
+  other art; only the detail maps take 2048 and odd shapes.
+
+#### C. Shore field and shore foam (15.4)
+
+Not ported, by choice. OpenMTM2's Reflective water (`src/render/water-surface.js`) keeps its own shore foam (the depth
+band at the waterline) and its own churned wake foam; 15.4 stays as the record of what the engine does.
+
+#### D. Sun below the horizon (15.8)
+
+The engine's change for "the sun anywhere" was not located (UNKNOWN in 15.8); this is behaviour matching from the
+engine's own formulas, which give no direct light from a sun under the horizon.
+
+- `src/game/lighting.js` `sunBelowHorizon(toSun)`; `lightRig` gives the sun no strength then (Dusk, which puts the sun at
+  11 degrees, is never below).
+- `src/render/sun-shadows.js` `follow`: below the horizon the cascades' light and shadow strength are 0 and `update`
+  draws no caster pass (the engine bakes everything as shadowed; its down-pointing gate never lights from beneath).
+- `src/render/water-surface.js`: `uSunColor` and `uSunGlint` 0 (the engine's Blinn glint gives almost nothing there).
+  The light shafts under water (`render/underwater.js`) already had none (they scale with the sun's height and the glint's
+  light); `src/game/water.js` `sunUnderWater` is unchanged.
+- `src/render/sun-flare.js`: no flare from a sun below the horizon (a ray toward it meets the ground). The disc is
+  unchanged, as the engine's.
+- `src/worker/relief-mesh.js`: the relief's baked shade takes no sun term (the LTE's own shade stays, without the relief's
+  modulation by how it faces the sun).
+- Unchanged: the classic look's sun on the models is three.js's per-pixel N.L clamp, the engine's own diffuse clamp; the
+  non-Natural-light weather rig still sets the sun's strength, but with the Enhanced look's cascades it is zeroed as above.
+
+#### E. Water range, terrShadowFacing, slope cutoff (15.5 to 15.7)
+
+Verified in the code, no change: the Reflective water and the game's water are planes a world wide in each of the
+world's copies (`createWater`, `track-scene.js`), moved by whole worlds with the camera and clipped only by the far plane
+and the fog, with no disc; the enhanced terrain is `MeshLambertMaterial`, whose directional shadow darkens only that
+light's own N.L term (a face turned from the sun takes no cast shadow); and with Natural light the terrain casts into the
+same cascades, so the hill-cut double darkening cannot occur.
+
+#### Tests
+
+`tests/cp4-hotfix.test.mjs` (the generated map, detail art loading and the 2048 cap, the default mask's formula,
+the settings, the strengths' scope, the shader terms by text, the sun below the horizon).
+
+### 15.11 Fog volumes in the renderer DLL (CONFIRMED, `trid3d11.dll`; `APIDLLgpuFogVolumes` `180022040`, pipeline `180008360`, noise `18001ac30`, the exe's packer in `1401f6bb0`)
+
+The hotfix 3 DLL is the first CP4 build with the fog volume renderer, which section 4 left UNKNOWN.
+
+**Per volume (28 floats, at most 16 volumes, from the exe):**
+- the centre;
+- the box's two horizontal axes and its three half extents;
+- the weather-lit colour, and sigma = 3 / (max(vis, 1) x units a foot);
+- the halving rate 1 / (half x units), 0 without a half;
+- the side fade min(edge, half the smaller footprint side) and the top fade min(top, h);
+- the opacity cap maxOp, clamped to 0..1;
+- round and wisp;
+- the noise scale 1 / (max(wsize, 1) x 8 ft), in tiles a unit;
+- the drift phase, frac(time x wspd / (max(wsize, 1) x 8)), held under 1;
+- the bottom fade min(bot, h), 0 when it is not above 0.
+
+**The pass:**
+- One instanced draw of the box's back faces (the front faces culled), after the opaque scene.
+- The pixel reads the scene's depth, so each line of sight runs from where it enters the box to the nearer of where it
+  leaves the box and where it meets the scene.
+- In the water's reflection pass the line starts at the water's plane.
+
+**The integral:**
+- 12 midpoint samples along the line, jittered per pixel by `fract(52.9829189 fract(dot(pixel, (0.06711056, 0.00583715))))`.
+- Density at a sample:
+  - `exp2(-halving x height above the floor)`;
+  - times, with wisp > 0, `mix(1, smoothstep(0.25, 0.75, nz) x 1.6, wisp)`. Here nz = 0.65 n1 + 0.35 n2: n1 is the noise at
+    (point x scale - (0, 0, 1) x phase) and n2 at (point x scale x 2.7 - (1, 0, 2) x phase). The noise is trilinear and
+    wraps.
+- The footprint outline:
+  - round 0 is the rectangle;
+  - otherwise a superellipse whose exponent runs from 16 (round near 0) to 2 (round 1). The distance inside it is
+    (1 - F) / |grad F|.
+- The wisps fray the outline inward only: `sd = min(sd, sd + (nz - 0.5) x edge x wisp x 1.5)`, with edge and top
+  floored at 1.
+- The fades are smootherstep (`x^3 (x (6x - 15) + 10)`):
+  - sides over `edge`;
+  - top over `top`;
+  - bottom over `bot`, only when bot > 0.5.
+- The optical depth is the sum x sigma x the step. The alpha is `min(1 - exp(-depth), maxOp)`, faded by the weather fog's
+  factor at the line's entry (horizontal distance).
+- The output is premultiplied, with a +-0.5/255 dither.
+
+**The noise volume:** 64 x 64 x 64 bytes, made once (`18001ac30`).
+- Three octaves of value noise that tile: 16 lattice cells across with seed 2, weight 0.3; 8 cells with seed 1, weight
+  0.5; 32 cells with seed 3, weight 0.2.
+- Each is trilinear with the quintic fade, the lattice wrapped at its cell count.
+- The lattice hash: `h = seed x 0x9e3779b9 ^ x x 0x8da6b343 ^ y x 0xd8163841 ^ z x 0xcb1ab31f`, then `h ^= h >> 16`,
+  `h *= 0x7feb352d`, `h ^= h >> 15`, `h *= 0x846ca68b`, `h ^= h >> 16`. The value is `(h >> 8) / 2^24`.
+- The sum is stretched from its minimum to its maximum over 0..255.
+- The sampler is linear and wraps.
+
+**In OpenMTM2** (`src/render/fog-volumes.js`, `src/game/fog-volumes.js`):
+- The DLL's integral, wisps, superellipse, fades, dither and noise volume (`fogNoiseVolume`) as above.
+- The scene's depth is not readable inside OpenMTM2's own pass, so instead:
+  - the box's faces toward the eye are drawn with the depth test, so what stands in front of the box hides it;
+  - inside the box the line ends where it first meets the ground, from a 32 x 32 map of the drawn ground over each
+    box's footprint, made at load (`fogVolumeGround`).
+- Trees and rocks in the fog do not end the line.
+- The weather fog veils the colour (render/atmosphere.js) rather than fading the alpha.
+- Before this port the line ran through the whole box, the hillside under it included, and there were no wisps. A
+  waterfall's mist (vis 60 ft at the densest) drew as an opaque block.
+- A waterfall's mist fades over more of its box than the engine's (OpenMTM2's own, `FALL_MIST_SOFTEN` in
+  `game/fog-volumes.js`): the sides over 0.85 of the smaller half extent, the top over 0.6 of the height. At the mist's
+  density, the engine's 20 ft sides and 5 ft top still showed the box's outline.
+
+### 15.12 Object lighting: the highlight and foliage (CONFIRMED, `trid3d11.dll` object material VS `18012d040` and PS `18012eb00`)
+
+- The sun's highlight is added only on a face whose `specEnable` is set, a Gouraud facet (CP3_EXE_ANALYSIS.md 6), at
+  `s^specPower` (32 when the record's is unset) times ks. A material record does not turn it on.
+- **TRANSLUCENCY (FOLIAGE):** for a material with a translucency (the record's top 16 bits, 0.5 = 32768), the light on a
+  face is `mix(I, max(I, I_back), translucency)`. Here I is its own side's diffuse and I_back the diffuse for the
+  flipped normal, so a leaf lit from behind glows instead of going dark.
+- The cutout uses the material's own alpha reference.
+
+**In OpenMTM2:**
+- The highlight is now on shiny faces only (`modelMaterial`, `src/render/track-scene.js`).
+- Before, every lit CP4 material had the white highlight in the enhanced look, and three.js's default specular on top.
+  The sun turned the leaf cards of CP4 trees (flags LIT, ALPHATEST, TWOSIDED, specPower 0) white.
+- The translucency is not drawn yet.
+
+## 16. Beta 0.53 hotfix 3: waterfalls and lakes
+
+Hotfix 3 rebuilds the waterfall sheet: a slab with a back face, flow tubes that merge converging columns and drop
+torn triangles, ribbons for lone columns, a world-space across coordinate, smoothed and slope-limited vertex speeds, and
+up to four landings ("streams") per fall, each with its own mist, droplets, foam zone and landing ring, on water or on
+dry ground. The WFL gains roughFrom (byte 130). The DLL gains the froth whitewater on looks 1/2, the back-face shading
+and the Normal-Water detail on the fall. The lake loader, the WTR format and the fall validation are unchanged.
+Cross-references in this section (2.3, 12.2.5, ...) are to section 12 unless they start with 16.
+
+### 16.1 Function map (CONFIRMED)
+
+| 0.53 | Hotfix 3 | Does | Change |
+|---|---|---|---|
+| `14024ef30` | `140262fd0` | loader | new keys wfDepthScale, waterfallBulk; per-fall cap 32768; roughFrom log; stream, fold and flow-tube log lines; dump; table entry 0x188 |
+| `1402486c0` | `140251d20` | level name -> stem | none |
+| `140248720` | `140251d80` | WFL parser | roughFrom (byte 0x82); parsed record 0x90 bytes |
+| `140248ed0` | `140252540` | status text | none |
+| `140250260` | `1402647a0` | validation (REFUSED) | none (relocations only) |
+| `14024da50` | `140261930` | 2D normalize with fallback | none |
+| `140248f60` | `140252c40` | crest | none |
+| `1402493a0` | `140257170` | columns of one spacing | none |
+| `140249c20` | `140258af0` | column walk | rules unchanged; adds a replay mode (records at `14784b690`, count `14784b698`) |
+| `140249250` | `140256e10` | ground normal by 0.5 ft differences | none |
+| `1402496b0` | `140258230` | count-pass callback | also stores a per-row air flag (air != 0) |
+| `14024a160` | `140259590` | build-pass callback | also stores each row's x, y, z (doubles) and the row picked as the dry landing |
+| `14024a650` | `140259b60` | the mesh build | rewritten around the old core: 16.3 |
+| `140249840` | `1402583d0` | per-vertex normals (+ per-vertex flow and tangent arrays) | extended |
+| `1402511a0` | `140265900` | ground callback | none |
+| `1402525d0` | `140266da0` | water callback (source lake excluded) | none |
+| `14024cc30` | `140260a80` | per-frame draw | new per-fall constants [2].zw, [3].xy (16.7.4) |
+| `14024db20` | `140261a00` | landing rings | per stream |
+| `14024e3a0` | `140262390` | foam zones | per stream |
+| `140250080` | `1402645c0` | anim clock, calls the droplets | none |
+| `140250b00` | `140265040` | droplets | per stream, dry streams too |
+| `140251200` | `140265960` | one droplet burst | reads the stream record |
+| `140251f10` | `1402666e0` | sounds | table layout only |
+| `140251920` | `140266090` | mist | per stream, new width, density share, dry streams too |
+| `14024c520`, `140250960`, `14024c680` | `14025f830`, `140264ea0`, `1402604d0` | waterfallDebug | layout only |
+| `140250150` | `140264690` | clear | layout only |
+| new | `140252f30` | Totals' back-face count (CountBack) | |
+| new | `1402532a0` | per-vertex horizontal flow and (horizontal, vertical) tangent pairs | |
+| new | `1402525d0` | per-row across arc of the sheet vertices | |
+| new | `140259100` | across coordinate u (anchor column, 1-2-3-2-1 smoothing) | |
+| new | `1402573d0` | sheet coverage statistics (log) | |
+| new | `1402581a0` | run-out start row (dry landing, slide) | |
+| new | `140253bb0` (+ `1402558b0`, `140255590`, `140255360`) | flow-tube merge | |
+| new | `140253900`, `140256580`, `140255050`, `140254a20`, `140254cf0`, `140255ba0` | strip and junction triangles, the torn test | |
+| new | `1402563f0`, `1402546d0` | zipper ties for the slab thickness | |
+| new | `1402576c0` | ribbons (lone tubes) | |
+| new | `140257e00`, `140252b40`, `140252b90`, `140256d60`, `140255000` | junction emit helpers | |
+| new | `1402588d0` | slab thickness | |
+| new | `140254480` | per-row live columns in order (fold clamp) | |
+| new | `140256f60` | landContinuous | |
+| new | `14025fb50` | fold statistics (log only) | |
+| new | `140266e70` | `waterfalls_dump_%d.bin` ("WFDUMP1") | |
+| new | `1402657e0` | records walk steps for the replay mode | |
+
+Globals: falls built `148666960`, vertices `148666968` (count `148666964`), indices `148666970` (count
+`148666978`), parsed records `1486692d0` (64 x 0x90), built table `148660760` (64 x 0x188), droplet timers
+`148668a90` / `148668e90` (64 x 4 floats each). The DLL entry points and pointer table are as in 12.0.2 at new addresses
+(gpuWaterfallsAvailable `14012eff0`, gpuWaterfallMesh `14012efb0`, gpuSprayAvailable `14012eb20`, gpuSprayBurst
+`14012eb40`).
+
+### 16.2 Loader and file (CONFIRMED, `140262fd0`, `140251d80`)
+
+#### 16.2.1 Ini keys
+
+All in `[Graphics]` of `.\system\monster.ini`, read once per level:
+
+| Key | Default | Range | Use |
+|---|---|---|---|
+| waterfalls, waterBodyLog, waterfallDebug, wfRingDecay, wfRingStrength, wfChurn | as 12.1.1 | as 12.1.1 | unchanged |
+| wfDepthScale | 100 | 1..1000 | **now also read by the exe** (`140af3ed0`), /100 = ds of the slab thickness (16.3.10) |
+| waterfallBulk | 100 | 1..1000 | new (`140af3ed4`), /100 = bulk of the slab thickness (16.3.10) |
+| waterfallMist | 100 | >= 0 | unchanged (16.4) |
+| waterfallDroplets | 100 | 0..400 | unchanged (16.5) |
+
+wfDepthScale is also still read by the DLL for looks 1/2 (`tune0.x`, 16.7): one key, two readers.
+
+**There is no key, no WFL flag and no record byte for "mist and droplets on dry ground".** The flags check is still
+`flags & 0xfff8` = badFlags (`140251d80`), the record bytes read are those of 12.1.2 plus 0x82, and no other string or
+key exists. What the hotfix does is build landings on dry ground (16.3.12) and give every landing, water or dry, its
+mist (when the fall's mist % > 0) and its droplets (when the fall has SPLASH and the droplet gate is open). So the
+per-fall control is the WFL's own mist % and SPLASH flag (INFERRED: this is what the author's "option" refers to; Traxx
+1.8.0 warns "The water lands on dry ground: no foam strip or landing rings (mist and droplets still appear)").
+
+#### 16.2.2 Record v1.1 and roughFrom
+
+- roughFrom = record byte 0x82 (130), read only when the stride is >= 0x84. 0 and 255 are kept; **251..254 become 0**
+  and count `roughInvalid` (parse result +0x5c); 1..250 kept. Stored at parsed record +0x8c (the record grew to 0x90).
+  Stride < 0x84: roughFrom 0.
+- Byte 0x83 is not read. Mist depth / height (0x80, 0x81) are unchanged (0 -> 100, at most 250).
+- The log line "roughFrom 251..254 on %d fall(s): invalid, treated as 0 (engine default)" is written only with
+  waterBodyLog and only when the count is > 0. It raises **no** on-screen message and does not count for "skipped".
+- roughFrom reaches the shader as the per-fall constant [3].y (16.7.4); the exe does nothing else with it.
+
+#### 16.2.3 Caps, log, dump
+
+- Per-fall vertex budget = min(**32768**, 262144 - used) (0.53: 16384), clamped again to 0x8000 inside the build. Track
+  caps unchanged: 262,144 vertices (16 MiB buffer), 1,572,864 indices (6 MiB).
+- Log (waterBodyLog >= 1): after the ring line, "slab (spec 4.2): wfDepthScale=%d%%  waterfallBulk=%d%%  per-fall cap
+  %d verts, track cap %d" (32768, 262144). Per fall: "fall %d: source %d  points %d  columns %d  spacing %g ft  verts %d
+  (sheet %d, foam %d, back %d)  tris %d (back %d)  rows %d..%d%s"; the ends line and bounds line as 0.53; "landing ...",
+  the largest stream (16.3.12); "landings %d (the line above is the largest)"; per stream "stream %d: x, y, z ft  width
+  %.1f ft  drop %.1f ft  dir %.2f, %.2f  columns %d  water|dry"; "folds: %d of %d front tris flipped (%d zero-area)
+  neighbour spacing x%.3f (row %d col %d) .. x%.3f (row %d col %d) of the crest's  crossed %d of %d pairs" (statistics
+  only, `14025fb50`); "flow tubes: %d of %d columns merged into a neighbour, %d sheet triangles dropped by the split;
+  ribbons %d verts %d tris (lone tubes); SHEET COVERAGE %.1f %%  streams per row max %d median %d  lone columns %d".
+- waterBodyLog >= 2 also writes `waterfalls_dump_<id>.bin` (magic "WFDUMP1", `140266e70`: the fall's vertices and
+  indices plus ground and water samples, NaN where there is no water) and logs "  dump: wrote|FAILED to write ...".
+- Messages (12.1.3): unchanged.
+
+#### 16.2.4 The built fall table (`148660760` + i * 0x188)
+
+| Offset | Field |
+|---|---|
+| +0x00..+0x8f | the parsed record (36 ints; roughFrom at +0x8c) |
+| +0x90 | stream count, min(streams, 4) |
+| +0x94 | total columns over the kept streams |
+| +0x98 + 36 s | stream s (s < 4): x, y, z (ft, unwrapped), width, drop, fx, fz (floats), columns, water (ints) |
+| +0x128 | first index |
+| +0x12c | index count |
+| +0x130, +0x134, +0x138 | anchor x0 * 16, height * 128, z0 * 16 |
+| +0x13c..+0x153 | bounds min xyz, max xyz (vertex units) |
+| +0x154 | main landing x, y, z (the largest stream) |
+| +0x160, +0x164 | main width, drop |
+| +0x168, +0x16c | crest length L, crest speed |
+| +0x170 | water-end count (columns ending in water) |
+| +0x174, +0x178 | animation index, clock |
+| +0x17c, +0x180 | main landing direction fx, fz |
+| +0x184 | RNG state, id * 0x3c6ef362 + 0x9e3779b1 |
+
+### 16.3 The mesh build (`140259b60`)
+
+#### 16.3.1 Unchanged (CONFIRMED by fdiff)
+
+Crest, columns, spacings {2, 3, 4, 6, 8}, the 1100 cap, the walk (dt 1/60, -32/60, drape 0.3, drag 0.98, air
+tolerance 0.05, rest < 2 ft/s and cos 5 deg, 4000 steps, water test, row emission), the ground and water callbacks,
+the trailing-flat trim (12.2.5: 1.0 ft, 8.0 ft, cos 10 deg), the bisection and SHORTENED, the build-pass vertex fields
+and the sink vertex (12.2.7), the normals rule (12.2.8, applied to the built grid), the foam strip constants (12.2.10:
+1.5 x drop clamped 4..40 ft, +0.1 ft, 3 vertices a column of a water run of >= 2).
+
+#### 16.3.2 Per-row air flags and the dry landing row (CONFIRMED, `140258230`, `1402581a0`, the build at `14025abc7`)
+
+- The count pass stores air != 0 per row. Row 0 (the crest) takes row 1's flag.
+- **landPick** for a column that does not end in water, has >= 2 trimmed rows and whose last row is draped:
+  1. FALL: among the airborne stretches that touch down before the last row, the one with the largest drop (y of the
+     row before the stretch, row 0 for a stretch starting at row 0, minus y of its touchdown row; the first on a tie).
+     If that drop >= 0.5 * (crestY - y of the last row): its touchdown row.
+  2. Else SLIDE: the run-out start (`1402581a0`, the trim's step 1..2 of 12.2.5: back over the flat-contact rows, then
+     forward while y - y_last >= 1.0 ft), if it is in 1 .. rows - 2.
+  3. Else none (-1): the column's last written row.
+  A water-ending column has none. With R, landPick sees only the rows under R.
+
+#### 16.3.3 Budget with the back face (CONFIRMED, `140252f30` in the Totals of 12.2.6)
+
+Totals(R) adds the back-face vertices: with the per-row air flags over the min(rows, R) grid, every sheet triangle
+(the 12.2.9 pattern) with at least one airborne corner marks its three corners; back vertices = marked vertices; back
+triangles = such triangles. Fewer than 3 columns: none. The fit test is then verts (sheet + foam + back) <= budget and
+3 * tris <= index room, on the full grid before the flow tubes (16.3.4); ribbons are added after the choice
+(INFERRED: they can push a fall past the budget; the build aborts through `14072c070` beyond 0x7fff entries).
+
+#### 16.3.4 Flow tubes: the merge (CONFIRMED, `140253bb0`, distance `1402558b0` / `140255590`)
+
+Decisions in double on the written path points (the rows' x, y, z of 16.1's build callback, after the trim and R).
+- Every column starts live, weight 1.0, with left and right live neighbours (a linked list over the columns) and a
+  last path row (its rows - 1, the sink not counted).
+- For row r = 1 .. maxRows - 1, for each live column c in order with last row >= r, try its left then its right live
+  neighbour n with last row >= r: d2 = the squared horizontal distance from c's path step (row r - 1 to r) to n's
+  polyline over rows max(0, r - 64) .. min(r + 64, n's last row) (segment-to-segment, 0 when they cross strictly). If
+  d2 < (0.25 * spacing)^2 the two merge:
+  - the merged one is the column farther from the crest's centre, |2 c - C + 1| against |2 n - C + 1|; on a tie the
+    higher index merges;
+  - the merged column ends at the junction row (its rows become junction + 1, its `end` field is 1.0 on every row, its
+    sink is dropped); the survivor's weight += the merged one's weight; the list is relinked;
+  - strips and junction records are added for the triangulation (`140253900`).
+- "%d of %d columns merged into a neighbour" counts the merges.
+
+#### 16.3.5 The split: torn triangles (CONFIRMED, `140254a20`, `140254cf0`, `140255ba0`)
+
+A vertex (c, r) is torn from a neighbouring column n when its 3D distance to n's polyline (nearest segment, rows
+r +- 64) is over **3 x spacing** (squared test against (3 * spacing)^2, built at `14025a95c`) **and** either
+- the nearest point is n's last row and n is neither merged nor water-ending, or
+- the ground between them rises: N = ceil(horizontal distance / 1 ft) samples at t = k / N, k = 1 .. N - 1, and some
+  sample's ground > max(y of the vertex, y of the nearest point) + **8.0 ft**.
+A sheet triangle with a torn rung is not emitted ("sheet triangles dropped by the split"). Up to 4 answers per vertex
+are cached.
+
+#### 16.3.6 Ribbons (CONFIRMED, `1402576c0`, the build at `14025c3a0..14025c8a0`)
+
+- A sheet vertex that no kept triangle uses gets a ribbon slot; its lens counts (16.3.10) are 1 and 1, and its ribbon
+  width is W = min(max(**0.35** * weight * spacing, **2.0**), weight * spacing) ft (weight = the column's merge weight).
+- Two vertices per ribbon vertex, appended after the sheet: copies of it moved -W/2 and +W/2 across (perpendicular to
+  the vertex's horizontal flow; fallback the column's crest flow dir), u -W/2 / +W/2, edge 0, kind 0; a draped one
+  (air 0) is re-snapped to ground + 0.3 ft unless it is in a water column's last two rows. The source vertex's edge
+  becomes 1.0.
+- Runs of consecutive ribbon vertices down a column are stitched as strips; a run's ends tie to the next sheet vertex
+  when within 2 W (squared 4 W^2), each tie once (a pair table, at most 0x8000).
+
+#### 16.3.7 The across coordinate u (CONFIRMED, `1402525d0`, `140259100`)
+
+u (float 3) is no longer the crest arc s. Per row r over the columns that have row r (a water column's sink row left
+out):
+- across arc A: for consecutive such columns a, b: flow = normalize(f_a + f_b) (per-vertex horizontal flow, fallback
+  f_b when shorter than 1e-9), d = (p_b - p_a) in ft, lateral = d . perp(flow), along = d . flow; off = min over the two
+  vertices' (horizontal, vertical) tangents of |t x (along, dy)| - 0.25 ft; if off > 0, lateral = sign(lateral) *
+  sqrt(off^2 + lateral^2); A_b = A_a + lateral. Each row's mean is subtracted.
+- anchor column: the column with row r nearest the middle (C / 2, then C / 2 - 1, C / 2 + 1, ... alternating).
+  Value: the crest s of that column at row 0 or when it is the middle column, else its own u of row r - 1.
+  u_c(r) = anchorValue + A_c(r) - A_anchor(r).
+- Then u is smoothed down each column with weights 1, 2, 3, 2, 1 (rows r - 2 .. r + 2, missing rows left out, divided
+  by the weights used). A sink vertex copies the row above.
+The DLL comment calls it "u in ft across the water, measured in world space per row".
+
+#### 16.3.8 Speed ADVECT (CONFIRMED, `14025cc40..14025cdf0`)
+
+On the sheet vertices' smoothed speed (float 5, 12.2.7):
+1. Across each row: v' = (2 v + v_left + v_right) / (2 + n), v_left / v_right the nearest columns on each side that
+   have that row (a sink row excluded), n the number found (0..2). Computed from the old values.
+2. Down each column, i >= 1: ds = max(0, path_i - path_i-1) (float 15); v_i = clamp(v'_i, v_i-1 - **1.25** ds,
+   v_i-1 + 1.25 ds), v_i-1 the already-limited value. So |dv/ds| <= 1.25 per second.
+3. Ribbon vertices copy their source vertex's speed.
+
+#### 16.3.9 Path and tau relaxation (CONFIRMED structure, `14025d1d0..14025d5f0`; skipped when the debug switch `14784b69c` is set)
+
+- A sheet vertex is flagged when a non-torn left or right neighbour's path differs from its own by more than
+  0.5 * spacing. Every row within +-8 rows (row >= 1) of a flagged row in the same column is relaxed.
+- 64 Jacobi iterations on path (float 15) and tau (float 4): new = the mean of the non-torn left and right neighbours'
+  values, the row above plus the column's own original increment, and the row below minus its original increment.
+- Then made non-decreasing down each column, and copied to the ribbon vertices.
+
+#### 16.3.10 The slab (CONFIRMED, `1402588d0`, the build at `14025c540`, `14025da07..14025dc70`, `14025e0d0`)
+
+Thickness per sheet vertex, ft (v0 the crest speed, vE the vertex's speed after 16.3.8, air, drop = float 11, s =
+path, Lend = the column's last path, ds = wfDepthScale / 100, bulk = waterfallBulk / 100, both 1 when <= 0):
+- h0 = min(2 * ds, ds * v0^2 / 32); pile = 2 * h0;
+- hc = h0 * v0 / vE when vE > 1e-9, else pile (or 0 when h0 * v0 is 0); hc *= k1 * k2 (two per-vertex factors from
+  the tube build, `147b0b6b0` and `1483cac50`; UNKNOWN meaning, 1 for an unmerged column INFERRED);
+- hDrape = max(min(2.5, pile, hc), 0.5 * bulk);
+- hAir = h0 * (1 + bulk * max(drop, 0) / 25);
+- h = clamp(hDrape + (hAir - hDrape) * clamp(air, 0, 1), 0.05, 8.0);
+- lens = sqrt(max(0, 1 - t^2)), t = (a - b) / (a + b), a and b the vertex's column counts to the tube's two sides
+  (`147ecbad0`, `147eebad0`; 1 and 1 for a ribbon); 0 when a + b <= 0;
+- along = min(clamp(s / 1.0, 0, 1), clamp((Lend - s) / 3.0, 0, 1));
+- thickness = h * lens * along, and 0 when the fall has 2 columns or fewer.
+
+Then:
+1. **Fold clamp**: per row, over the live columns in across order (`140254480`), for neighbours a, b with the
+   combined flow: if the pushed offsets close the gap (the across component of n_b h_b - n_a h_a is negative) and gap +
+   closing < **0.5** * gap, both thicknesses are scaled by 0.5 * gap / -closing (the smallest factor per vertex wins).
+2. **Zipper**: pairs tying neighbouring tubes (`1402563f0`, weight 1.75 * the smaller of their half-areas) keep
+   |h_a - h_b| <= that weight, iterated until nothing changes.
+3. **Back face** (kind 2): every vertex marked as in 16.3.3 (the final air flags) is copied after the sheet and the
+   ribbons, **unpushed**, with kind 2.0, air = its flag (0 or 1) and the normal negated.
+4. **Front face**: every sheet and ribbon vertex is pushed by normal * thickness * 256; float 9 (which held the
+   thickness) is reset to 0.
+The DLL lifts the back face exactly as the front (it negates the stored normal again) and fades it by air (16.7.3).
+
+#### 16.3.11 Buffer order and counts (CONFIRMED)
+
+Per fall: sheet (column by column), ribbons (2 per ribbon vertex), back face, foam strip. The per-fall vertex fields
+are those of 12.2.7 with: u as 16.3.7, speed as 16.3.8, path and tau as 16.3.9, kind 0 / 1 (foam) / 2 (back), the
+front pushed (16.3.10).
+
+#### 16.3.12 Landings: one per stream (CONFIRMED, the build at `14025e4f0..14025f450`, `140256f60`)
+
+- Candidates, over the live (not merged) columns in order: if any live column ends in water with rows <= R, the water
+  columns with rows <= R (landing point = the last written row, never the sink); otherwise every live column (landing
+  point = its landPick row, else its last written row). A fall's streams are therefore all water or all dry (the
+  stream's water field).
+- Groups: a new group starts at a non-candidate column between candidates, or when two neighbouring candidates'
+  landing is not continuous (`140256f60`): along the straight horizontal segment between the two landing points,
+  N = ceil(length / 1 ft), samples k = 1 .. N - 1: water candidates need a water surface (the walk's water callback,
+  with the fall's source) above the ground at every sample; dry candidates need ground <= lerp(y_a, y_b, t) + **2.0 ft**.
+- More than 4 groups: the 4 with the most columns are kept (the first on a tie), then put back in column order.
+- Per stream, with only its own columns: y = mean landing y; drop = mean (crestY - y); dir = normalize(sum of the unit
+  horizontal last steps into the landing row, those longer than 1e-6), fallback normalize(sum of the crest point
+  dirs), then (0, 1); across a = z fx - x fz, along b = x fx + z fz; width = (max a - min a) + spacing, or for a
+  one-column stream whose landing vertex has a ribbon, the ribbon's W; x = mean(b) fx - mid(a) fz, z = mean(b) fz +
+  mid(a) fx; columns = the count.
+- The fall's main landing (+0x154, the log's "landing" line, the sound's position) is the stream with the most
+  columns (the first on a tie).
+- "ends water / rest / limit" and the water-end count (+0x170) are counted as in 12.2.11.
+
+### 16.4 Mist (CONFIRMED, `140266090`)
+
+- Volumes are made per **stream**: the outer loop is the stream index 0..3, the inner the built falls, so all falls'
+  first streams take the 64 shared slots (12.4) before any second stream.
+- A stream gets mist when s < stream count and the fall's mist % > 0. **The 0.53 test "water-end count > 0" is gone**:
+  dry streams get mist.
+- share = columns_s / total columns (+0x94), 1 when the total is < 1.
+- density = (mist / 100) * clamp(crestSpeed * L * drop_s / 7200 * share, 0.25, 2.0) * (waterfallMist / 100); <= 0: none.
+- Box: L = max(0.6 drop_s, 20) * depth% / 100 (unchanged); **W = width_s + 2 * clamp(0.05 drop_s + 2, 2, 6), at least 6**
+  (0.53: width + 0.6 drop, at least 20); H = min(0.7 drop_s, 120) * height% / 100, at most 240 (unchanged).
+- Centre, axes, floor (landY_s - 2), vis, half, colour and the other fog fields, the weather mask (0x1df with FREEZE):
+  as 12.4, from the stream's x, y, z and direction.
+- Slot full: "fall %d: NO mist for stream %d (no fog slot free, %d volumes)". Logged: "fall %d: mist (stream %d of %d)
+  at ...".
+
+### 16.5 Droplets (CONFIRMED, `140265040`, `140265960`; DLL `180026b20`, `180026c70`, shader `180128770`)
+
+The emitter is 12.5's, run per stream instead of per fall. Everything needed to implement it:
+
+**Gate (every frame, `140265040`).** Water look 1 or 2 (`140220bf0` returns 1..2), a player view exists, the two
+graphics option flags (`140af2d00`, `140af1b88`; ids 0x20 and 0x19, names not traced), `enhancedWaterSpray` > 0
+(`140af334c`), gpuSprayAvailable. Otherwise both timer arrays are cleared. waterfallDroplets read once per level
+(default 100, clamp 0..400; 0 = off); k = value / 100. dt = ticks / 65536 s.
+
+**Budget.** B += dt * 500, at most 80 (banked bursts, global); each burst costs 1; at most 6 bursts per stream per frame.
+
+**Per stream s of fall f** (s < 4): skipped and its timers zeroed when s >= stream count, or no SPLASH (flags bit 1),
+or (weather Snow (5) and FREEZE). **No water test: dry streams emit too.** The stream's x, z are wrapped into
+[0, 8192) and then to the copy nearest the player's position ((dx, dz) in [-4096, 4096)); beyond 150 ft (dx^2 + dz^2 >
+22500) the timers are zeroed.
+- kS = max(k * columns_s / total, 0.001) (k when the total is 0).
+- Interval: when the stream's interval is <= 0, draw one: state += 0x9e3779b1; h = hash(state); u = (h >> 8) * 2^-24;
+  interval = (0.4 + 1.2 u) * 0.02 / kS. Timer += dt.
+- vLand = sqrt(max(0, crestSpeed^2 + 64 drop_s)) (INFERRED: the argument of the sqrt is hidden by the decompiler; it
+  is 12.5's), sizeK = clamp(drop_s / 60, 0.3, 1.0).
+- While timer >= interval and B >= 1 and fewer than 6 this frame: timer -= interval; draw a new interval; B -= 1; one
+  burst. After the loop, a timer still >= interval becomes 0.999 * interval.
+- hash(x): x ^= x >> 16; x *= 0x85ebca6b; x ^= x >> 13; x *= 0xc2b2ae35; x ^= x >> 16. The RNG state is the fall's
+  (+0x184), shared by its streams.
+
+**One burst (`140265960`)**, with the stream's record: (c, s) = its direction, or with (fx, fz) = (0, 0) a random angle
+in 0 .. 2 pi; per-burst state += 0x2e2ac0ea (with a direction) or 0x6a99b44c, then the draws of 12.5 (the per-draw
+offsets, e.g. + 0x78dde6c4, are in `140265960`):
+- position (ft, then * 256): x = X + c a - s j + 1.5 (2u - 1), z = Z + s a + c j + 1.5 (2u - 1), y = landY_s;
+  a = 8 u ahead (or +-4 ft with no direction), j = (2u - 1) * min(width_s / 2, 60);
+- velocity * 256: horizontal 0.2 u vLand at the angle dir + theta, theta uniform in +-1.396 rad; vy = (0.06 + 0.12 u) vLand;
+- intensity = min(1, (0.6 + 0.6 u) * sizeK * 0.3 * k); waterY = landY_s * 256; halfW = min(12, width_s / 2) * 256;
+  size scale = (1.5 + 1.5 u) * clamp(k, 0.3, 4); dlt 0, carrier velocity 0, smear 0; seed = a hash value.
+- `gpuSprayBurst(posX, posY, posZ, velX, velY, velZ, intensity, waterY, halfW, seed, dlt, tvX, tvZ, sizeScale, smear)`.
+
+**The DLL's spray (unchanged from 0.53 except reversed Z).** A ring of 4096 records; each record: pos, spawn time,
+vel, intensity (clamped 0..1), waterY, halfW (>= 0), seed, dlt (0..0.25), tv, size scale (<= 0 -> 1, at most 4),
+smear (0..0.25). `gpuSprayDraw(camera, dt, opacity)` advances the clock, draws the records younger than 2.4 s, 83
+sprites a record: 80 drops (kind 0) and 3 blobs (kind 1). Units 1/256 ft; gravity -8192 units/s^2 (32 ft/s^2).
+- uhash(x): x ^= x >> 16; x *= 0x7feb352d; x ^= x >> 15; x *= 0x846ca68b; x ^= x >> 16; h01 = (x & 0xffffff) / 2^24.
+  Sprite s: h = uhash(seed ^ s * 0x9e3779b9), then h2, h3, h4, h6, h7, h8, h9 by rehashing.
+- sfv = saturate((|vel| - 1500) / 6200). A sprite is skipped when idx + 0.5 > count * intensity * (drops: 0.55 +
+  0.45 sfv; blobs: 1).
+- smear smr = min(smear, 0.25); back = h9 smr; age = clock - spawn + back - (smr > 0 ? 0 : 0.06 h9).
+- life = 2.0 * (drops: 0.65 + 0.35 h6; blobs: 1); culled outside [0, life).
+- spawn = pos + lat * (h2 - 0.5) * 2 halfW - tv * back (lat perpendicular to the horizontal velocity, or (1, 0)).
+- spd = max(|vel|, 768); cone: angle 2 pi h3, radius sqrt(h4), horizontal.
+- v0: drops vel (0.6 + 0.4 h6) + cone spd 0.2 + up spd 0.5 h8; blobs vel (0.8 + 0.5 h6) + cone spd 0.12 + up spd 0.75
+  (0.5 + 0.5 h8).
+- Motion with drag k = 0.5 /s: E = (1 - e^(-k age)) / k; p = spawn + v0 E; p.y += g (age - E) / k. Culled when p.y <
+  waterY and age > 0.03.
+- Size (sc = size scale): drop width 12 (0.8 + 0.4 h7) sc, length clamp(0.025 |v on screen|, 2w, 2w + 520 sc), alpha
+  0.9; blob width 44 (0.8 + 0.5 h7) sc, length clamp(0.00875 |v on screen|, 2w, 3w), alpha 1. The quad trails the head
+  along the screen velocity.
+- alpha *= saturate((p.y - waterY) / 96) * saturate(age / 0.03); fog fades only (1 - saturate((d - fogStart) /
+  fogLen)); light = saturate(0.22 + 1.15 ambient); tint drops (0.92, 0.97, 1.0), blobs (0.86, 0.94, 1.0).
+- Drop PS: body = (1 - smoothstep(0.3, 1, |uv.y|)) (1 - smoothstep(0.65, 1, uv.x)) smoothstep(-1, 0.15, uv.x); core =
+  (1 - |uv.y|) smoothstep(-0.6, 0.5, uv.x); rgb = saturate(1.12 col + (0.10 + 0.9 amb^2) core); a = saturate(body
+  (0.75 + 0.35 core)). Blob PS: disc = 1 - smoothstep(0.7, 1, r); glint = exp(-14 |uv - (-0.30, 0.35)|^2); rgb =
+  saturate(col (0.85 + 0.15 (1 - r)) + 0.7 amb^2 glint); a = saturate(disc (0.7 + 0.3 glint)). Discard < 0.003; rgb *
+  gLook.x (default 1).
+
+On dry ground the drops die where they fall below waterY = the landing's height, so they splash off the slope foot.
+
+### 16.6 Foam zones, landing rings, sound (CONFIRMED)
+
+- Foam zones (`140262390`): landing boxes are per stream (the stream's water field set, the fall's water-end count >
+  0), up to 256 candidates, nearest first, 32 sent; box constants of 12.6.1 with the stream's width, drop and dir.
+  The lake-fed crest segments follow as before.
+- Landing rings (`140261a00`): per water stream, constants of 12.6.2 with the stream's width, drop and position; the
+  Snow + FREEZE skip kept; the "lake draws this landing" bit is set per fall from its streams.
+- So dry streams get mist and droplets but no foam zone, ring or foam strip.
+- Sound (`1402666e0`): unchanged rules, at the main landing (+0x154), which on a dry fall is now its largest dry stream.
+
+### 16.7 Renderer DLL (CONFIRMED, `trid3d11.dll`; VS `180177aa0`, PS `180179750`, pipeline `18000ea00`)
+
+#### 16.7.1 What changed
+
+- Reversed Z (the clip z is no longer flipped); shaders go through a disk cache (`180006fe0`); cbWaterfall 0x1110 ->
+  0x1120 bytes (gWfDet added).
+- VS: the lift and depth pull run for every kind except 1 (|kind - 1| > 0.5): kind 2 negates the stored normal, so the
+  back face moves exactly like the front. fq = (planar flag, kind, F2.z, F2.w) is passed flat (no interpolation).
+- PS kind tests on the flat kind: foam = |kind - 1| < 0.5, back = kind > 1.5; bkA = saturate(air) on the back face, 1
+  elsewhere; every look ends with alpha *= bkA.
+- Look 0: back-face rgb * 0.6; otherwise unchanged (texture, second layer, mask, foam strip). Look 3: unchanged (its
+  back face only gets the air fade).
+- Looks 1/2: the old whitewater streak noise (lattice 1.2 x 7 ft, two fbm layers, threshold lerp(0.92, 0.38, W), width
+  0.08 (1 + brk)) and the clump cut are removed; the froth below replaces them; roughFrom, the Normal-Water detail, the
+  back-face rules are new; no glint on the back face.
+- The wf* key set, defaults and ranges are unchanged (12.0.1; reader `180019a10`). New DLL key `[Graphics]
+  waterDetailDbg` (default 0, gWfDet.x).
+
+#### 16.7.2 Looks 1/2: whitewater W, froth and colour
+
+Inputs: u, tau, air, edge, end, drop, opac, spd (crest speed), t, flow = (tau - t) spd, sd = path, v = max(speed, 0.5),
+fog as 12.0.1, kWhite = (0.86, 0.90, 0.94), wLit = lerp(kWhite * light, fogColour, fog).
+
+- roughFrom: rfR = gWfFall[f][3].y; vR = rfR if 0.5 < rfR < 250.5 else 25; wwOn = 0 if rfR > 254.5 else 1.
+- W = saturate((wwOn * max(saturate((drop - 27) / 30) * saturate(air), saturate((v - vR) / 20)) * 0.9 +
+  smoothstep(0.5, 0, saturate(end)) * 0.85) * tune0.z) * saturate(sd / max(tune0.w, 0.1)). (0.53: no air factor, no
+  wwOn, vR = 25.) So 255 turns off the drop and speed terms; the impact term (end near 0) stays.
+- an (streak weight) = saturate(max(saturate(air), smoothstep(10, 35, v))) * smoothstep(0, 0.5, saturate(end)).
+- Hash hU(X, Y) = the value-noise hash of 12.0.1 without the 24-bit mask. Worley cell(p): c = floor(p), f = p - c; for
+  the 9 neighbours o, h = hU(c + o), feature = o + ((h & 0xffff), (h >> 16)) * 0.8 / 65535 + 0.1; F1, F2 = the two
+  smallest Euclidean distances (start 8 squared).
+- Froth(F) = max(0.30 + 0.40 smoothstep(0.05, 0.70, F1), 1 - smoothstep(0, kWfWall, F2 - F1)).
+- Density D(q, fq, an, det): fA = det * saturate(1.6 - 2 max(fq.x / kWfCellA, fq.y / (kWfCellA kWfAniso))); fB = det *
+  saturate(1.6 - 2 max(fq.x, fq.y) / kWfCellB); cA = lerp(kWfFrM, Froth(cell(q / (1, 3.5))), fA); cB = lerp(kWfFrM,
+  Froth(cell(q / 0.8 + (7.31, 2.17))), fB); cl = lerp(cB, cA, lerp(0.15, 0.85, an)); dv = fbm(q / kWfDensFt + (23.1,
+  11.9)) (12.0.1's fbm); D = saturate(0.5 + kWfCellAmp (cl - kWfFrM) + kWfDensAmp (dv - 0.5)).
+- Coverage (only when W > 0.001, else dn = 0.5, fo = 0): det = 0 on the back face; d1 = D(q1), d2 = D(q2) (the flow
+  map's two phases, 12.0.1 / DLL notes), d0 = D(qo = (u, flow)); dn = lerp(d0, mix2(d1, d2, w1), fmx), fmx =
+  smoothstep(2, 12, drop); dn = saturate(dn + 0.6 brk (cn - 0.5)); soft = kWwSoft (x 1.6 on the back); fo =
+  smoothstep(1 - W - soft, 1 - W + soft, dn) * saturate(4 W) * saturate(1.5 sideK) (x 0.7 on the back).
+- Foam colour: hl = saturate(0.5 N . sun + 0.5); fC = kWhite * light * (kFoamAmb + 0.35 hl^2) * lerp((0.84, 0.92,
+  1.0), 1, smoothstep(0.15, 0.85, fo)) * (0.90 + 0.14 dn), then fogged.
+- Gaps: aer = saturate(1.25 W) * saturate(1.5 sideK) (x 0.5 on the back); gapC = lerp(water, fC * (0.80, 0.90, 0.96),
+  kGapAer aer).
+- Output: rgb = lerp(lerp(gapC, wLit (0.9 + 0.1 dn), cs), fC, fo); a = opac * lerp(lerp(sh (1 - kGapClear aer),
+  max(sh, 0.92), cs), max(sh, kFoamA), fo) * mask(edge, end, fray 0.6 brk); a *= 1 - 0.4 brk (1 - 0.75 fo); the dry
+  foot fade (unchanged); glint (look 2 only, 0 on the back); a *= bkA.
+
+| Constant | Value | Constant | Value |
+|---|---|---|---|
+| kWfCellA | 1.0 ft | kWfDensFt | (3.5, 8.0) ft |
+| kWfAniso | 3.5 | kWfDensAmp | 1.3 |
+| kWfCellB | 0.8 ft | kWwSoft | 0.22 |
+| kWfWall | 0.22 | kFoamAmb | 0.65 |
+| kWfFrM | 0.577 | kFoamA | 0.95 |
+| kWfCellAmp | 1.2 | kGapAer, kGapClear | 0.25, 0.25 |
+
+The rest of looks 1/2 (body colour, thickness from v0^3 / (32 v) * wfDepthScale, ripples, flow map, reflection,
+Fresnel, calm lines, breakup) is 0.53's; the full path is in re/cp4b2dll/notes and the hotfix agent notes.
+
+#### 16.7.3 Back face in the shader
+
+Every look: alpha *= saturate(air). Look 0: rgb * 0.6. Looks 1/2: water = the plain body (no reflection, no detail
+brightening), no Worley cells in the density, erosion 1.6 x softer, fo x 0.7, aer x 0.5, no calm lines, no glint. The
+slab's offset is built by the exe (16.3.10), not the DLL.
+
+#### 16.7.4 Per-fall constants (exe `140260a80` -> DLL `180020860`)
+
+[0], [1], [2].x, [2].y as 12.9. New: [2].z, [2].w = the absolute anchor X and Z modulo the world (x - floor(x /
+2097152) * 2097152, engine units), used only for the detail mask lookup; [3].x = 1.0 (the DLL takes fall 0's > 0.5 as
+"a new exe is present" before it enables the detail); [3].y = roughFrom as a float (record +0x8c).
+
+#### 16.7.5 Normal-Water detail on the fall (looks 1/2 only)
+
+Only when gWfDet.y (the mask's 1 / period) > 0 and fog < 1: lod = 1 - smoothstep(1.5, 5, ft per pixel of (u, flow));
+mk = the world water mask at (anchor mod world + local xz) * gWfDet.y; nA, nB = the detail normal map at (u / 64, (tau
+spd - t sA) / 48) and (u / 118.72 + 0.37, (tau spd - t sB) / 89 + 0.61), sA = round(600 spd / 48) 48 / 600, sB =
+round(600 spd / 89) 89 / 600; sDet = -(nA + nB) 0.02 (1 + 4 mk) lod (1 - fog) gWfDet.z; the ripple slope += sDet; the
+reflection normal adds 1.5 sDet more; front-face water *= clamp(1 + 2.4 sDet . (0.6, 0.8), 0.7, 1.3). gWfDet.z = the
+Normal-Water strength (default 1, export gpuSetDetailStrength, clamp 0..3); the map is the supplied one
+(gpuWaterDetailNormalUpload) or a generated 256 x 256.
+
+Further rules of looks 1/2 that 16.7.2 names (settled from the DLL's shader for the port; rules, no code):
+- Defaults of the keys looks 1/2 read: wfWhite 100 (W's gain / 100), wfLipBlend 40 (sd's ramp, / 10 ft), wfBreakup 100
+  (/ 100), wfFlowCycle 8 (/ 10 s), wfFoam 100 (the foam strip's gain / 100), wfDepthScale 100, wfCalmSpeed 40 and
+  wfRoughSpeed 160 (/ 10 ft/s: calm .. rough water).
+- Flow map: vA = max(speed, crest speed, 1) ft/s; cycles = max(round(600 / T), 1), Tc = 600 / cycles (T = wfFlowCycle);
+  p1 = frac(t / Tc), p2 = frac(t / Tc + 0.5), w1 = 1 - |2 p1 - 1|; the cycle indices c1 = floor(t / Tc), c2 = floor(t /
+  Tc + 0.5), each mod cycles; q1 = (u, sd - vA Tc p1) + frac(c1 (0.6180340, 0.7548777)) (37, 91), q2 the same with p2,
+  c2 and the fractions offset by (0.5, 0.25); fq = fwidth(q1). mix2(a, b, w) = saturate(0.5 + (w (a - 0.5) + (1 - w) (b
+  - 0.5)) / sqrt(w^2 + (1 - w)^2)). Near the crest every flow-mapped term crosses from qo = (u, flow) by fmx.
+- Footprint fade: a value-noise lattice faded to 0.5 by saturate(1.5 - max(fw)) (fw its footprint in cells); the fbm's
+  octaves likewise at 1, 2.03 and 4.11 times the footprint.
+- brk = saturate(wfBreakup * smoothstep(15, 100, drop) * smoothstep(0, 1, saturate(air))). The outline is 12.0.1's mask
+  on the flow-mapped noises, its side term times (1 + fray), fray = 0.6 brk. sideK = saturate(sqrt(saturate(edge)) 1.3 -
+  0.35 k (1 + 0.6 brk) nS), nS the side noise's first octave (u / 0.8, s / 4), flow-mapped. cn = the value noise at q /
+  (5, 6) + (13.7, 5.1), flow-mapped.
+- The thickness h = max(0.05, v0^2 / 32 * wfDepthScale / 100 * v0 / v) * sideK ft, v0 = max(crest speed, 0.5).
+- The dry foot: foot = (1 - air) smoothstep(0.985, 0.998, |N.y|) smoothstep(8, 20, drop) smoothstep(0.15, 0.7, tau -
+  sqrt(drop / 16)) (1 - smoothstep(3, 8, v)); a *= 1 - smoothstep(0, 1, foot (1 + 0.6 (cn - 0.5))).
+- The textured foam strip in looks 1/2 (drawn unless the lake draws the landing, flags +4): two layers of the fall's
+  texture at anchor-relative xz / 12 + (0.04, 0.02) t and xz / 8.5 + (0.5, 0.3) + (-0.03, 0.035) t; sf = saturate(0.5
+  + 3 (0.55 (l1 - lm) + 0.45 (l2 - lm))), l the luma, lm the texture's mean; rgb = lerp(the lake body, the lit white,
+  saturate(0.35 + 0.65 sf)); a = opac * saturate(wfFoam / 100 * end^0.6 * (0.3 + 0.7 sf)) * lerp(0.6, 1, edge).
+
+#### 16.7.6 Lake shaders
+
+The foam-zone function is unchanged (up to 32 boxes, mask = min of smoothstep(0, feather, outside distance)). Contact
+foam is now three shaders: grain (`18015e7a0`, alpha * zone mask as 0.53), half-res closeness (`180165cb0`, zone mask
+in its green), and the full-res bubbly composite (`18016cdd0`), which **multiplies its final alpha by the zone mask a
+second time at the pixel's own world xz** (alpha = foam * 0.85 * zoneMask): the "mask applied again" of the notes, so
+foam blurred back into a landing zone by the half-res blur is removed. The landing rings and churn in the lake PS are
+unchanged.
+
+### 16.8 Lakes (CONFIRMED)
+
+- The WTR parser (`14024fc10`) and loader (`1402506f0`) are 0.53's (relocations only). The header minor (byte 6) is
+  stored and only logged ("format %d.%d"); **byte 20 (Traxx's flags, bit 0 = the EDGE rule) is never read**.
+- SKIPPED reasons, order and conditions unchanged: HEIGHT_RANGE, NO_TILES, BELOW_BODY0, TOUCHES_BODY0. There is no
+  check of a lake's surface against the surrounding terrain; "tiles not wet at this height" is a log count only.
+- The fall validation (FALL_SOURCE, FALL_HEIGHT exact, FALL_DIRECTION) and the water callback are unchanged. No
+  waterfall function writes the lake tables, and the WTR loader runs before the WFL loader.
+- So "a waterfall can let a lake exceed the terrain-height limit", "lake height limits adjusted" and "lakes interact
+  with waterfalls more easily" are Traxx-side (its EDGE rule closes a lake-fed fall's notch edges to the fill, so Traxx
+  lets the lake stand above the notch's ground); the engine takes the TMAP and heights as written (INFERRED).
+- "Water in full tiles": lake tiles were already drawn as whole 32 ft quads at the surface Y in 0.53 (`1401e7000`,
+  0.53 `1401e5e80`). What changed in the water pass (`1401fa8f0`, 0.53 `1401f9320`): the tile window around the
+  camera is a full square dx, dz in [-R, R - 1] (0.53: a disc dx^2 + dz^2 <= (R + 1)^2), for lake and main-water tiles.
+- Wave tiers (Realistic only, INFERRED): a lake tile's tier comes from `140220400(tiles, surfaceY - bed)`: <= 100
+  tiles 0; 101..300 tiles 1 if depth >= 10 ft else 0; 301..600 tiles 2; > 600 tiles 3 (0.53: lakes forced to 1). The
+  main water's flood-filled regions use the same rule with depth = level - the region's lowest bed (0.53: <= 10, 40,
+  60 tiles, no depth).
+- New shoreField (`14021b710`, Enhanced/Realistic shore foam): a 2048 x 2048 world grid (4 ft) of (water Y - terrain)
+  with the lake surface from the TMAP, a marching-squares contour and distance field, uploaded with
+  gpuShoreFieldUpload; lake water stops at TMAP tile edges.
+
+### 16.9 Other differences and UNKNOWN
+
+- Network join version, the sound rules, the texture lookup and the anim clock: unchanged.
+- The replay mode of the walk (`14784b690`, `14784b698`, recorder `1402657e0`) and the switch `14784b69c` (setter
+  `140260490`, skips the across-arc correction, the relaxation and the zipper) are debug paths; no ini key sets them
+  (INFERRED).
+- UNKNOWN: the two per-vertex thickness factors `147b0b6b0` / `1483cac50` (16.3.10); the exact zipper weight's
+  half-area; the junction triangulation of merged tubes (`140253900`, `140257e00`) beyond "strips and junctions";
+  the coverage statistics (`1402573d0`, 0.95 and 0.25) which only feed the log.
+
+### 16.10 In OpenMTM2
+
+Implemented; hotfix 3 replaces the 0.53 build (no version switch). Its author published no source code: everything below
+is from the analysis above and the decompile, no code copied.
+
+OpenPhotex (vendored into OpenMTM2 and, with types, JSTraxx):
+- `sim/cp4/falls.ts`: `readFallFile` roughFrom rule and `roughInvalid` (A.1); `FALL_MAX_FALL_VERTICES` 32768;
+  `FALL_GRAPHICS_DEFAULTS.wfDepthScale` / `waterfallBulk` (100, clamped 1..1000 by `buildFallMeshes` options of the
+  same names); per-row air flags and `landPick` / `runoutStart` (16.3.2); `totals` with CountBack (16.3.3); `buildOne`
+  writes the build pass into columns and hands them to `buildFallSheet`; the foam strip over live kept-water columns,
+  broken over (3 x spacing)^2 between landings; `fallStreams` + `landContinuous` (16.3.12); `BuiltFall` gains
+  `roughFrom`, `streams`, `totalColumns`, `columnRows`, `ribbonVertexCount`, `backVertexCount`, `backTriangleCount`,
+  `ribbonTriangleCount`, `mergedColumns`, `droppedTriangles` (`landing` = the largest stream); `fallMist(fall, record,
+  { stream })` and `fallMists` per stream, outer loop the stream index, `noSlot` as `{ slot, stream }` (16.4).
+- `sim/cp4/fall-sheet.ts` (new): `buildFallSheet` (flow merge, strips zipped as `140256580`, junctions, the torn test,
+  lens counts, merge weights, ribbons, per-vertex flow and tangents `1402532a0`, across arc and u `1402525d0` /
+  `140259100`, the spread factor `1402573d0`, normals, ribbon vertices, slab thickness, ADVECT, relaxation, back face,
+  fold clamp, zipper, push), `fallSlabThickness`, `fallRibbonWidth`, `fallCountBack`, `FALL_SHEET` constants.
+- `sim/cp4/fall-droplets.ts` (new): `createFallDroplets` / `stepFallDroplets` (16.5's gate, bank, per-stream timers,
+  intervals, kS, wrap and 150 ft test, bursts), `FALL_SPRAY` (the DLL's spray model), the two hashes.
+- Tests: test/cp4-falls.test.ts updated for the hotfix (back face in the budget, per-stream landings and mist, dry mist)
+  plus roughFrom, slab numbers, CountBack, streams split by dry ground and the slot order, ribbons, tubes, droplets.
+
+OpenMTM2:
+- `worker/cp4-falls.js`: the slab options at their defaults (no ini), the roughFrom console line, "NO mist for stream
+  %d", per-fall `roughFrom` / stream count / tube and ribbon counts in `list`, and `falls.droplets` (the emitter's
+  inputs: slot, flags, rngSeed, crest speed, total columns, streams) unless the option is off.
+- `game/fog-volumes.js` `withFallMists`: one volume a stream (`fall`, `stream`), `noSlot` as `{ slot, stream }`.
+- `render/waterfalls.js`: kind 2: the draped lift for |kind - 1| > 0.5 with the back face's normal turned back, the
+  foam test |kind - 1| < 0.5, alpha x saturate(air) on the back face in every look, look 0's back rgb x 0.6; the drop
+  and path (vertex floats 11 and 15) for the enhanced look, on in the enhanced picture (`setWaterfallWater`, from
+  `render/scenery.js`, hands it the Reflective water's uniforms while that water exists); `game/waterfalls.js`
+  `waterfallLook(weather, flags, enhanced)`.
+- `render/waterfall-water.js` (new): the enhanced look's pixel shader (below).
+- `render/waterfall-spray.js` (new): the spray, one instanced draw of a 1200-record ring (500 bursts/s x 2.4 s), 83
+  sprites a record worked out in the vertex shader (sprite hash, thinning, life, lateral spread, cone, drag 0.5,
+  gravity 32 ft/s^2, cull under waterY, drop and blob sizes and pixel shaders, fade near waterY, at birth and by fog).
+  Driven by the OpenPhotex emitter at the camera each frame; hosted by `createWaterfalls`.
+- Option "Waterfall droplets" (`cp4WaterfallDroplets`, default on, Options, Advanced, CP4, under "Waterfalls"):
+  `app/settings.js`, `ui/options-panel.js`, `app/main.js` -> `worker/asset-worker.js` -> `worker/track-build.js`
+  (`droplets`), Spanish strings in assets/lang/es.json. No settings version bump: the default fills older saves.
+- tests/cp4-falls.test.mjs: per-stream mist fields, the dry spring's mist, roughFrom, the droplets' inputs and the
+  emitter on them, the option off, the option's default. tests/cp4-falls-enhanced.test.mjs: the enhanced look's choice,
+  roughFrom as its uniform, its shader's rules and constants.
+- Lakes: nothing (16.8, F).
+
+Enhanced look. In the enhanced picture a fall that is not frozen (look 3 still takes a FREEZE fall in Snow) wears an
+enhanced look in place of look 0: the engine's `enhancedWater` rule (12.8.3), one program for every fall, each fall's
+values as its material's uniforms. With "Reflective water" drawing the track's water (render/water-surface.js) the
+water's own uniforms are shared (the same objects); without it, `render/waterfalls.js` fills the same uniforms each
+frame from the scene's lights and sky dome (`ownWater`: the daylight the sky's light plus the sun's by its height, the
+glint the sun's light above the horizon, the water's own colour, the sky by `mirrorSky`), with no Normal-Water.
+- Follows the engine exactly (16.7.2 .. 16.7.5 and the rules above, keys at their defaults: game/waterfalls.js
+  `FALL_WHITEWATER`): W from the drop in free fall, the speed and the impact, with roughFrom (`waterfallRough`: 0 -> 25
+  ft/s, 1..250 the speed, 255 drop and speed whitewater off, the impact kept; 251..254 already 0 from the loader), the
+  lip ramp; the flow map, the outline and its fray, sideK, brk, the clumps; the froth (Worley F1/F2 on the DLL's hash,
+  the kWf* / kFoam* / kGap* table), its erosion by W, the foam light (half-Lambert over kFoamAmb), the gaps, the veil,
+  the dry foot's fade; the back face (no cells, 1.6x softer, froth x 0.7, gaps x 0.5, its plain body, no glint, x air);
+  Normal-Water on the sheet (two layers in the sheet's own u and flow, snapped clocks, 0.02 (1 + 4 mask), faded 1.5 to 5
+  ft and by the fog, the mirror normal 1.5x more, the brightness 2.4x clamped), reading the lakes' textures, strength
+  and mask at the lakes' own period; the foam strip's two texture layers and its alpha.
+- OpenMTM2's own (the water body, from Reflective water, in place of CP4's lake material): the water's own colour
+  (`uScatter`) in the same daylight, seen through a sheet as thick as the engine's thickness rule, red first
+  (game/water.js); churned water between the engine's calm and rough speeds turned milky as the Reflective water's wakes
+  are; the same sky, read where the reflected ray meets the dome, blurred by the sheet's roughness, darker where the ray
+  looks down; the same Fresnel term and the lake's facet glint, none on churned froth; small ripples riding down with
+  the water; the foam strip's white over the Reflective water's churned colour instead of the lake body. No planar
+  reflection at the lip, no calm streaks, no landing rings or foam zones (looks 1/2's lake side, 6.1, 6.2), no shadow
+  on the glint, and the scene's fog over all. The constants to tune are `FALL_WATER_LOOK`.
+
+Settled from the decompile (were UNKNOWN or differ from the wording above):
+- The two thickness factors: k1 = the spread factor of `1402573d0` (for a vertex, the nearest columns either side
+  having its row: ratio = (u_right - u_left) at the row over the same at row 0, at least 0.25; k1 = 0.95 / ratio when
+  ratio < 0.95, else 1); k2 = the per-row merge weight (`1483cac50`: 1 plus the weights of the columns merged in above).
+- The lens counts (`140253900`, `140254ec0`): a and b propagate along kept-triangle edges from each side of the
+  connected sheet (0 on its edge columns), a lone vertex 1 and 1.
+- The zipper's weight: 1.75 x the smaller of the two vertices' distances to the other's column polyline
+  (`1402546d0`); its pairs are kept sheet-triangle edges whose ends are each other's nearest kept neighbour across
+  (the partner arrays `14796b6b0` / `14798b6b0`, 3D, also the relaxation's left and right neighbours).
+- The relaxation leaves each column's last row and a water column's water row as they are (`148612fa0`).
+- Order: the thickness is computed at `14025ca95`, before ADVECT (`14025cc40`) and the relaxation (`14025d1d0`), so
+  it uses the 0.53 smoothed speed and the unrelaxed path (16.3.10 says "after 16.3.8"); a merged column's Lend is 1e30
+  (no foot taper). Ribbon vertices are copied at `14025c3a0..` with float 9 zeroed, before the thickness pass: their
+  thickness is 0 (not pushed). The back face is copied after the relaxation, before the fold clamp.
+- Per-vertex flow: the step (row - 1 to row + 1, the water row not stepping into the sink), kept when at least 1e-6
+  units horizontal and not steeper than |h| < 0.1 |d|, turned to agree with the previous row's, else carried; then a
+  5 x 5 window average. The fold clamp's gap <= 0 gives factor 0.
+- The foam strip skips merged columns and breaks between live kept-water columns whose landing points are further
+  apart than `147b4b6e8` (taken as (3 x spacing)^2, the split's threshold; its value is set at run time, INFERRED).
+
+INFERRED (simplest reading) in the port:
+- Strip and junction records, `osL` / `osR` / `need`, the junction's six torn tests and its (l, m, r) triangle, and the
+  ribbon joins' partners (boundary edges, horizontal distance; `1402548e0` not read in full) follow the structure Traxx
+  1.8.0 ports, checked against the strip walker `140256580` and the ribbon function `1402576c0`.
+- A ribbon vertex keeps its source's normal; the pair table stops adding past 0x8000 entries (still ties).
+- landPick sees min(rows, R) rows per column (the engine's loop carries a previous column's shorter count into a later
+  column on a shortened fall; not reproduced).
+- A fall the ribbons take past 32768 vertices is kept when the track's buffers have room, else DROPPED (the engine
+  aborts past 0x7fff ribbon entries).
+- Buffer order sheet, ribbons, back, foam as 16.3.11 (the copy's offset expression in the decompile adds one more
+  term; not followed). Back triangles are the front ones reversed (a, c, b), all before the front.
+- Droplets: the burst's per-draw offsets are the port's own (alike, not bit for bit); the sprite hashes h2..h9 are a
+  rehash chain; "v on screen" is the velocity across the line of sight; the spray's ambient is the luminance of the
+  port's sky and ground light on a matt face; the player's position is the camera's.
+- Droplets show whenever Waterfalls and Waterfall droplets are on, on SPLASH falls, not in Snow on a FREEZE fall: the
+  engine's gate (looks 1/2, enhancedWaterSpray, two unnamed options) has no OpenMTM2 counterpart.
+
+Not done:
+- Looks 1/2 (16.7.2 W, roughFrom's vR / wwOn, the froth cells, 16.7.5 Normal-Water on the fall): OpenMTM2 draws falls in
+  looks 0 and 3 only, and the 0.53 looks 1/2 body they sit on (colour, thickness term, ripples, flow map, reflection,
+  Fresnel, calm lines, breakup) is documented only as the DLL's shader text, which a clean-room port cannot take
+  over. `roughFrom` reaches the renderer's list per fall for when a look 1/2 exists. (Since done: the enhanced look,
+  above.)

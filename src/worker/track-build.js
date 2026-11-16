@@ -15,7 +15,7 @@ import { BOX_FOG, BOX_LIGHT, BOX_MOVING } from "../vendor/openphotex/mtm/sit.js"
 import { buildLakeSheets, buildShadowShells, buildVegetation, vegetationWalls } from "./cp4-world.js";
 import { buildTrackFalls, fallHeights, trackAnimations } from "./cp4-falls.js";
 import { loadWaterFrames } from "./effects-art.js";
-import { fogVolumesOf } from "../game/fog-volumes.js";
+import { fogVolumesOf, withFogGround } from "../game/fog-volumes.js";
 import { decodeActPalette } from "../vendor/openphotex/texture/act.js";
 import { decodeRawTexture, rawTextureSide } from "../vendor/openphotex/texture/raw.js";
 import { isEvoSit } from "../vendor/openphotex/evo/sit.js";
@@ -37,7 +37,8 @@ import { buildGroundBoxMesh, groundBoxSlots } from "./ground-box-mesh.js";
 import { buildTvSky, buildTvTrackRender } from "./tv-track-build.js";
 import { buildTruckRender, buildTrucks, cachedTruckRender } from "./truck-build.js";
 import { loadVehicleModels } from "./vehicle-models.js";
-import { artStem, hdTextureLimit, loadAoMap, loadArtTexture, loadNormalMap, loadPlainImage, shrinkImage } from "./art-texture.js";
+import { artStem, hdTextureLimit, loadAoMap, loadArtTexture, loadDetailImage, loadNormalMap, loadPlainImage, shrinkImage } from "./art-texture.js";
+import { averageColor, defaultTerrainMask } from "../shared/terrain-mask.js";
 
 /**
  * A level's usable Community Patch 4 lakes (docs/CP4_EXE_ANALYSIS.md 2): those with a height in 1..4096 half-feet and
@@ -65,8 +66,8 @@ function lakesOf(level) {
 }
 
 /** A level's lakes with each body's water sheet (worker/cp4-world.js `buildLakeSheets`). */
-function withSheets(lakes) {
-  return lakes ? { ...lakes, bodies: buildLakeSheets(lakes) } : null;
+function withSheets(lakes, heightAt = null, waterLevelFt = null) {
+  return lakes ? { ...lakes, bodies: buildLakeSheets(lakes, { heightAt, waterLevelFt }) } : null;
 }
 
 /** A mask's red channel alone, as RGBA (the mask is greyscale; one channel is read). */
@@ -74,6 +75,69 @@ function greyMask(image) {
   const rgba = new Uint8ClampedArray(image.rgba.length);
   for (let i = 0; i < rgba.length; i += 4) { rgba[i] = rgba[i + 1] = rgba[i + 2] = image.rgba[i]; rgba[i + 3] = 255; }
   return { width: image.width, height: image.height, rgba };
+}
+
+/** Community Patch 4's strength sliders: 0 to 300 %, 100 by default, as a factor. */
+const normalStrength = (percent) => Math.min(300, Math.max(0, Number.isFinite(Number(percent)) ? Number(percent) : 100)) / 100;
+
+/**
+ * The terrain's detail (TERRAIN_DETAIL_MASK.md; CP4_EXE_ANALYSIS.md 15.3), `{ mask, detail, defaultMask, strength }`, or
+ * null for none. The track's own `_MASK` always wins; without one, Always On Normal-Terrain (`normals.terrainAlways`)
+ * gives the default mask, and Normal-Terrain Strength (`normals.terrainStrength`, %) scales the detail only then.
+ */
+async function loadTerrainDetail(vfs, levelStem, { level, fullTerrain, legacy, normals = {} }) {
+  const maskImage = await loadPlainImage(vfs, `${levelStem}_MASK`);
+  const cells = level.cells ?? 256;
+  // The default mask is one texel a ground tile: an MTM-style grid of cells with a .CLR.
+  const defaultOn = !maskImage && normals.terrainAlways === true && level.clr?.length === cells * cells;
+  if (!maskImage && !defaultOn) return null;
+  // Each tile texture's average colour as decoded; where the HD art has none (or a black one), the legacy tile's.
+  const colors = defaultOn ? fullTerrain.map((image, i) => {
+    const own = averageColor(image);
+    return own && own[0] + own[1] + own[2] > 0 ? own : averageColor(legacy[i]);
+  }) : null;
+  return {
+    mask: maskImage ? greyMask(shrinkImage(maskImage, terrainMaskSide(cells))) : defaultTerrainMask(level.clr, colors, cells),
+    detail: await loadDetailImage(vfs, `${levelStem}_DTL`),
+    defaultMask: !maskImage,
+    strength: maskImage ? 1 : normalStrength(normals.terrainStrength),
+  };
+}
+
+/**
+ * The largest side a painted terrain mask (`<level>_MASK`) keeps: 1024 on a 256-cell world, and twice that on a track
+ * format version 6 world of 512 cells, whose mask spreads over four times the ground (the specification's 9.5).
+ */
+export const terrainMaskSide = (cells = 256) => (cells > 256 ? 2048 : 1024);
+
+/**
+ * Community Patch 4's water detail (CP4_EXE_ANALYSIS.md 15.2.1), `{ mask, detail, defaultMask, strength, worldFt }`, or
+ * null for none. The mask is the switch: the track's `<level>_WMSK` (its red channel, over the whole world once, `worldFt`
+ * feet: 8192, or a track format version 6 world's own), or with Always On
+ * Normal-Water (`normals.waterAlways`) the default, uniform black (the base strength everywhere). `detail` is the track's
+ * `<level>_WDTL`, or null for the generated map (shared/detail-normal.js). Normal-Water Strength (`normals.waterStrength`,
+ * %) scales only the default mask's.
+ */
+async function loadWaterDetail(vfs, levelStem, normals = {}, worldFt = 8192) {
+  const maskImage = await loadPlainImage(vfs, `${levelStem}_WMSK`);
+  if (!maskImage && normals.waterAlways !== true) return null;
+  return {
+    mask: maskImage ? redMask(shrinkImage(maskImage, WATER_MASK_SIDE)) : { width: 4, height: 4, data: new Uint8Array(16) },
+    detail: await loadDetailImage(vfs, `${levelStem}_WDTL`),
+    defaultMask: !maskImage,
+    strength: maskImage ? 1 : normalStrength(normals.waterStrength),
+    worldFt,
+  };
+}
+
+/** The largest side the water mask keeps (the engine sets none; a graphics card may not take a larger texture). */
+const WATER_MASK_SIDE = 4096;
+
+/** A mask's red channel alone, one byte a texel: `{ width, height, data }`. */
+function redMask(image) {
+  const data = new Uint8Array(image.width * image.height);
+  for (let i = 0; i < data.length; i++) data[i] = image.rgba[i * 4];
+  return { width: image.width, height: image.height, data };
 }
 
 /**
@@ -334,7 +398,7 @@ export function trackHome(vfs, sitPath) {
   return home && (home.family ?? "MTM") !== "MTM" ? vfs.preferMount?.(home.name) ?? vfs : vfs;
 }
 
-export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType = "circuit", truckFiles = [], weather = 0, mtm1 = MTM1_DEFAULTS, tileOverlap, visuals = {}, smoothTiles = false, hdWeather = false, originalBackdrops = false, evoForest = true, sunShadows = false, waterfalls = true, progress = () => {} } = {}) {
+export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType = "circuit", truckFiles = [], weather = 0, mtm1 = MTM1_DEFAULTS, tileOverlap, visuals = {}, smoothTiles = false, hdWeather = false, originalBackdrops = false, evoForest = true, sunShadows = false, waterfalls = true, waterfallDroplets = true, cp4Normals = {}, progress = () => {} } = {}) {
   // A Terminal Velocity, Fury3 or Hellbender level has no SIT: it is named by its LVL (worker/tv-track-build.js).
   if (/\.LVL$/i.test(sitPath)) return withMtm1Sky(vfs, await buildTvTrackRender(vfs, sitPath, { truckFiles, tileOverlap }), weather, mtm1);
   // Another game's track reads its own archive first: every CART Precision Racing track POD has art of the same names
@@ -386,13 +450,12 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   const FLAT_NORMAL = { width: 1, height: 1, rgba: new Uint8ClampedArray([128, 128, 255, 255]) };
   const normalAtlas = tileNormals.some(Boolean) ? buildTerrainAtlas(tileNormals.map((t) => t ?? FLAT_NORMAL), atlas.tileSide, { smooth: true }) : null;
   // The painted detail mask and the track's own detail normal (TERRAIN_DETAIL_MASK.md): `<level>_MASK`, `<level>_DTL`.
-  // A track has detail only when it has a mask.
+  // A track has detail only when it has a mask, or (Community Patch 4's Always On Normal-Terrain, CP4_EXE_ANALYSIS.md
+  // 15.3) the default one from its tiles' brightness. The `_DTL` is loaded as the hotfix loads it: up to 2048, any shape.
   const levelStem = artStem(sit.lvlName ?? sitPath);
-  const maskImage = await loadPlainImage(vfs, `${levelStem}_MASK`);
-  const terrainDetail = maskImage ? {
-    mask: greyMask(shrinkImage(maskImage, 1024)),
-    detail: await loadArtTexture(vfs, `${levelStem}_DTL.PNG`, null, { hdOnly: true }),
-  } : null;
+  const terrainDetail = await loadTerrainDetail(vfs, levelStem, { level, fullTerrain, legacy, normals: cp4Normals });
+  // Community Patch 4's Normal-Water (CP4_EXE_ANALYSIS.md 15.2.1): `<level>_WMSK` over the whole world and `<level>_WDTL`.
+  const waterDetail = await loadWaterDetail(vfs, levelStem, cp4Normals, level.worldFt ?? 8192);
   // In a stadium the game draws only the cells inside its footprint (MONSTER.EXE 0x4f9ff0):
   // [x - sx/2, x + sx/2) by [z - sz/2, z + sz/2).
   // MTM1's stadium block names the model only (`stadiumFlag,stadiumModelName`): no place and no size (MTM1_STADIUM).
@@ -776,6 +839,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     sitVolumes: sitFog, used: soundObjects.length, weather, player: gridSlots[0]?.positionFt ?? null,
     animations: level.falls.status === 0 && level.falls.falls.some((f) => f.textureName) ? await trackAnimations(vfs, level) : [],
     loadImage: (name) => loadArtTexture(vfs, name, palettes).catch(() => null), loadRipple: () => loadWaterFrames(vfs),
+    droplets: waterfallDroplets,
   }) : { falls: null, fogVolumes: sitFog, sounds: [], notices: [] };
   soundObjects.push(...trackFalls.sounds);
   return {
@@ -797,6 +861,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     relief: reliefData,
     /** What the settled snow's depth is made from besides the drawn ground (game/snow-cover.js), or null when the race is not in Snow. */
     snowCover: snowData,
+    /** Community Patch 4's water detail (`loadWaterDetail`), or null where the track has none. */
+    waterDetail,
     /** The drawn ground's height, `side` x `side` samples over the world (game/ground-maps.js), or null. */
     groundMap: groundMap ? { side: GROUND_MAP_SIDE, heights: groundMap } : null,
     /** What stands over the ground, the same samples: `top` its height and `shelter` where the ground is under cover (game/ground-maps.js), or null where nothing does. */
@@ -827,12 +893,12 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
      * Community Patch 4's lakes: `tileMap` (65536 tile ids, x + z * 256), `levelFt[id]` each lake's surface in feet,
      * and `bodies` for drawing ({ id, levelFt, reflective, box }). Null for none.
      */
-    lakes: withSheets(keptLakes),
+    lakes: withSheets(keptLakes, drawnGround.heightAt, level.waterLevelFt ?? null),
     /**
      * Community Patch 4's fog volumes (game/fog-volumes.js `fogVolumeOf`): the SIT's type 14 boxes, then beta 0.53's
-     * waterfall mist (`withFallMists`), at most 64 in all.
+     * waterfall mist (`withFallMists`), at most 64 in all, each with the drawn ground under it (`withFogGround`).
      */
-    fogVolumes: trackFalls.fogVolumes,
+    fogVolumes: withFogGround(trackFalls.fogVolumes, drawnGround.heightAt),
     /** Community Patch 4 beta 0.53's waterfalls for render/waterfalls.js (worker/cp4-falls.js `buildTrackFalls`), or null. */
     falls: trackFalls.falls,
     /** Community Patch 4's vegetation by species (worker/cp4-world.js `buildVegetation`), or null. */

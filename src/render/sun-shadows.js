@@ -323,9 +323,12 @@ export class SunShadows {
    * `strength`, how dark its shadows are. The weather changes all four (render/light-rig.js).
    */
   follow(sun, strength = 1) {
-    this.setIntensity(sun.intensity);
+    // A sun below the horizon gives no direct light and casts nothing (game/lighting.js `sunBelowHorizon`): Community
+    // Patch 4 bakes every texel as shadowed then. Its cascades would look up and light the world from beneath.
+    this._sunDown = !(sun.position.y > 0);
+    this.setIntensity(this._sunDown ? 0 : sun.intensity);
     this.setColor(sun.color);
-    this.setStrength(strength);
+    this.setStrength(this._sunDown ? 0 : strength);
     _center.copy(sun.position).normalize().negate();
     if (_center.distanceToSquared(this._csm.lightDirection) > 1e-8) this.setDirection(_center);
   }
@@ -407,7 +410,7 @@ export class SunShadows {
    * any does, for the renderer's shadow pass to run.
    */
   update() {
-    if (!this._enabled) return false;
+    if (!this._enabled || this._sunDown) return false;
     this._frame++;
     const camera = this._camera;
     camera.updateMatrixWorld();

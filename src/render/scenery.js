@@ -31,6 +31,7 @@ import { createWaterReflection } from "./water-reflection.js";
 import { createWaterRipples } from "./water-ripples.js";
 import { createUnderwater } from "./underwater.js";
 import { createWaterSystem } from "./water-surface.js";
+import { setWaterfallWater } from "./waterfalls.js";
 import { createWeatherVolume } from "./weather-volume.js";
 
 /** How many samples a point the screen's own picture has: none where the renderer made it without them. */
@@ -126,7 +127,11 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
   const water = on.water ? createWaterSystem({
     world, groundTexture, lights: { sun, ambient, hemisphere: lightRig?.hemisphere ?? null }, ripples: hasWater ? ripples : null, reflection,
     groundTone,
+    // Community Patch 4's Normal-Water (worker/track-build.js).
+    detail: build.waterDetail ?? null,
   }) : null;
+  // Community Patch 4's waterfalls wear the look built on this water while it is there (render/waterfalls.js).
+  if (water) setWaterfallWater(world, water);
   /** How far under water the eye is, 0 to 1 (`underwater`), for the lens. */
   let under = 0;
   // The fog's whole slices along every way from the eye, worked out once a frame (render/fog-state.js).
@@ -343,6 +348,7 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
       lightRig?.dispose();
       groundDetail?.dispose();
       groundTiles?.dispose();
+      if (water) setWaterfallWater(world, null);
       water?.dispose();
       groundTexture?.texture.dispose();
       puddleTexture?.dispose();

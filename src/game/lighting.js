@@ -140,6 +140,13 @@ export function sunDirection(weather, toSun, { indoor = false } = {}) {
 }
 
 /**
+ * Whether the sun is below the horizon (`toSun`, the way to it, y up): then it gives no direct light. Community Patch 4's
+ * own formulas give none there (docs/CP4_EXE_ANALYSIS.md 15.8): its bake marches each texel's ray toward the sun, which
+ * meets the ground, and its glint is Blinn about the way to the sun.
+ */
+export const sunBelowHorizon = (toSun) => !(toSun[1] > 0);
+
+/**
  * The lights for a weather.
  *
  * @param {number} weather
@@ -156,10 +163,12 @@ export function lightRig(weather, { zenith = DEFAULT_TONES.zenith, ground = DEFA
   const rig = indoor ? FLOODLIT : RIGS[weather] ?? RIGS[0];
   // Lightning lifts everything for an instant, as the weather scene lifts its own lights: by the flash over the weather's own light.
   const lift = Math.min(3, look.light + flash) / look.light;
-  const sunStrength = rig.sunStrength * lift;
+  const way = sunDirection(weather, toSun, { indoor });
+  // A sun below the horizon lights nothing (`sunBelowHorizon`).
+  const sunStrength = sunBelowHorizon(way) ? 0 : rig.sunStrength * lift;
   const sky = hueOf(zenith, rig.tint).map((c) => c * rig.skyStrength * lift);
   // What level ground receives, which it throws back in its own colour.
-  const height = Math.max(0, sunDirection(weather, toSun, { indoor })[1]);
+  const height = Math.max(0, way[1]);
   const falling = rig.sun.map((c, i) => c * sunStrength * height + sky[i]);
   return {
     sun: { color: [...rig.sun], strength: sunStrength },
