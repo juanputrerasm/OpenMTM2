@@ -5,8 +5,9 @@
   The file holds placements already made: Traxx 1.7 plants the trees and grass from painted
   masks (ART\<stem>_V.PNG trees, ART\<stem>_G.PNG grass, shipped in the pod but never read by the
   engine) and the engine draws what the file says. It is only read from the track's own pod.
-  Limits the engine documents through Traxx: 60 species of which at most 16 ground (grass),
-  30,000 trees, 131,072 clumps, 1,024 clumps a tile.
+  Limits: Traxx 1.7 plants at most 60 species of which at most 16 ground (grass), 30,000 trees,
+  131,072 clumps (2,097,152 from Traxx 1.8.0), 1,024 clumps a tile; Community Patch 4 beta 0.53
+  (hotfix 3 and 4, its load messages) holds 64 species, 32,768 trees and 2,097,152 clumps.
 
   Layout, little-endian (Traxx TrackPODVegetation.cpp BuildVEG):
 

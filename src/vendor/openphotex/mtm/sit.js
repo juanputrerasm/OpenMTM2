@@ -20,7 +20,10 @@ import { LEGACY_ALTITUDE_DIVISOR } from "../terrain/height.js";
 /** The box types Community Patch 3 added: a static light, and a mover with no train sound, horn or light. */
 export const BOX_LIGHT = 12;
 export const BOX_MOVING = 13;
-const LIGHT_DEFAULTS = [64, 8, 1, 1, 1, 0, 6, 125, 10, 3.5, 1, 0];
+const LIGHT_DEFAULTS = [64, 8, 1, 1, 1, 0, 6, 125, 10, 3.5, 1, 0, 0];
+/** The `L` block's header line as hotfix 4 and Traxx 1.8 write it (13 fields), and the 12-field one before. */
+export const SIT_LIGHT_HEADER = "Llight rad,hgt,r,g,b,glow,glowRad,coneLen,coneRim,coneBase,bright,aimOff,allWx";
+export const SIT_LIGHT_HEADER_12 = "Llight rad,hgt,r,g,b,glow,glowRad,coneLen,coneRim,coneBase,bright,aimOff";
 /**
  * The `L` block's data line, read as the engine reads it: tolerantly, missing trailing fields keeping their defaults and
  * surplus ones ignored; `bright` snapped to 0.25 steps within 0.25..3.75 and `rad` clamped to 4095.
@@ -33,10 +36,10 @@ export function parseSitLight(line) {
             if (Number.isFinite(v))
                 values[i] = v;
         });
-    const [rad, hgt, r, g, b, glow, glowRad, coneLen, coneRim, coneBase, bright, aimOff] = values;
+    const [rad, hgt, r, g, b, glow, glowRad, coneLen, coneRim, coneBase, bright, aimOff, allWx] = values;
     return {
         rad: Math.min(4095, Math.max(0, rad)), hgt, color: [r, g, b], glow: Math.trunc(glow), glowRad, coneLen, coneRim, coneBase,
-        bright: Math.min(3.75, Math.max(0.25, Math.round(bright * 4) / 4)), aimOff,
+        bright: Math.min(3.75, Math.max(0.25, Math.round(bright * 4) / 4)), aimOff, allWx: Math.trunc(allWx),
     };
 }
 export const BOX_FOG = 14;

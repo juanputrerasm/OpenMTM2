@@ -176,9 +176,22 @@ function surfaceMaterial(map, look, hasShade, litShade = false) {
     : new THREE.MeshLambertMaterial({ map, vertexColors: litShade });
 }
 
-export function createGroundBoxes(boxes, map, look) {
+/**
+ * The ground boxes as one mesh in blocks. `detail` (the terrain's `{ mask, detail, strength }`, or null) gives them the
+ * terrain detail term as Community Patch 4 draws it on the boxes it bakes into its terrain (Traxx 1.8.1's engine rule;
+ * CP4_EXE_ANALYSIS.md 17.4): laid in world XZ on every face, so a top continues the ground's pattern and a wall smears one
+ * row of it, scaled by the painted mask at each vertex. Off unless asked (settings `cp4GroundBoxDetail`): it is grain on
+ * buildings' fronts.
+ */
+export function createGroundBoxes(boxes, map, look, { detail = null, worldFt = WORLD_FT } = {}) {
   if (!boxes) return null;
-  const mesh = new THREE.Mesh(meshGeometry(boxes), surfaceMaterial(map, look, boxes.hasLte));
+  const geometry = meshGeometry(boxes);
+  const material = surfaceMaterial(map, look, boxes.hasLte);
+  if (look !== "classic" && detail?.mask) {
+    addTerrainDetail(material, detail, look);
+    geometry.setAttribute("detailShare", new THREE.BufferAttribute(terrainMaskShares(boxes.positions, detail.mask, worldFt), 1, true));
+  }
+  const mesh = new THREE.Mesh(geometry, material);
   mesh.name = "groundBoxes";
   // Its walls are buildings' fronts, not cliffs (render/ground-detail.js).
   mesh.material.userData.groundBoxes = true;
@@ -492,6 +505,18 @@ ${blended ? "diffuseColor.a = clamp( opacity + ( 1.0 - opacity ) * cp3Fres, 0.0,
   In the enhanced look a Gouraud face (0x29) whose texture has a CP3 normal map is shiny, as Community Patch 3 draws it
   (CP3_EXE_ANALYSIS.md 6): a highlight, masked by the normal map's alpha. The game's own art keeps its plain light.
 */
+/**
+ * Community Patch 4's `[Graphics] normalStrength` (CP4_EXE_ANALYSIS.md 17.2): the engine scales the bump of every
+ * Community Patch 3 normal map on a model by it, times a material's own strength. CP4 reads it from monster.ini only
+ * (default 120, 220 from beta 0.53 hotfix 4); OpenMTM2 keeps 1 by default (settings `cp4NormalMapStrength`, percent),
+ * set by the screen that builds a race's world. 4x4 Evolution's bump maps are not CP3 art and keep 1.
+ */
+let normalMapStrength = 1;
+export function setNormalMapStrength(percent) {
+  normalMapStrength = Number.isFinite(percent) ? Math.min(3, Math.max(0, percent / 100)) : 1;
+}
+const cp3NormalScale = (mesh, own = 1) => (mesh.normalScaleY === 1 ? own : own * normalMapStrength);
+
 function modelMaterial(mesh, map, normalMap, aoMap = null, look = "enhanced") {
   const record = mesh.material;
   const flags = record?.flags ?? 0;
@@ -512,7 +537,7 @@ function modelMaterial(mesh, map, normalMap, aoMap = null, look = "enhanced") {
       ...(shiny ? { specular: new THREE.Color(CP3_SHINE, CP3_SHINE, CP3_SHINE), shininess: CP3_SHINE_POWER } : {}),
     });
     // Community Patch 3's normal maps point green up the picture; a 4x4 Evolution bump map down it (`normalScaleY` 1).
-    if (normalMap) { material.normalScale.set(1, mesh.normalScaleY ?? -1); shineMask(material); }
+    if (normalMap) { const s = cp3NormalScale(mesh); material.normalScale.set(s, (mesh.normalScaleY ?? -1) * s); shineMask(material); }
     // Self-lit faces (lamps, signs) ignore the scene's lighting.
     if (mesh.emissive) { material.emissive = new THREE.Color(0xffffff); material.emissiveMap = map; }
     return material;
@@ -545,8 +570,8 @@ function modelMaterial(mesh, map, normalMap, aoMap = null, look = "enhanced") {
     emissive: flags & F.EMISSIVE ? new THREE.Color(0xffffff) : new THREE.Color(0x000000),
     emissiveIntensity: flags & F.EMISSIVE ? clamp01(record.emissive ?? 0) : 0,
   });
-  // DirectX (green-down) normal maps, at the material's strength.
-  if (normalMap) { material.normalScale.set(mesh.normalStrength ?? 1, -(mesh.normalStrength ?? 1)); shineMask(material); }
+  // DirectX (green-down) normal maps, at the material's strength times the engine's normalStrength.
+  if (normalMap) { const s = cp3NormalScale(mesh, mesh.normalStrength ?? 1); material.normalScale.set(s, -s); shineMask(material); }
   // Reflection (optional): the sky, by the record's reflectivity, weighted by the Fresnel term where the record has one.
   const reflect = clamp01(record.reflectivity ?? 0);
   if (reflectionMap && reflect > 0.01) {
@@ -1991,7 +2016,7 @@ export function createRoad(road, look) {
  * (the sky dome stays inside it), `options.naturalLight` lights camera-facing scenery as round things (docs/VISUALS.md, "Light").
  * `options.terrainDetail` and `options.reflections` are Community Patch 3's extras (the enhanced look only).
  */
-export function createTrackWorld(build, look, { backdrops: showBackdrops = false, drawDistance = 20000, naturalLight = false, terrainDetail = true, reflections = true, grass: grassRadius = 16 } = {}) {
+export function createTrackWorld(build, look, { backdrops: showBackdrops = false, drawDistance = 20000, naturalLight = false, terrainDetail = true, reflections = true, grass: grassRadius = 16, groundBoxDetail = false } = {}) {
   const world = new THREE.Group();
   // The world's size: 8192 ft, or a track format version 6 world's (docs/EXTENSIONS.md), for every copy and wrap below.
   const worldFt = worldFtOf(build);
@@ -2005,7 +2030,9 @@ export function createTrackWorld(build, look, { backdrops: showBackdrops = false
   setReflectionSky(reflections && look !== "classic" && !build.stadium ? build.sky : null, look);
   const atlas = createTerrainAtlas(build.terrain.atlas, look);
   tile.add(createTerrain({ ...build.terrain, roadMask: build.road?.mask ?? null }, look, atlas, { detail: terrainDetail, worldFt }));
-  const boxes = build.groundBoxes ? createGroundBoxes(build.groundBoxes, atlas, look) : null;
+  const boxes = build.groundBoxes
+    ? createGroundBoxes(build.groundBoxes, atlas, look, { detail: terrainDetail && groundBoxDetail ? build.terrain.detail ?? null : null, worldFt })
+    : null;
   if (boxes) tile.add(boxes);
   if (build.road) tile.add(createRoad(build.road, look));
   const library = createModelLibrary(build.models, build.modelTextures, look, { cleanEdges: naturalLight });

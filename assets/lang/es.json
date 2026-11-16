@@ -7690,5 +7690,21 @@
  {
   "tag": "Normal-Water Strength",
   "text": "Intensidad de Normal-Water"
+ },
+ {
+  "tag": "Detail on ground boxes",
+  "text": "Detalle en las cajas de suelo"
+ },
+ {
+  "tag": "Community Patch 4 draws the terrain detail (Normal-Terrain) on the ground boxes too, laid across them from above, so walls and buildings built of boxes take the ground's pattern. Needs CP3 Terrain detail and a detail mask. From the next race",
+  "text": "Community Patch 4 dibuja el detalle del terreno (Normal-Terrain) también en las cajas de suelo, proyectado desde arriba, así que los muros y edificios hechos de cajas toman el dibujo del suelo. Necesita Detalle del terreno de CP3 y una máscara de detalle. Desde la próxima carrera"
+ },
+ {
+  "tag": "Normal map strength",
+  "text": "Intensidad de los mapas de normales"
+ },
+ {
+  "tag": "Community Patch 4's normalStrength: how strongly Community Patch 3 normal maps bump models and trucks. CP4 uses 220% (120% before beta 0.53 hotfix 4); OpenMTM2 keeps 100%. From the next race",
+  "text": "El normalStrength de Community Patch 4: cuánto relieve dan los mapas de normales de Community Patch 3 a los modelos y camiones. CP4 usa 220% (120% antes del hotfix 4 de la beta 0.53); OpenMTM2 mantiene 100%. Desde la próxima carrera"
  }
 ]

@@ -10,6 +10,7 @@
 */
 import { decodeActPalette } from "../vendor/openphotex/texture/act.js";
 import { isMtm2V6Situation, parseMtmLvl, parseMtmSit, parseTexList, parseTty } from "../vendor/openphotex/mtm/sit.js";
+import { withCp4Limits } from "../game/cp4-limits.js";
 import { podPathTitle } from "../vendor/openphotex/pod/paths.js";
 import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
 import { decodeMtm2Heights, decodeMtm2HeightPng, decodeMtm2V6Heights, mtm2EngineHeightsFt, mtm2V6HeightsFt } from "../vendor/openphotex/mtm/heights.js";
@@ -172,6 +173,8 @@ export async function loadLevel(vfs, sitPath, sitBytes = null, { waterfalls = tr
   const cells = v6?.worldCells ?? GRID, worldFt = v6?.worldFt ?? GRID * 32;
   // A negative place in the SIT is wrapped by the world's size, not 8192 ft (the specification's 8.4).
   if (v6 && worldFt !== GRID * 32) sit = parseMtmSit(sitBytes, title, { worldFt });
+  // What Community Patch 4 beta 0.53 hotfix 4 keeps of the SIT's lists (game/cp4-limits.js; CP4_EXE_ANALYSIS.md 17.1).
+  if (!cpr) sit = withCp4Limits(sit, (line) => console.info(line));
   // Beta 0.53's waterfalls, beside them (docs/CP4_EXE_ANALYSIS.md 12.1).
   const levelHit = vfs.find?.(`LEVELS\\${lvlTitle}`) ?? vfs.find?.(`LEVELS\\${stem}.LVL`) ?? null;
   const falls = cpr || !waterfalls ? null : await readLevelFalls(vfs, [...new Set([fallStem(lvlTitle), fallStem(stem)])], levelHit, { cells, v6: !!v6 });

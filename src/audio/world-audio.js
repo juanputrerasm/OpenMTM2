@@ -10,6 +10,14 @@ import { FALL_SOUND_RANGE } from "../vendor/openphotex/sim/cp4/falls.js";
 import { nearestCopy } from "../shared/scene-frame.js";
 
 /**
+ * The ambient sound list's room (CP4_EXE_ANALYSIS.md 17.1, Community Patch 4 beta 0.53 hotfix 4, Trucksfx.cpp): of the
+ * entries the weather allows, in the file's order, the first 10 looping and the first 40 one-shot sounds are kept; the
+ * rest are dropped (older builds overran their tables).
+ */
+export const AMBIENT_LOOPS_MAX = 10;
+export const AMBIENT_SHOTS_MAX = 40;
+
+/**
  * A tracker module's extra gain over a WAV loop. A rendered module averages about -16 dBFS RMS (SEX.MOD) while the
  * engine's loops reach -2.5 to -12 dBFS (ACCEL3B, M1-2-M2, STARTIDL): even after the effects' trim the engine sat some
  * 9 dB over the music. About 7 dB more brings the module to the engine's level; the master's limiter takes the peaks.
@@ -24,6 +32,15 @@ export const HIT_MIN_SPEED = 2;
 
 /** The stock checkpoint and lap sounds (MONSTER_EXE_ANALYSIS.md, "Track ambience"). */
 export const STOCK_CUES = Object.freeze({ checkpoint: "airhorn.wav", lap: "check2.wav" });
+
+/**
+ * The checkpoint and lap sounds' gain (MONSTER.EXE 0x41bbd0, MONSTER_EXE_ANALYSIS.md "Track ambience"): the game plays
+ * either on the player's truck and sets its gain (`0x463dd0`, the voice's +0x70) to 1.7, or to 8.0 when the name
+ * begins "screa" (`_strnicmp(name, "scream", 5)`: The Graveyard's `scream4.wav`).
+ */
+export const CUE_GAIN = 1.7;
+export const SCREAM_CUE_GAIN = 8;
+export const cueGain = (name) => (/^screa/i.test(String(name ?? "").replace(/^.*[\\/]/, "")) ? SCREAM_CUE_GAIN : CUE_GAIN);
 
 /** The checkpoint and lap sounds a level's script names, the stock ones in place of any it does not name. */
 export function checkpointSounds(script) {
@@ -66,8 +83,7 @@ export function createWorldAudio(audio, { ambient, cues = ambient, weather, musi
   function startLoops() {
     for (const voice of loops.splice(0)) voice.then((v) => v?.stop());
     if (!ambient) return;
-    for (const loop of ambient.loops) {
-      if (!weatherMaskIncludes(loop.weatherMask, current)) continue;
+    for (const loop of ambient.loops.filter((l) => weatherMaskIncludes(l.weatherMask, current)).slice(0, AMBIENT_LOOPS_MAX)) {
       loops.push(audio.play(loop.wav, { loop: true, gain: Math.min(1, loop.volume), randomStart: true }));
     }
   }
@@ -100,7 +116,7 @@ export function createWorldAudio(audio, { ambient, cues = ambient, weather, musi
   // weather-eligible entry, wait its interval, and wait for it to finish before scheduling
   // another. Independent row timers make The Heights' birds and eagles pile up.
   function scheduleAmbientShot() {
-    const eligible = (ambient?.oneShots ?? []).filter((shot) => weatherMaskIncludes(shot.weatherMask, current));
+    const eligible = (ambient?.oneShots ?? []).filter((shot) => weatherMaskIncludes(shot.weatherMask, current)).slice(0, AMBIENT_SHOTS_MAX);
     if (!eligible.length) { ambientShot = null; ambientLeft = Infinity; return; }
     const fresh = eligible.filter((shot) => shot.wav.toLowerCase() !== lastAmbientWav);
     const choices = fresh.length ? fresh : eligible;
@@ -247,8 +263,8 @@ export function createWorldAudio(audio, { ambient, cues = ambient, weather, musi
       if (musicOff() && musicVoice) { musicVoice.then((v) => v?.stop()); musicVoice = null; }
       else if (!musicOff() && !musicVoice) startMusic();
     },
-    checkpoint() { audio.play(cueNames.checkpoint, { gain: 0.9 }); },
-    lapDone() { audio.play(cueNames.lap, { gain: 0.9 }); },
+    checkpoint() { audio.play(cueNames.checkpoint, { gain: cueGain(cueNames.checkpoint) }); },
+    lapDone() { audio.play(cueNames.lap, { gain: cueGain(cueNames.lap) }); },
     dispose() {
       disposed = true;
       for (const voice of loops) voice.then((v) => v?.stop());

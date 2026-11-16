@@ -84,6 +84,8 @@ TARGETS = {
     "cp4b2dll": ("cp4b2dll/out", os.path.join(REPO, "re/cp4b2dll/ghidra"), "trid3d11.dll"),
     "cp4b3": ("cp4b3/out", "~/Downloads/Beta0.53_hotfix3", "monster.exe"),
     "cp4b3dll": ("cp4b3dll/out", "~/Downloads/Beta0.53_hotfix3", "trid3d11.dll"),
+    "cp4b4": ("cp4b4/out", "~/Downloads/Beta0.53_hotfix4", "monster.exe"),
+    "cp4b4dll": ("cp4b4dll/out", "~/Downloads/Beta0.53_hotfix4", "trid3d11.dll"),
 }
 
 

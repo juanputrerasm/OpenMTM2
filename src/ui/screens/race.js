@@ -101,7 +101,7 @@ import { stepCockpitLook } from "../../game/cockpit3d.js";
 import { cpuNames, fillGrid, formatRaceTime, raceDrivers, seatDrivers, summitBoard } from "../../game/race-setup.js";
 import {
   addFallingTree, createModelLibrary, createTrackWorld, disposeObject, moveObjects, occludees, poseFallingTree, removeFallingTree, setForestTree,
-  setStartLights, skyColor, skyOf, updateSky, updateTrackWorld, placeSky,
+  setNormalMapStrength, setStartLights, skyColor, skyOf, updateSky, updateTrackWorld, placeSky,
 } from "../../render/track-scene.js";
 import { createTruckObject, interpolatePose } from "../../render/truck-object.js";
 import { nearestCopy, toSceneMatrix, worldFtOf, wrapFt } from "../../shared/scene-frame.js";
@@ -536,10 +536,11 @@ async function mountRace(container, context, params, owned = []) {
   scene.add(sun, ambientLight);
   // What "Natural light" changes of the world itself (docs/VISUALS.md, "Light"): it is the enhanced look's.
   const naturalLight = look === "enhanced" && visualSettings(context.settings).light;
+  setNormalMapStrength(context.settings.cp4NormalMapStrength ?? 100);
   const world = createTrackWorld(build, look, {
     backdrops: !!context.settings.backdrops, drawDistance, naturalLight,
     terrainDetail: context.settings.terrainDetail !== false, reflections: context.settings.reflections !== false,
-    grass: GRASS_RADII[grassLevel(context.settings)],
+    grass: GRASS_RADII[grassLevel(context.settings)], groundBoxDetail: context.settings.cp4GroundBoxDetail === true,
   });
   scene.add(world);
   // 4x4 Evolution's trees by id, and the leans under way (game/falling-trees.js).

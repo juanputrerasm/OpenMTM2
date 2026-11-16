@@ -1,6 +1,6 @@
 import { MTM_WHEEL_KEYS } from "../truck/mtm-trk.js";
 import { encodeWindows1252 } from "../text.js";
-import { SIT_FOG_HEADER, formatSitFogLine } from "./sit.js";
+import { SIT_FOG_HEADER, SIT_LIGHT_HEADER, SIT_LIGHT_HEADER_12, formatSitFogLine } from "./sit.js";
 const CRLF = "\r\n";
 /*
   An MTM2 .SIT. Unless the caller gives them, ramps, cylinders and top-crush parts are written
@@ -34,7 +34,7 @@ export function writeMtm2Sit(sit) {
         record(out, box);
         out.push("!type,flags", `${box.type},${box.flags ?? 0}`, "priority", String(box.priority ?? 0), "@sound effect entries", box.hitSound ?? "NULL.WAV", box.loopSound ?? "NULL.WAV", "0,0");
         if (box.light)
-            out.push("Llight rad,hgt,r,g,b,glow,glowRad,coneLen,coneRim,coneBase,bright,aimOff", box.light.map(num).join(","));
+            out.push(box.light.length > 12 ? SIT_LIGHT_HEADER : SIT_LIGHT_HEADER_12, box.light.map(num).join(","));
         if (box.fog)
             out.push(SIT_FOG_HEADER, formatSitFogLine(box.fog));
     }

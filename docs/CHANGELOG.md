@@ -11,7 +11,8 @@ renderer analysed, CP4_EXE_ANALYSIS.md 12 to 14); the course map across the worl
 track built of meshes; three options moved; track format version 6; Deathmatch spawns on the drivable
 surface; the instant replay in network races; a filter and a start position in the Computer Opponents dialog;
 then beta 0.53 hotfixes 2 and 3 (CP4_EXE_ANALYSIS.md 15 and 16: the detail maps, the waterfalls rebuilt, the fog
-volumes as the renderer DLL draws them) and fixes from playing CP4 tracks:
+volumes as the renderer DLL draws them), hotfix 4 (17: the track lights' glow and cone, the limits it keeps) and fixes
+from playing CP4 tracks:
 
 - **OpenPhotex 1.7.3** vendored: the `.WFL` waterfall reader and writer, the game's waterfall build (`cp4Sim`), and
   track format version 6 (`.SI3`, the `.TXV` v6 keys, v6 heights, 16-bit ground boxes, `.WTR` and `.WFL` version 2).
@@ -141,7 +142,24 @@ volumes as the renderer DLL draws them) and fixes from playing CP4 tracks:
   track's water may stand anywhere in its terrain's range (worker/level-load.js `lvlWaterLevelFt`;
   docs/EXTENSIONS.md). The boxes near the trucks are listed through a grid on the world's wrap (worker/sim-worker.js),
   with the same list and order: on Liberty City's 6,600 boxes the old all-pairs test took 94% of the simulation.
-- **tools/re**: decompile targets `cp4b3` and `cp4b3dll` for hotfix 3's monster.exe and trid3d11.dll.
+- **tools/re**: decompile targets `cp4b3` and `cp4b3dll` for hotfix 3's monster.exe and trid3d11.dll, and `cp4b4` and
+  `cp4b4dll` for hotfix 4's.
+- **Track lights as hotfix 4 and Traxx 1.8.0 have them** (17.3; worker/track-build.js, render/track-lights.js): a
+  light's 13th field, allWx, shows its glow and cone in every weather; the glow is a square facing the box's +Z, drawn
+  from the front only and faded by how squarely it faces the eye; the cone's base is a diameter; a light beyond
+  3,840 ft is drawn at a fifth of its brightness; only the first 128 lights are kept; no pool under 1 ft.
+- **Hotfix 4's limits** (17.1; game/cp4-limits.js `withCp4Limits`, audio/world-audio.js): a CP4 track keeps the first
+  10 placed trucks, 5 backdrop models, the primary and 4 extended AI courses of up to 249 segments, 100 ramps, and of
+  the ambient sounds for the weather 10 loops and 40 one-shots, as the engine does instead of overrunning; what is
+  dropped is logged.
+- **Options under Advanced, CP4** (17.2, 17.4): "Normal map strength" (0 to 300 %, default 100 %; hotfix 4 itself
+  draws CP3 normal maps at 220 %, which OpenMTM2 does not follow by default) and "Detail on ground boxes" (the terrain
+  detail on the ground boxes, off by default, as it looks wrong on building textures). Tests:
+  tests/cp4-hotfix4.test.mjs.
+- **Louder checkpoint and lap sounds** (MONSTER_EXE_ANALYSIS.md, Track ambience; audio/world-audio.js `cueGain`): the
+  game plays them at a gain of 1.7, or 8 for a sound whose name starts with "screa"; OpenMTM2 played every one at 0.9,
+  so a track's own checkpoint sound (Graveyard's scream, Chicago's waypoint chime) was hard to hear. Tests:
+  tests/checkpoint-sounds.test.mjs.
 
 ## v0.7.3
 

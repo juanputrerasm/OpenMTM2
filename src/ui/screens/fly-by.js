@@ -32,7 +32,7 @@ import { createScenery } from "../../render/scenery.js";
 import { enableSunShadows } from "../../render/sun-shadows.js";
 import { createRelief } from "../../game/terrain-relief.js";
 import { createWaterMirror } from "../../render/water-mirror.js";
-import { createTrackWorld, disposeObject, moveObjects, skyColor, skyOf, updateSky, updateTrackWorld, placeSky } from "../../render/track-scene.js";
+import { createTrackWorld, setNormalMapStrength, disposeObject, moveObjects, skyColor, skyOf, updateSky, updateTrackWorld, placeSky } from "../../render/track-scene.js";
 import { createWaterSurface } from "../../render/water-effects.js";
 import { lakeMeshes } from "../../render/lakes.js";
 import { waterLevelAt } from "../../game/lakes.js";
@@ -116,10 +116,11 @@ export default async function mount(container, context, params) {
   scene.add(sun, ambientLight);
   // What "Natural light" changes of the world itself (docs/VISUALS.md, "Light"): it is the enhanced look's.
   const naturalLight = look === "enhanced" && visualSettings(context.settings).light;
+  setNormalMapStrength(context.settings.cp4NormalMapStrength ?? 100);
   const world = createTrackWorld(build, look, {
     backdrops: !!context.settings.backdrops, drawDistance, naturalLight,
     terrainDetail: context.settings.terrainDetail !== false, reflections: context.settings.reflections !== false,
-    grass: GRASS_RADII[grassLevel(context.settings)],
+    grass: GRASS_RADII[grassLevel(context.settings)], groundBoxDetail: context.settings.cp4GroundBoxDetail === true,
   });
   scene.add(world);
   // The headset rig leaves the scene before the scene is disposed of.

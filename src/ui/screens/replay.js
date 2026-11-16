@@ -29,7 +29,7 @@ import { surfaceFamily } from "../../game/sound-model.js";
 import { standOnFt } from "../../game/ice.js";
 import { ON_GROUND_FT, replayContacts } from "../../game/replay-effects.js";
 import { formatRaceTime } from "../../game/race-setup.js";
-import { createTrackWorld, disposeObject, moveObjects, skyColor, skyOf, updateTrackWorld, placeSky } from "../../render/track-scene.js";
+import { createTrackWorld, setNormalMapStrength, disposeObject, moveObjects, skyColor, skyOf, updateTrackWorld, placeSky } from "../../render/track-scene.js";
 import { createTruckObject } from "../../render/truck-object.js";
 import { nearestCopy, toSceneMatrix, worldFtOf, wrapFt } from "../../shared/scene-frame.js";
 import { createStartLamps } from "../../render/start-lamps.js";
@@ -126,10 +126,11 @@ export default async function mount(container, context, { replay, namesMode: sta
   scene.add(sun, ambientLight);
   // What "Natural light" changes of the world itself (docs/VISUALS.md, "Light"): it is the enhanced look's.
   const naturalLight = look === "enhanced" && visualSettings(context.settings).light;
+  setNormalMapStrength(context.settings.cp4NormalMapStrength ?? 100);
   const world = createTrackWorld(build, look, {
     backdrops: !!context.settings.backdrops, drawDistance, naturalLight,
     terrainDetail: context.settings.terrainDetail !== false, reflections: context.settings.reflections !== false,
-    grass: GRASS_RADII[grassLevel(context.settings)],
+    grass: GRASS_RADII[grassLevel(context.settings)], groundBoxDetail: context.settings.cp4GroundBoxDetail === true,
   });
   scene.add(world);
   const extensionScene = createExtensionScene(scene, world, replay.extension);

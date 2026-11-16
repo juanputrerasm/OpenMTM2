@@ -8,7 +8,8 @@ executable: mtm2 (the default; output in re/out, game folder ~/games/mtm2 or MTM
 re/cpr/out, game folder ~/games/cpr or CPR_DIR) or cp3 (Community Patch 3's 64-bit monster.exe; output
 in re/cp3/out, game folder ~/games/mtm2 or CP3_DIR) or cp4 / cp4b2 (Community Patch 4 beta 0.52 / 0.53)
 or cp4b2dll (beta 0.53's trid3d11.dll; the original 0.53 binaries are kept in re/cp4b2*/ghidra/ since
-~/games/mtm2 now holds a hotfix), or cp4b3 / cp4b3dll (beta 0.53 hotfix 3 and its trid3d11.dll).
+~/games/mtm2 now holds a hotfix), or cp4b3 / cp4b3dll (beta 0.53 hotfix 3 and its trid3d11.dll), or cp4b4 /
+cp4b4dll (hotfix 4).
 """
 import bisect
 import json
@@ -20,9 +21,9 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 RE_DIR = os.path.join(REPO, "re")
 TARGET = os.environ.get("RE_TARGET", "mtm2")
 OUT = os.path.join(RE_DIR, "out") if TARGET == "mtm2" else os.path.join(RE_DIR, TARGET, "out")
-GAME_DIR = os.path.expanduser(os.environ.get(TARGET.upper() + "_DIR", {"cp3": "~/games/mtm2", "cp4": "~/games/cp4beta052", "cp4b2": RE_DIR + "/cp4b2/ghidra", "cp4b2dll": RE_DIR + "/cp4b2dll/ghidra", "cp4b3": "~/Downloads/Beta0.53_hotfix3", "cp4b3dll": "~/Downloads/Beta0.53_hotfix3", "mtm1beta": "~/Downloads/mtm_beta"}.get(TARGET, "~/games/" + TARGET)))
+GAME_DIR = os.path.expanduser(os.environ.get(TARGET.upper() + "_DIR", {"cp3": "~/games/mtm2", "cp4": "~/games/cp4beta052", "cp4b2": RE_DIR + "/cp4b2/ghidra", "cp4b2dll": RE_DIR + "/cp4b2dll/ghidra", "cp4b3": "~/Downloads/Beta0.53_hotfix3", "cp4b3dll": "~/Downloads/Beta0.53_hotfix3", "cp4b4": "~/Downloads/Beta0.53_hotfix4", "cp4b4dll": "~/Downloads/Beta0.53_hotfix4", "mtm1beta": "~/Downloads/mtm_beta"}.get(TARGET, "~/games/" + TARGET)))
 MTM2_DIR = GAME_DIR
-EXE = os.path.join(GAME_DIR, {"evo2": "4x42.exe", "evo1": "4x4LE.exe", "cpr": "CART.EXE", "cp3": "monster.exe", "cp4": "monster.exe", "cp4b2": "monster.exe", "cp4b2dll": "trid3d11.dll", "cp4b3": "monster.exe", "cp4b3dll": "trid3d11.dll"}.get(TARGET, "MONSTER.EXE"))
+EXE = os.path.join(GAME_DIR, {"evo2": "4x42.exe", "evo1": "4x4LE.exe", "cpr": "CART.EXE", "cp3": "monster.exe", "cp4": "monster.exe", "cp4b2": "monster.exe", "cp4b2dll": "trid3d11.dll", "cp4b3": "monster.exe", "cp4b3dll": "trid3d11.dll", "cp4b4": "monster.exe", "cp4b4dll": "trid3d11.dll"}.get(TARGET, "MONSTER.EXE"))
 
 
 def _image_base():
@@ -37,7 +38,7 @@ def _image_base():
         return 0x400000
 
 
-IMAGE_BASE = _image_base() if TARGET in ("cp3", "cp4", "cp4b2", "cp4b2dll", "cp4b3", "cp4b3dll") else 0x400000
+IMAGE_BASE = _image_base() if TARGET in ("cp3", "cp4", "cp4b2", "cp4b2dll", "cp4b3", "cp4b3dll", "cp4b4", "cp4b4dll") else 0x400000
 
 _pe = None
 

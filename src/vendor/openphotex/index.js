@@ -42,7 +42,7 @@ export { parseHbQuakes, HB_QUAKE_HEIGHT_UNIT } from "./tv/hb-qke.js";
 export { ANIMATION_BASE_FPS, parseAnimations, writeAnimations } from "./tv/ani.js";
 export { parseHbBriefing } from "./tv/hb-briefing.js";
 export { CPR_HEIGHT_DIVISOR, CPR_ALTITUDE_DIVISOR, CPR_HEIGHT_UNIT_SCALE, LEGACY_ALTITUDE_DIVISOR, decodeHeightSample, legacyWholeHeight16, heightAtCell, cellTriangleHeight, cellUsesOtherDiagonal, heightAtPoint, } from "./terrain/height.js";
-export { parseMtmSit, parseMtmLvl, parseTexList, parseTty, detectSitOrigin, sitTrackTypeName, sitWorldTriplet, sitFeetTriplet, BOX_LIGHT, BOX_MOVING, parseSitLight, BOX_FOG, parseSitFog, formatSitFogLine, SIT_FOG_HEADER, MTM2_SITUATION_EXTENSIONS, mtm2SituationExtension, isMtm2V6Situation, } from "./mtm/sit.js";
+export { parseMtmSit, parseMtmLvl, parseTexList, parseTty, detectSitOrigin, sitTrackTypeName, sitWorldTriplet, sitFeetTriplet, BOX_LIGHT, BOX_MOVING, parseSitLight, SIT_LIGHT_HEADER, SIT_LIGHT_HEADER_12, BOX_FOG, parseSitFog, formatSitFogLine, SIT_FOG_HEADER, MTM2_SITUATION_EXTENSIONS, mtm2SituationExtension, isMtm2V6Situation, } from "./mtm/sit.js";
 export { parseTvLvl, detectTvLvlOrigin, isNullAssetName, tvLvlFallbackName } from "./tv/lvl.js";
 export { parseDef, defPlacementToEditor, TR_ANGLE_TO_RAD } from "./tv/def.js";
 export { SKY_PALETTE_FIRST_SLOT, SKY_ACT_FIRST_COLOUR, SKY_GRADIENT_COLOURS, skyGradient, skyHorizon } from "./texture/sky.js";

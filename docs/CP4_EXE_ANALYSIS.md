@@ -1690,7 +1690,7 @@ pattern. t = the water clock (seconds; the drift speeds are whole repeats per 60
 All of: Enhanced or Realistic water on; `realisticWaterContactFoamOn` (Contact Foam, default 1);
 `realisticWaterShoreFoam` (default 1); `realisticWaterContactFoam` (strength %, default 100) >= 1; the renderer has the
 contact foam (`APIDLLgpuWaterContactFoamAvailable`). Then it is built when the level has WTR lakes, or painted water
-(`paintedWater` on and a painted table present), or level water (the level water height `wref` is non-zero and the
+(`paintedWater` on and a painted table present; hotfix 4 removes painted water, 17.5), or level water (the level water height `wref` is non-zero and the
 level kind `DAT_145aabc98` is not 4). Key = (level id, wref, lake count, painted): a change rebuilds, otherwise nothing
 runs. wref = the level's water height (`DAT_140af3550`) or its override (`DAT_145cf3dc4`), engine units; it is the
 stable mean water level the shader also gets (`gEnhFall.z`).
@@ -2670,3 +2670,91 @@ Not done:
   Fresnel, calm lines, breakup) is documented only as the DLL's shader text, which a clean-room port cannot take
   over. `roughFrom` reaches the renderer's list per fall for when a look 1/2 exists. (Since done: the enhanced look,
   above.)
+
+## 17. Beta 0.53 hotfix 4: limits kept, normalStrength, the lights' allWx
+
+`monster.exe` of 13,348,864 bytes (built Nov 16 2026), with its `trid3d11.dll` (1,853,952 bytes) and `trivk.dll` (byte
+for byte hotfix 3's). Decompiled as `tools/re/decompile.sh cp4b4` (into `re/cp4b4/`, default
+`~/Downloads/Beta0.53_hotfix4`). The DLL's shader text is hotfix 3's; it changed only in code. Fila's notes call the
+hotfix crash guards for edge cases plus the normal maps' default strength. Its author published no source code: what
+follows is read from the executable. Traxx 1.8.0 and 1.8.1 (released source) cite the engine's handover notes for the
+same changes; where a rule below comes from them and was not traced in the executable, it says so.
+
+### 17.1 Limits kept instead of overrun (CONFIRMED)
+
+Each list is read whole; past the limit the entries are read into a scratch record and dropped, and the load logs one
+line. Older builds wrote past their tables.
+
+| List | Kept | Message |
+|---|---|---|
+| The SIT's vehicles (after the player's slot) | first 10 | "This track places %d trucks; this build holds %d." (`DAT_158380d74` set to 10) |
+| The SIT's ramp section | first 100 | "This track places %d ramps; this build holds %d." |
+| Backdrop models | first 5 | "This track lists %d backdrop models; this build holds %d." |
+| AI courses | the primary and the first 4 extended (slots 0 to 4) | "This track defines %d AI courses; this build holds %d." |
+| Segments of a course | first 249 (0xf9), primary included | "An AI course on this track has more than %d segments; the rest were dropped." |
+| `.TEX` ground textures | 4096 | "This track lists %d ground textures; this build holds %d."; "too many ground textures" |
+| Ambient sound list (`DATA\SOUNDnnn.TXT`, Trucksfx.cpp) | of the entries the weather allows, in file order: 10 looping, 40 one-shot | "This track's ambient sound list has more than %d looping sounds." / "... one-shot sounds." |
+| Looping sound slots (boxes, waterfalls) | as before (30) | now "Too many looping sounds on this track; '%s' is silent." |
+
+The terrain's resident cache may now fail ("terrain: RESIDENT CACHE NOT BUILT (%s) ...", "This track's terrain could not
+be cached (%s); it will draw slower.", reasons "the renderer refused the buffers", "too many .ANI frame batches", "too
+many .ANI ground-box frame batches"); the terrain is then drawn by the per-frame path. Vegetation's limits are
+unchanged from hotfix 3: 64 types, 32,768 trees, 2,097,152 grass clumps (Traxx 1.8.0 raises its own planter to the
+same 2,097,152). Traxx 1.8.0's notes list further guards not traced here: long track and sound names cut to fit, the
+21st checkpoint refused, `.ANI` entries with no frames skipped, no pool for a light under 1 ft, the cone's rim-0 divide.
+
+### 17.2 normalStrength (CONFIRMED)
+
+`[Graphics] normalStrength` (monster.ini only, no menu entry) defaults to **220**: 120 in betas 0.52, 0.53 and
+hotfixes 2 and 3 (the default's `.data` word read in each build). The exe hands `normalStrength / 100` to the DLL
+(`APIDLLgpuNormalStrength`), and a material with MATERIAL2's normal-map flag gives `its own strength x normalStrength /
+100`. The DLL's object pixel shader multiplies the CP3 normal map's tangent xy by it (`tn.xy *= nrmStr`) before
+building the bumped normal. Normal-Terrain and Normal-Water are separate (15.1).
+
+### 17.3 The lights' allWx and their glow and cone
+
+- **allWx** (CONFIRMED as read): the SIT light line (box type 12) takes a 13th field, `%d`, stored beside the other
+  twelve, default 0; the header line is `Llight rad,hgt,r,g,b,glow,glowRad,coneLen,coneRim,coneBase,bright,aimOff,allWx`.
+  A 12-field line reads 0. Its effect, from Traxx 1.8.0's engine rules (not traced here): non-zero draws the light's
+  glow and cone in every weather; the ground pool keeps to the lamp weathers (rain, fog, dense fog, dusk, night, pitch
+  black).
+- **The glow and cone** (Traxx 1.8.0's engine rules, unchanged by the hotfix): only the first 128 lights (MAX_LIGHT_PROPS).
+  The glow is a square `2 glowRad` a side in the box's XY plane at the lamp head (box-local (0, hgt, 0)), facing the box's
+  +Z, additive, seen only from in front, its brightness times the eye's direction along +Z. The cone is a six-sided tube
+  along +Z, `coneBase` across at the lamp (a diameter) and `coneRim` from the axis at `coneLen` (a radius), alpha 0.09 x
+  brightness at the lamp to 0. Brightness is 1 while the lamp is nearer than groundVisX x 32 ft along the view (3840 ft
+  at the default view range) and 0.2 past it, faded by the fog in Foggy, Dense fog and Snow.
+
+### 17.4 Detail on ground boxes
+
+Traxx 1.8.1 reports the engine bakes the ground boxes into its terrain buffer and shades them with the terrain detail
+term, laid in world XZ on every face (tops continue the ground's pattern, walls take one smeared row of it, the relief
+ignores the face normal). Not traced here.
+
+### 17.5 Painted water removed (CONFIRMED)
+
+Hotfix 3's painted water (`paintedWater`, `paintedWaterBand`, `paintedWaterLift`, `paintedWaterDebug`,
+`paintedwater.txt`) is gone: the keys and its log line are no longer in the executable, and the shore field's key and
+log drop the painted count (15.4.1). OpenMTM2 never ported it.
+
+### 17.6 In OpenMTM2
+
+- Limits (17.1): `src/game/cp4-limits.js` `withCp4Limits` (trucks, backdrops, courses, segments; applied to every
+  non-CPR track's SIT in `worker/level-load.js`), the ramps in `worker/track-build.js` (the first 100 of the ramp
+  section; ramps keep their SIT index), the ambient sounds in `src/audio/world-audio.js` (`AMBIENT_LOOPS_MAX`,
+  `AMBIENT_SHOTS_MAX`). Each drop logs the engine's line to the console. The `.TEX` cap is not applied: a ground
+  texture is addressed by 12 bits of the `.CLR`, so no more than 4096 can be used.
+- normalStrength (17.2): an option, not the engine's default. Settings `cp4NormalMapStrength` (percent, 0 to 300,
+  default 100: OpenMTM2's look keeps the strength it had), Options, Advanced, CP4, "Normal map strength";
+  `render/track-scene.js` `setNormalMapStrength`, set by the race, replay and fly-by screens, multiplies the material's
+  own strength on CP3 normal maps only (not 4x4 Evolution's bump maps).
+- Lights (17.3): OpenPhotex reads and writes the 13th field (`SitLight.allWx`, `SIT_LIGHT_HEADER`);
+  `worker/track-build.js` keeps the first 128 (`TRACK_LIGHTS_MAX`), puts the lamp head at the box's (0, hgt, 0) turned
+  by its matrix and hands the box's axes and `allWx` on; `render/track-lights.js` draws the glow as the box-facing
+  square with the facing fade, the cone with its base as a diameter, both with the distance step, glows and cones of an
+  `allWx` light in every weather, and no pool under 1 ft. OpenMTM2's own: the glow's round texture (HEADLITE.RAW is not
+  read) and the cone's look (render/light-beam.js).
+- Ground boxes (17.4): an option, off by default (settings `cp4GroundBoxDetail`, "Detail on ground boxes"):
+  `createGroundBoxes` gives them the terrain's detail term with the mask's shares at their vertices, in world XZ. Off,
+  as before, since the grain on buildings' fronts looks wrong (OpenMTM2's own "Ground box grain" stays separate).
+- Tests: tests/cp4-hotfix4.test.mjs.

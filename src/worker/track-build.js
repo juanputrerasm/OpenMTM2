@@ -6,6 +6,7 @@
   turns each SIT box into a scene transform. Pure apart from the VFS reads; the result is
   plain data with typed arrays, listed by `transferablesOf` for postMessage.
 */
+import { CP4_LIMITS } from "../game/cp4-limits.js";
 import { TREE_FACE_INDICES } from "../game/drag-tree-face.js";
 import { msg } from "../game/strings.js";
 import { rumbleGrid } from "../game/race-setup.js";
@@ -108,6 +109,9 @@ async function loadTerrainDetail(vfs, levelStem, { level, fullTerrain, legacy, n
  * The largest side a painted terrain mask (`<level>_MASK`) keeps: 1024 on a 256-cell world, and twice that on a track
  * format version 6 world of 512 cells, whose mask spreads over four times the ground (the specification's 9.5).
  */
+/** The engine's MAX_LIGHT_PROPS: the first 128 type 12 boxes in the SIT's order light, glow and draw a cone; the rest nothing. */
+export const TRACK_LIGHTS_MAX = 128;
+
 export const terrainMaskSide = (cells = 256) => (cells > 256 ? 2048 : 1024);
 
 /**
@@ -651,17 +655,22 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     soundObjects.push({ sitIndex, positionFt: box.positionFt, sound: box.loopSound, moving: box.type === 10 || box.type === BOX_MOVING, train: box.type === 10, model: box.modelName ? podPathTitle(box.modelName) : "" });
   }
 
-  // Community Patch 3 lights (box type 12, ENGINE_LIMITS.md): the lamp head `hgt` above the box's origin, and the lit pool
-  // `aimOff` along the box's horizontal facing, unnormalised (m3, m9 of its matrix), as the engine places it.
+  // Community Patch 3 lights (box type 12, ENGINE_LIMITS.md): the lamp head at box-local (0, hgt, 0) turned by the box's
+  // matrix, and the lit pool `aimOff` along the box's horizontal facing, unnormalised (m3, m9 of its matrix), as the engine
+  // places them. Only the first TRACK_LIGHTS_MAX in the SIT's order are kept (the engine's MAX_LIGHT_PROPS, Traxx 1.8's
+  // engine rules; CP4_EXE_ANALYSIS.md 17.3). `axes` is the box's frame for the glow and cone: its x, y and z (the facing).
   const trackLights = [];
   for (const [sitIndex, box] of sit.boxes.entries()) {
+    if (trackLights.length >= TRACK_LIGHTS_MAX) break;
     if (box.type !== BOX_LIGHT || !box.light || !box.positionFt) continue;
     const m = mtm2Sim.eulerToMatrix(box.theta, box.phi, box.psi, new Array(9));
     const [x, y, z] = box.positionFt;
     const l = box.light;
     trackLights.push({
-      sitIndex, head: [x, y + l.hgt, z], pool: [x + l.aimOff * m[2], z + l.aimOff * m[8]], facing: [m[2], m[5], m[8]],
+      sitIndex, head: [x + l.hgt * m[1], y + l.hgt * m[4], z + l.hgt * m[7]], pool: [x + l.aimOff * m[2], z + l.aimOff * m[8]],
+      facing: [m[2], m[5], m[8]], axes: [[m[0], m[3], m[6]], [m[1], m[4], m[7]], [m[2], m[5], m[8]]],
       rad: l.rad, color: l.color, glow: l.glow, glowRad: l.glowRad, coneLen: l.coneLen, coneRim: l.coneRim, coneBase: l.coneBase, bright: l.bright,
+      allWx: l.allWx ?? 0,
     });
   }
 
@@ -676,8 +685,11 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
 
   // Ramps (MTM2_PHYSICS.md 14.19): wedges whose tops the height query knows.
   const ramps = [];
-  for (const box of sit.boxes) {
-    if (box.type !== RAMP_TYPE || !box.positionFt) continue;
+  // The first CP4_LIMITS.ramps of the SIT's ramp section only (Community Patch 4 beta 0.53 hotfix 4, game/cp4-limits.js).
+  const rampBoxes = sit.boxes.filter((box) => box.type === RAMP_TYPE);
+  if (rampBoxes.length > CP4_LIMITS.ramps) console.info(`This track places ${rampBoxes.length} ramps; this build holds ${CP4_LIMITS.ramps}.`);
+  for (const box of rampBoxes.slice(0, CP4_LIMITS.ramps)) {
+    if (!box.positionFt) continue;
     const name = box.modelName ? podPathTitle(box.modelName) : "";
     if (name && !(name in boundsOf)) {
       const model = name in models ? models[name] : await loadModel(name);

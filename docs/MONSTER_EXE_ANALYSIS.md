@@ -1869,7 +1869,10 @@ stereo separation, `UseRedBook` and `UseModMusic`.
       wavName, vol, weatherMask                          repeated
 
   Every stock script names `airhorn.wav` for the checkpoint and `check2.wav` for the lap but
-  one, which has `scream4.wav` for the checkpoint. The port's rule for an add-on track (not
+  one, which has `scream4.wav` for the checkpoint. The game plays either on the player's truck
+  (0x41bbd0, only the local player's) and sets its gain (`0x463dd0`, the voice's `+0x70`) to 1.7,
+  or to 8.0 when the name begins "screa" (`_strnicmp(name, "scream", 5)`); the port plays them
+  unpositioned at the same gains (`audio/world-audio.js` `cueGain`). The port's rule for an add-on track (not
   the game's, which was not traced for a missing file): a script it lacks, or a WAV a script
   names that the install does not have, gives the stock `airhorn.wav` and `check2.wav`.
   One-shots fire at random intervals between the two timers (seconds) when the current

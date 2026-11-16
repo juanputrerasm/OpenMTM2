@@ -13,6 +13,8 @@
 #   CP4B2DLL_DIR=~/games/mtm2 tools/re/decompile.sh cp4b2dll  (beta 0.53's trid3d11.dll renderer, into re/cp4b2dll/)
 #   CP4B3_DIR=~/Downloads/Beta0.53_hotfix3 tools/re/decompile.sh cp4b3       (beta 0.53 hotfix 3, x64, into re/cp4b3/)
 #   CP4B3DLL_DIR=~/Downloads/Beta0.53_hotfix3 tools/re/decompile.sh cp4b3dll (hotfix 3's trid3d11.dll, into re/cp4b3dll/)
+#   CP4B4_DIR=~/Downloads/Beta0.53_hotfix4 tools/re/decompile.sh cp4b4       (beta 0.53 hotfix 4, x64, into re/cp4b4/)
+#   CP4B4DLL_DIR=~/Downloads/Beta0.53_hotfix4 tools/re/decompile.sh cp4b4dll (hotfix 4's trid3d11.dll, into re/cp4b4dll/)
 # Needs Ghidra (brew install ghidra) and Python 3. Takes a few minutes.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -83,6 +85,19 @@ elif [ "$TARGET" = cp4b3 ]; then
   GAME_DIR=${CP4B3_DIR:-$HOME/Downloads/Beta0.53_hotfix3}
   WORK="$REPO/re/cp4b3"
   EXE=monster.exe
+  SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
+elif [ "$TARGET" = cp4b4 ]; then
+  # Community Patch 4 beta 0.53 hotfix 4 (monster.exe, built Nov 16 2026): crash guards that keep the first N of a
+  # list, normalStrength 220, the light's allWx field, painted water removed (docs/CP4_EXE_ANALYSIS.md 17). No source code.
+  GAME_DIR=${CP4B4_DIR:-$HOME/Downloads/Beta0.53_hotfix4}
+  WORK="$REPO/re/cp4b4"
+  EXE=monster.exe
+  SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
+elif [ "$TARGET" = cp4b4dll ]; then
+  # Hotfix 4's Direct3D 11 renderer (trid3d11.dll): code fixes only, the shader text unchanged.
+  GAME_DIR=${CP4B4DLL_DIR:-$HOME/Downloads/Beta0.53_hotfix4}
+  WORK="$REPO/re/cp4b4dll"
+  EXE=trid3d11.dll
   SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
 elif [ "$TARGET" = cp4b3dll ]; then
   # Hotfix 3's Direct3D 11 renderer (trid3d11.dll): shore field, water detail, terrShadowFacing, hill cut.

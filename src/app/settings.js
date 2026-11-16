@@ -190,6 +190,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   cp4TerrainNormalAlways: false, // CP4's "Always On Normal-Terrain" ([Graphics] terrNormalAlways): a track without a _MASK gets the default mask (shared/terrain-mask.js)
   cp4TerrainNormalStrength: 100, // CP4's "Normal-Terrain Strength" ([Graphics] terrNormalStrength), 0 to 300 %: the default mask's detail only
   cp4WaterNormalAlways: false, // CP4's "Always On Normal-Water" ([Graphics] waterNormalAlways): Reflective water's detail on a track without a _WMSK
+  cp4GroundBoxDetail: false, // CP4's terrain detail on the ground boxes (Traxx 1.8.1's engine rule; render/track-scene.js createGroundBoxes): off, grain on buildings
+  cp4NormalMapStrength: 100, // CP4's [Graphics] normalStrength (monster.ini only, 120; 220 from hotfix 4), 0 to 300 %: CP3 normal maps on models; OpenMTM2 keeps 100
   cp4WaterNormalStrength: 100, // CP4's "Normal-Water Strength" ([Graphics] waterNormalStrength), 0 to 300 %: the default mask's detail only
   raceLine: false,            // Community Patch 3's racing line drawn on the ground (render/race-line.js)
   dragBeams: true,            // the drag strip's lines on the ground, as MTM1 draws them: beams and lane lines (render/drag-beams.js)
@@ -350,7 +352,7 @@ export function migrateSettings(stored) {
   // A value that is not one of the choices draws the default.
   if (!AA_CHOICES.some((mode) => mode.id === stored.aa)) delete stored.aa;
   // Community Patch 4's strength sliders are 0 to 300 %, as the engine clamps them on reading.
-  for (const key of ["cp4TerrainNormalStrength", "cp4WaterNormalStrength"]) {
+  for (const key of ["cp4TerrainNormalStrength", "cp4WaterNormalStrength", "cp4NormalMapStrength"]) {
     if (!(key in stored)) continue;
     if (Number.isFinite(stored[key])) stored[key] = Math.min(CP4_NORMAL_STRENGTH.max, Math.max(CP4_NORMAL_STRENGTH.min, stored[key]));
     else delete stored[key];

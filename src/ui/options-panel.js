@@ -952,6 +952,13 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
         set: (v) => { settings.cp4WaterNormalStrength = v; save(); },
         title: msg("Default mask only - a track's own mask is unchanged. From the next race"),
       }),
+      toggle(msg("Detail on ground boxes"), "cp4GroundBoxDetail", msg("Community Patch 4 draws the terrain detail (Normal-Terrain) on the ground boxes too, laid across them from above, so walls and buildings built of boxes take the ground's pattern. Needs CP3 Terrain detail and a detail mask. From the next race")),
+      // The ini-only key normalStrength (CP4_EXE_ANALYSIS.md 17.2): CP4 has no menu entry; OpenMTM2's default stays 100 %.
+      slider(msg("Normal map strength"), {
+        ...CP4_NORMAL_STRENGTH, value: settings.cp4NormalMapStrength ?? 100, format: (v) => `${v}%`,
+        set: (v) => { settings.cp4NormalMapStrength = v; save(); },
+        title: msg("Community Patch 4's normalStrength: how strongly Community Patch 3 normal maps bump models and trucks. CP4 uses 220% (120% before beta 0.53 hotfix 4); OpenMTM2 keeps 100%. From the next race"),
+      }),
       sub(msg("OMTM2")),
       row(msg("Terrain overlap"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.terrainOverlap !== false, "aria-label": t("Terrain overlap"), "data-opt": "Terrain overlap", onchange: (event) => { settings.terrainOverlap = event.target.checked; save(); } }),
         msg("The ground tiles overlap by two pixels, as Monster Truck Madness 2 draws them. Off, they meet edge to edge, as MTM1 draws them. Some HD texture packs need it on. From the next race")),
