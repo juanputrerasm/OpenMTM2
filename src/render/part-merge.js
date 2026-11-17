@@ -47,7 +47,8 @@ function materialKind(m) {
 /** Whether a texture can be a stack's layer, and of which kind of stack: its size and the way it is read. */
 function textureKind(map) {
   const image = map?.image;
-  if (!map?.isDataTexture || map.userData.cycle || map.userData.grey || !image?.data || image.data.length !== image.width * image.height * 4) return null;
+  // A texture with mipmaps of its own (render/track-scene.js `modelTexture`) keeps them: a stack would make the GPU's.
+  if (!map?.isDataTexture || map.userData.cycle || map.userData.grey || map.userData.ownMips || !image?.data || image.data.length !== image.width * image.height * 4) return null;
   if (map.format !== THREE.RGBAFormat || map.type !== THREE.UnsignedByteType) return null;
   return [image.width, image.height, map.magFilter, map.minFilter, map.wrapS, map.wrapT, map.anisotropy, map.colorSpace, map.generateMipmaps ? 1 : 0, map.flipY ? 1 : 0].join("|");
 }

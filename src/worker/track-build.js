@@ -26,6 +26,7 @@ import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
 import { buildEvoSky, buildEvoTrackRender } from "./evo-track-build.js";
 import { toSceneMatrix } from "../shared/scene-frame.js";
 import { loadLevel, loadTextureSource } from "./level-load.js";
+import { cp4FineShade, cp4GroundLight } from "../game/cp4-fine-shade.js";
 import { TILE_STACK_BUDGET, buildFineTerrainMesh, buildTerrainAtlas, buildTerrainMesh, buildTileStacks, decodeTerrainTextures, slotsInUse } from "./terrain-mesh.js";
 import { buildReliefMesh } from "./relief-mesh.js";
 import { buildReliefData, createRelief } from "../game/terrain-relief.js";
@@ -755,7 +756,10 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     // The ground map's samples lie on the mesh's own: it reads the heights the mesh was cut from.
     sampledGround = relief.heightAtSample;
   } else if (level.fineFt) {
-    mesh = buildFineTerrainMesh({ fineFt: level.fineFt, sub: 4, clr: level.clr, lte: level.lte, atlas, tileInset, grid: level.cells ?? 256 });
+    // Community Patch 4 lights each 8 ft point of its own (game/cp4-fine-shade.js); a track format version 6 world, which
+    // the engine does not load, keeps the .LTE between the corners.
+    const fineShade = level.v6 ? null : cp4FineShade({ fineFt: level.fineFt, lte: level.lte, light: cp4GroundLight(weather, level.lvl.sunVector, level.lvl.shadowIntensity) });
+    mesh = buildFineTerrainMesh({ fineFt: level.fineFt, sub: 4, clr: level.clr, lte: level.lte, fineShade, atlas, tileInset, grid: level.cells ?? 256 });
   } else {
     mesh = buildTerrainMesh({ heights: level.heights, heightsFt: level.heightsFt, clr: level.clr, lte: cpr ? null : level.lte, atlas, footprint: cells, tileInset, grid: level.cells ?? 256 });
   }

@@ -11,8 +11,8 @@ renderer analysed, CP4_EXE_ANALYSIS.md 12 to 14); the course map across the worl
 track built of meshes; three options moved; track format version 6; Deathmatch spawns on the drivable
 surface; the instant replay in network races; a filter and a start position in the Computer Opponents dialog;
 then beta 0.53 hotfixes 2 and 3 (CP4_EXE_ANALYSIS.md 15 and 16: the detail maps, the waterfalls rebuilt, the fog
-volumes as the renderer DLL draws them), hotfix 4 (17: the track lights' glow and cone, the limits it keeps) and fixes
-from playing CP4 tracks:
+volumes as the renderer DLL draws them), hotfix 4 (17: the track lights' glow and cone, the limits it keeps; 1.8 and
+15.12: the light on a Spline track's fine grid and on foliage) and fixes from playing CP4 tracks:
 
 - **OpenPhotex 1.7.3** vendored: the `.WFL` waterfall reader and writer, the game's waterfall build (`cp4Sim`), and
   track format version 6 (`.SI3`, the `.TXV` v6 keys, v6 heights, 16-bit ground boxes, `.WTR` and `.WFL` version 2).
@@ -27,7 +27,8 @@ from playing CP4 tracks:
   copy and copy of the world drawn takes the track's size from its build (`worldCells`, `worldFt`), where 8192 ft was
   written in about forty files; the helpers take it as a parameter defaulting to 8192, so every other track behaves
   as before. On a world of other than 256 cells the drawn ground, the snow cover's depth, the ground, cover, puddle
-  and fog floor maps are left out. Tests: tests/track-format-v6.test.mjs.
+  and fog floor maps are left out. A version 6 track is not offered in the game's saved race (game/saved-race.js),
+  whose list the game itself keeps. Tests: tests/track-format-v6.test.mjs.
 - **Deathmatch spawns on the drivable surface**: the spawn spots, the filled start grid of every party mode and a
   respawn were set over the bare terrain, so a truck started inside or under what it should stand on (a track made for
   CP4's streets and decks, a level's ground boxes, CPR's road, 4x4 Evolution's rocks and decks). They now stand on the
@@ -101,8 +102,8 @@ from playing CP4 tracks:
   `loadWaterDetail`, worker/art-texture.js `loadDetailImage`, shared/detail-normal.js, shared/terrain-mask.js
   `defaultTerrainMask`, render/water-surface.js): a track's `_WMSK` and `_WDTL` put the engine's drifting detail
   ripples on the Reflective water and CP4's lakes (the generated normal map when the track has no `_WDTL`, built with
-  the engine's float32 steps); `_DTL`, `_WDTL` and the masks are read from the game folder's MaskArt first, up to 2048
-  a side, odd shapes loaded. Options under Advanced, CP4: Always On Normal-Terrain (a default mask from the ground
+  the engine's float32 steps); `_DTL`, `_WDTL` and the masks are read from the game folder's MaskArt first (copied
+  with the install, install/inspect-source.js `findMaskArt`), up to 2048 a side, odd shapes loaded. Options under Advanced, CP4: Always On Normal-Terrain (a default mask from the ground
   textures), Normal-Terrain Strength, Always On Normal-Water, Normal-Water Strength (0 to 300 %, the default masks
   only); the terrain detail gains hotfix 3's sun term. Tests: tests/cp4-hotfix.test.mjs.
 - **The sun below the horizon** (15.8; game/lighting.js `sunBelowHorizon`, render/sun-shadows.js, render/sun-flare.js,
@@ -142,8 +143,9 @@ from playing CP4 tracks:
   track's water may stand anywhere in its terrain's range (worker/level-load.js `lvlWaterLevelFt`;
   docs/EXTENSIONS.md). The boxes near the trucks are listed through a grid on the world's wrap (worker/sim-worker.js),
   with the same list and order: on Liberty City's 6,600 boxes the old all-pairs test took 94% of the simulation.
-- **tools/re**: decompile targets `cp4b3` and `cp4b3dll` for hotfix 3's monster.exe and trid3d11.dll, and `cp4b4` and
-  `cp4b4dll` for hotfix 4's.
+- **tools/re**: decompile targets `cp4b2` and `cp4b2dll` for beta 0.53's monster.exe and trid3d11.dll, `cp4b3` and
+  `cp4b3dll` for hotfix 3's, and `cp4b4` and `cp4b4dll` for hotfix 4's; `fdiff.py`, `disasm.py` and `recommon.py` take
+  them.
 - **Track lights as hotfix 4 and Traxx 1.8.0 have them** (17.3; worker/track-build.js, render/track-lights.js): a
   light's 13th field, allWx, shows its glow and cone in every weather; the glow is a square facing the box's +Z, drawn
   from the front only and faded by how squarely it faces the eye; the cone's base is a diameter; a light beyond
@@ -160,6 +162,22 @@ from playing CP4 tracks:
   game plays them at a gain of 1.7, or 8 for a sound whose name starts with "screa"; OpenMTM2 played every one at 0.9,
   so a track's own checkpoint sound (Graveyard's scream, Chicago's waypoint chime) was hard to hear. Tests:
   tests/checkpoint-sounds.test.mjs.
+- **The light on a Spline or Full Map track** (CP4_EXE_ANALYSIS.md 1.8; game/cp4-fine-shade.js, worker/terrain-mesh.js
+  `buildFineTerrainMesh`): the 8 ft grid was drawn with the .LTE's light taken between the 32 ft corners, so the
+  ground looked lit as the classic grid and the spline's curves did not show (reported on RuDeE's Baja Run). Each fine
+  point now takes the engine's own light: the level's sun on its 8 ft normal, plus what the .LTE adds to the sun at
+  the corners around it, in the engine's integer steps, with Dusk, Night and Pitch Black's sun and ambient. Tests:
+  tests/cp4-fine-shade.test.mjs.
+- **Grass and leaves as full as CP4 draws them** (15.13; shared/cp4-mips.js, render/track-scene.js `modelTexture`): the
+  renderer DLL builds every texture's mipmaps itself, each level's alpha the OR of the four texels under it, so a thin
+  blade or leaf stays solid at a distance. OpenMTM2 used the GPU's averaged mipmaps, and the 0.5 cut-out thinned CP4
+  grass to a few small tufts and left trees see-through (reported on Baja Run: at 32 x 32 its grass texture kept 4 %
+  of its texels solid against CP4's 34 %). A see-through model picture now takes the engine's chain in the enhanced
+  look. Tests: tests/cp4-mips.test.mjs.
+- **Foliage lit from behind** (15.12; render/track-scene.js `foliage`): a material with a translucency (CP4's foliage
+  leaves and grass) lights a face by `mix(I, max(I, I_back), t)` as the renderer DLL does for placed objects and for
+  the .VEG's instanced trees and grass, so leaves and blades turned from the sun are no longer dark and the grass no
+  longer sinks into the ground's colour.
 
 ## v0.7.3
 

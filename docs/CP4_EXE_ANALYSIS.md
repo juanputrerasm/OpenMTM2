@@ -103,7 +103,7 @@ line for line and works in v units, the `>>1` comes after. Inputs: a 131072-byte
 
 Spline/fine also build: classic height (r,c) = fine[4r][4c]; `14598ec10` the minimum of the 5x5 fine
 samples per coarse cell (`1401f9fd0`); two 1 MiB shading maps `1473f9fa0`/`1473f9fa8`
-(`1401d8a50`). Any allocation failure loads classic with a message.
+(`1401d8a50`, read in 1.8). Any allocation failure loads classic with a message.
 
 ### 1.6 Ground query in fine/spline mode (CONFIRMED, `1401c0600` -> `1401f9510`)
 
@@ -121,6 +121,36 @@ samples per coarse cell (`1401f9fd0`); two 1 MiB shading maps `1473f9fa0`/`1473f
 - **`.RA0` missing:** RA0, RA1 and CL0 are zeroed ("NO GROUNDBOXES") and loading continues. CP4's
   own log says "CP3 and older stop loading the track here" (INFERRED, not checked in CP3 code).
   RA0 present but RA1 or CL0 missing is still fatal. RA0/RA1 are read as `byte<<7`, as retail.
+
+### 1.8 Fine shading (CONFIRMED, beta 0.52 `1401d8a50`, row worker `1401a7af0`; beta 0.53 hotfix 4 `14021dbb0`, `1401e64d0`, the same code)
+
+A Spline or Full Map track gets a light for each of the 1024 x 1024 fine points, built once at load ("terrain: fine
+shading %d x %d vertices on %d thread(s)" in `terrain.txt` with `terrainLog=1`; up to 16 threads, by rows):
+
+- **The light function** (`1400570c0`, retail's): for a unit normal n (each part x 65535, truncated) and the sun s
+  (16.16), d = -(s.x n.x >> 16 + s.y n.y >> 16 + s.z n.z >> 16) clamped 0..0xffff; v = ((0xffff - amb) d >> 16) + amb
+  clamped 0..0xffff. The byte light is v >> 8.
+- **The sun and ambient** are the level's (`14754a464..470`: the .LVL's sun vector on line 18 and the value after it,
+  which OpenPhotex calls `shadowIntensity`), as the weather leaves them before the ground loads (`140223c70`): Dusk
+  divides the sun by 2 with ambient 0x8000, Night by 4 with 0x4000, Pitch Black by 8 with 0.
+- **Pass 1, the corners:** at each 32 ft corner the normal is (trunc(trunc((h[c+1] - h[c-1]) / 2) x -4 / 256), 32,
+  the same along the rows), h the classic grid in 1/64 ft (`1401e7f80`), and the corner keeps
+  `R = LTE light byte - its light byte` (s16). Without a .LTE the classic light byte is that same light, so R is 0.
+- **Pass 2, the fine points** (`1401e64d0`): the fine normal ((f[c-1] - f[c+1]) x 4, 0x1000, (f[r-1] - f[r+1]) x 4),
+  f the fine grid in 1/64 ft, wrapping at 1024 (`140246750`); its light byte plus R between the four corners around
+  the point by weights (4 - fx, fx) x (4 - fz, fz), fx = c & 3, fz = r & 3, the sum of 16ths rounded half away from
+  zero; clamped 0..255. That is map A (`147736eb0`).
+- **Map B** (`147736eb8`): bit 0 set where a ray from the point toward the sun meets the ground (`140205c80`), the fine
+  shadow flag.
+- Each corner's classic light and shadow bytes are then A and B at (4r, 4c).
+- **Drawing:** a fine vertex's intensity is (A x 16 - 256) / 4080 clamped 0..1, or the ambient-only light where B's
+  bit 0 is set, as a classic corner takes the .LTE's light and shadow bytes.
+
+**In OpenMTM2:** the fine ground takes map A, by these rules (`src/game/cp4-fine-shade.js`, `worker/terrain-mesh.js`),
+read as the .LTE's light is on the classic grid. Map B is not drawn, as the .LTE's shadow byte is not on the classic grid:
+the port casts its own sun shadows. Before this, each fine point took the .LTE between its cell's corners, so the light
+showed nothing of the spline's curves between the 32 ft corners. A track format version 6 world, which CP4 does not load,
+keeps that.
 
 ## 2. Lakes (.WTR) (CONFIRMED unless marked)
 
@@ -201,6 +231,10 @@ detail tier: drawn and collidable only when tier <= the scenery detail setting.
 GRAS: u32 clump count, u16 stride (>= 0xC), u32 tile count; tiles 12 bytes {u16 tx, u16 tz, u32
 first, u32 count <= 1024}, strictly increasing. Clump: u16 species, u8 fx, u8 fz
 (x = ((tx<<8)|fx)<<5), i32 y, u8 heading (1/256 turn), u8 scale (b/64 + 0.25), u8 not traced.
+
+**Hotfix 4 (CONFIRMED, loader `14024e350`, bake `1401e9b50`):** the caps are 32768 trees and **2097152 grass clumps**
+("This track places %d grass clumps; this build holds %d."). A clump's scale is b / 64 + 0.25 as before, and a grass
+species' distance (SPEC +0x90, else `vegGrassDist`) is not times `vegLodScale`; it fades from 0.75 of it.
 
 **Distances** (all times `vegLodScale`/100, default 100, range 10..1000): without flag 0x04 a single
 swap at floor((900+1000)/2) = **950 ft**; with 0x04 the model fades out and the card fades in over
@@ -2036,7 +2070,29 @@ The hotfix 3 DLL is the first CP4 build with the fog volume renderer, which sect
 - The highlight is now on shiny faces only (`modelMaterial`, `src/render/track-scene.js`).
 - Before, every lit CP4 material had the white highlight in the enhanced look, and three.js's default specular on top.
   The sun turned the leaf cards of CP4 trees (flags LIT, ALPHATEST, TWOSIDED, specPower 0) white.
-- The translucency is not drawn yet.
+- The translucency is drawn since hotfix 4's port (`foliage`, `src/render/track-scene.js`): the sun's and the
+  lamps' cosine is `mix(max(n.l, 0), |n.l|, t)`, which with the ambient floor outside both is the DLL's
+  `mix(I, max(I, I_back), t)`. The hotfix 4 instanced pass (trees and grass of a .VEG) has the same rule: its vertex
+  shader carries the front and back light as a pair and pulls both toward the brighter by the slot's translucency
+  (`prm.y`). Its cutout is at a fixed alpha of 0.5; the per-object pass uses the material's own reference.
+
+### 15.13 Texture mipmaps (CONFIRMED, beta 0.53 hotfix 4 `trid3d11.dll` `180011fd0`, levels `180012a40`)
+
+- Every texture the DLL uploads, the classic art (its own size, 128 by default) and the HD art registered with
+  `APIDLLgpuRegisterHdTex` (square, 32..4096), gets a full chain the DLL makes itself, down to 1 x 1
+  (levels = floor(log2(side)) + 1). `APIDLLsetMipMapLevel` does nothing.
+- Each level halves the last. With the switch at `1801b5134` (1 in the shipped DLL, never written): a texel's red, green
+  and blue are each the integer mean of those of its four that are not black (r | g | b != 0), 0 when all four are;
+  its **alpha is the bitwise OR of the four alphas**. The other branch (switch 0) averages all four channels.
+- So a texel with anything solid under it stays solid at every level: a cut-out (`clip(a - 0.5)`) keeps a grass
+  blade or a leaf a few texels thin as wide as a whole texel of the level drawn, where averaged mipmaps thin it away.
+  Measured on BAJARUN's 1024 x 1024 GRASS_MAT.PNG: 7 % of the base texels are over the cut; at 64 x 64, 5 % averaged
+  and 25 % by OR; at 32 x 32, 4 % and 34 %.
+
+**In OpenMTM2:** a model's picture with see-through texels that is a square power of two takes this chain in the
+enhanced look (`src/shared/cp4-mips.js`, render/track-scene.js `modelTexture`), and stays out of the texture stacks
+(render/part-merge.js), which would make the GPU's. Before, the GPU's averaged mipmaps left CP4 grass small and
+sparse and its trees' leaves see-through at a distance. The classic look keeps the GPU's.
 
 ## 16. Beta 0.53 hotfix 3: waterfalls and lakes
 

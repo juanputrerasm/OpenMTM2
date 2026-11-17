@@ -369,7 +369,7 @@ export function buildTerrainMesh({ heights, heightsFt = null, clr, lte, atlas, f
  * cell as on the coarse mesh. Normals by central differences over the fine grid. The same shape of result as
  * `buildTerrainMesh`.
  */
-export function buildFineTerrainMesh({ fineFt, sub = 4, clr, lte = null, atlas, tileInset = 2, grid = GRID }) {
+export function buildFineTerrainMesh({ fineFt, sub = 4, clr, lte = null, fineShade = null, atlas, tileInset = 2, grid = GRID }) {
   const GRID = grid, MASK = grid - 1;
   const side = GRID * sub, mask = side - 1, step = CELL_FT / sub, n = sub + 1;
   const perCell = n * n, cells = GRID * GRID;
@@ -379,9 +379,12 @@ export function buildFineTerrainMesh({ fineFt, sub = 4, clr, lte = null, atlas, 
   const shade = new Float32Array(cells * perCell).fill(1);
   const indices = new Uint32Array(cells * sub * sub * 6);
   const h = (r, c) => fineFt[(r & mask) * side + (c & mask)];
-  // A Community Patch 4 Spline or Full Map track's 256 x 256 .LTE lights the fine grid as it does the coarse one's corners
+  // A Community Patch 4 Spline or Full Map track's fine grid takes the engine's own light for each fine point
+  // (`fineShade`, game/cp4-fine-shade.js: the 8 ft normal's sun light plus what the .LTE adds at the corners). Without
+  // it (a track format version 6 world) the 256 x 256 .LTE lights the fine grid as it does the coarse one's corners
   // (`buildTerrainMesh`): each fine point takes it between the four corners of its cell, bilinearly.
   const hasLte = !!lte && lte.length >= cells * LTE_BYTES_PER_POINT;
+  const ownShade = hasLte && fineShade?.length === side * side ? fineShade : null;
   const lit = (r, c) => lte[((r & MASK) * GRID + (c & MASK)) * LTE_BYTES_PER_POINT] / 255;
   const tile = new Float32Array(8);
   let ii = 0;
@@ -399,7 +402,8 @@ export function buildFineTerrainMesh({ fineFt, sub = 4, clr, lte = null, atlas, 
           const dx = (h(r, c + 1) - h(r, c - 1)) / (2 * step), dz = (h(r + 1, c) - h(r - 1, c)) / (2 * step);
           const len = Math.hypot(dx, 1, dz);
           normals[v * 3] = -dx / len; normals[v * 3 + 1] = 1 / len; normals[v * 3 + 2] = dz / len;
-          if (hasLte) {
+          if (ownShade) shade[v] = ownShade[(r & mask) * side + (c & mask)] / 255;
+          else if (hasLte) {
             shade[v] = (lit(row, col) * (1 - a) + lit(row, col + 1) * a) * (1 - b) + (lit(row + 1, col) * (1 - a) + lit(row + 1, col + 1) * a) * b;
           }
           for (let k = 0; k < 2; k++) {

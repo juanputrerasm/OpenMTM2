@@ -34,6 +34,7 @@ import * as THREE from "three";
 import { createEvoGrass, updateEvoGrass } from "./evo-grass.js";
 import { terrainOfBuild } from "../shared/build-terrain.js";
 import { DEFAULT_FRAME_SECONDS, keyframeWeights } from "../shared/keyframe-spline.js";
+import { cp4MipChain } from "../shared/cp4-mips.js";
 import { blockShift, chunkTriangles, indexedBounds } from "../shared/object-chunks.js";
 import { WORLD_FT, worldFtOf } from "../shared/scene-frame.js";
 import { bleedCutout } from "../game/cutouts.js";
@@ -81,6 +82,18 @@ export function dataTexture({ rgba, width, height }, look, repeat = false) {
   if (!nearest) texture.anisotropy = 8;
   if (repeat) texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   texture.needsUpdate = true;
+  return texture;
+}
+
+/** A model's picture as a texture: in the enhanced look a see-through one takes Community Patch 4's mipmaps (`cp4MipChain`). */
+function modelTexture(image, look) {
+  const texture = dataTexture(image, look, true);
+  const chain = look === "classic" ? null : cp4MipChain(image);
+  if (chain) {
+    texture.mipmaps = chain;
+    texture.generateMipmaps = false;
+    texture.userData.ownMips = true;
+  }
   return texture;
 }
 
@@ -495,6 +508,24 @@ ${blended ? "diffuseColor.a = clamp( opacity + ( 1.0 - opacity ) * cp3Fres, 0.0,
   });
 }
 
+/**
+ * Community Patch 4's foliage (CP4_EXE_ANALYSIS.md 15.12, as the beta 0.53 hotfix 4 renderer has it for a placed object
+ * and for an instanced tree or grass clump alike): a material with a translucency `t` (the record's top 16 bits, 0.5 =
+ * 32768) lights a face by `mix(I, max(I, I_back), t)`, I its own side's diffuse and I_back the flipped normal's, so a
+ * leaf lit from behind glows instead of going dark. With the ambient floor outside both, that is the sun's and the
+ * lamps' cosine taken as `mix(max(n.l, 0), |n.l|, t)`.
+ */
+const FOLIAGE_FROM = "float dotNL = saturate( dot( geometryNormal, directLight.direction ) );";
+function foliage(material, translucency) {
+  const t = translucency.toFixed(4);
+  return addShaderHook(material, `cp4-foliage:${t}`, 30, (shader) => {
+    const chunk = THREE.ShaderChunk.lights_phong_pars_fragment;
+    if (!chunk.includes(FOLIAGE_FROM)) return;
+    shader.fragmentShader = shader.fragmentShader.replace("#include <lights_phong_pars_fragment>",
+      chunk.replace(FOLIAGE_FROM, `float cp4Nl = dot( geometryNormal, directLight.direction );\n\tfloat dotNL = mix( saturate( cp4Nl ), abs( cp4Nl ), ${t} );`));
+  });
+}
+
 /*
   A model part's material. A legacy face takes Lambert shading, a cutout for face types 0x11 and 0x33, a blend where the
   record says so. A Community Patch 3 material (MRGL_MATERIAL) states its own: as JSTrackViewer maps it, LIT off draws
@@ -581,6 +612,9 @@ function modelMaterial(mesh, map, normalMap, aoMap = null, look = "enhanced") {
   }
   const strength = Math.max(0, record.fresnelStrength ?? 0);
   if (strength > 0 && look !== "classic") fresnel(material, { bias: clamp01(record.fresnelBias ?? 0), strength, blended });
+  // Foliage: a leaf or a blade of grass lit from behind (`foliage`).
+  const translucency = clamp01((record.translucency ?? 0) / 65536);
+  if (translucency > 0) foliage(material, translucency);
   return material;
 }
 
@@ -606,7 +640,7 @@ export function createModelLibrary(models, modelTextures, look, { cleanEdges = f
   const textureFor = (name) => {
     if (!textures.has(name)) {
       if (cutouts.has(name) && modelTextures[name]) bleedCutout(modelTextures[name]);
-      textures.set(name, modelTextures[name] ? dataTexture(modelTextures[name], look, true) : null);
+      textures.set(name, modelTextures[name] ? modelTexture(modelTextures[name], look) : null);
     }
     return textures.get(name);
   };

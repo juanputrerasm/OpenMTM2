@@ -2262,6 +2262,13 @@ engine's rules (CP4_EXE_ANALYSIS.md 2, 3, 4 and, for beta 0.53's waterfalls, 12)
   read) keeps its model at every distance: the engine's rule for that case is not traced. The
   distances the SPEC may carry (+0x88..+0x90) are not read by OpenPhotex, so the engine's
   defaults for a zero hold; `vegLodScale` is 100.
+- Cut-outs keep their cover at a distance: a see-through model picture takes Community Patch 4's mipmaps
+  (CP4_EXE_ANALYSIS.md 15.13: the alpha of each level the OR of the four texels under it), so grass
+  blades and leaves stay as full as the engine draws them instead of thinning away under the 0.5 cut.
+- Foliage: a leaf or grass material with a translucency (CP4_EXE_ANALYSIS.md 15.12) is lit from
+  behind too, as the engine draws it, so a tree's leaves and a clump's blades away from the sun are
+  not dark (render/track-scene.js `foliage`). Before hotfix 4's port they were, and the grass
+  sank into the ground's colour.
 - Shadows, where the sun casts them: a species' model with its "cast shadow" flag (1), its card
   with "far shadow" (2), as Traxx 1.7 writes them; the engine was not seen reading either.
   Flag 8 is read as the engine reads it, no far card; Traxx calls it "facing", and the port does
@@ -2344,9 +2351,13 @@ Beta 0.53's `WORLD\<stem>.WFL` (CP4_EXE_ANALYSIS.md 12, its 12.14 says what of i
 ### The Spline and Full Map terrain
 
 - A Spline or Full Map track's ground is drawn as its 8 ft grid (worker/terrain-mesh.js
-  `buildFineTerrainMesh`), lit by the level's .LTE as the classic grid is: each fine point takes
-  the light between its 32 ft cell's four corners. The engine builds two shading maps of its own
-  for these grids (CP4_EXE_ANALYSIS.md 1.5), which are not traced.
+  `buildFineTerrainMesh`), lit as the engine lights it (CP4_EXE_ANALYSIS.md 1.8,
+  `src/game/cp4-fine-shade.js`): each fine point takes the level's sun on its own 8 ft normal,
+  plus what the .LTE adds to the sun at the 32 ft corners around it (its shadows and shade),
+  bilinearly. So the light follows the spline's curves. Until hotfix 4's port each fine point took
+  the .LTE between its cell's corners, and the ground looked lit as the 32 ft grid. The engine's
+  fine shadow flags are not drawn, as the .LTE's are not on the classic grid; a track format
+  version 6 world keeps the .LTE between the corners.
 
 ## Cost
 
