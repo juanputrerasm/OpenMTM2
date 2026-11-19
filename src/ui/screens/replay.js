@@ -4,7 +4,7 @@
   VCR controls: play, pause, rewind, fast forward, slow, frame step, zoom, rotate, save and open.
   The camera is any of the ten views on any truck. Damage is replayed from the damage codes.
 */
-import { clearStandingView, meshGroundFromBuild, viewBlocked, viewGroundOn } from "../../game/mesh-ground.js";
+import { clearStandingView, meshCoverTest, meshGroundFromBuild, viewBlocked, viewGroundOn } from "../../game/mesh-ground.js";
 import { dustLevel, sparkLevel, treadShare, wheelShare } from "../../game/tire-effects.js";
 import { terrainOfBuild } from "../../shared/build-terrain.js";
 import * as THREE from "three";
@@ -25,12 +25,12 @@ import { createWaterEffects, createWaterSurface } from "../../render/water-effec
 import { lakeMeshes } from "../../render/lakes.js";
 import { waterLevelAt } from "../../game/lakes.js";
 import { createTireEffects } from "../../render/tire-effects.js";
-import { surfaceFamily } from "../../game/sound-model.js";
+import { coverFor, echoTaps, surfaceFamily } from "../../game/sound-model.js";
 import { standOnFt } from "../../game/ice.js";
 import { ON_GROUND_FT, replayContacts } from "../../game/replay-effects.js";
 import { formatRaceTime } from "../../game/race-setup.js";
 import { createTrackWorld, setNormalMapStrength, disposeObject, moveObjects, skyColor, skyOf, updateTrackWorld, placeSky } from "../../render/track-scene.js";
-import { createTruckObject } from "../../render/truck-object.js";
+import { createTruckObject, hullPointsOf } from "../../render/truck-object.js";
 import { nearestCopy, toSceneMatrix, worldFtOf, wrapFt } from "../../shared/scene-frame.js";
 import { createStartLamps } from "../../render/start-lamps.js";
 import { createTrackLights } from "../../render/track-lights.js";
@@ -55,7 +55,7 @@ import { createTruckAudio } from "../../audio/truck-audio.js";
 import { createWorldAudio } from "../../audio/world-audio.js";
 import { createReplaySound } from "../../game/replay-sound.js";
 import { createReplayGates } from "../../game/replay-gates.js";
-import { createBoxSolid, groundBoxGrids } from "../../game/ground-boxes.js";
+import { createBoxSolid, createCoverTest, groundBoxGrids } from "../../game/ground-boxes.js";
 import { screenSampled } from "../../game/aa.js";
 import { msg } from "../../game/strings.js";
 
@@ -165,8 +165,19 @@ export default async function mount(container, context, { replay, namesMode: sta
   const unwatchJukebox = context.jukebox?.subscribe(() => worldAudio.refreshMusic()) ?? (() => {});
   // Every truck is heard from where it is, the watched one too: the camera, not truck 0, is the ear (a free camera
   // flies away from them all).
+  // The echo under cover, as in the race (game/sound-model.js `echoTaps`): from the ground boxes and, on a track of
+  // models, a drivable model over where each truck is; under water as the camera is.
+  const boxCover = createCoverTest(groundBoxGrids(build.sim, build.worldCells ?? 256));
+  // Made the first time it is asked (the view's mesh is built further on).
+  let meshCover;
+  const meshAbove = (x, y, z) => !!(meshCover ??= viewMesh ? meshCoverTest(viewMesh, ground) : null) && meshCover(x, y, z);
+  let earUnder = false;
   const truckAudio = createTruckAudio(audio, {
     count: replay.vehicles.length, player: -1, kookyHorn: !!context.settings.kookyHorn, mtm1Sounds: !!context.settings.mtm1Sounds, settings: () => context.settings,
+    echoAt: (i, pos) => {
+      const level = (replay.weather ?? 0) === 5 ? null : waterLevelAt(build.lakes, pos[0], pos[2], build.waterLevelFt ?? null);
+      return echoTaps({ pos, covered: coverFor(pos, { boxes: boxCover, meshAbove }), sourceUnder: level !== null && pos[1] < level, listenerUnder: earUnder });
+    },
   });
   const replaySound = createReplaySound(drawn.map((d) => d?.tireRadius ?? 2.75));
   // The checkpoint and lap sounds, found from the film (game/replay-gates.js); a Summit Rumble has none.
@@ -241,7 +252,7 @@ export default async function mount(container, context, { replay, namesMode: sta
   // Every copy of the world has its own water plane (render/track-scene.js): they bob and are surfaced together.
   const waters = [];
   world.traverse((object) => { if (object.name === "water") waters.push(object); });
-  const waterFx = createWaterEffects({ worldFt, scene, art: effectsArt, levelFt: build.waterLevelFt ?? null, ground, legacyIce: !scenery.water, blobs: !scenery.particles, rings: !scenery.particles && !scenery.water });
+  const waterFx = createWaterEffects({ worldFt, scene, art: effectsArt, levelFt: build.waterLevelFt ?? null, ground, legacyIce: !scenery.water, blobs: !scenery.particles, rings: !scenery.particles && !scenery.water, lakes: build.lakes ?? null });
   cleanups.push(() => waterFx.dispose());
   /*
     Dust, tracks, spray and sparks, as in the race (render/tire-effects.js). A replay records where each truck was and
@@ -607,7 +618,7 @@ export default async function mount(container, context, { replay, namesMode: sta
     }
     const flags = effectFlags(), weatherNow = replay.weather ?? 0;
     if (tireFx) {
-      tireFx.setWater(waters[0] ? waters[0].userData.levelFt + waters[0].position.y : null);
+      tireFx.setWater(waters[0] ? waters[0].userData.levelFt + waters[0].position.y : null, build.lakes);
       tireFx.update({
         dt: filmDt, listener: [camera.position.x, camera.position.y, -camera.position.z], flags, noDust: weatherNow === 4 || weatherNow === 5,
         light: scenery.lightRig ? Math.min(1, weatherScene.lightLevel() * 1.15) : 1,
@@ -655,6 +666,7 @@ export default async function mount(container, context, { replay, namesMode: sta
     // Over a Community Patch 4 lake the eye's water is the lake's (game/lakes.js); elsewhere the track's, bob and all.
     const eyeWater = waterLevelAt(build.lakes, camera.position.x, -camera.position.z, water ? water.userData.levelFt + water.position.y : null);
     const under = isUnderwater(camera.position.y, eyeWater, weatherScene.weather);
+    earUnder = under;
     weatherScene.setUnderwater(under);
     // How far under the eye is, for the lens: it comes on over the first half foot (docs/VISUALS.md, "Under water").
     scenery.underwater(under && eyeWater !== null ? (eyeWater - camera.position.y) / 0.5 : 0, {
@@ -663,12 +675,12 @@ export default async function mount(container, context, { replay, namesMode: sta
     trackLights?.update(camera, !!WEATHER_LOOK[weatherScene.weather]?.headlights);
     startLamps?.update(camera, { daylight: WEATHER_LOOK[weatherScene.weather]?.light ?? 1 });
     weatherScene.update(dt, state.trucks.filter(Boolean).map((p) => ({ x: p.pos[0], y: p.pos[1], z: p.pos[2], heading: p.euler[2], lit: headlights })),
-      { floorFt: water ? water.userData.levelFt + bob : null, viewHeight: canvas.height });
+      { floorFt: eyeWater, viewHeight: canvas.height });
     const sky = skyOf(world);
     if (sky) { placeSky(sky, camera); sky.visible = weatherScene.skyShown; }
     // After the sky is placed: the port's water shows it.
     // The wheels stir the water and the puddles (render/water-ripples.js), as the film runs.
-    scenery.stir(state.trucks.map((pose, i) => (pose && drawn[i] ? { hubs: pose.tires.map((_, k) => drawn[i].tireHub(k)), radiusFt: drawn[i].tireRadius } : null)), filmDt);
+    scenery.stir(state.trucks.map((pose, i) => (pose && drawn[i] ? { hubs: pose.tires.map((_, k) => drawn[i].tireHub(k)), radiusFt: drawn[i].tireRadius, hull: hullPointsOf(drawn[i]) } : null)), filmDt);
     waterSurface?.update(dt, weatherScene.weather, { sun, light: weatherScene.lightLevel(), sky, fog: scene.fog, background, levelFt: water ? water.userData.levelFt + water.position.y : null });
     lakeSurface?.update(dt, weatherScene.weather);
     updateTrackWorld(world, camera, dt);

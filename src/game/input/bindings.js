@@ -41,9 +41,8 @@ export const ACTIONS = Object.freeze([
   { id: "headlights", label: msg("Headlights") },
   { id: "crashDamage", label: msg("Crash Damage") },
   { id: "pause", label: msg("Pause") },
-  // The game's Chat key: in a network race, opens the box to type a line (ui/race-chat.js); Team chat opens it on the team.
+  // The game's Chat key: in a network race, opens the box to type a line (ui/race-chat.js), where Tab turns it to the team.
   { id: "chat", label: msg("Chat") },
-  { id: "teamChat", label: msg("Team chat") },
   // Not one of the game's: in a headset, makes where the head is the driving position (docs/VR.md).
   { id: "recenter", label: msg("Recentre VR view") },
 ]);
@@ -63,7 +62,7 @@ export const DEFAULT_BINDINGS = Object.freeze({
   horn: Object.freeze(["Space"]),
   yeehaw: Object.freeze(["KeyY"]),
   camera: Object.freeze(["KeyV"]),
-  // The game's own K. Team chat shares it: in a network race K opens the team's chat box instead.
+  // The game's own K.
   nextTruck: Object.freeze(["KeyK"]),
   dashboard: Object.freeze(["KeyG"]),
   hud: Object.freeze(["KeyO"]),
@@ -87,7 +86,6 @@ export const DEFAULT_BINDINGS = Object.freeze({
   crashDamage: Object.freeze(["KeyX"]),
   pause: Object.freeze(["Escape", "KeyP"]),
   chat: Object.freeze(["Enter", "NumpadEnter"]),
-  teamChat: Object.freeze(["KeyK"]),
   recenter: Object.freeze(["KeyC"]),
 });
 

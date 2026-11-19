@@ -1741,6 +1741,35 @@ stereo separation, `UseRedBook` and `UseModMusic`.
   mixer's master level to 0.75 (`0x6078e0`) and back to 1. A one-shot from the world (a collision, an object's hit, `0x429cb0`, `0x428bc0`) is played at a volume by where
   it is and where the listener is: source in the air and listener in the air 1, source under water only 1 (and 0.9 of
   its pitch), listener under water only 0.2, both under water 1.2 (and 0.65 of its pitch, from the listener).
+- **Echo under cover** (`0x41cd50`; the mixer's taps in `0x4625d0`). A sound handle carries up to four echo taps, each a
+  delay in seconds and a gain (`0x464e50` copies an 8-float record into the handle at `+0x88`, with a pointer to it at
+  `+0x84`; `0x464d40` clears it). While mixing, each tap whose delay is at most 3 s (`0x60d884`) and whose gain is above
+  0 mixes the same sound again from that many seconds back, its left, right and mixed gains each times the tap's gain,
+  held to 1. `0x41cd50` makes the record from where the sound comes from (`pos`):
+  - **Under water**: when the source is under the water (`0x41d070`: not in Snow, `pos.y x 256` below the level) and
+    the camera is too (`0x6719a0`), one tap, 0.4 s at 0.4. A source under water heard from above it, or one above the
+    water heard from under it, has none.
+  - **Under cover** (neither under water): nine points about the source at its height, x and z each -10, 0 and +10 ft
+    (`0x6079ac`), a 3 x 3 grid (the ninth made as the source plus (10, 0, 10) by `0x41ec50`). A point is covered (`0x41d0c0`, `0x502510`) when it is below its 32 ft cell's lower ground-box layer: the cell is
+    `((z x 256) & 0x1fe000) >> 13` by `((x x 256) & 0x1fe000) >> 13`, the layer the `.RA0` byte shifted left 7
+    (`0x4f78d0` loads `.RA0` into the table at `0x7f09d8`, 1/64 ft units, so 2 ft a step), and the test
+    `trunc(y x 256) / 4 < ra0 << 7`. The record does not look at `.RA1`: a cell with no box has both layers equal,
+    normally 0, which nothing is under. The middle point counts twice, so `n` runs to 10. With `n` above 0 there are two
+    taps: 0.1 s at `n x 0.1 x 1.1` (`0x6079b8`, `0x6079c8`) and 0.225 s at `n x 0.1 x 0.7` (`0x6079d8`): under a
+    roof all round, gains 1.1 (held to 1 by the mixer) and 0.7.
+  - **Which sounds**: each truck keeps one record, made again every frame from the truck's position (`0x41bbd0` calls
+    `0x41cd50` first), and its sounds point at it (`0x464d40` stores the record's address in the handle at `+0x84`,
+    copying nothing): the engine loops (`0x41e030`), the corner, wheelspin and brake skid loops (`0x41db00`, `0x41d2b0`,
+    `0x41d6d0`), the bridge loop (`0x41ec90`), `splash1`, `Wtr-abv1` and the gear changes. So a truck's sounds take up
+    and lose the echo as it drives under cover and out. A crash between two trucks (`0x429cb0`) and an object struck
+    (`0x428bc0`) get a copy made where they happen (`0x464e50`). The level's own sounds, the rain and the announcer
+    have none.
+  The port (`game/sound-model.js` `echoTaps`, `game/ground-boxes.js` `createCoverTest`, each voice's taps in
+  `audio/audio-engine.js`) does the same, in races and replays. On a track format version 6 track's 16-bit layers a
+  cell is covered only where it has a box (its two layers differ). OpenMTM2's addition for tracks built of models (a
+  Community Patch 4 mesh: a converted city's road over a road or a hall's roof, which the game never meets): where the
+  source itself has a model's face (either side) or the terrain 3 to 40 ft over it, each point with one counts as
+  covered too (`coverFor`, `game/mesh-ground.js` `meshCoverTest`).
 - **Rain** (`0x57581b`, each frame, weather 4): `rain4.wav` loops at volume 0.25 with its pitch jittered by up to
   1.5% each frame (`1 + (rand / 16384 - 1) * 0.015`), at 0.6 of that pitch with the camera under water. **Rain on
   the roof**: `rainrf8.wav` loops at volume 0.7 with the same jitter while it rains, the camera is not under water,

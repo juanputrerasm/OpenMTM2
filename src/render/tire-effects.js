@@ -19,6 +19,7 @@ import {
   SPARK_BURST_GAP_S, TIRE_SPARK_SHARE, manySparksForHit, sparkRules, CLASSIC_DUST, RICH_DUST, GREY_DUST_TONE, SPARK_HIT_SPEED, SPARK_MIN_SPEED, CLASSIC_SPARK_MIN_SPEED, TRACK_LIFE_S, TRACK_FADE_S, dustPuffs, dustShare, slidingDust, PACK_FT, packDust, greyDustOn, keepsTread, puffFrame, puffLife, puffSize, puffsForHit, raisesDust, scrapeSparks, sparksForHit,
 } from "../game/tire-effects.js";
 import { iceHullContacts, standOnFt } from "../game/ice.js";
+import { waterLevelAt } from "../game/lakes.js";
 import {
   DUST, DUST_BY_TYPE, DUST_WEATHER, LANDING_AIR_S, LITE_SHARE, PUFF_KINDS, ROOSTER, RUT, SPRAY, STREAK_KINDS, TRACK_FADE_FT, TRACK_FADE_LITE_FT, TRACK_KINDS,
   BUBBLES, MIST, SPARKS, SPARK_LIGHT, SUBMERGED_FT, dustColour, footing, groundDust, landingThrows, mistSpacingFt, muddyWater, puddleRut, roosterDrops, roosterVelocity, roosterWading, sparkShower, sparkVelocity,
@@ -158,12 +159,17 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
   const shower = { flash: 0, at: [0, 0, 0], near: Infinity };
   /** The weather, how much of the snow is down (0 to 1), and where the eye is. */
   let weatherNow = 0, snowNow = 0, listenerAt = [0, 0, 0];
-  /** The water's level now in game feet, or null on a track without water. */
-  let waterLevel = null;
-  /** Whether ground at height `floor` lies under the ice: in Snow the level's water is solid (game/ice.js `standOnFt`). */
-  const iced = (floor) => standOnFt(floor, weatherNow, waterLevel) > floor;
-  /** What something at game (x, y, z) stands on: in Snow the ice over the level's water, else what is under it. */
-  const standOn = (x, z, y) => standOnFt(floorUnder(x, z, y), weatherNow, waterLevel);
+  /** The track's water's level now in game feet (the bob included), or null on a track without water; and its lakes. */
+  let waterLevel = null, lakes = null;
+  /**
+   * The water's level at game (x, z), feet, or null for none: a Community Patch 4 lake's surface on its tiles, else the
+   * track's water (game/lakes.js `waterLevelAt`). A lake is water as the track's is: splashes, spray, ice in Snow.
+   */
+  const waterAt = (x, z) => (lakes ? waterLevelAt(lakes, x, z, waterLevel) : waterLevel);
+  /** Whether ground at height `floor` at (x, z) lies under the ice: in Snow the water is solid (game/ice.js `standOnFt`). */
+  const iced = (floor, x, z) => standOnFt(floor, weatherNow, waterAt(x, z)) > floor;
+  /** What something at game (x, y, z) stands on: in Snow the ice over the water, else what is under it. */
+  const standOn = (x, z, y) => standOnFt(floorUnder(x, z, y), weatherNow, waterAt(x, z));
   // A rut is laid on what the tire stands on: on the ice, not on the bed under it, and with no snow of the bed's.
   /** The drivable mesh under game (x, y, z), feet, or null: with no height to look from, none. */
   const meshUnder = (x, z, y) => (mesh && Number.isFinite(y) ? mesh(x, z, y) : null);
@@ -172,9 +178,9 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
   const bare = (x, z, y) => meshUnder(x, z, y) ?? bareGround(x, z, y);
   const ruts = rich ? createTireTracks({
     scene, art, look: rich.look, pools: rich.pools ?? null, snowLine: rich.snowLine ?? null, renderer: rich.renderer ?? null, groundTone: rich.groundTone ?? null,
-    ground: (x, z, y) => standOnFt(bare(x, z, y), weatherNow, waterLevel),
-    snowDepth: (x, z, y) => (iced(bare(x, z, y)) || meshUnder(x, z, y) !== null ? 0 : rich.snowDepth?.(x, z, y) ?? 0),
-    onIce: (x, z, y) => iced(bare(x, z, y)),
+    ground: (x, z, y) => standOnFt(bare(x, z, y), weatherNow, waterAt(x, z)),
+    snowDepth: (x, z, y) => (iced(bare(x, z, y), x, z) || meshUnder(x, z, y) !== null ? 0 : rich.snowDepth?.(x, z, y) ?? 0),
+    onIce: (x, z, y) => iced(bare(x, z, y), x, z),
   }) : null;
   /** The trucks as last given to `update`, and what each stood on: a contact reported between frames asks where the bodies are. */
   let lastTrucks = [];
@@ -365,7 +371,8 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       return;
     }
     // No sparks under water.
-    if (waterLevel !== null && y < waterLevel) return;
+    const sparkWater = waterAt(x, z);
+    if (sparkWater !== null && y < sparkWater) return;
     const s = sparks.find((p) => p.life <= 0);
     if (!s) return;
     const a = random() * Math.PI * 2, v = speed * (0.4 + random() * 0.8);
@@ -392,7 +399,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
   function splash(x, z, forward, speed, count, big = 1) {
     for (let n = 0; n < count; n++) {
       const a = random() * Math.PI * 2, side = (1.5 + random() * (2 + speed * 0.12)) * big;
-      drop(x, waterLevel, z,
+      drop(x, waterAt(x, z), z,
         forward[0] * speed * 0.35 + Math.cos(a) * side, (4 + random() * (4 + speed * 0.28)) * big, forward[1] * speed * 0.35 + Math.sin(a) * side);
     }
   }
@@ -406,6 +413,8 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
     // Where each tire was on the last tick, and the share of a puff of dust it owes the ground it has rolled since; the
     // same for the mist off a wet tread.
     dustAt: [null, null, null, null], dustOwed: [0, 0, 0, 0], mistAt: [null, null, null, null], mistOwed: [0, 0, 0, 0],
+    // For "Rich particles": which wheels are afloat in water, off the ground (`floatWheel`).
+    afloat: [false, false, false, false],
     // For "Rich particles": the last hollow its body left in the snow while it is in it, and its lids (`pressBody`).
     scour: null, scourChain: {},
     // For "Rich particles": how far each point of its hull was over the ice a frame ago, and the band its body is
@@ -414,16 +423,16 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
   }));
 
   /** What tire at `hub`, of `radius` feet, stands on (game/particles.js `footing`), on ground of `family` and `type`. */
-  const stoodOn = (hub, radius, family, type) => footing({
+  const stoodOn = (hub, radius, family, type, level = waterAt(hub[0], hub[2])) => footing({
     family, type, weather: weatherNow, snowFt: rich.snowLying?.(hub[0], hub[2], hub[1]) ?? 0,
-    inWater: waterLevel !== null && floorUnder(hub[0], hub[2], hub[1]) < waterLevel && hub[1] - waterLevel < 5,
-    submerged: waterLevel !== null && hub[1] + radius < waterLevel - SUBMERGED_FT,
+    inWater: level !== null && floorUnder(hub[0], hub[2], hub[1]) < level && hub[1] - level < 5,
+    submerged: level !== null && hub[1] + radius < level - SUBMERGED_FT,
     puddleFt: rich.puddleAt?.(hub[0], hub[2]) ?? 0,
   });
   /** The height of what a wheel that stands on `stood` stands on: the water's level over the level's water (or its ice), else the ground. */
   const floorAt = (hub, stood) => {
-    const floor = floorUnder(hub[0], hub[2], hub[1]);
-    return (stood === "water" || stood === "ice") && waterLevel !== null && floor < waterLevel ? waterLevel : floor;
+    const floor = floorUnder(hub[0], hub[2], hub[1]), level = waterAt(hub[0], hub[2]);
+    return (stood === "water" || stood === "ice") && level !== null && floor < level ? level : floor;
   };
   /** Whether Options, Effects lets a puff or streak of `kind` be thrown: mist and drops are the water's, the rest the dust's. */
   const lets = (flags, kind) => (kind === "mist" || kind === "drop" ? flags.splash : flags.dust);
@@ -586,7 +595,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
     if (!thrown) return;
     const floor = floorAt(hub, stood);
     // Only the level's frozen water stars: ground that is ice has no sheet to crack.
-    if (stood === "ice" && floor === waterLevel) rich.strikeIce?.(hub[0], hub[2], fall);
+    if (stood === "ice" && floor === waterAt(hub[0], hub[2])) rich.strikeIce?.(hub[0], hub[2], fall);
     // Dust only as thick as the ground there gives it, and none off ground that gives none.
     const thick = thrown.puff === "dust" ? dustOff(hub[0], hub[2], type, hub[1]) : 1;
     for (let n = 0; n < thrown.puffs && lets(flags, thrown.puff) && thick >= DUST.least; n++) {
@@ -634,11 +643,19 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       if (state.hubY[k] !== null && dt > 0 && !onGround[k]) state.fall[k] = Math.max(0, (state.hubY[k] - hub[1]) / dt);
       if (dt > 0) state.hubY[k] = hub[1];
       if (!onGround[k]) {
-        state.air[k] += dt;
-        state.dustAt[k] = state.mistAt[k] = null;
+        state.dustAt[k] = null;
         ruts.lift(state.ruts[k]);
+        // Afloat: a wheel off the ground with its tread in the water's surface (in it, not wholly under it) throws
+        // the water as one wading does, from the surface (an OpenMTM2 addition: the game's wheels throw only on the ground).
+        if (floatWheel(state, t, k, hub, vel, forward, speed, flags, tick, lite, far)) { state.air[k] = 0; return; }
+        state.afloat[k] = false;
+        // Out of the water and the ground both: what it last stood on no longer says where it is.
+        if (state.air[k] > LANDING_AIR_S) state.stood[k] = null;
+        state.air[k] += dt;
+        state.mistAt[k] = null;
         return;
       }
+      state.afloat[k] = false;
       const landed = state.air[k] > LANDING_AIR_S, was = state.stood[k];
       state.air[k] = 0;
       // What it stands on is looked at on a tick and when it lands, not every frame.
@@ -681,14 +698,14 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       if (thrown.puff && lets(flags, thrown.puff) && random() < puffed * wheels) throwPuff(thrown.puff, hub, floor, vel, out, family, type);
       // Standing water is thrown aside in sheets.
       if ((stood === "puddle" || stood === "water") && flags.splash) {
-        const puddle = stood === "puddle", bed = floorUnder(hub[0], hub[2], hub[1]);
-        const depth = puddle ? rich.puddleAt?.(hub[0], hub[2]) ?? 0 : waterLevel !== null ? waterLevel - bed : 0;
+        const puddle = stood === "puddle", bed = floorUnder(hub[0], hub[2], hub[1]), level = waterAt(hub[0], hub[2]);
+        const depth = puddle ? rich.puddleAt?.(hub[0], hub[2]) ?? 0 : level !== null ? level - bed : 0;
         throwSpray(hub, puddle ? bed + depth : floor, depth, vel, forward, speed, t.radius ?? 2.75, puddle, few);
         // Wading in the level's water, the tread paddles it up into a rooster tail behind the wheel. The tread runs as
         // fast as the simulation turns the wheel, as fast as the truck goes where it says nothing (a replay).
-        if (!puddle && waterLevel !== null) {
+        if (!puddle && level !== null) {
           const radius = t.radius ?? 2.75, tread = Math.max(speed, Math.abs(t.tires?.[k]?.spin ?? 0) * (t.tires?.[k]?.rolls ?? radius));
-          throwRooster(hub, waterLevel, roosterWading(waterLevel - (hub[1] - radius), radius), tread, vel, forward, radius, few);
+          throwRooster(hub, level, roosterWading(level - (hub[1] - radius), radius), tread, vel, forward, radius, few);
         }
       }
       if (thrown.streak === "bubble") { if (thrown.streaks && lets(flags, "bubble")) throwBubbles(thrown.streaks, hub, floor, vel, forward, t.radius ?? 2.75); }
@@ -709,6 +726,32 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
         for (let n = 0; n < flung.streaks && lets(flags, flung.streak); n++) throwStreak(flung.streak, hub, floor, back, speed + fast, family, type);
       }
     });
+  }
+
+  /**
+   * Wheel `k` of truck `t` afloat in water: whether its tread is in the surface (the wheel's bottom under it, its top
+   * within SUBMERGED_FT of it or over it, over a bed below it, not in Snow), and if so what it throws: on meeting the
+   * water at speed a burst, then on each tick mist, sheets thrown aside and a rooster tail paddled up as fast as the
+   * simulation turns the wheel (a floating truck's wheels spin). Rich particles only.
+   */
+  function floatWheel(state, t, k, hub, vel, forward, speed, flags, tick, lite, far) {
+    const radius = t.radius ?? 2.75, level = waterAt(hub[0], hub[2]);
+    if (!flags.splash || t.pose.heli || weatherNow === 5 || level === null) return false;
+    const bed = floorUnder(hub[0], hub[2], hub[1]);
+    if (!(bed < level && hub[1] - radius < level && hub[1] + radius >= level - SUBMERGED_FT)) return false;
+    const family = t.surface?.family ?? "cement", type = t.surface?.type ?? 0;
+    // Not a wheel that was wading on the bed and has only lifted off it.
+    if (!state.afloat[k] && state.stood[k] !== "water" && speed > 12) land(hub, "water", 8 + speed * 0.5, vel, flags, family, type);
+    state.afloat[k] = true;
+    state.stood[k] = "water";
+    if (!tick) return true;
+    const few = lite ? LITE_SHARE : 1;
+    layMist(state, k, hub, level, vel, forward, speed, "water", radius, few, far);
+    state.mistAt[k] = [hub[0], hub[2]];
+    throwSpray(hub, level, level - bed, vel, forward, speed, radius, false, few);
+    const tread = Math.max(speed, Math.abs(t.tires?.[k]?.spin ?? 0) * (t.tires?.[k]?.rolls ?? radius));
+    throwRooster(hub, level, roosterWading(level - (hub[1] - radius), radius), tread, vel, forward, radius, few);
+    return true;
   }
 
   /**
@@ -738,7 +781,9 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
    * goes. From the simulation's hull points where the drawn truck is, so a replay's trucks mark the ice as the race's did.
    */
   function hullOnIce(state, t, dt) {
-    if (weatherNow !== 5 || waterLevel === null || !t.object?.hullPoint || !rich.strikeIce) {
+    // The water under the truck: the track's, or the lake it is on.
+    const level = t.pose?.pos ? waterAt(t.pose.pos[0], t.pose.pos[2]) : waterLevel;
+    if (weatherNow !== 5 || level === null || !t.object?.hullPoint || !rich.strikeIce) {
       state.iceHull.clear();
       if (state.iceDrag.last) rich.dragIce?.(state.iceDrag, []);
       return;
@@ -746,7 +791,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
     if (!(dt > 0)) return;
     const hull = [];
     for (let zone = 1; zone <= 12; zone++) hull.push(t.object.hullPoint(zone));
-    const { blows, down } = iceHullContacts({ hull, levelFt: waterLevel, overIce: (x, z, y) => iced(floorUnder(x, z, y)), last: state.iceHull, dt });
+    const { blows, down } = iceHullContacts({ hull, levelFt: level, overIce: (x, z, y) => iced(floorUnder(x, z, y), x, z), last: state.iceHull, dt });
     for (const blow of blows) rich.strikeIce(blow.x, blow.z, blow.speedFtPerS);
     rich.dragIce?.(state.iceDrag, down);
   }
@@ -818,7 +863,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
           sparkLight.position.set(shower.at[0], shower.at[1], -shower.at[2]);
           sparkLight.intensity = SPARK_LIGHT.strength * shower.flash * (0.7 + 0.6 * random());
         }
-        if (camera) particles.update(dt, { camera, light: lights ?? {}, waterFt: waterLevel, frozen: weather === 5, viewHeight });
+        if (camera) particles.update(dt, { camera, light: lights ?? {}, waterFt: lakes ? waterAt : waterLevel, frozen: weather === 5, viewHeight });
         return;
       }
       if (light !== puffLight) {
@@ -842,7 +887,10 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
         // Water drops: a wheel in water throws them (every tick, more with speed); a wheel meeting the water at speed throws a burst.
         const speed = Math.hypot(t.pose.speed ?? 0), yaw = t.pose.euler?.[2] ?? 0, forward = [Math.sin(yaw), Math.cos(yaw)];
         // Not a wheel wholly under the water, which throws nothing out of it.
-        const wetNow = hubs.map((hub) => waterLevel !== null && floorUnder(hub[0], hub[2], hub[1]) < waterLevel && hub[1] - waterLevel < 5 && hub[1] + (t.radius ?? 2.75) >= waterLevel - SUBMERGED_FT);
+        const wetNow = hubs.map((hub) => {
+          const level = waterAt(hub[0], hub[2]);
+          return level !== null && floorUnder(hub[0], hub[2], hub[1]) < level && hub[1] - level < 5 && hub[1] + (t.radius ?? 2.75) >= level - SUBMERGED_FT;
+        });
         state.waterTimer += dt;
         const waterTick = state.waterTimer >= DUST_TICK_S;
         if (waterTick) state.waterTimer %= DUST_TICK_S;
@@ -924,7 +972,7 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
           d.life -= dt;
           d.vy -= GRAVITY * dt;
           d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
-          if (d.y < (waterLevel ?? -1e9) || d.y < floorUnder(d.x, d.z, d.y)) d.life = 0;
+          if (d.y < (waterAt(d.x, d.z) ?? -1e9) || d.y < floorUnder(d.x, d.z, d.y)) d.life = 0;
           wet = true;
         }
         const o = n * 3, live = d.life > 0;
@@ -939,7 +987,8 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
           s.life -= dt;
           s.vy -= GRAVITY * dt;
           s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
-          if (waterLevel !== null && s.y < waterLevel) s.life = 0;
+          const sparkWater = waterAt(s.x, s.z);
+          if (sparkWater !== null && s.y < sparkWater) s.life = 0;
           const floor = floorUnder(s.x, s.z, s.y);
           if (s.y < floor) { s.y = floor; s.vy = Math.abs(s.vy) * 0.3; s.vx *= 0.6; s.vz *= 0.6; }
           any = true;
@@ -965,9 +1014,10 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       if (!where || !per[i]) return;
       const state = per[i];
       const bed = floorUnder(where[0], where[2], where[1]);
-      const underWater = !!rich && waterLevel !== null && weatherNow !== 5 && bed < waterLevel && where[1] < waterLevel;
+      const level = waterAt(where[0], where[2]);
+      const underWater = !!rich && level !== null && weatherNow !== 5 && bed < level && where[1] < level;
       // What it struck: the ground, or the ice over the water, when the point is down on it; else a thing.
-      const onIce = !!rich && iced(bed), floor = onIce ? waterLevel : bed;
+      const onIce = !!rich && iced(bed, where[0], where[2]), floor = onIce ? level : bed;
       const onGround = where[1] - floor < 1.2;
       // A vehicle on smaller wheels than a stock truck's throws that much less (game/tire-effects.js `wheelShare`).
       const rule = sparkRules(sparkLevelOf(flags)), amount = { ...rule, share: rule.share * (lastTrucks[i]?.wheels ?? 1) };
@@ -1020,8 +1070,11 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
       if (state.contact < SMOKE_AFTER_S) return;
       if (state.smokeTimer >= SMOKE_EVERY_S) { state.smokeTimer %= SMOKE_EVERY_S; smoke(where[1] - 0.5); }
     },
-    /** The water's level now in game feet (the bob included), or null on a track without water. */
-    setWater(level) { waterLevel = level ?? null; },
+    /**
+     * The track's water's level now in game feet (the bob included), or null on a track without water; and the build's
+     * Community Patch 4 lakes (`build.lakes`), each its own level, or none.
+     */
+    setWater(level, lakeMap = null) { waterLevel = level ?? null; lakes = lakeMap?.tileMap ? lakeMap : null; },
     /**
      * Truck `i` met another truck this frame: sparks while they scrape at speed, a burst and dust on a hard hit. `where`
      * is the simulation's place for the meeting, which is half way between the two trucks' middles: with "Rich
@@ -1052,7 +1105,8 @@ export function createTireEffects({ scene, art, ground, count, random = Math.ran
           slide = Math.hypot(state.vel[0] - theirVel[0], state.vel[1] - theirVel[1], state.vel[2] - theirVel[2]);
         }
       }
-      const underWater = !!rich && waterLevel !== null && weatherNow !== 5 && floorUnder(at[0], at[2], at[1]) < waterLevel && at[1] < waterLevel;
+      const atLevel = waterAt(at[0], at[2]);
+      const underWater = !!rich && atLevel !== null && weatherNow !== 5 && floorUnder(at[0], at[2], at[1]) < atLevel && at[1] < atLevel;
       // A vehicle on smaller wheels than a stock truck's throws that much less (game/tire-effects.js `wheelShare`).
       const rule = sparkRules(sparkLevelOf(flags)), amount = { ...rule, share: rule.share * (lastTrucks[i]?.wheels ?? 1) };
       if (amount.share > 0) {

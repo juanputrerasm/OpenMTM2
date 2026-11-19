@@ -326,6 +326,42 @@ export function underwaterMix(sourceUnder, listenerUnder) {
   return { gain, rate };
 }
 
+/**
+ * The echo a sound gets from where it comes from (MONSTER_EXE_ANALYSIS.md 12, "Echo under cover"; `0x41cd50`): a list
+ * of taps `{ delayS, gain }`, each the same sound again that many seconds later at that share of its level (the mixer
+ * holds the result to 1). A source under water heard from under water: one tap, 0.4 s at 0.4. Neither under water: of
+ * the nine points 10 ft apart about the source at its height (`covered(x, y, z)`), the middle counting twice, `n`
+ * covered gives 0.1 s at `n x 0.11` and 0.225 s at `n x 0.07`. Otherwise none.
+ */
+export function echoTaps({ pos, covered = null, sourceUnder = false, listenerUnder = false }) {
+  if (sourceUnder) return listenerUnder ? ECHO_UNDER_WATER : NO_ECHO;
+  if (listenerUnder || !covered || !pos) return NO_ECHO;
+  let n = 0;
+  for (const dz of [-ECHO_POINT_FT, 0, ECHO_POINT_FT]) {
+    for (const dx of [-ECHO_POINT_FT, 0, ECHO_POINT_FT]) if (covered(pos[0] + dx, pos[1], pos[2] + dz)) n += dx === 0 && dz === 0 ? 2 : 1;
+  }
+  return n ? [{ delayS: ECHO_DELAYS_S[0], gain: n * 0.1 * 1.1 }, { delayS: ECHO_DELAYS_S[1], gain: n * 0.1 * 0.7 }] : NO_ECHO;
+}
+/**
+ * What counts as cover for a sound at `pos` (`echoTaps`' `covered`), or null for none: the game's ground boxes
+ * (`boxes`, game/ground-boxes.js `createCoverTest`), and OpenMTM2's addition for tracks built of models (a Community
+ * Patch 4 mesh: a converted city's road over a road, a hall's roof, which the game never meets): `meshAbove(x, y, z)`,
+ * a model's face or the terrain over the point (game/mesh-ground.js `meshCoverTest`). A mesh counts only where the source itself is under one, so a truck beside a
+ * building low enough to have its roof in reach does not take an echo off it.
+ */
+export function coverFor(pos, { boxes = null, meshAbove = null } = {}) {
+  const underMesh = !!meshAbove && !!pos && meshAbove(pos[0], pos[1], pos[2]);
+  if (!boxes && !underMesh) return null;
+  return (x, y, z) => (!!boxes && boxes(x, y, z)) || (underMesh && meshAbove(x, y, z));
+}
+
+/** The echo's points about the source, feet (`0x6079ac`), and its two taps' delays, seconds. */
+export const ECHO_POINT_FT = 10, ECHO_DELAYS_S = Object.freeze([0.1, 0.225]);
+/** No echo, and the one under water. */
+export const NO_ECHO = Object.freeze([]), ECHO_UNDER_WATER = Object.freeze([Object.freeze({ delayS: 0.4, gain: 0.4 })]);
+/** The longest delay the mixer takes from a tap (`0x60d884`), seconds. */
+export const ECHO_MAX_DELAY_S = 3;
+
 /** Rain's pitch jitter each frame (`0x57581b`): up to 1.5% either way, `random()` in [0, 1). */
 export const rainJitter = (random = Math.random) => 1 + (random() * 2 - 1) * 0.015;
 /** Rain heard from under water: 0.6 of its pitch. */

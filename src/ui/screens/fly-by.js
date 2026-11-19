@@ -409,7 +409,8 @@ export default async function mount(container, context, params) {
       const bob = waterOffsetFt(waterClock, weatherScene.weather);
       for (const plane of waters) plane.position.y = bob;
       waterLevelNow = water ? water.userData.levelFt + bob : null;
-      weatherScene.update(dt, [], { floorFt: waterLevelNow, viewHeight: canvas.height });
+      // The rain and the fog stop at the water under the eye: a Community Patch 4 lake's there, else the track's.
+      weatherScene.update(dt, [], { floorFt: waterLevelAt(build.lakes, camera.position.x, -camera.position.z, waterLevelNow), viewHeight: canvas.height });
     }
     // Over a Community Patch 4 lake the eye's water is the lake's (game/lakes.js); elsewhere the track's, bob and all.
     const eyeWater = waterLevelAt(build.lakes, camera.position.x, -camera.position.z, water ? water.userData.levelFt + water.position.y : null);

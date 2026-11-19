@@ -5872,10 +5872,6 @@
   "text": "Chat"
  },
  {
-  "tag": "Team chat",
-  "text": "Chat de equipo"
- },
- {
   "tag": "Unmute",
   "text": "Activar"
  },
@@ -5924,8 +5920,8 @@
   "text": "Jugadores silenciados"
  },
  {
-  "tag": "In a race: Enter (Chat) types a line, K (Team chat) types one to your team. Tab changes who it goes to, Page Up and Page Down scroll back, /help lists the commands. With a gamepad, hold View and point the right stick for a quick message.",
-  "text": "En una carrera: Intro (Chat) escribe una línea, K (Chat de equipo) escribe una para tu equipo. Tab cambia a quién va, Re Pág y Av Pág recorren el historial, /help lista los comandos. Con un mando, mantén Vista y apunta el stick derecho para un mensaje rápido."
+  "tag": "In a race: Enter (Chat) types a line, and Tab in the box changes who it goes to: everyone, your team, or a reply. Page Up and Page Down scroll back, /help lists the commands. With a gamepad, hold View and point the right stick for a quick message.",
+  "text": "En una carrera: Intro (Chat) escribe una línea, y Tab en el cuadro cambia a quién va: a todos, a tu equipo o una respuesta. Re Pág y Av Pág recorren el historial, /help lista los comandos. Con un mando, mantén Vista y apunta el stick derecho para un mensaje rápido."
  },
  {
   "tag": "Team",

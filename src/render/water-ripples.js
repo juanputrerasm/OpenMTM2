@@ -29,10 +29,11 @@
   were stirred for (none while a race is paused), and in a headset as on the flat screen,
   outside the headset's own drawing.
 */
+import { waterLevelAt } from "../game/lakes.js";
 import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { PUDDLE_RANGE_FT, PUDDLE_WATERLINE, puddleDepthAt } from "../game/ground-maps.js";
-import { WATER_RIPPLES, landingStir, puddleStir, rippleQuietS, wheelStir } from "../game/water.js";
+import { WATER_RIPPLES, hullStir, landingStir, puddleStir, rippleQuietS, wheelStir } from "../game/water.js";
 
 const { windowTexels: SIDE, texelFt: TEXEL_FT, stepS: STEP_S, mostSteps: MOST_STEPS, fastestFtPerS, calmS, foamCollapseS, foamLingerS, foamThick, siltHalfLifeS, stirs: STIRS, breaks, breakS, bareBelow } = WATER_RIPPLES;
 /** No wheel has stirred the field for this long, seconds: it has run down to nothing that shows. */
@@ -131,13 +132,15 @@ const STEP = {
  *   the same as a texture, or null for none; `ground` the drawn ground's height, game feet,
  *   which says whether a wheel stands in a puddle.
  */
-export function createWaterRipples({ renderer, groundTexture = null, levelFt = null, puddles = null, puddleTexture = null, ground = null }) {
+export function createWaterRipples({ renderer, groundTexture = null, levelFt = null, puddles = null, puddleTexture = null, ground = null, lakes = null }) {
   const target = () => new THREE.WebGLRenderTarget(SIDE, SIDE, {
     type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: false, magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter,
     wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping,
   });
   let read = target(), write = target();
-  const lake = levelFt !== null && levelFt !== undefined, lakeKind = lake ? (groundTexture ? 1 : 2) : 0;
+  // Community Patch 4's lakes (`build.lakes`) are water to stir as the track's is, each at its own level (game/lakes.js).
+  const lakeMap = lakes?.tileMap ? lakes : null;
+  const lake = (levelFt !== null && levelFt !== undefined) || !!lakeMap, lakeKind = lake ? (groundTexture ? 1 : 2) : 0;
   const uniforms = {
     uField: { value: read.texture }, uGround: { value: groundTexture?.texture ?? null }, uPuddles: { value: puddleTexture },
     uWindow: { value: new THREE.Vector4() },
@@ -159,6 +162,8 @@ export function createWaterRipples({ renderer, groundTexture = null, levelFt = n
   /** Where each wheel that stirs was when the field last stepped, by truck and wheel: it stirs all along its way since. */
   const trail = new Map();
   let stirs = [], levelNow = levelFt ?? 0, frozen = false, puddleDrop = null;
+  /** The water's level at game (x, z): a lake's on its tiles, else the track's now (null where there is none). */
+  const levelAt = (x, z) => (lakeMap ? waterLevelAt(lakeMap, x, z, levelFt === null || levelFt === undefined ? null : levelNow) : levelNow);
   /** Seconds since a wheel last stirred the field: none has, at first. */
   let sinceStir = Infinity;
   const black = new THREE.Color(0, 0, 0), kept = new THREE.Color();
@@ -206,11 +211,12 @@ export function createWaterRipples({ renderer, groundTexture = null, levelFt = n
           const vx = (hub[0] - last[0]) / dt, vy = (hub[1] - last[1]) / dt, vz = (hub[2] - last[2]) / dt, speed = Math.hypot(vx, vz);
           if (speed > 400) return;
           const radiusFt = truck.radiusFt ?? 2.75, spin = truck.spins?.[k];
-          if (lake && !frozen) {
+          const level = lake && !frozen ? levelAt(hub[0], hub[2]) : null;
+          if (level !== null) {
             // Coming down into the water this frame: a ring from where it struck.
-            const struck = last[1] - radiusFt > levelNow && hub[1] - radiusFt <= levelNow ? landingStir(-vy) : null;
+            const struck = last[1] - radiusFt > level && hub[1] - radiusFt <= level ? landingStir(-vy) : null;
             if (struck) stirs.push({ x: hub[0], z: hub[2], from: [hub[0], hub[2]], ...struck, struck: true });
-            const held = wheelStir({ hubFt: hub[1], radiusFt, levelFt: levelNow, speedFtS: speed, treadFtS: Number.isFinite(spin) ? spin * radiusFt : speed });
+            const held = wheelStir({ hubFt: hub[1], radiusFt, levelFt: level, speedFtS: speed, treadFtS: Number.isFinite(spin) ? spin * radiusFt : speed });
             if (held.depthFt > 0.01 || held.foam > 0.01 || held.silt > 0.01) stirs.push({ key, x: hub[0], z: hub[2], from: along, ...held, struck: false });
           }
           // A wheel on the ground in a puddle. It stands on the bed: it holds the water down steadily, without the
@@ -223,6 +229,30 @@ export function createWaterRipples({ renderer, groundTexture = null, levelFt = n
             }
           }
           if (!stirs.some((s) => s.key === key)) trail.delete(key);
+        });
+        // Its body, where it goes through the surface (game/water.js `hullStir`): a wave and foam about its four lowest
+        // corners, so a truck whose wheels are wholly under still foams as it goes.
+        const hull = truck.hull?.filter((p) => p && p.every(Number.isFinite));
+        if (!hull?.length || !lake || frozen) return;
+        let bottom = Infinity, top = -Infinity, cx = 0, cz = 0;
+        for (const p of hull) { bottom = Math.min(bottom, p[1]); top = Math.max(top, p[1]); cx += p[0] / hull.length; cz += p[2] / hull.length; }
+        const level = levelAt(cx, cz);
+        // How fast the body goes, from its middle (its corners swap places low and high as it pitches).
+        const middleKey = -(i + 1), lastMiddle = before.get(middleKey);
+        before.set(middleKey, [cx, 0, cz]);
+        if (level === null || !(bottom < level && top > level)) {
+          for (let j = 0; j < 4; j++) trail.delete(i * 8 + 4 + j);
+          return;
+        }
+        if (!lastMiddle || !(dt > 0) || !running()) return;
+        const speed = Math.hypot(cx - lastMiddle[0], cz - lastMiddle[2]) / dt;
+        if (speed > 400) return;
+        [...hull].sort((a, b) => a[1] - b[1]).slice(0, 4).forEach((corner, j) => {
+          const key = i * 8 + 4 + j;
+          const was = trail.get(key), along = was && Math.hypot(corner[0] - was[0], corner[2] - was[1]) < MOST_WAY_FT ? was : [corner[0], corner[2]];
+          const held = hullStir({ bottomFt: bottom, topFt: top, levelFt: level, speedFtS: speed });
+          if (held.depthFt > 0.01 || held.foam > 0.01) stirs.push({ key, x: corner[0], z: corner[2], from: along, ...held, struck: false });
+          else trail.delete(key);
         });
       });
       stirs = stirs.slice(0, STIRS);
@@ -249,7 +279,8 @@ export function createWaterRipples({ renderer, groundTexture = null, levelFt = n
         renderer.setRenderTarget(was);
       }
       uniforms.uWindow.value.set(cx * TEXEL_FT, cz * TEXEL_FT, cx - corner[0], cz - corner[1]);
-      uniforms.uGroundAt.value.z = levelNow - (groundTexture?.referenceFt ?? 0);
+      // The field's water is the one about the eye: a lake's where the eye is over one.
+      uniforms.uGroundAt.value.z = (levelAt(eye[0], eye[2]) ?? levelNow) - (groundTexture?.referenceFt ?? 0);
       uniforms.uGroundAt.value.w = frozen ? 0 : lakeKind;
       uniforms.uPuddleAt.value.set(puddleDrop !== null ? 1 : 0, puddleDrop ?? 0);
       time += dt;

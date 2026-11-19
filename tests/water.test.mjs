@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   SNELL_WINDOW, UNDERWATER, WATER_BED, WATER_GLINT, WATER_INDEX, WATER_REFLECTION, WATER_RIPPLES, WATER_SCATTER, WATER_SILT, WATER_TAKES, WHEEL_CHURN, landingStir, waterHides, waterPasses, waterPathFt,
-  PUDDLE_FILL_DROP_FT, PUDDLE_PARTING, foamAfter, highestGround, landTones, puddleStir, reflectionRow, reflectionSine, rippleQuietS, waveAfter, waveSpeed, wheelStir,
+  PUDDLE_FILL_DROP_FT, PUDDLE_PARTING, foamAfter, highestGround, landTones, puddleStir, reflectionRow, reflectionSine, rippleQuietS, waveAfter, waveSpeed, wheelStir, hullStir,
   UNDERWATER_LOOK, lightAtDepth, sunUnderWater,
 } from "../src/game/water.js";
 import { SUBMERGED_FT } from "../src/game/particles.js";
@@ -295,4 +295,17 @@ test("under the water the light dims and loses its red with the eye's depth, and
   assert.ok(UNDERWATER_LOOK.motes >= 1000 && UNDERWATER_LOOK.moteFt[1] < 0.15);
   assert.ok(UNDERWATER_LOOK.moteGoneFt <= UNDERWATER_LOOK.moteBoxFt / 2, "they fade before the edge of their box");
   assert.ok(UNDERWATER_LOOK.shaftShare > 0 && UNDERWATER_LOOK.shaftShare < 0.1 && UNDERWATER_LOOK.shaftFadeFt > 8 && UNDERWATER_LOOK.shaftFadeFt < 25);
+});
+
+test("a truck's body through the surface stirs it and foams as it moves (hullStir; an OpenMTM2 addition)", () => {
+  const level = 63.5, at = (bottomFt, topFt, speedFtS) => hullStir({ bottomFt, topFt, levelFt: level, speedFtS });
+  // Halfway in, at speed: the full hold and foam; faster pushes deeper, up to 0.9 ft.
+  const fast = at(61, 66, 30);
+  assert.equal(fast.foam, 1);
+  assert.ok(Math.abs(fast.depthFt - 0.7) < 1e-9);
+  assert.equal(at(61, 66, 60).depthFt, 0.9);
+  // Clear of the water, wholly under it, or at rest: nothing.
+  for (const s of [at(64, 70, 30), at(55, 63, 30), at(61, 66, 0)]) { assert.equal(s.foam, 0); assert.equal(s.depthFt, 0); }
+  // Just touching (a quarter foot in): half the foam it would have.
+  assert.ok(Math.abs(at(63.25, 66, 30).foam - 0.5) < 1e-9);
 });

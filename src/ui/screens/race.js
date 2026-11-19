@@ -15,7 +15,7 @@
   the pause menu is a board too, and the controllers drive (game/vr/controls.js). The renderer
   is the app's one shared renderer, so a headset session carries over from race to race.
 */
-import { clearStandingView, meshGroundFromBuild, viewBlocked, viewGroundOn } from "../../game/mesh-ground.js";
+import { clearStandingView, meshCoverTest, meshGroundFromBuild, viewBlocked, viewGroundOn } from "../../game/mesh-ground.js";
 import { createSpawnGround } from "../../game/spawn-ground.js";
 import { createMtm1Particles } from "../../render/mtm1-particles.js";
 import { createEvoParticles } from "../../render/evo-particles.js";
@@ -52,7 +52,7 @@ import { enableSunShadows } from "../../render/sun-shadows.js";
 import * as mtm2Sim from "../../vendor/openphotex/sim/mtm2/index.js";
 import { cameraSystem, COCKPIT_EYE, CAMERA_CLEAR_FT, CAMERA_MODES, CAMERA_PITCH_MAX, CAMERA_PITCH_RATE, CAMERA_PITCH_MIN, CAMERA_TILT_RATE, INERTIA_MODE, cameraMode, modeForShortcut, systemShortcut, systemViews, blimpCamera, blimpCameraNoCourse, courseCentroid, chaseMirrorFigures, chaseMirrorRect, createChaseCamera, fovBase, fovFor, groundHeightFn, nextInList, nextMode, raceCamera, shortViews, zoomToFov, distanceZoom } from "../../game/cameras.js";
 import { createBlimp, hasBlimp } from "../../game/blimp.js";
-import { soundRange, surfaceFamily } from "../../game/sound-model.js";
+import { coverFor, echoTaps, soundRange, surfaceFamily } from "../../game/sound-model.js";
 import { createTireEffects } from "../../render/tire-effects.js";
 import { createOcclusion } from "../../render/occlusion.js";
 import { createStartLamps } from "../../render/start-lamps.js";
@@ -84,7 +84,7 @@ import { createWaterEffects, createWaterSurface } from "../../render/water-effec
 import { lakeMeshes } from "../../render/lakes.js";
 import { waterLevelAt } from "../../game/lakes.js";
 import { createReplayRecorder } from "../../game/replay.js";
-import { createRaceEnd } from "../../game/race-end.js";
+import { cameraAfterEnd, createRaceEnd } from "../../game/race-end.js";
 import { createDragTree } from "../drag-tree.js";
 import { DQ_CODE, OUT } from "../../game/drag-race.js";
 import { createFpsCounter } from "../fps-counter.js";
@@ -92,7 +92,7 @@ import { createCrashDamage, crashDamageMessage } from "../../game/crash-damage.j
 import { createCaption } from "../../render/caption.js";
 import { courseLoop, createCourseMap } from "../../render/minimap.js";
 import { createOpenMap } from "../../render/open-map.js";
-import { createBoxSolid, groundBoxGrids } from "../../game/ground-boxes.js";
+import { createBoxSolid, createCoverTest, groundBoxGrids } from "../../game/ground-boxes.js";
 import { createSummitSounds } from "../../game/summit-sounds.js";
 import { coveredAt } from "../../game/ground-maps.js";
 import { createCockpit, finderAngle } from "../../render/cockpit.js";
@@ -103,7 +103,7 @@ import {
   addFallingTree, createModelLibrary, createTrackWorld, disposeObject, moveObjects, occludees, poseFallingTree, removeFallingTree, setForestTree,
   setNormalMapStrength, setStartLights, skyColor, skyOf, updateSky, updateTrackWorld, placeSky,
 } from "../../render/track-scene.js";
-import { createTruckObject, interpolatePose } from "../../render/truck-object.js";
+import { createTruckObject, hullPointsOf, interpolatePose } from "../../render/truck-object.js";
 import { nearestCopy, toSceneMatrix, worldFtOf, wrapFt } from "../../shared/scene-frame.js";
 import { conformPose, createRelief, tireRadiusFt } from "../../game/terrain-relief.js";
 import { trackVisuals, visualSettings } from "../../game/visuals.js";
@@ -568,6 +568,20 @@ async function mountRace(container, context, params, owned = []) {
   const ambience = await context.assets.call("ambience", { number: track.ambientSound ?? 0 }).catch(() => null);
   // Started whatever the music's level, which alone makes it heard: the console's `music 1` then needs no restart.
   const musicName = build.musicName ?? null;
+  /*
+    The echo under cover (game/sound-model.js `echoTaps`; MONSTER_EXE_ANALYSIS.md 12): from the ground boxes over where a
+    sound comes from, and on a track of models (a converted city) from a drivable model over it.
+  */
+  const boxCover = createCoverTest(groundBoxGrids(build.sim, build.worldCells ?? 256));
+  // Made the first time it is asked (the view's mesh is built further on).
+  let meshCover;
+  const meshAbove = (x, y, z) => !!(meshCover ??= viewMesh ? meshCoverTest(viewMesh, ground) : null) && meshCover(x, y, z);
+  const echoOf = (pos) => echoTaps({ pos, covered: coverFor(pos, { boxes: boxCover, meshAbove }), sourceUnder: soundUnder(pos), listenerUnder: listenerUnderwater });
+  /** Whether a sound at game `pos` starts under water (a lake's there, or the track's); Snow's water is ice. */
+  const soundUnder = (pos) => {
+    const level = waterLevelAt(build.lakes, pos[0], pos[2], waterLevelNow);
+    return weatherScene.weather !== 5 && level !== null && pos[1] < level;
+  };
   const worldAudio = createWorldAudio(audio, {
     ambient: ambience, weather: weatherId, music: musicName, objects: build.soundObjects,
     hitInfo: new Map(build.sim.boxes.map((b) => [b.sitIndex, { hitSound: b.hitSound, type: b.type }])),
@@ -578,13 +592,10 @@ async function mountRace(container, context, params, owned = []) {
   const truckAudio = createTruckAudio(audio, {
     count: entrants.length, player: 0, kookyHorn: !!context.settings.kookyHorn, mtm1Sounds: !!context.settings.mtm1Sounds, settings: () => context.settings,
     // An object struck under water sounds lower (game/sound-model.js `underwaterMix`); Snow's water is ice.
-    onHit: (sitIndex, force, pos) => worldAudio.hit(sitIndex, force, pos, {
-      sourceUnder: weatherScene.weather !== 5 && waterLevelNow !== null && pos[1] < waterLevelNow,
-    }),
+    onHit: (sitIndex, force, pos) => worldAudio.hit(sitIndex, force, pos, { sourceUnder: soundUnder(pos), echo: echoOf(pos) }),
     // Two trucks met: their crash, from the truck it is sent with (the player's own in the cab).
-    onCrash: (pos, own) => worldAudio.crash(own ? null : pos, {
-      sourceUnder: weatherScene.weather !== 5 && waterLevelNow !== null && pos[1] < waterLevelNow,
-    }),
+    onCrash: (pos, own) => worldAudio.crash(own ? null : pos, { sourceUnder: soundUnder(pos), echo: echoOf(pos) }),
+    echoAt: (i, pos) => echoOf(pos),
   });
   // The announcer (game/commentary.js, MONSTER_EXE_ANALYSIS.md 12): the game's triggers about the player's truck and
   // the one the camera follows, its queue, and each phrase as one sound and, when asked for, a line of text.
@@ -1201,9 +1212,10 @@ async function mountRace(container, context, params, owned = []) {
       if ((e.code === "ArrowRight" || e.code === "ArrowLeft") && !gold?.slewing) { watch(cameraTarget + (e.code === "ArrowRight" ? 1 : -1)); return; }
     }
     if (netChat?.typing) return;
-    if (netChat && !e.repeat && (keyMap.chat.includes(e.code) || keyMap.teamChat.includes(e.code))) {
+    // The Chat key opens the box on everyone; Tab in it turns the line to the team (ui/race-chat.js).
+    if (netChat && !e.repeat && keyMap.chat.includes(e.code)) {
       e.preventDefault();
-      netChat.open(keyMap.teamChat.includes(e.code) ? "team" : "all");
+      netChat.open("all");
       return;
     }
     // A combination (Ctrl, Alt or Cmd with a key) is never a single key's action: Ctrl + Y is no YeeHaw.
@@ -1415,7 +1427,7 @@ async function mountRace(container, context, params, owned = []) {
   // Every copy of the world has its own water plane (render/track-scene.js): they bob and are surfaced together.
   const waters = [];
   world.traverse((object) => { if (object.name === "water") waters.push(object); });
-  const waterFx = createWaterEffects({ worldFt, scene, art: effectsArt, levelFt: build.waterLevelFt ?? null, ground, legacyIce: !scenery.water, blobs: !scenery.particles, rings: !scenery.particles && !scenery.water });
+  const waterFx = createWaterEffects({ worldFt, scene, art: effectsArt, levelFt: build.waterLevelFt ?? null, ground, legacyIce: !scenery.water, blobs: !scenery.particles, rings: !scenery.particles && !scenery.water, lakes: build.lakes ?? null });
   cleanups.push(() => waterFx.dispose());
   // Dust, tire tracks and sparks (render/tire-effects.js), each switched in Options.
   // In the dark a shower of sparks lights what is about it.
@@ -1467,6 +1479,8 @@ async function mountRace(container, context, params, owned = []) {
   if (waterMirror) { waterMirror.dress(waterSurface.material); cleanups.push(() => waterMirror.dispose()); }
   /** The water's level as it stands this frame, bob included, or null. */
   let waterLevelNow = build.waterLevelFt ?? null;
+  // The water under the eye (a Community Patch 4 lake's there, else the track's): where the rain and the fog stop.
+  let eyeWaterNow = waterLevelNow;
   /** The camera under the water level last frame: what the sound is heard through. */
   let listenerUnderwater = false;
   cleanups.push(() => audio.setUnderwater?.(false));
@@ -1631,6 +1645,8 @@ async function mountRace(container, context, params, owned = []) {
   // An extension race ends as a Rumble does, all at once; one played on the track's race ends as that race does.
   let raceEnd = createRaceEnd({ summit: summit || (!!gameMode && !keepsRace), spectator });
   let cameraTarget = 0;
+  // The race end's target the tick before (game/race-end.js `cameraAfterEnd`): the Camera key's choice stands until it moves.
+  let endTarget = 0;
   // A watched race: the truck the camera is on is the spectator's to choose, and the camera can be flown free
   // (ui/fly-controller.js, the fly-by's own).
   /**
@@ -2250,7 +2266,8 @@ async function mountRace(container, context, params, owned = []) {
               cameraTarget = Math.floor(r.time / DEMO_CAMERA_S) % r.race.trucks.length;
               if (end.done && !leaveDemo.done) { leaveDemo.done = true; import("../../app/flow.js").then(({ goDemo }) => goDemo(context, { avoid: track.file, replace: true })); }
             } else {
-              if (!watching) cameraTarget = end.target;
+              if (!watching) cameraTarget = cameraAfterEnd(cameraTarget, end, endTarget);
+              endTarget = end.target;
               if (end.justFinished) viewMode = 4;
               // A watched race stays on screen when it is over, to be looked round as long as the spectator likes: the
               // pause menu's Results goes on to them. Not in a network race: a player knocked out (Combat) and watching
@@ -2350,7 +2367,7 @@ async function mountRace(container, context, params, owned = []) {
       nameTags.setTransparency(context.settings.nameTransparency);
       nameTags.update(camera, viewSize[0], viewSize[1], truckLabels(latest.race?.extension), shown.map((p) => p.pos), entrants.map((_, i) => i === 0 && viewMode === 0), extensionMarks(latest.race?.extension));
       weatherScene.update(dt, shown.map((p, i) => ({ x: p.pos[0], y: p.pos[1], z: p.pos[2], heading: p.euler[2], lit: lamps[i] === 2, pool: pools[i], matrix: p.matrix })),
-        { floorFt: waterLevelNow, viewHeight: host.presenting ? HEADSET_VIEW_HEIGHT : canvas.height, lite: host.presenting });
+        { floorFt: eyeWaterNow, viewHeight: host.presenting ? HEADSET_VIEW_HEIGHT : canvas.height, lite: host.presenting });
       // In a headset the seat follows the player's truck and the flat camera takes the head's place. The
       // RaceCam's truck (cameraTarget, another one once the player has finished) is the flat camera's only:
       // the cab and the seat's settings are the player's truck's, and a headset is never moved without warning.
@@ -2456,6 +2473,7 @@ async function mountRace(container, context, params, owned = []) {
     waterLevelNow = water ? water.userData.levelFt + bob : null;
     // Over a Community Patch 4 lake the eye's water is the lake's (game/lakes.js); elsewhere the track's, bob and all.
     const eyeWater = waterLevelAt(build.lakes, camera.position.x, -camera.position.z, water ? water.userData.levelFt + water.position.y : null);
+    eyeWaterNow = eyeWater;
     const under = isUnderwater(camera.position.y, eyeWater, weatherScene.weather);
     weatherScene.setUnderwater(under);
     // The sound under water (game/sound-model.js): the master level drops, and the trucks and the world are heard muffled.
@@ -2465,7 +2483,7 @@ async function mountRace(container, context, params, owned = []) {
     scenery.underwater(under && eyeWater !== null ? (eyeWater - camera.position.y) / 0.5 : 0, {
       dt: paused ? 0 : dt, levelFt: eyeWater, viewHeight: host.presenting ? HEADSET_VIEW_HEIGHT : canvas.height,
     });
-    tireFx.setWater(water ? water.userData.levelFt + water.position.y : null);
+    tireFx.setWater(water ? water.userData.levelFt + water.position.y : null, build.lakes);
     if (latest && shownPoses) {
       waterFx.update(dt, {
         trucks: shownPoses.map((p) => ({ pos: p.pos, yaw: p.euler[2] })),
@@ -2480,7 +2498,7 @@ async function mountRace(container, context, params, owned = []) {
     // After the sky is placed: the port's water shows it.
     // The wheels stir the water and the puddles (render/water-ripples.js).
     // How fast each wheel turns, as the simulation says: its tread beats the water white (game/water.js `wheelStir`).
-    if (shownPoses) scenery.stir(shownPoses.map((p, i) => (p && drawn[i] ? { hubs: p.tires.map((_, k) => drawn[i].tireHub(k)), radiusFt: seats[i].radius, spins: latest?.poses[i]?.sound?.tires?.map((tire) => tire.spin) ?? null } : null)), paused ? 0 : dt);
+    if (shownPoses) scenery.stir(shownPoses.map((p, i) => (p && drawn[i] ? { hubs: p.tires.map((_, k) => drawn[i].tireHub(k)), radiusFt: seats[i].radius, spins: latest?.poses[i]?.sound?.tires?.map((tire) => tire.spin) ?? null, hull: hullPointsOf(drawn[i]) } : null)), paused ? 0 : dt);
     waterSurface?.update(dt, weatherScene.weather, { sun, light: weatherScene.lightLevel(), sky, fog: scene.fog, background, levelFt: water ? water.userData.levelFt + water.position.y : null });
     lakeSurface?.update(dt, weatherScene.weather);
     // A headset draws everything twice: terrain past the fog's end, which nothing can be seen of, is left out.

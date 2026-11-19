@@ -234,7 +234,7 @@ export function createWorldAudio(audio, { ambient, cues = ambient, weather, musi
      * `speed` is how fast the truck closed on it, ft/s; the game has no floor, the port asks for `HIT_MIN_SPEED` so a
      * truck resting against a fence does not set it off again each time its sound ends.
      */
-    hit(sitIndex, speed, position, { sourceUnder = false } = {}) {
+    hit(sitIndex, speed, position, { sourceUnder = false, echo = null } = {}) {
       const info = hitInfo.get(sitIndex);
       if (!info || !(speed >= HIT_MIN_SPEED) || sounding.has(sitIndex)) return;
       const sound = objectHitSound(info);
@@ -244,7 +244,7 @@ export function createWorldAudio(audio, { ambient, cues = ambient, weather, musi
       const quiet = () => sounding.delete(sitIndex);
       // Muffled from under water, by where it starts and where it is heard (game/sound-model.js `underwaterMix`).
       const mix = underwaterMix(sourceUnder, place.underwater);
-      audio.play(sound.name, { gain: Math.min(2.5, sound.gain) * mix.gain, rate: mix.rate, position })
+      audio.play(sound.name, { gain: Math.min(2.5, sound.gain) * mix.gain, rate: mix.rate, position, ...(echo?.length ? { echo } : {}) })
         .then((voice) => { if (voice?.done) voice.done.finally(quiet); else quiet(); })
         .catch(quiet);
     },
@@ -252,10 +252,10 @@ export function createWorldAudio(audio, { ambient, cues = ambient, weather, musi
      * Two trucks met (0x429cb0): `crash1` from `position` (null: the player's own truck, heard in the cab), at the
      * world one-shots' under-water mix; its pitch is the game's random one, lower when heard from under water.
      */
-    crash(position, { sourceUnder = false } = {}) {
+    crash(position, { sourceUnder = false, echo = null } = {}) {
       const sound = truckCrashSound(random);
       const mix = underwaterMix(sourceUnder, place.underwater);
-      audio.play(sound.name, { gain: sound.gain * mix.gain, rate: sound.rate * (place.underwater ? UNDERWATER_PITCH : 1), position });
+      audio.play(sound.name, { gain: sound.gain * mix.gain, rate: sound.rate * (place.underwater ? UNDERWATER_PITCH : 1), position, ...(echo?.length ? { echo } : {}) });
     },
     /** The jukebox started or stopped: the track's music stops for it, or comes back after it. */
     refreshMusic() {

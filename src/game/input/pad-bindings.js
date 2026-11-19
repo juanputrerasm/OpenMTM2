@@ -33,7 +33,7 @@ const PAD_ONLY = [
 ];
 
 /** The actions a button can be given: the keys' actions less the ones the sticks and triggers do, and the zoom. */
-const NOT_ON_BUTTONS = new Set(["accelerate", "brake", "left", "right", "chat", "teamChat"]);
+const NOT_ON_BUTTONS = new Set(["accelerate", "brake", "left", "right", "chat"]);
 export const PAD_ACTIONS = Object.freeze([...ACTIONS.filter((a) => !NOT_ON_BUTTONS.has(a.id)), ...PAD_ONLY]);
 
 export const DEFAULT_PAD_BINDINGS = Object.freeze({

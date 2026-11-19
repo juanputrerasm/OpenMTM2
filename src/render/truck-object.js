@@ -79,6 +79,13 @@ function meshesOf(library, model, joined = null) {
  * @param {string} look the look (settings.look)
  * @param {{ richLamps?: boolean }} [options] `richLamps` draws the lamps as the port's own ("Truck lamps", docs/VISUALS.md)
  */
+/** A drawn truck's twelve hull points in the world (`hullPoint`), game feet, those it has: for what its body stirs. */
+export function hullPointsOf(object) {
+  const out = [];
+  for (let zone = 1; zone <= 12; zone++) { const p = object?.hullPoint?.(zone); if (p) out.push(p); }
+  return out;
+}
+
 export function createTruckObject(truck, hubs, look, { richLamps = false } = {}) {
   const library = createModelLibrary(
     Object.fromEntries(Object.values(truck.parts).filter(Boolean).map((m) => [m.name, m])), truck.textures, look);

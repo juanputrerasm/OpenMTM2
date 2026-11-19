@@ -264,10 +264,10 @@ test("the 0.53 sandbox's two falls reach the track build", { skip: skipLocal(SAN
   const build = await buildTrackRender(vfs, "WORLD\\FOGTEST.SI2", {});
   const [a, b] = build.falls.list;
   assert.equal(build.falls.list.length, 2);
-  assert.deepEqual([a.columns, a.spacing, a.vertexCount], [48, 2, 2913]);
-  assert.deepEqual([b.columns, b.vertexCount], [25, 2506]);
+  assert.deepEqual([a.columns, a.spacing, a.vertexCount], [48, 2, 2195]);
+  assert.deepEqual([b.columns, b.vertexCount], [25, 3840]);
   assert.ok(build.fogVolumes.some((v) => v.fall === 0), "fall 1 has its mist");
-  assert.ok(!build.fogVolumes.some((v) => v.fall === 1), "fall 2 has none");
+  assert.ok(build.fogVolumes.some((v) => v.fall === 1), "hotfix 3: fall 2 has its mist, dry as it is");
   assert.ok(!build.soundObjects.some((s) => s.fall !== undefined), "both sounds are silent: empty stems");
   assert.deepEqual(build.notices, []);
   const off = await buildTrackRender(vfs, "WORLD\\FOGTEST.SI2", { waterfalls: false });

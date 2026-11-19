@@ -169,6 +169,21 @@ export function createMeshGround(boxes, { terrainHeight, wrapDelta = NO_WRAP, wo
   };
 }
 
+/** How far over a point a model's face or the terrain is cover for the echo, and how far above the point it must at least be, feet. */
+export const MESH_COVER_FT = 40, MESH_COVER_CLEAR_FT = 3;
+/**
+ * Whether a point (game feet) is under cover on a track of models, for the echo (game/sound-model.js `coverFor`; an
+ * OpenMTM2 addition, MONSTER_EXE_ANALYSIS.md 12): a face of a model, either side (a road over a road, a hall's roof seen
+ * from under it), or the terrain, between MESH_COVER_CLEAR_FT and MESH_COVER_FT over it.
+ */
+export function meshCoverTest(mesh, terrainHeight) {
+  return (x, y, z) => {
+    if (terrainHeight(x, z) > y + MESH_COVER_CLEAR_FT) return true;
+    const from = [x, y + MESH_COVER_CLEAR_FT, z];
+    return mesh.segmentHit(from, [x, y + MESH_COVER_FT, z]) !== null;
+  };
+}
+
 /**
  * The walls and drops down a truck's way as obstacles (`{ pos, radius }`, for game/obstacle-avoid.js): along three
  * lanes (its middle and either side, `side` feet out), a wall ray at wheel height and the drivable surface every

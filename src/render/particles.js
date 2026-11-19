@@ -290,8 +290,8 @@ export function createParticles({ scene, ground, random = Math.random, over = nu
    * The ground under puff `p` as a plane, from the ground's height about where it is now: the point of it under the
    * puff (`gx`, `floor`, `gz`) and the way up off it (`nx`, `ny`, `nz`, game axes). Over water it is the water's level.
    */
-  function underPuff(p, waterFt) {
-    const e = 1.5, floor = ground(p.x, p.z, p.y);
+  function underPuff(p, waterAt) {
+    const e = 1.5, floor = ground(p.x, p.z, p.y), waterFt = waterAt(p.x, p.z);
     let nx = -(ground(p.x + e, p.z, p.y) - ground(p.x - e, p.z, p.y)) / (2 * e), nz = -(ground(p.x, p.z + e, p.y) - ground(p.x, p.z - e, p.y)) / (2 * e);
     p.floor = floor;
     if (waterFt !== null && waterFt > floor) { p.floor = waterFt; nx = nz = 0; }
@@ -353,9 +353,11 @@ export function createParticles({ scene, ground, random = Math.random, over = nu
     /**
      * Once a frame. `camera` is the eye; `light` the scene's own lights `{ sun, ambient,
      * hemisphere }` (the last null without "Natural light"); `waterFt` the water's level now or
-     * null, and `frozen` whether it is ice; `viewHeight` the picture's height in pixels.
+     * null, or a function of game (x, z) giving it there (a level with lakes), and `frozen` whether it is ice; `viewHeight` the picture's height in pixels.
      */
     update(dt, { camera, light = {}, waterFt = null, frozen = false, viewHeight = 900 } = {}) {
+      // The water's level at a point: the same everywhere, or a function of (x, z) where a level has lakes of its own.
+      const waterAt = typeof waterFt === "function" ? waterFt : () => waterFt;
       // What a face of each kind is lit by, as three.js lights a matt one: a light's colour times its strength, over pi.
       const { sun = null, ambient: flat = null, hemisphere = null } = light;
       ambient.setScalar(0);
@@ -390,7 +392,7 @@ export function createParticles({ scene, ground, random = Math.random, over = nu
         p.vx *= slow; p.vy *= slow; p.vz *= slow;
         p.x += p.vx * dt; p.y += (p.vy + p.rise) * dt; p.z += p.vz * dt;
         // The ground under it, as a plane, looked at again when it has drifted a foot: the water's level over water.
-        if (p.gx === null || Math.abs(p.x - p.gx) + Math.abs(p.z - p.gz) > 1) underPuff(p, waterFt);
+        if (p.gx === null || Math.abs(p.x - p.gx) + Math.abs(p.z - p.gz) > 1) underPuff(p, waterAt);
       }
       // Furthest first, so each lies over those behind it.
       camera.getWorldDirection(forward);
@@ -455,6 +457,7 @@ export function createParticles({ scene, ground, random = Math.random, over = nu
         } else s.vy -= GRAVITY * dt;
         s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
         // A bubble is gone at the surface, or in the open air (it was let go where the water is not, or the water fell).
+        const waterFt = waterAt(s.x, s.z);
         let over = s.age >= s.life || (rises && (waterFt === null || s.y >= waterFt)) || (s.kind.glow && s.heat < 0.03);
         if (!over && s.vy < 0) {
           const floor = ground(s.x, s.z, s.y);

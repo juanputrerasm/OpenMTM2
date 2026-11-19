@@ -21,7 +21,7 @@ const AUDIBLE_FT = 900;
 /** How long a hull impact's level lingers as the bar the next knock must clear (it falls to a third in this time). */
 const IMPACT_FADE_S = 2;
 
-export function createTruckAudio(audio, { count, player = 0, random = Math.random, kookyHorn = false, mtm1Sounds = false, onHit = () => {}, onCrash = () => {}, settings = () => ({}) }) {
+export function createTruckAudio(audio, { count, player = 0, random = Math.random, kookyHorn = false, mtm1Sounds = false, onHit = () => {}, onCrash = () => {}, settings = () => ({}), echoAt = null }) {
   const pick = (n) => 1 + Math.floor(random() * n);
   const trucks = Array.from({ length: count }, () => ({
     engine: null, heli: null, gear: null, impactBusy: false, cooldown: 0, started: false,
@@ -37,9 +37,9 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
   ]);
 
   /** A looping voice kept by its handle: `{ promise, voice, ended }`, `voice` once it has started. */
-  function loopVoice(name, gain, rate, position) {
+  function loopVoice(name, gain, rate, position, echo = null) {
     const handle = { promise: null, voice: null, ended: false };
-    handle.promise = audio.play(name, { loop: true, gain, rate, position }).then((voice) => {
+    handle.promise = audio.play(name, { loop: true, gain, rate, position, echo }).then((voice) => {
       if (disposed || handle.ended) voice?.stop();
       else if (voice) handle.voice = voice;
       else handle.ended = true;
@@ -61,7 +61,7 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
       ? kind === "corner" ? mtm1CornerSample(r.code) : mtm1SpinSample(r.code, mtm1Variant(random))
       : kind === "corner" ? cornerSample(r.code, cornerPick) : spinSample(r.code, spinPick);
     const rate = skidRate(random);
-    r[kind] = sample ? loopVoice(sample.name, sample.gain * (i === player ? 1 : 0.9), rate * (trucks[i].pitch ?? 1), i === player ? null : pos) : null;
+    r[kind] = sample ? loopVoice(sample.name, sample.gain * (i === player ? 1 : 0.9), rate * (trucks[i].pitch ?? 1), i === player ? null : pos, trucks[i].echo) : null;
     if (r[kind]) r[kind].rate = rate;
   }
 
@@ -70,16 +70,16 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
     t.engine = {};
     for (const [key, name] of ENGINE_LOOPS) {
       audio.play(name, {
-        loop: true, gain: 0, randomStart: true, position: i === player ? null : pose.current.pos,
+        loop: true, gain: 0, randomStart: true, position: i === player ? null : pose.current.pos, echo: t.echo,
       }).then((voice) => {
         if (disposed) voice?.stop();
-        else t.engine[key] = voice;
+        else { t.engine[key] = voice; voice?.setEcho?.(t.echo); }
       });
     }
   }
 
   function oneShot(name, gain, i, pose, rate = 1) {
-    audio.play(name, { gain, rate, position: i === player ? null : pose.current.pos });
+    audio.play(name, { gain, rate, position: i === player ? null : pose.current.pos, echo: trucks[i].echo });
   }
 
   /** The horn (0x429490) and YeeHaw (0x429350) of a truck, from where it is. */
@@ -122,6 +122,18 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
       }
       const pos = pose.current.pos;
       const near = i === player || Math.hypot(pos[0] - listener[0], pos[2] - listener[2]) < AUDIBLE_FT;
+      // The echo under cover (game/sound-model.js `echoTaps`, 0x41cd50): made again each frame from where the truck is,
+      // and every sound of the truck follows it (the game's sounds point at the truck's one record).
+      const echo = echoAt ? echoAt(i, pos, s) : null, echoKey = echo?.map((tap) => `${tap.delayS}:${tap.gain.toFixed(3)}`).join() ?? "";
+      t.echo = echo;
+      if (echoKey !== (t.echoKey ?? "")) {
+        t.echoKey = echoKey;
+        for (const voice of Object.values(t.engine ?? {})) voice?.setEcho?.(echo);
+        for (const r of t.rear) for (const kind of ["corner", "spin"]) r[kind]?.voice?.setEcho?.(echo);
+        t.wade?.voice?.setEcho?.(echo);
+        for (const bridge of t.bridges) bridge?.voice?.setEcho?.(echo);
+        t.gearVoice?.then((voice) => voice?.setEcho?.(echo));
+      }
       t.cooldown = Math.max(0, t.cooldown - dt);
 
       // The engine.
@@ -180,7 +192,7 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
       t.inWater = !!s.inWater;
       if (near && s.inWater) {
         // Heard from under water the wading loop is not started (0x41bbd0).
-        if (!playing(t.wade) && !listenerUnder) t.wade = loopVoice("WTR-ABV1", wadeGain(s.speed), 1, i === player ? null : pos);
+        if (!playing(t.wade) && !listenerUnder) t.wade = loopVoice("WTR-ABV1", wadeGain(s.speed), 1, i === player ? null : pos, t.echo);
         // Not started when the truck went in heard from under water: there may be no loop to set.
         t.wade?.voice?.setGain(wadeGain(s.speed));
         if (i !== player) t.wade?.voice?.setPosition(pos);
@@ -192,7 +204,7 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
         const v = on ? bridgeVoice(s.speed) : null;
         if (!v) { t.bridges[b] = stopLoop(t.bridges[b]); return; }
         const gain = v.gain * (i === player ? 1 : 0.9);
-        if (!playing(t.bridges[b])) t.bridges[b] = loopVoice("BRIDGE1", gain, v.rate, i === player ? null : pos);
+        if (!playing(t.bridges[b])) t.bridges[b] = loopVoice("BRIDGE1", gain, v.rate, i === player ? null : pos, t.echo);
         t.bridges[b].voice?.setGain(gain);
         t.bridges[b].voice?.setRate(v.rate);
         if (i !== player) t.bridges[b].voice?.setPosition(pos);
@@ -226,7 +238,7 @@ export function createTruckAudio(audio, { count, player = 0, random = Math.rando
         t.gearCooldown = Math.max(0, (t.gearCooldown ?? 0) - dt);
         if (gear && t.gear !== null && t.gearCooldown === 0) {
           t.gearVoice?.then((voice) => voice?.stop());
-          t.gearVoice = audio.play(gear, { gain: 0.8, rate: pitch, position: i === player ? null : pose.current.pos });
+          t.gearVoice = audio.play(gear, { gain: 0.8, rate: pitch, position: i === player ? null : pose.current.pos, echo: t.echo });
           t.gearCooldown = 1;
         }
         // The object's sound comes from the object, `offset` feet from the truck.

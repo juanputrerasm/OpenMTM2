@@ -17,6 +17,7 @@ import * as THREE from "three";
 import { iceMosaic } from "../game/sheets.js";
 import { WATER_FRAME_SEQUENCE, waterFrameStep, waterOpacity } from "../game/weather.js";
 import { createBillboards } from "./billboards.js";
+import { waterLevelAt } from "../game/lakes.js";
 import { steadyMipmaps } from "../shared/steady-mips.js";
 
 const GRAVITY = 32, BLOB_LIFE = 3, RIPPLE_LIFE = 0.9, BLOBS = 256, RIPPLES = 64;
@@ -33,7 +34,9 @@ export const iceOpacity = (seconds) => Math.min(ICE_MAX, ICE_START + Math.max(0,
  * (render/tire-effects.js). `rings` false leaves out the ripples: the port's own water, and the port's own particles,
  * stir rings in the water itself (render/water-ripples.js). With neither, nothing is thrown.
  */
-export function createWaterEffects({ scene, art, levelFt, ground, random = Math.random, legacyIce = true, blobs: showBlobs = true, rings: showRings = true, worldFt = 8192 }) {
+export function createWaterEffects({ scene, art, levelFt, ground, random = Math.random, legacyIce = true, blobs: showBlobs = true, rings: showRings = true, worldFt = 8192, lakes = null }) {
+  // The water's level at (x, z) given the track's now: a Community Patch 4 lake's on its tiles (game/lakes.js).
+  const levelAt = (level, x, z) => (lakes?.tileMap ? waterLevelAt(lakes, x, z, level) : level);
   const root = new THREE.Group();
   root.name = "waterEffects";
   scene.add(root);
@@ -74,13 +77,14 @@ export function createWaterEffects({ scene, art, levelFt, ground, random = Math.
     const s = Math.sin(truck.yaw), c = Math.cos(truck.yaw);
     const x = truck.pos[0] + right * c + forward * s, z = truck.pos[2] - right * s + forward * c;
     const bed = ground(x, z);
+    level = levelAt(level, x, z);
     const inWater = level !== null && bed < level && !frozen;
     if (!inWater && !rain) return;
     if (truck.pos[1] - bed > 8) return;
     const speed = Math.hypot(truck.vel[0], truck.vel[2]);
     const lateral = (random() - 0.5) * 6;
     spray.push({
-      x, y: inWater ? level : bed + 0.3, z,
+      x, y: inWater ? level : bed + 0.3, z, level: inWater ? level : null,
       vx: truck.vel[0] * (0.9 + random() * 0.2) + lateral * c, vz: truck.vel[2] * (0.9 + random() * 0.2) - lateral * s,
       vy: 4 + random() * 8 + Math.min(6, speed * 0.05), life: BLOB_LIFE, water: inWater,
     });
@@ -116,7 +120,7 @@ export function createWaterEffects({ scene, art, levelFt, ground, random = Math.
         p.vy -= GRAVITY * dt;
         p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
         p.life -= dt;
-        const floor = p.water && level !== null ? level : ground(p.x, p.z);
+        const floor = p.water && p.level !== null ? p.level : ground(p.x, p.z);
         if (p.vy < 0 && p.y < floor) {
           if (p.water && ripples && rings.length < RIPPLES) rings.push({ x: p.x, y: floor, z: p.z, age: 0 });
           p.life = 0;
@@ -129,7 +133,7 @@ export function createWaterEffects({ scene, art, levelFt, ground, random = Math.
       for (let n = rings.length - 1; n >= 0; n--) { rings[n].age += dt; if (rings[n].age >= RIPPLE_LIFE) rings.splice(n, 1); }
       rings.forEach((r, i) => {
         const k = r.age / RIPPLE_LIFE, size = 2 + 5 * k;
-        ripples.set(i, r.x, (level ?? r.y) + 0.06, -r.z, size, size, 0, 0.9 * (1 - k) ** 1.5);
+        ripples.set(i, r.x, r.y + 0.06, -r.z, size, size, 0, 0.9 * (1 - k) ** 1.5);
       });
       ripples.commit(rings.length);
     },

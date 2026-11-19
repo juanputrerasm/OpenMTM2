@@ -709,7 +709,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       msg("Experimental: join and make Community Patch 4 rooms on an online server. In those rooms OpenMTM2 speaks CP4's own race packets; the race is not yet driven by CP4's netcode")),
       el("h3", {}, t("Muted players")),
       mutedList,
-      el("p", { class: "muted" }, t("In a race: Enter (Chat) types a line, K (Team chat) types one to your team. Tab changes who it goes to, Page Up and Page Down scroll back, /help lists the commands. With a gamepad, hold View and point the right stick for a quick message.")),
+      el("p", { class: "muted" }, t("In a race: Enter (Chat) types a line, and Tab in the box changes who it goes to: everyone, your team, or a reply. Page Up and Page Down scroll back, /help lists the commands. With a gamepad, hold View and point the right stick for a quick message.")),
     ];
   }
 

@@ -215,6 +215,26 @@ export function wheelStir({ hubFt, radiusFt = 2.75, levelFt, speedFtS = 0, tread
   };
 }
 
+/** How a truck's body stirs the water it is through (`hullStir`): a wave pushed out over `radiusFt` about each low corner, and the foam over `foamFt`. */
+export const HULL_CHURN = Object.freeze({ radiusFt: 2.4, foamFt: 3.5, fromFtS: 4, fullFtS: 30 });
+
+/**
+ * How a truck's body stirs the water, an OpenMTM2 addition beside the wheels' (`wheelStir`): a body that goes through
+ * the surface, its lowest point (`bottomFt`) under it and its highest (`topFt`) over it, pushes a wave out and beats
+ * the water white about each of its low corners as it moves, more the faster (`speedFtS`). A truck whose wheels are
+ * wholly under the water (a deep lake's bed) still foams where its body meets the surface. A body clear of the water,
+ * or wholly under it, does nothing; nor does one at rest, which only lies in it.
+ * @returns {{ depthFt: number, radiusFt: number, foam: number, foamFt: number, silt: number }}
+ */
+export function hullStir({ bottomFt, topFt, levelFt, speedFtS = 0 }) {
+  const meets = smooth(0, 0.5, levelFt - bottomFt) * smooth(0, 0.5, topFt - levelFt);
+  const speed = Math.abs(speedFtS), moving = smooth(HULL_CHURN.fromFtS, HULL_CHURN.fullFtS, speed);
+  return {
+    depthFt: meets * moving * Math.min(0.9, 0.1 + 0.02 * speed), radiusFt: HULL_CHURN.radiusFt,
+    foam: meets * moving, foamFt: HULL_CHURN.foamFt, silt: 0,
+  };
+}
+
 /**
  * A wheel that comes down into the water at `fallFtS` throws a ring out from where it struck: the
  * surface is pushed down by `depthFt` over `radiusFt` at once, beaten white over `foamFt` and its

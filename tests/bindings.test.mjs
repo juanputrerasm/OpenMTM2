@@ -15,6 +15,15 @@ test("bindings: defaults, overrides, and bad saved data falls back", () => {
   assert.equal(Object.keys(mergeBindings(null)).length, ACTIONS.length);
 });
 
+test("bindings: K is the game's Camera key alone; team chat is the chat box's Tab, not a key of its own", () => {
+  const b = mergeBindings({});
+  assert.equal(conflictFor(b, "KeyK", "nextTruck"), null);
+  assert.equal(ACTIONS.some((a) => a.id === "teamChat"), false);
+  // A Team chat key saved by an earlier version is dropped, not kept on K.
+  assert.equal("teamChat" in mergeBindings({ teamChat: ["KeyK"] }), false);
+  assert.deepEqual(b.chat, ["Enter", "NumpadEnter"]);
+});
+
 test("bindings: conflicts and labels", () => {
   const b = mergeBindings({});
   assert.equal(conflictFor(b, "KeyW", "brake"), "accelerate");

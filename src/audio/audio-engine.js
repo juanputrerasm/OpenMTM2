@@ -7,7 +7,7 @@
   The audio context starts suspended until the page has had a click or key, and `resume` is
   safe to call as often as wanted.
 */
-import { UNDERWATER_MASTER, attenuation, cullVoices, loopSeconds } from "../game/sound-model.js";
+import { ECHO_MAX_DELAY_S, UNDERWATER_MASTER, attenuation, cullVoices, loopSeconds } from "../game/sound-model.js";
 
 /** The effects sit under the music by this much, so the many voices of a race do not bury it. */
 const EFFECTS_TRIM = 0.5;
@@ -176,7 +176,7 @@ export function createAudio(assets, volumes = {}) {
    * Resolves to a
    * voice `{ setGain, setRate, setPosition, stop }`, or null when the sample is missing.
    */
-  async function play(name, { gain = 1, rate = 1, loop = false, position = null, bus = "effects", randomStart = false, hearing = 1 } = {}) {
+  async function play(name, { gain = 1, rate = 1, loop = false, position = null, bus = "effects", randomStart = false, hearing = 1, echo = null } = {}) {
     // A one-shot is not started again at once, nor more than three at a time (the mixer's own limit is 16 in all).
     const key = String(name).toUpperCase();
     const guarded = !loop && bus === "effects";
@@ -204,6 +204,7 @@ export function createAudio(assets, volumes = {}) {
     volume.gain.value = levelOf(rec);
     let panner = null;
     source.connect(volume);
+    const out = bus === "music" ? music : bus === "commentary" ? commentary : effects;
     if (position) {
       panner = ctx.createPanner();
       panner.panningModel = "equalpower";
@@ -246,6 +247,32 @@ export function createAudio(assets, volumes = {}) {
       }
     };
     const write = (now) => { if (running()) now(); else held.add(sync); };
+    /*
+      The echo (game/sound-model.js `echoTaps`; MONSTER_EXE_ANALYSIS.md 12, "Echo under cover"): each tap the voice
+      again, delayed, at its share of the voice's level, the result held to 1 as the game's mixer holds it. Its nodes
+      are made the first time a tap is asked for and kept, silent, while none is.
+    */
+    const taps = [];
+    const setEcho = (list) => {
+      const want = list ?? [];
+      if (!want.length && !taps.length) return;
+      const level = levelOf(rec);
+      for (let i = 0; i < Math.max(want.length, taps.length); i++) {
+        const tap = want[i];
+        if (!taps[i]) {
+          if (!tap) continue;
+          const delay = ctx.createDelay(ECHO_MAX_DELAY_S), share = ctx.createGain();
+          volume.connect(delay);
+          delay.connect(share);
+          share.connect(panner ?? out);
+          taps[i] = { delay, share };
+        }
+        const on = tap && tap.gain > 0 && tap.delayS <= ECHO_MAX_DELAY_S;
+        if (on) taps[i].delay.delayTime.value = tap.delayS;
+        taps[i].share.gain.value = on ? (level > 0 ? Math.min(tap.gain, 1 / level) : tap.gain) : 0;
+      }
+    };
+    if (echo?.length) setEcho(echo);
     return {
       done,
       get stopped() { return stopped; },
@@ -256,6 +283,7 @@ export function createAudio(assets, volumes = {}) {
         rec.position = [p[0], p[1], p[2]];
         write(() => { panner.positionX.value = p[0]; panner.positionY.value = p[1]; panner.positionZ.value = -p[2]; });
       },
+      setEcho: (list) => { if (!stopped) write(() => setEcho(list)); },
       stop: () => { if (!stopped) { try { source.stop(); } catch { /* already stopped */ } } stopped = true; rec.stopped = true; live.delete(rec); held.delete(sync); },
     };
   }
@@ -374,7 +402,7 @@ export function createAudio(assets, volumes = {}) {
 
 /** The same interface with no output, for browsers without Web Audio and for tests. */
 export function createSilentAudio() {
-  const voice = { done: Promise.resolve(), stopped: true, setGain() {}, setRate() {}, setPosition() {}, stop() {} };
+  const voice = { done: Promise.resolve(), stopped: true, setGain() {}, setRate() {}, setPosition() {}, setEcho() {}, stop() {} };
   return {
     context: null, stats: () => ({ state: "none", samples: 0, sampleNames: [], voices: 0 }), sample: async () => null, preload() {}, clearSamples() {}, play: async () => voice, playBuffer: () => voice, playMod: async () => voice, setVolumes() {}, setListener() {}, setRange() {},
     setDucking() {}, setEffectsPaused() {}, setUnderwater() {}, waveform: (out) => out.fill(128), resume: async () => {}, suspend: async () => {}, dispose: async () => {},

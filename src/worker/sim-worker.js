@@ -579,6 +579,14 @@ export function createSession(init) {
     }
     if (box && b.bvel) { movingObjects.push({ box, bvel: b.bvel }); movingBoxes.add(box); }
   }
+  /*
+    `inert`: a level box nothing moves. With no mass at all it is never stepped (stepBox and postStepBox return at once for
+    a box that is not dynamic) nor pushed by a truck (a box under 1 slug is not dynamic but a truck pushes it out), and it
+    is no moving object (14.18) and on no 4x4 Evolution path, so being listed changes nothing of it: its pose stays, its
+    numbers stay sane. A mode's own session may move level boxes itself, so with one every listed box is treated as able
+    to move.
+  */
+  for (const box of levelBoxes) box.inert = box.mass === 0 && !box.dynamic && !movingBoxes.has(box) && box.pathRoot === undefined;
   // Every surface box counts: CP4 takes only the first 64 (CP4_EXE_ANALYSIS.md 5); OpenMTM2 has no such limit.
   if (surfaceBoxes.length) for (const g of new Set([ground, extensionGround])) C4.withSurfaceMeshes(g, surfaceBoxes, { limit: Infinity });
   // The meshes a computer racer drives on (game/mesh-ground.js): the static models that collide by their triangles.
@@ -795,6 +803,8 @@ export function createSession(init) {
   }
 
   const listed = [];
+  /** This step's listed boxes that can move (`step`), in the list's order. */
+  const stirring = [];
   /** Boxes whose pose changed since the last `advance` reply. */
   const dirty = new Set();
 
@@ -966,18 +976,159 @@ export function createSession(init) {
       for (let i = 0; i < nx; i++) if (fn(cz * listCells + ((((x0 + i) % listCells) + listCells) % listCells))) return;
     }
   }
+  /** Whether `box` is within `r` + its radius + 10 ft of (x, z) on x and z, the short way round the world's seam. */
+  const nearListing = (x, z, r, box) => {
+    const range = r + box.radius + 10;
+    return Math.abs(wrapDelta(box.pos[0] - x)) < range && Math.abs(wrapDelta(box.pos[2] - z)) < range;
+  };
+  // A truck that is not the player's own does not bring in a type 11 box or one with no model (MTM2 and CP4,
+  // OpenPhotex `listedByComputerTruck`); the player's truck and the listed objects bring in every box.
+  const bringsIn = (box, t, i) => nearListing(t.state.pos[0], t.state.pos[2], t.radius, box)
+    && (i === 0 || !mtm2Listing || S.listedByComputerTruck(box.type, box.hasModel, networkDrivers));
+
+  /*
+    The list without going through it (`chainFast`): which boxes listBoxes would list, asked only of the boxes that
+    matter this step. A box that is listed and far from every truck, every moving box and every ramp changes nothing
+    (an inert box's step does nothing, and every pair test with it returns at its first, distance, test), and a city
+    lists nearly all its thousands of boxes a step through its blocks. So:
+
+    - the inert boxes (`inert`, they never move) stand in `stillCells`, a grid of LIST_CELL_FT cells on the world's
+      wrap, each in the cells its radius twice + 10 ft covers (`stillAround`: the boxes a square may be near, for every
+      test below);
+    - each inert box keeps the inert boxes before it in the level's order that it is near (`chainBefore`), worked out
+      once; the boxes that can move (`live`) are looked at again each step;
+    - a box is listed when it is a seed (moving, or brought in by a truck) or is near a listed box before it: in the
+      order listBoxes goes, that is being reached from a seed through boxes each near the next and each later than the
+      last. `isListed` follows those links back from the box asked about, remembered for the step.
+
+    The answers are listBoxes's, box for box, and the boxes handed on keep its order. Only where it pays, a level of
+    CHAIN_FAST_INERT inert boxes or more (a stock track lists a few hundred quicker by going through them), and not with a
+    mode's own session (its boxes and its walls take the whole list) or a world that is not a whole number of cells.
+  */
+  const CHAIN_FAST_INERT = 1000;
+  const chainFast = !extensionSession && worldFt % LIST_CELL_FT === 0
+    && levelBoxes.reduce((n, box) => n + (box.inert && !box.ghost ? 1 : 0), 0) >= CHAIN_FAST_INERT;
+  let stillCells = null, stillMoving = [], live = [], liveCells = new Map(), aroundQuery = 0, listStep = 0;
+  /** The listed boxes that can move (in the level's order), and a mode's own and Loose Wheels' boxes, this step. */
+  let listedLive = [], extraBoxes = [], listAny = false;
+  function prepareChain() {
+    stillCells = new Map();
+    live = [];
+    levelBoxes.forEach((box, i) => {
+      Object.assign(box, { listIndex: i, seenAt: 0, seedAt: 0, memoAt: 0, memoListed: false, chainBefore: null, listX: box.pos[0], listZ: box.pos[2] });
+    });
+    for (const box of levelBoxes) {
+      if (box.ghost) continue;
+      if (!box.inert) { live.push(box); continue; }
+      addToCells(stillCells, box);
+      // An inert box's speed never changes: one set moving (over 0.1 ft/s) is a seed every step.
+      if (Math.hypot(box.vel[0], box.vel[1], box.vel[2]) > 0.1) stillMoving.push(box);
+    }
+    for (const box of levelBoxes) {
+      if (box.ghost || !box.inert) continue;
+      const before = [];
+      stillAround(box.pos[0], box.pos[2], box.radius, (o) => { if (o.listIndex < box.listIndex && listedNearAt(o, box)) before.push(o); });
+      box.chainBefore = before;
+    }
+  }
+  function addToCells(cells, box) {
+    eachListCell(box.pos[0], box.pos[2], 2 * box.radius + 10, (cell) => {
+      const there = cells.get(cell);
+      if (there) there.push(box); else cells.set(cell, [box]);
+      return false;
+    });
+  }
+  /**
+   * Calls `fn(box)` once for each box of `cells` whose square may meet the square of half side `reach` about (x, z).
+   * The boxes are gathered first: `fn` may ask the grid again.
+   */
+  function stillAround(x, z, reach, fn, cells = stillCells) {
+    const query = ++aroundQuery, found = [];
+    eachListCell(x, z, reach, (cell) => {
+      const there = cells.get(cell);
+      if (there) for (const box of there) if (box.seenAt !== query) { box.seenAt = query; found.push(box); }
+      return false;
+    });
+    for (const box of found) fn(box);
+  }
+  /** listBoxes's "near a listed box" for `o` before `box`, where both stood when the list was made (`listX`, `listZ`). */
+  function listedNearAt(o, box) {
+    const range = o.radius + box.radius + 10;
+    return Math.abs(wrapDelta(box.listX - o.listX)) < range && Math.abs(wrapDelta(box.listZ - o.listZ)) < range;
+  }
+  /** The listed boxes before `box` that it is near could be any of these: the inert ones it keeps, and the live ones. */
+  function eachBefore(box, fn) {
+    if (box.chainBefore) for (const o of box.chainBefore) { if (fn(o)) return; }
+    else stillAround(box.listX, box.listZ, box.radius, (o) => { if (o.listIndex < box.listIndex) fn(o); });
+    stillAround(box.listX, box.listZ, box.radius, (o) => { if (o.listIndex < box.listIndex) fn(o); }, liveCells);
+  }
+  /** Whether listBoxes lists `box` this step (a level box that is not a ghost). */
+  function isListed(box) {
+    if (box.memoAt === listStep) return box.memoListed;
+    const stack = [box];
+    while (stack.length) {
+      const b = stack[stack.length - 1];
+      if (b.memoAt === listStep) { stack.pop(); continue; }
+      let listedNow = b.seedAt === listStep, waiting = null;
+      if (!listedNow) {
+        eachBefore(b, (o) => {
+          if (waiting || listedNow || !listedNearAt(o, b)) return listedNow;
+          if (o.memoAt !== listStep) waiting = o;
+          else if (o.memoListed) listedNow = true;
+          return listedNow;
+        });
+      }
+      if (waiting && !listedNow) { stack.push(waiting); continue; }
+      b.memoAt = listStep;
+      b.memoListed = listedNow;
+      stack.pop();
+    }
+    return box.memoListed;
+  }
+  function listChain() {
+    if (!stillCells) prepareChain();
+    listStep++;
+    // The live boxes stand where they are this step.
+    liveCells = new Map();
+    for (const box of live) { box.listX = box.pos[0]; box.listZ = box.pos[2]; addToCells(liveCells, box); }
+    // The seeds: what moves faster than 0.1 ft/s, and what a truck brings in. With none, nothing is listed.
+    listAny = false;
+    for (const box of live) if (Math.hypot(box.vel[0], box.vel[1], box.vel[2]) > 0.1) { box.seedAt = listStep; listAny = true; }
+    for (const box of stillMoving) { box.seedAt = listStep; listAny = true; }
+    trucks.forEach((t, i) => {
+      const bring = (box) => { if (box.seedAt !== listStep && bringsIn(box, t, i)) { box.seedAt = listStep; listAny = true; } };
+      stillAround(t.state.pos[0], t.state.pos[2], t.radius, bring);
+      stillAround(t.state.pos[0], t.state.pos[2], t.radius, bring, liveCells);
+    });
+    listedLive = live.filter(isListed);
+    extraBoxes = [...extensionSession?.movableBoxes?.() ?? [], ...mutator?.movableBoxes() ?? []];
+    if (extraBoxes.length) listAny = true;
+    ground.ramps.length = 0;
+    for (const ramp of allRamps) {
+      let near = trucks.some((t) => nearListing(t.state.pos[0], t.state.pos[2], t.radius, ramp))
+        || listedLive.some((o) => nearListing(o.pos[0], o.pos[2], o.radius, ramp))
+        || extraBoxes.some((o) => nearListing(o.pos[0], o.pos[2], o.radius, ramp));
+      if (!near) stillAround(ramp.pos[0], ramp.pos[2], ramp.radius, (o) => { if (!near && nearListing(o.pos[0], o.pos[2], o.radius, ramp) && isListed(o)) near = true; });
+      if (near) ground.ramps.push(ramp);
+    }
+  }
+  /** The listed boxes within `reach` + their radius of (x, z) on x and z, in the list's order (`all` with listBoxes). */
+  function listedAround(x, z, reach, test) {
+    if (!chainFast) return listed.filter(test);
+    const found = [];
+    stillAround(x, z, reach, (box) => { if (test(box) && isListed(box)) found.push(box); });
+    for (const box of listedLive) if (test(box)) found.push(box);
+    found.sort((a, b) => a.listIndex - b.listIndex);
+    for (const box of extraBoxes) if (test(box)) found.push(box);
+    return found;
+  }
+
   function listBoxes() {
+    if (chainFast) { listChain(); return; }
     listed.length = 0;
-    const near = (x, z, r, box) => {
-      const range = r + box.radius + 10;
-      // The short way round: a box across the world's seam is as near as one beside the truck.
-      return Math.abs(wrapDelta(box.pos[0] - x)) < range && Math.abs(wrapDelta(box.pos[2] - z)) < range;
-    };
+    const near = nearListing;
     const nearTruck = (box) => trucks.some((t) => near(t.state.pos[0], t.state.pos[2], t.radius, box));
-    // A truck that is not the player's own does not bring in a type 11 box or one with no model (MTM2 and CP4,
-    // OpenPhotex `listedByComputerTruck`); the player's truck and the listed objects bring in every box.
-    const truckBringsIn = (box) => trucks.some((t, i) => near(t.state.pos[0], t.state.pos[2], t.radius, box)
-      && (i === 0 || !mtm2Listing || S.listedByComputerTruck(box.type, box.hasModel, networkDrivers)));
+    const truckBringsIn = (box) => trucks.some((t, i) => bringsIn(box, t, i));
     // "Near a box already listed", without testing every listed box: the boxes listed so far stand in a grid on the
     // world's wrap, each in the cells its reach covers (its radius + 10 ft either way), and a box asks only the cells
     // it covers (its radius either way). Two boxes are near only when those squares overlap, so the answer, the list
@@ -1096,13 +1247,22 @@ export function createSession(init) {
       nearFaces.length = 0;
       facesAround(t.state.pos[0], t.state.pos[2], t.radius, nearFaces);
       for (const face of nearFaces) S.withNearest(t.state, face.centre[0], face.centre[2], () => S.collideTruckFace(t.state, t.params, face, STEP), worldFt);
-      for (const box of listed) {
+      // A box further off on x or z than the pair's widest sphere (twice the truck's radius and the box's, the triangle
+      // path's) is separated by collideTruckBox's first test, which returns at once with nothing changed: not called.
+      // A city lists thousands of boxes a step through its blocks (14.15), nearly all of them far from every truck.
+      const special = extensionSession?.specialBox, R = S.truckRadius(t.params);
+      const close = (box) => {
+        const reach = 2 * (R + box.radius);
+        return Math.abs(wrapDelta(box.pos[0] - t.state.pos[0])) < reach && Math.abs(wrapDelta(box.pos[2] - t.state.pos[2])) < reach;
+      };
+      for (const box of chainFast ? listedAround(t.state.pos[0], t.state.pos[2], 2 * R, close) : listed) {
+        if (box !== special && !close(box)) continue;
         const collide = () => {
           const touch = near(box, () => S.collideTruckBox(t.state, t.params, box, STEP, rules));
           if (touch) noteObjectHit(t, box, touch);
           return touch;
         };
-        if (box === extensionSession?.specialBox) extensionSession.collideSpecial(ti, box, collide);
+        if (box === special) extensionSession.collideSpecial(ti, box, collide);
         else collide();
       }
       for (const car of crushCars) near(car, () => S.collideTruckTopCrush(car, t.state, t.params, crushCtx));
@@ -1113,11 +1273,23 @@ export function createSession(init) {
       }
       grounds.push(...t.nearBoxes);
     }
+    // Two boxes that never move never meet (OpenPhotex collideBoxes returns at once): each pair has a moving one first.
+    // Through a grid (worker/box-pairs.js): only the pairs that can meet, in the full loops' order.
+    if (chainFast) {
+      // The list's still boxes that matter are those within a mover's reach (collideBoxes's first test is their spheres).
+      const withGrounds = listAny ? grounds : [];
+      const moving = [...listedLive, ...extraBoxes, ...withGrounds].filter((box) => box.dynamic);
+      if (!moving.length) return;
+      const near = new Set();
+      for (const m of moving) stillAround(m.pos[0], m.pos[2], m.radius, (o) => { if (isListed(o)) near.add(o); });
+      const level = [...near, ...listedLive.filter((box) => !box.dynamic)].sort((a, b) => a.listIndex - b.listIndex);
+      const still = [...level, ...extraBoxes.filter((box) => !box.dynamic), ...withGrounds.filter((box) => !box.dynamic)];
+      forEachBoxPair(moving, still, (a, b) => S.collideBoxes(a, b, STEP, rules));
+      return;
+    }
     const all = listed.length ? [...listed, ...grounds] : listed;
     extensionSession?.addSpecialWalls?.(all, listed);
-    // Two boxes that never move never meet (OpenPhotex collideBoxes returns at once): each pair has a moving one first.
     const moving = all.filter((box) => box.dynamic), still = all.filter((box) => !box.dynamic);
-    // Through a grid (worker/box-pairs.js): only the pairs that can meet, in the full loops' order.
     forEachBoxPair(moving, still, (a, b) => S.collideBoxes(a, b, STEP, rules));
   }
 
@@ -1732,6 +1904,39 @@ export function createSession(init) {
     t.pace = cpuPaceFactor(m, segment, course);
   }
 
+  /*
+    The level boxes `obstaclesFor` looks at, without going through every one for every computer truck: the inert ones
+    (they never move) stand in a grid of LIST_CELL_FT cells on the world's wrap, each in the cells its radius covers, and
+    a truck asks the cells within `reach` of it; the others are always asked. A box within reach + its radius on x and
+    z shares a cell with the truck's square, so no box the test below passes is left out, and the candidates come in
+    the level's order, so the obstacles do too. A city has thousands of boxes; a truck has a few dozen in reach. Where
+    the list is made by going through every box (`chainFast` false: a small level, a mode's own session, which may
+    move level boxes, or a world not a whole number of cells), every box is asked.
+  */
+  let obstacleGrid = null, obstacleQuery = 0;
+  const obstacleOrder = new Map(levelBoxes.map((box, i) => [box, i]));
+  function obstacleCandidates(x, z, reach) {
+    if (!chainFast) return levelBoxes;
+    if (!obstacleGrid) {
+      obstacleGrid = { cells: new Map(), others: [], stamp: new Map() };
+      for (const box of levelBoxes) {
+        if (box.ghost || meshBoxes.has(box)) continue;
+        if (!box.inert) { obstacleGrid.others.push(box); continue; }
+        eachListCell(box.pos[0], box.pos[2], box.radius, (cell) => {
+          const there = obstacleGrid.cells.get(cell);
+          if (there) there.push(box); else obstacleGrid.cells.set(cell, [box]);
+          return false;
+        });
+      }
+    }
+    const { cells, others, stamp } = obstacleGrid, query = ++obstacleQuery, found = [...others];
+    eachListCell(x, z, reach, (cell) => {
+      for (const box of cells.get(cell) ?? []) if (stamp.get(box) !== query) { stamp.set(box, query); found.push(box); }
+      return false;
+    });
+    return found.sort((a, b) => obstacleOrder.get(a) - obstacleOrder.get(b));
+  }
+
   /**
    * What a computer racer could drive into ahead (game/obstacle-avoid.js): the level's objects it cannot shove, the
    * static walls, and the ground boxes that stand up as walls where the course does not run over them.
@@ -1740,7 +1945,7 @@ export function createSession(init) {
     const s = t.state, out = still ? [] : t.obstacles ?? (t.obstacles = []);
     out.length = 0;
     const reach = AVOID.maxLookFt + 40;
-    for (const box of levelBoxes) {
+    for (const box of obstacleCandidates(s.pos[0], s.pos[2], reach)) {
       if (box.ghost || !S.boxIsImmovableFor(box, t.params.massSlug)) continue;
       // A mesh is driven on: its walls and drops are looked for below, not its box.
       if (meshBoxes.has(box)) continue;
@@ -1983,8 +2188,12 @@ export function createSession(init) {
       }
     }
     listBoxes();
-    if (before.length < listed.length * 6) before = new Float64Array(listed.length * 12);
-    listed.forEach((box, i) => poseInto(box, before, i * 6));
+    // The listed boxes that can move this step; the others' steps and checks below change nothing (`inert`).
+    stirring.length = 0;
+    if (chainFast) stirring.push(...listedLive, ...extraBoxes);
+    else for (const box of listed) if (!box.inert || extensionSession) stirring.push(box);
+    if (before.length < stirring.length * 6) before = new Float64Array(stirring.length * 12);
+    stirring.forEach((box, i) => poseInto(box, before, i * 6));
     for (const t of trucks) {
       // The player's helicopter holds the truck still and carries it itself (game/heli-flight.js).
       if (t.flight) { flyTruck(t); continue; }
@@ -2000,7 +2209,7 @@ export function createSession(init) {
       t.snd.bottoming = Math.max(t.snd.bottoming, t.state.bottoming ?? 0);
       t.snd.splash = t.snd.splash || t.state.splash;
     }
-    for (const box of listed) S.stepBox(box, ground, STEP);
+    for (const box of stirring) S.stepBox(box, ground, STEP);
     pairTests();
     // A truck whose state has blown up (a contact it was deep inside of threw it with a force no step can follow) is put
     // back as it last stood, at rest. The game has no such guard; without one a broken number spreads and the race
@@ -2030,7 +2239,7 @@ export function createSession(init) {
     for (const t of trucks) S.postStepTruck(t.state, t.params, t.ctx.ground, STEP);
     wrapAfter();
     if (rules.crashDamage) for (const t of trucks) noteHull(t);
-    listed.forEach((box, i) => {
+    stirring.forEach((box, i) => {
       S.postStepBox(box, ground);
       // A box whose numbers broke is put back, before a truck or a mode's driver meets them.
       keepBoxSane(box);

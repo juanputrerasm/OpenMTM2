@@ -178,6 +178,31 @@ volumes as the renderer DLL draws them), hotfix 4 (17: the track lights' glow an
   leaves and grass) lights a face by `mix(I, max(I, I_back), t)` as the renderer DLL does for placed objects and for
   the .VEG's instanced trees and grass, so leaves and blades turned from the sun are no longer dark and the grass no
   longer sinks into the ground's colour.
+- **City tracks no longer lag after a minute** (worker/sim-worker.js): on a converted city (mm1conversion's
+  CHICAGO.POD) the object list (MTM2_PHYSICS.md 14.15) chains across the blocks and lists nearly every one of its
+  4,900 boxes each step, and the simulation went through all of them for every truck: 15 to 27 ms a step in Chrome's
+  worker, so its replies fell to a few a second while the frame rate held. The boxes nothing moves (`inert`) skip
+  the step's bookkeeping, a truck's tests skip boxes past their first distance test, the computer drivers' obstacles
+  come from a grid, and on a level of 1,000 or more inert boxes the list is asked of the boxes that matter only
+  (`chainFast`). The same final state as before on every track compared (CHICAGO, Liberty City, BEAVER, TPARK, SNAKE,
+  CIRC5, ZO0NKITC, DEMO under the OMTM2, MTM2 and CP4 rules); CHICAGO's step 5 to 8 times faster.
+- **K is the Camera key again in every race** (game/input/bindings.js, game/race-end.js `cameraAfterEnd`): Team chat
+  had K too and took it in network races (and in single player with the chat box on); it has no key now, Tab in the
+  chat box turns a line to the team. The race's end set the camera back on the player's truck every tick, so K's
+  choice lasted one tick; it now moves the camera only when the player finishes and when another truck finishes after.
+- **Community Patch 4 lakes are water to the effects** (render/tire-effects.js, render/water-effects.js,
+  render/water-ripples.js, render/particles.js): splashes, spray, rooster tails, mist, ice, the wheels' and bodies'
+  wakes, foam and silt, sounds struck under them, and the rain's and fog's floor take the lake's level where a lake
+  is, not the track's alone. The lakes had never been given the ripple field (render/scenery.js), so no wake or foam
+  was drawn on them at all.
+- **Wheels afloat throw water, and a body through the surface foams** (VISUALS.md, "Rooster tails" and "The body
+  through the surface"; game/water.js `hullStir`): OpenMTM2's own, for a truck whose wheels are off the bed in deep
+  water or wholly under it.
+- **The echo under cover** (MONSTER_EXE_ANALYSIS.md 12, "Echo under cover", `0x41cd50`; game/sound-model.js
+  `echoTaps`, audio/audio-engine.js): a truck's sounds, crashes and objects struck under a ground box are heard again
+  0.1 s and 0.225 s later, by how many of the nine points about them are covered, as in the game; one tap at 0.4 s
+  under water. OpenMTM2 also counts a model or the terrain over a sound that is itself under one (a converted city's
+  tunnels and halls). Tests: tests/sound-model.test.mjs, tests/ground-boxes.test.mjs.
 
 ## v0.7.3
 

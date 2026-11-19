@@ -53,6 +53,21 @@ export function createDecks({ heights, heightsFt = null, ra0, ra1, stepFt = 2, b
 export const CAMERA_BOX_MARGIN_FT = 1;
 
 /**
+ * Whether a point (game feet) is under a ground box, as the echo asks it (MONSTER_EXE_ANALYSIS.md 12, "Echo under
+ * cover"; `0x41d0c0`, `0x502510`): the point is below its 32 ft cell's lower layer (`.RA0`), compared in the game's
+ * units, `trunc(y x 256) / 4` against the byte shifted left 7 (2 ft a step). `.RA1` is not looked at: a cell with no box
+ * has both layers equal, normally 0, which nothing is under. A track format version 6 track's 16-bit layers (`ra0` a
+ * Uint16Array) over their height base: covered only where the cell has a box. Null for a level without ground boxes.
+ */
+export function createCoverTest({ ra0, ra1, stepFt = 2, baseFt = 0, cells = 256 }) {
+  if (!ra0 || !ra1 || !ra0.some((lower, i) => lower !== ra1[i])) return null;
+  const mask = cells - 1, wide = ra0 instanceof Uint16Array;
+  const cell = (x, z) => ((Math.trunc(z * 256) >> 13) & mask) * cells + ((Math.trunc(x * 256) >> 13) & mask);
+  if (wide) return (x, y, z) => { const i = cell(x, z); return ra0[i] !== ra1[i] && y < baseFt + ra0[i] * stepFt; };
+  return (x, y, z) => Math.trunc(Math.trunc(y * 256) / 4) < ra0[cell(x, z)] << 7;
+}
+
+/**
  * Whether a point (game feet) is inside a ground box, within `margin` feet of one: the cell (32 ft, the world wrapping
  * as the game's grid does, MTM2_PHYSICS.md 14.18) has a box and the point is between its underside and its top. A
  * tunnel built of ground boxes is solid walls and a roof with room under it. For the chase camera, which the game keeps

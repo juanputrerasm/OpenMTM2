@@ -73,3 +73,26 @@ test("ISLAND: its 400 ft fence on the map's edge is solid but not drawn", {
   const hidden = all.length - build.groundBoxes.count;
   assert.equal(hidden, edge.length, "every edge box undrawn");
 });
+
+test("the echo's cover (0x41d0c0, 0x502510): below the cell's .RA0 layer, in the game's units, .RA1 not looked at", async () => {
+  const { createCoverTest } = await import("../src/game/ground-boxes.js");
+  const ra0 = new Uint8Array(256 * 256), ra1 = new Uint8Array(256 * 256);
+  // Cell (col 3, row 2): a box from 20 ft (layer 10) up to 30 ft.
+  ra0[2 * 256 + 3] = 10; ra1[2 * 256 + 3] = 15;
+  const covered = createCoverTest({ ra0, ra1 });
+  assert.equal(covered(3 * 32 + 5, 19.99, 2 * 32 + 5), true);
+  assert.equal(covered(3 * 32 + 5, 20, 2 * 32 + 5), false);
+  assert.equal(covered(4 * 32 + 5, 5, 2 * 32 + 5), false);
+  // A cell with equal layers above 0 still covers what is below it: the game reads .RA0 alone.
+  ra0[0] = ra1[0] = 4;
+  assert.equal(createCoverTest({ ra0, ra1 })(1, 7, 1), true);
+  // Without ground boxes, nothing.
+  assert.equal(createCoverTest({ ra0: new Uint8Array(4), ra1: new Uint8Array(4), cells: 2 }), null);
+  // A track format version 6 track's 16-bit layers over their base: covered only where the cell has a box.
+  const w0 = new Uint16Array(4), w1 = new Uint16Array(4);
+  w0[0] = 10; w1[0] = 20; w0[1] = w1[1] = 50;
+  const wide = createCoverTest({ ra0: w0, ra1: w1, stepFt: 0.5, baseFt: 100, cells: 2 });
+  assert.equal(wide(1, 104, 1), true);
+  assert.equal(wide(1, 105, 1), false);
+  assert.equal(wide(33, 104, 1), false);
+});

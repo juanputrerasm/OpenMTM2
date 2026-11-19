@@ -548,6 +548,14 @@ truck's wake broke into a row of dots wherever a frame took longer than a sixtie
   waves and not one. A wheel clear of the water does nothing, nor does one more than a foot and
   a half under it past where it counts as under the water (`SUBMERGED_FT`, "Particles"), and
   between the two it stirs the surface less the deeper it is.
+- **The body through the surface** (`hullStir`, `HULL_CHURN`; render/water-ripples.js). A truck whose
+  body goes through the water's surface (its lowest hull point under it, its highest over it)
+  stirs it about its four lowest hull points as it moves: the surface held down over 2.4 ft, by
+  0.1 ft and 0.02 ft more for every foot a second, 0.9 ft at the most, and beaten white over
+  3.5 ft, from 4 ft/s of the body's middle, all it can from 30 ft/s. Both fade in over the first
+  half foot of the body in and the last half foot out. So a truck whose wheels are wholly under
+  (a deep lake's bed, the track's deep water) still leaves a wake and foam where its body meets
+  the water; at rest it only lies in it. The track's water and the lakes alike; not on ice.
 - **A wheel that comes down into the water** (`landingStir`) at 5 ft/s or more pushes it down at
   once over 3 ft, by 0.06 ft for every foot a second it fell, 2.5 ft at the most, and a ring
   runs out from where it struck.
@@ -1591,6 +1599,13 @@ sheets. Before, the tread threw a few drops, as off a puddle.
   the wheel; each scattered by up to 2.5 ft/s every way.
 - *A plume.* Six in ten are drawn large and faint (0.25 to 0.5 ft across, hiding 0.13), the rest
   as a sheet's plain drops.
+- *Afloat* (`render/tire-effects.js` `floatWheel`). A wheel off the ground with its tread in the
+  water's surface (its bottom under the surface and its top no more than 0.3 ft under it, over a
+  bed below the surface; not in Snow) throws as a wading one does, from the surface: the burst on
+  meeting the water at over 12 ft/s (not when it has only lifted off the bed), then each tick its
+  mist, its sheets and its rooster tail, paddled as fast as the wheel spins. A truck floating in
+  deep water, the track's or a lake's, churns it as it drives. The game's wheels throw only on the
+  ground; this is the port's own.
 
 The rings a drop leaves where it falls back into water are the water's own: the field of waves
 the trucks stir ("Ripples and wakes"). The game's `SPLATRIP` rings, flat sprites of a few rings

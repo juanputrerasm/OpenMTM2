@@ -4,7 +4,7 @@
   - The feed, bottom left: the last few lines, each fading after a few seconds. A sender's name is in their team's
     colour, or their truck's; team and private lines are tagged, notices dim. A repeated line counts up ("x3"), and one
     sender's run of lines is held to three.
-  - The box (the Chat key, Enter, or Team chat, K): the game's 20-line history behind it, Page Up and Page Down to scroll
+  - The box (the Chat key, Enter): the game's 20-line history behind it, Page Up and Page Down to scroll
     it (the game's View Next and View Prev Chat), Tab to change who it sends to (All, Team, Reply), the characters left,
     and the commands /w, /r, /t, /a, /mute, /unmute and /help. Enter sends, Escape closes.
   - The quick-message wheel for a gamepad: hold View (Back) while driving, point the right stick, let go to send.

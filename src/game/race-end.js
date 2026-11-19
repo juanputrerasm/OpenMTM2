@@ -62,3 +62,14 @@ export function createRaceEnd({ summit = false, spectator = false } = {}) {
     },
   };
 }
+
+/**
+ * The truck the camera is on after a tick's `update` (`end`), from the one it was on (`current`) and the race end's
+ * target the tick before (`lastTarget`): the race's end moves it only the tick the player finishes (onto the player's
+ * truck) and when its target changes after that (another truck finishing). In between it stays where the Camera key
+ * (K, Shift+K) put it, as in the game, whose key sets the view's truck and nothing sets it back while the race runs
+ * (MONSTER_EXE_ANALYSIS.md 11).
+ */
+export function cameraAfterEnd(current, end, lastTarget) {
+  return end.justFinished || end.target !== lastTarget ? end.target : current;
+}

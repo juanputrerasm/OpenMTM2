@@ -198,3 +198,25 @@ test("a sound that was mixed keeps its place against one only a little louder", 
   levels[16] = 0.9;
   assert.equal(cullVoices(levels, 16, held)[16], true);
 });
+
+test("the echo under cover (MONSTER_EXE_ANALYSIS.md 12, 0x41cd50): nine points 10 ft apart, the middle twice", async () => {
+  const { echoTaps, coverFor, NO_ECHO } = await import("../src/game/sound-model.js");
+  // Under a roof all round: n = 10, 0.1 s at 1.1 (the mixer holds it to 1) and 0.225 s at 0.7.
+  const all = echoTaps({ pos: [100, 5, 100], covered: () => true });
+  assert.equal(all.length, 2);
+  near(all[0].delayS, 0.1); near(all[0].gain, 1.1);
+  near(all[1].delayS, 0.225); near(all[1].gain, 0.7);
+  // Only the middle covered counts two; only one corner, one.
+  near(echoTaps({ pos: [100, 5, 100], covered: (x, y, z) => x === 100 && z === 100 })[0].gain, 0.22);
+  near(echoTaps({ pos: [100, 5, 100], covered: (x, y, z) => x === 110 && z === 110 })[1].gain, 0.07);
+  // The points are at the source's height.
+  echoTaps({ pos: [0, 7.5, 0], covered: (x, y) => { assert.equal(y, 7.5); return false; } });
+  assert.equal(echoTaps({ pos: [0, 0, 0], covered: () => false }), NO_ECHO);
+  // Under water: one tap only when both the source and the listener are under; none for either alone, cover or not.
+  assert.deepEqual(echoTaps({ pos: [0, 0, 0], covered: () => true, sourceUnder: true, listenerUnder: true }), [{ delayS: 0.4, gain: 0.4 }]);
+  assert.equal(echoTaps({ pos: [0, 0, 0], covered: () => true, sourceUnder: true }), NO_ECHO);
+  assert.equal(echoTaps({ pos: [0, 0, 0], covered: () => true, listenerUnder: true }), NO_ECHO);
+  // OpenMTM2's models count only where the source itself is under one.
+  assert.equal(coverFor([0, 0, 0], { meshAbove: (x) => x !== 0 }), null);
+  assert.equal(coverFor([0, 0, 0], { meshAbove: () => true })(10, 0, 10), true);
+});

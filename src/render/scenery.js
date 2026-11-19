@@ -82,8 +82,10 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
   // The waves the trucks stir, in the level's water and in the puddles alike (render/water-ripples.js).
   const levelFt = build.waterLevelFt ?? null;
   const hasWater = on.water && levelFt !== null && world.getObjectByName("water");
-  const ripples = renderer && (hasWater || (puddleTexture && build.puddles))
-    ? createWaterRipples({ renderer, groundTexture, levelFt: hasWater ? levelFt : null, puddles: build.puddles ?? null, puddleTexture, ground }) : null;
+  // Community Patch 4's lakes (render/lakes.js) are stirred as the track's water is, each at its own level.
+  const hasLakes = on.water && !!build.lakes?.tileMap && !!world.getObjectByName("lake");
+  const ripples = renderer && (hasWater || hasLakes || (puddleTexture && build.puddles))
+    ? createWaterRipples({ renderer, groundTexture, levelFt: hasWater ? levelFt : null, puddles: build.puddles ?? null, puddleTexture, ground, lakes: hasLakes ? build.lakes : null }) : null;
   // The snow the track was built with, for a race that began in Snow (game/snow-cover.js): how deep it lies, and how thin
   // the course keeps it.
   const settled = on.snow && build.snowCover
@@ -125,7 +127,7 @@ export function createScenery({ scene, camera, world, sun, build, settings, grou
       tones: build.terrain?.atlas ? tileTones(build.terrain.atlas) : null, fallbackTone: groundTone,
     }) : null;
   const water = on.water ? createWaterSystem({
-    world, groundTexture, lights: { sun, ambient, hemisphere: lightRig?.hemisphere ?? null }, ripples: hasWater ? ripples : null, reflection,
+    world, groundTexture, lights: { sun, ambient, hemisphere: lightRig?.hemisphere ?? null }, ripples: hasWater || hasLakes ? ripples : null, reflection,
     groundTone,
     // Community Patch 4's Normal-Water (worker/track-build.js).
     detail: build.waterDetail ?? null,
