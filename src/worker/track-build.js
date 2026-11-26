@@ -14,6 +14,7 @@ import { loadHdSky, loadWeatherArt } from "./weather-art.js";
 import { weatherSkyStem } from "../game/weather.js";
 import { BOX_FOG, BOX_LIGHT, BOX_MOVING } from "../vendor/openphotex/mtm/sit.js";
 import { buildLakeSheets, buildShadowShells, buildVegetation, vegetationWalls } from "./cp4-world.js";
+import { twinPropsHidden } from "./twin-props.js";
 import { buildTrackFalls, fallHeights, trackAnimations } from "./cp4-falls.js";
 import { loadWaterFrames } from "./effects-art.js";
 import { fogVolumesOf, withFogGround } from "../game/fog-volumes.js";
@@ -43,28 +44,59 @@ import { artStem, hdTextureLimit, loadAoMap, loadArtTexture, loadDetailImage, lo
 import { averageColor, defaultTerrainMask } from "../shared/terrain-mask.js";
 
 /**
- * A level's usable Community Patch 4 lakes (docs/CP4_EXE_ANALYSIS.md 2): those with a height in 1..4096 half-feet and
- * a surface above the track's own water, as the engine keeps them (it skips the rest with BELOW_BODY0 / HEIGHT_RANGE).
- * A .WTR version 2 (a track format version 6 track's) takes the terrain's own range instead (`level.lakeHeightRange`).
+ * The lowest ground of a tile, feet: its four 32 ft corners, or on a Spline or Full Map track the lowest of its 25
+ * points on the 8 ft grid (CP4_ENGINE_UPDATES.md 5, "wet").
  */
-function lakesOf(level) {
+export function tileLowFt(level, x, z) {
+  const cells = level.cells ?? 256;
+  if (level.fineFt) {
+    const side = 4 * cells;
+    let low = Infinity;
+    for (let dz = 0; dz <= 4; dz++) for (let dx = 0; dx <= 4; dx++) {
+      low = Math.min(low, level.fineFt[((4 * z + dz) % side) * side + ((4 * x + dx) % side)]);
+    }
+    return low;
+  }
+  const at = (cx, cz) => {
+    const i = (cz % cells) * cells + (cx % cells);
+    return level.heightsFt ? level.heightsFt[i] : level.heights[i] * 2;
+  };
+  return Math.min(at(x, z), at(x + 1, z), at(x, z + 1), at(x + 1, z + 1));
+}
+
+/**
+ * A level's usable Community Patch 4 lakes (docs/CP4_ENGINE_UPDATES.md 5): a body is left out when its height is outside
+ * the track's window (`level.lakeHeightOk`), at or below the track's own water, or when any of its tiles is already wet
+ * under that water (judged against its mean level). Bad records the .WTR reader already left out (`wtr.skipped`).
+ */
+export function lakesOf(level) {
   const wtr = level.lakes;
   if (!wtr?.tileMap) return null;
   const levelFt = new Float32Array(256);
   const tileMap = new Uint8Array(wtr.tileMap);
+  const cells = Math.round(Math.sqrt(tileMap.length));
   const bodies = [];
-  const [low, high] = level.lakeHeightRange?.(wtr.major ?? 1) ?? [1, 4096];
+  const heightOk = level.lakeHeightOk ?? ((h) => h >= 1 && h <= 4096);
+  const water = level.waterLevelFt ?? null;
+  // Bodies with a tile under the track's water.
+  const drowned = new Set();
+  if (water !== null && (level.heights || level.heightsFt)) {
+    for (let i = 0; i < tileMap.length; i++) {
+      const id = tileMap[i];
+      if (id && !drowned.has(id) && tileLowFt(level, i % cells, Math.floor(i / cells)) < water) drowned.add(id);
+    }
+  }
   const kept = new Set();
   for (const lake of wtr.lakes) {
-    const ok = lake.height >= low && lake.height <= high && (level.waterLevelFt === null || lake.heightFt > level.waterLevelFt);
+    const ok = heightOk(lake.height, wtr.major ?? 1) && (water === null || lake.heightFt > water) && !drowned.has(lake.id);
     if (ok) {
       levelFt[lake.id] = lake.heightFt;
       kept.add(lake.id);
       bodies.push({ id: lake.id, levelFt: lake.heightFt, reflective: lake.reflective, box: lake.box });
-    }
+    } else console.info(`Lake ${lake.id} skipped`);
   }
   for (let i = 0; i < tileMap.length; i++) if (tileMap[i] && !kept.has(tileMap[i])) tileMap[i] = 0;
-  return bodies.length ? { tileMap, levelFt, bodies, cells: Math.round(Math.sqrt(tileMap.length)) } : null;
+  return bodies.length ? { tileMap, levelFt, bodies, cells } : null;
 }
 
 /** A level's lakes with each body's water sheet (worker/cp4-world.js `buildLakeSheets`). */
@@ -548,6 +580,22 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     });
   }
 
+  // Community Patch 4 2.0.52.4's twin props (worker/twin-props.js, CP4_ENGINE_UPDATES.md 12): at Normal and Complex
+  // detail (Medium and High) the higher-priority copy of a doubled building shell is not drawn; it still collides.
+  if (detailLevel >= 1 && !cpr && !mtm1Track) {
+    const candidates = objects.flatMap((o, i) => {
+      const box = sit.boxes[o.sitIndex];
+      if (o.billboard || o.crushCar !== undefined || !box || box.bvel || box.mass > 0 || !models[o.model]?.meshes?.length) return [];
+      return [{ i, meshes: models[o.model].meshes, matrix: mtm2Sim.eulerToMatrix(box.theta, box.phi, box.psi, new Array(9)), pos: box.positionFt, priority: box.priority ?? 0 }];
+    });
+    const hidden = twinPropsHidden(candidates);
+    if (hidden.size) {
+      const drop = new Set([...hidden].map((k) => candidates[k].i));
+      console.info(`Twin props: ${drop.size} not drawn`);
+      for (let i = objects.length - 1; i >= 0; i--) if (drop.has(i)) objects.splice(i, 1);
+    }
+  }
+
   // Community Patch 4 beta 0.53's shadow shells (docs/CP4_EXE_ANALYSIS.md 13): the roofed buildings whose model the sun's
   // shadows leave out while the camera is inside one. Measured here, once a level, before the stadium joins the objects.
   const shadowShells = buildShadowShells(objects, sit.boxes, models, (box) => mtm2Sim.eulerToMatrix(box.theta, box.phi, box.psi, new Array(9)));
@@ -607,7 +655,10 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
   for (const name of new Set(collisionBoxes.map((b) => b.modelName).filter(Boolean))) {
     const soup = collisionSoupOfModel(models[name]);
     if (!soup) continue;
-    const srfBytes = await vfs.read(`MODELS\\${name.replace(/\.[^.\\]*$/, "")}.SRF`);
+    // A .SRF counts only in the archive of the model's .BIN (CP4_ENGINE_UPDATES.md 5).
+    const srfPath = `MODELS\\${name.replace(/\.[^.\\]*$/, "")}.SRF`;
+    const srfHit = vfs.find?.(srfPath), binHit = vfs.find?.(`MODELS\\${name}`);
+    const srfBytes = srfHit && binHit && srfHit.mount !== binHit.mount ? null : await vfs.read(srfPath);
     let surfaceTypes = null;
     if (srfBytes && srfBytes.length >= 1 && srfBytes.length <= 65535) {
       const srf = parseSrf(srfBytes);
@@ -1004,6 +1055,8 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
       grid: sit.trackTypeCode === 4 && !cpr ? rumbleGrid(grid, checkpoints[0]?.gate) : grid,
       /** The checkpoints, gate and detector (MONSTER_EXE_ANALYSIS.md 6.2), sized by their models. */
       checkpoints,
+      /** Community Patch 4 2.0.52.4's checked race rules (worker/level-load.js, game/cpx-rules.js), or null. */
+      raceRules: level.raceRules ?? null,
       start: trucks.length ? {
         file: trucks[0].file,
         pos: sit.trucks.find((t) => !t.playerSlot && t.positionFt)?.positionFt ?? null,

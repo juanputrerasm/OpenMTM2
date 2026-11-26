@@ -10,6 +10,7 @@ import { RNR_EXTENSION } from "./race-rumble.js";
 import { COMBAT_EXTENSION } from "./combat.js";
 import { FREESTYLE_EXTENSION } from "./freestyle.js";
 import { DEATHMATCH_EXTENSION } from "./deathmatch.js";
+import { TIME_ATTACK_EXTENSION } from "./time-attack.js";
 import { msg } from "../strings.js";
 import { DEFAULT_REPAIR_S } from "./loose-wheels.js";
 
@@ -17,7 +18,7 @@ import { DEFAULT_REPAIR_S } from "./loose-wheels.js";
 export { LOOSE_WHEEL_TEXT, REPAIR_CHOICES, damagePercent, damageText } from "./loose-wheels.js";
 
 /** Shipped extensions. A new extension is registered in this one place. */
-export const EXTENSIONS = Object.freeze([HOCKEY_EXTENSION, SOCCER_EXTENSION, TAG_EXTENSION, CNR_EXTENSION, RNR_EXTENSION, COMBAT_EXTENSION, DEATHMATCH_EXTENSION, FREESTYLE_EXTENSION]);
+export const EXTENSIONS = Object.freeze([HOCKEY_EXTENSION, SOCCER_EXTENSION, TAG_EXTENSION, CNR_EXTENSION, RNR_EXTENSION, COMBAT_EXTENSION, DEATHMATCH_EXTENSION, FREESTYLE_EXTENSION, TIME_ATTACK_EXTENSION]);
 
 /** An extension descriptor by id, or null for a core mode or an unknown id. */
 export function extensionById(id) {
@@ -112,7 +113,7 @@ export function extensionLength(settings, extension) {
 
 /** A generic race length label, delegated to an extension when one is selected. */
 export function lengthLabel(type, mode) {
-  return extensionById(mode)?.length.label ?? (type === "summit" ? msg("Minutes") : msg("Laps"));
+  return extensionById(mode)?.length?.label ?? (type === "summit" ? msg("Minutes") : msg("Laps"));
 }
 
 /**

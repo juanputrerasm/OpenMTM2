@@ -14,6 +14,7 @@ import { parseEvoLte } from "../vendor/openphotex/evo/lte.js";
 import { isMtm2V6Situation, parseMtmSit } from "../vendor/openphotex/mtm/sit.js";
 import { parseTruckManifest } from "../vendor/openphotex/truck/manifest.js";
 import { podPathTitle } from "../vendor/openphotex/pod/paths.js";
+import { parseTxvAsEngine, readTxvInfo } from "../vendor/openphotex/mtm/txv.js";
 import { courseLengthFt } from "./cpr-road.js";
 import { FOREIGN_TRUCK_GAMES, foreignTruckId } from "./foreign-truck-build.js";
 import { mtm1TruckId } from "./truck-build.js";
@@ -285,29 +286,18 @@ export function readAhead(items, read, width = 32) {
   });
 }
 
+/** The most MTM2 tracks Community Patch 4 2.0.52.4 lists (CP4_ENGINE_UPDATES.md 6). */
+export const MAX_MTM2_TRACKS = 2048;
+
 export async function buildCatalog(vfs) {
   const problems = [];
   const tracks = [];
-  // Community Patch 3 writes a track that needs its engine as `.SI2`, which a 1998 install never lists; when a track is
-  // there in both spellings the `.SI2` is the one its author meant for this engine.
-  // A track format version 6 situation (`.SI3`, docs/EXTENSIONS.md "Track format version 6") is a track of its own: a
-  // `.SIT` or `.SI2` of the same stem is a different track, listed beside it, never a fallback (the specification's 5.1).
-  // The list keeps the mount order (POD.INI's), then each archive's own order, as the game's does: it is not sorted by name.
-  const stemOf = (path) => podPathTitle(path).replace(/\.SI[T23]$/i, "");
-  const si2 = new Map(vfs.list(".SI2").map((hit) => [stemOf(hit.path), hit]));
+  // Community Patch 4 2.0.52.4 (docs/CP4_ENGINE_UPDATES.md 1): one pass over the archives in POD.INI's order, each
+  // archive's `.SIT`, `.SI2` and `.SI3` as they come, and no merging by stem: `FOO.SIT`, `FOO.SI2` and `FOO.SI3` are
+  // three tracks, each known by its file name with the extension. At most 2,048 tracks.
   const order = (hit) => (vfs.allMounts ?? vfs.mounts).indexOf(hit.mount);
-  const situations = [...vfs.list(".SI2"), ...vfs.list(".SIT"), ...vfs.list(".SI3")]
+  const picked = vfs.list([".SIT", ".SI2", ".SI3"])
     .map((hit, index) => ({ hit, index })).sort((a, b) => order(a.hit) - order(b.hit) || a.index - b.index).map(({ hit }) => hit);
-  const seenStems = new Set();
-  const picked = [];
-  for (const first of situations) {
-    const v6 = isMtm2V6Situation(first.path);
-    // One entry a stem for the `.SIT` / `.SI2` pair and one for the `.SI3`: their files (and so the tracks' keys) differ.
-    const stem = `${stemOf(first.path)}${v6 ? ".SI3" : ""}`;
-    if (seenStems.has(stem)) continue;
-    seenStems.add(stem);
-    picked.push(v6 ? first : si2.get(stemOf(first.path)) ?? first);
-  }
   // Other games' tracks are listed apart (CPR below; 4x4 Evolution with docs/CHANGELOG.md F4).
   const mtmSits = picked.filter((hit) => (hit.mount.family ?? "MTM") === "MTM");
   const sitReads = readAhead(mtmSits, (hit) => hit.mount.readEntry(hit.entry));
@@ -319,6 +309,9 @@ export async function buildCatalog(vfs) {
       // A situation without its level cannot be driven (MTM1's HILLCLIM.SIT ships with no HILLCLIM.LVL).
       if (sit.lvlName && !vfs.find(`LEVELS\\${podPathTitle(sit.lvlName)}`)) { problems.push(`${path}: its level ${sit.lvlName} is missing`); continue; }
       const file = podPathTitle(path);
+      // The UI bitmaps a .TXV declares (uiSmall, uiLarge, logo), used as given; the menu reads it by the situation's stem.
+      const txvPath = `DATA\\${file.replace(/\.[^.]*$/, "")}.TXV`;
+      const txv = vfs.find?.(txvPath) ? readTxvInfo(parseTxvAsEngine(await vfs.read(txvPath))) : null;
       tracks.push({
         path,
         pod: mount.name,
@@ -335,7 +328,11 @@ export async function buildCatalog(vfs) {
          * The SIT header's own picture, overhead map and description (MTM1's setup screens and zoom map,
          * MTM1_MONSTER_EXE_ANALYSIS.md 2.10): `UI\<logo>.BMP`, `UI\<map>.BMP` and `WORLD\<description>`, or null.
          */
-        logoBmp: bmpStem(sit.logoBmp), mapBmp: bmpStem(sit.mapBmp), descriptionTxt: sit.descriptionTxt ?? null,
+        logoBmp: bmpStem(txv?.logo ?? sit.logoBmp), mapBmp: bmpStem(sit.mapBmp), descriptionTxt: sit.descriptionTxt ?? null,
+        /** The .TXV's declared UI art (CP4_ENGINE_UPDATES.md 2), stems, or null to derive them as legacy tracks do. */
+        uiSmall: bmpStem(txv?.uiSmall), uiLarge: bmpStem(txv?.uiLarge),
+        /** The .TXV's raceRules (drag, parallel or race): the track's rules are in WORLD\<level>.CPX. */
+        raceRules: txv?.raceRules ?? null,
         /** A drag strip's par time, seconds (the fly-by line as a number), or null. */
         dragParTime: sit.dragParTime ?? null,
         /** The engine's hidden hard-track switch (the fly-by line reads `Sonic`), and the main course's checkpoints. */
@@ -352,6 +349,11 @@ export async function buildCatalog(vfs) {
     } catch (err) {
       problems.push(`${path}: ${err.message}`);
     }
+  }
+  // Community Patch 4 lists at most 2,048 tracks across all archives (CP4_ENGINE_UPDATES.md 6): the first ones kept.
+  if (tracks.length > MAX_MTM2_TRACKS) {
+    problems.push(`${tracks.length - MAX_MTM2_TRACKS} tracks past the first ${MAX_MTM2_TRACKS} are not listed`);
+    tracks.length = MAX_MTM2_TRACKS;
   }
   // The other games' lists are made at once, and kept in this order.
   const [cpr, evo, tv] = await Promise.all([cprTracks(vfs, problems), evoTracks(vfs, problems), tvLevels(vfs, problems)]);

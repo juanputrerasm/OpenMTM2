@@ -799,7 +799,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       sceneryNote,
       // What costs or saves video memory and picture, for a machine that needs it.
       el("h3", {}, t("Advanced")),
-      choose(msg("Texture size"), "textureSize", [msg("Full"), msg("Half (512)"), msg("Quarter (256)")], [1024, 512, 256],
+      choose(msg("Texture size"), "textureSize", [msg("Full"), "1024", "512", "256"], [2048, 1024, 512, 256],
         msg("Largest size kept for HD textures and ground tiles. Half or Quarter uses less video memory. From the next race")),
       choose(msg("Picture size"), "renderScale", ["100%", "85%", "75%", "66%", "50%"], [...RENDER_SCALES],
         msg("How many of the screen's points a race is drawn at, stretched to fill it. Smaller is faster where the graphics chip is what holds the frame rate down; the HUD and the menus stay sharp. From the next race")),
@@ -906,6 +906,7 @@ export async function mountOptionsPanel(container, context, { close: closeNow = 
       toggle(msg("Keep MTM1 trucks apart"), "mtm1TrucksApart", msg("Monster Truck Madness 1 trucks named like MTM2's (BIGFOOT.TRK and the rest) are listed too, as \"Bigfoot (MTM1)\", and drawn from MTM1's own files. Off, a name goes to the archive mounted first, MTM2's, as in the game")),
       row(msg("Drag beam lines"), el("input", { type: "checkbox", class: "opt-switch", checked: settings.dragBeams !== false, "aria-label": t("Drag beam lines"), "data-opt": "Drag beam lines", onchange: (event) => { settings.dragBeams = event.target.checked; save(); } }),
         msg("The drag strip's lines as Monster Truck Madness 1 draws them: the prestage, stage, start and finish beams across the strip and the lane lines down it, so you can see where to stage. The Drag beam lines key (I) shows and hides them in a race")),
+      toggle(msg("Race rule walls"), "cpxWalls", msg("The walls of a track's race rules (a Community Patch 4 .CPX: a drag's lanes, a Parallel race's dividers) drawn see-through in red. The trucks meet them whether they are drawn or not. From the next race")),
       sub(msg("MTM2")),
       toggle(msg("Original backdrops"), "originalBackdrops", msg("The game's own backdrops in place of HD ones (Community Patch 3's backdropsHD.pod), wherever an archive still has the original. From the next race")),
       // MTM2's own two (MONSTER.INI reflectionFlag and truckReflectionFlag), for the game's water and every truck.

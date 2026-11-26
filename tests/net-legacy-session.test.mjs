@@ -258,8 +258,10 @@ test("a CP3 host's trucks: its 65-byte 0x02 is read in the CP3 profile (radians)
   assert.deepEqual(got[0].pos, [100, 5, -40]);
   assert.ok(Math.abs(got[0].euler[2] - 2.5) < 1e-6, "radians, not byte values");
   assert.ok(Math.abs(got[0].steer - 0.15) < 1e-6);
-  assert.equal(got[0].tick, undefined, "the sim gets retail's fields");
-  assert.deepEqual([got[1].kind, got[1].segments, got[1].total], ["progress", 12, 33.5]);
+  assert.equal(got[0].tick, 50, "the sender's tick goes with it (a CP4 room's playback)");
+  assert.equal(got[0].sender, s.hostT.self);
+  // 0x26's truck is the 0-based index: truck 0 is vehicle 1.
+  assert.deepEqual([got[1].kind, got[1].vehicle, got[1].segments, got[1].total], ["progress", 1, 12, 33.5]);
   link.outgoing({ kind: "state", ...cpState, vehicle: 2 });
   s.flush();
   const sent = s.heard.filter((p) => p.type === 0x02);
@@ -353,4 +355,61 @@ test("in a relay room only the room's build is played with: a CP3 player there i
   cp3.send(null, encodePacket("ready", { ready: 1 }, cp3.self, "cp3"), { reliable: true });
   network.flush();
   assert.notEqual(ann.state().players.find((p) => p.dpid === cp3.self)?.ready, true, "its packets are dropped");
+});
+
+test("CP4 2.0.52.4: the host's Original Physics (0x2a) reaches every joiner; a Parallel penalty (0x2b) is set, not added", () => {
+  const { sessions, flush } = lobby(["Host", "Ann"], { profile: PROFILES.cp4 });
+  const [host, ann] = sessions;
+  host.setOriginalPhysics(true);
+  flush();
+  assert.equal(ann.state().game.originalPhysics, true);
+  assert.throws(() => ann.setOriginalPhysics(false), /host/);
+  const heard = [];
+  host.on("penalty", (p) => heard.push(p));
+  ann.sendPenalty(2, 5000);
+  ann.sendPenalty(2, 5000);
+  flush();
+  assert.equal(host.penalties().get(2), 5000, "a repeat cannot count twice");
+  assert.equal(heard.length, 2);
+  host.setOriginalPhysics(false);
+  flush();
+  assert.equal(ann.state().game.originalPhysics, false);
+});
+
+test("CP4 2.0.52.4's version is 0x3404, and a beta 0.52 player is read with the same layouts", () => {
+  assert.equal(PROFILES.cp4.version, 0x3404);
+  const { sessions, flush } = lobby(["Host", "Ann"], { profile: PROFILES.cp4 });
+  flush();
+  assert.equal(sessions[1].state().players.filter((p) => p.unreadable).length, 0);
+});
+
+test("CP4 beta 0.54 (CP4_EXE_ANALYSIS.md 18): 0x26, 0x27 and 0x2b number trucks from 0; a state keeps its tick, poses and sender", () => {
+  const s = cpHost("cp4");
+  const link = cpStart(s, "cp4", { raceId: 0x1357 });
+  const got = [];
+  link.on("event", (e) => got.push(e));
+  // Ours out: Ann is vehicle 2, so truck 1 on the wire; a hit on the host's vehicle 1 is target 0.
+  link.outgoing({ kind: "progress", vehicle: 2, segments: 7, total: 61.25 });
+  link.outgoing({ kind: "collision", vehicle: 2, target: 1, linear: [10, 0, -500], angular: [0, 40, 0] });
+  s.ann.sendPenalty(2, 5000);
+  link.outgoing({ kind: "state", ...cpState, vehicle: 2, tick: 77 });
+  s.flush();
+  const sent = (type) => s.heard.find((p) => p.type === type);
+  assert.deepEqual([sent(0x26).truck, sent(0x26).segments, sent(0x26).total], [1, 7, 61.25]);
+  assert.deepEqual([sent(0x27).target, sent(0x27).source], [0, 1]);
+  assert.deepEqual(Array.from(sent(0x27).linear), [10, 0, -500]);
+  assert.equal(sent(0x2b).truck, 1, "0x2b's truck: packet 0x26's numbering");
+  assert.equal(sent(0x02).tick, 77, "the simulation's own tick is sent");
+  // Theirs in: the host hits Ann's truck (index 1) and reports its own progress.
+  s.hostT.send(null, encodePacket("collision", { target: 1, source: 0, linear: [0, 0, 300], angular: [0, 0, 0] }, s.hostT.self, "cp4"), { reliable: true });
+  s.hostT.send(null, encodePacket("parallelPenalty", { truck: 0, totalMs: 2500 }, s.hostT.self, "cp4"), { reliable: true });
+  s.hostT.send(null, encodePacket("state", stateFields({ ...cpState, tick: 40, poses: [{ age: 1, pos: [99, 5, -41], euler: [0, 0, 2.5] }] }, "cp4"), s.hostT.self, "cp4"));
+  s.flush();
+  const hit = got.find((e) => e.kind === "collision");
+  assert.deepEqual([hit.vehicle, hit.target], [1, 2]);
+  assert.equal(s.ann.penalties().get(1), 2500, "the host's truck 0 is vehicle 1");
+  const state = got.find((e) => e.kind === "state");
+  assert.equal(state.tick, 40);
+  assert.equal(state.poses.length, 1);
+  assert.equal(state.sender, s.hostT.self);
 });

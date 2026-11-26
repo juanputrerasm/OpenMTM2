@@ -80,8 +80,8 @@ export function trunkOf(species, model) {
       }
     }
     if (n > 2) width = 0.65 * Math.max(x1 - x0, z1 - z0);
-    width = Math.min(2 * radius, Math.max(1, width));
   }
-  const heightFt = species.trunkHeight ? species.trunkHeight / 16 : Math.min(tall, Math.max(6, tall * 0.3));
+  // CP4 2.0.52.4 (CP4_ENGINE_UPDATES.md 7.1): the height, authored or 30 % of the model's, clamped to 6 ft .. the model's.
+  const heightFt = Math.min(tall, Math.max(6, species.trunkHeight ? species.trunkHeight / 16 : tall * 0.3));
   return { widthFt: width, heightFt, baseFt: b.min[1] };
 }

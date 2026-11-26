@@ -273,3 +273,25 @@ test("the strip's lines as MTM1 draws them: every checkpoint, along its x when x
   assert.deepEqual([lines[2].a, lines[2].b, lines[2].across], [[-10, 4], [30, 4], [0, 1]]);
   assert.deepEqual([lines[5].a, lines[5].b, lines[5].across.map((v) => v + 0)], [[-10, 0], [-10, 300], [1, 0]]);
 });
+
+test("a lane another machine judges (a CP4 room): no beam, red light or staging rule here; its state is its owner's", () => {
+  const drag = createDrag(STRIP);
+  drag.lanes[1].remote = true;
+  // The remote truck's copy is drawn right through the start beam before the green: no red light here.
+  hold(drag, [2152, 2140], DT);
+  assert.equal(drag.lanes[1].dq, null);
+  assert.equal(drag.lanes[1].state, STAGED.NONE, "its beams are its owner's to judge");
+  // Its owner's progress has it prestaged and staged; ours rolls in too: both staged, the tree runs.
+  drag.lanes[1].state = STAGED.STAGED;
+  drag.lanes[1].stagedAt = drag.clock;
+  hold(drag, [2148.8, 2140], DT);
+  hold(drag, [2147.5, 2140], TREE_DELAY_S + DT);
+  assert.equal(drag.phase, "tree");
+  // Left unstaged by its owner past the stage limit, the local rule leaves it alone (the owner sends its 98).
+  const late = createDrag(STRIP);
+  late.lanes[1].remote = true;
+  hold(late, [2148.8, 2160], DT);
+  hold(late, [2147.5, 2160], PRESTAGE_TIMEOUT_S + STAGE_TIMEOUT_S + 1);
+  assert.equal(late.lanes[1].dq, null);
+  assert.equal(late.lanes[0].dq, null);
+});

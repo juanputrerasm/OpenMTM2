@@ -18,7 +18,7 @@
   neighbours), so a jump is an arc, not straight chords. Pure, so it runs under Node.
 */
 import { nearestCopy } from "../shared/scene-frame.js";
-import { REPLAY_FRAME_TICKS, REPLAY_RING_RECORDS, REPLAY_TICKS_PER_SECOND } from "../vendor/openphotex/mtm/replay.js";
+import { REPLAY_FRAME_TICKS, REPLAY_PENALTIES_MAX, REPLAY_RING_RECORDS, REPLAY_TICKS_PER_SECOND } from "../vendor/openphotex/mtm/replay.js";
 import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
 
 export const FRAME_SECONDS = REPLAY_FRAME_TICKS / REPLAY_TICKS_PER_SECOND;
@@ -86,6 +86,8 @@ export function createReplayRecorder({ level, weather = 0, detailLevel = 2, vehi
   const moved = new Map();
   /** Each change of a top-crush car's share, `{ time, car, share }`, oldest first, and each car's share now. */
   const crushChanges = [], crushNow = [];
+  /** A Parallel race's wall penalties (CP4 2.0.52.4): each change of a truck's total, `{ time, slot, totalMs }`. */
+  const penaltyChanges = [], penaltyNow = [];
   let next = REPLAY_SAMPLE_TICKS, nextFull = REPLAY_FRAME_TICKS;
   const keepTicks = keepSeconds * REPLAY_TICKS_PER_SECOND;
   return {
@@ -94,9 +96,14 @@ export function createReplayRecorder({ level, weather = 0, detailLevel = 2, vehi
      * `time` is the simulation's seconds; `poses` each truck's current snapshot; `boxes` the objects that
      * moved in this reply (`{ sitIndex, pos, euler }`); `damage(i)` a truck's damage code.
      */
-    update(time, poses, boxes = [], damage = () => 0, crush = null) {
+    update(time, poses, boxes = [], damage = () => 0, crush = null, penalties = null) {
       for (const b of boxes) if (!numberOf || numberOf.has(b.sitIndex)) moved.set(b.sitIndex, b);
       const ticks = Math.round(time * REPLAY_TICKS_PER_SECOND);
+      (penalties ?? []).forEach((totalMs, slot) => {
+        if (totalMs === (penaltyNow[slot] ?? 0) || penaltyChanges.length >= REPLAY_PENALTIES_MAX) return;
+        penaltyNow[slot] = totalMs;
+        penaltyChanges.push({ time: ticks, slot, totalMs });
+      });
       // A crush only grows, step by step: kept when it has grown by a hundredth since the last kept, or reached the end.
       (crush ?? []).forEach((share, car) => {
         const was = crushNow[car] ?? 0;
@@ -155,7 +162,14 @@ export function createReplayRecorder({ level, weather = 0, detailLevel = 2, vehi
         else crush.push(c);
       }
       crush.unshift(...[...before].map(([car, share]) => ({ time: first, car, share })));
-      return { level, weather, detailLevel, vehicles, objects: originals, records: out, ...(samples.length ? { samples } : {}), ...(crush.length ? { crush } : {}) };
+      // The penalties: each truck's total where the replay starts (a time-0 style event at its start), then the changes.
+      const penaltyBefore = new Map(), penalties = [];
+      for (const p of penaltyChanges) (p.time < first ? penaltyBefore.set(p.slot, p.totalMs) : penalties.push(p));
+      penalties.unshift(...[...penaltyBefore].filter(([, ms]) => ms > 0).map(([slot, totalMs]) => ({ time: first, slot, totalMs })));
+      return {
+        level, weather, detailLevel, vehicles, objects: originals, records: out, ...(samples.length ? { samples } : {}), ...(crush.length ? { crush } : {}),
+        ...(penalties.length ? { penalties } : {}),
+      };
     },
   };
 }

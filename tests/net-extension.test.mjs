@@ -241,3 +241,39 @@ test("net-race: every machine sends its own trucks' Combat state as its vehicle,
   assert.equal(cmd.value.trucks[1].g, 1);
   assert.equal(cmd.value.trucks[0], null);
 });
+
+test("Soccer's teams, goals and ball reach another machine in its order, as Hockey's", () => {
+  const game = createHockey({ puck: { radius: 1 } }, [1, 0, 0], 3);
+  game.goals = [0, 3, 1];
+  game.event = { kind: "goal", team: 1, scorer: 1, own: 2 };
+  const ball = { pos: [4, 5, 6], vel: [1, 0, 0], bvel: [0, 0, 0], rates: [0, 0, 0], euler: [0, 0, 0] };
+  const got = across("soccer", { ...game, resets: 1, over: false, puck: ball });
+  assert.deepEqual(got.teams, [0, 0, 1], "vehicle 3 on blue, vehicles 1 and 2 on red");
+  assert.deepEqual(got.goals, [3, 1, 0]);
+  assert.equal(got.event.scorer, followerVehicles.indexOf(1));
+  assert.equal(got.event.own, followerVehicles.indexOf(2));
+  assert.deepEqual(got.puck.pos, [4, 5, 6]);
+});
+
+test("Cops & Robbers: the robber, points, captures and the set-down spot reach another machine in its order", () => {
+  const state = {
+    robber: 2, points: [60, 0, 15], captures: [1, 0, 0], safeUntil: 12.5, events: 1, over: false, resets: 1,
+    spot: { pos: [10, 0, 20], heading: 1 }, event: { kind: "capture", by: 0 },
+  };
+  const got = across("cops-robbers", state);
+  assert.equal(got.robber, followerVehicles.indexOf(2));
+  assert.equal(got.points[followerVehicles.indexOf(3)], 60);
+  assert.equal(got.points[followerVehicles.indexOf(2)], 15);
+  assert.equal(got.captures[followerVehicles.indexOf(3)], 1);
+  assert.equal(got.event.by, followerVehicles.indexOf(3));
+  assert.deepEqual([got.safeUntil, got.resets, got.spot.pos], [12.5, 1, [10, 0, 20]]);
+});
+
+test("Race & Rumble: teams, roles and a blocker's cheer reach another machine in its order", () => {
+  const state = { teams: [0, 1, 0], roles: [0, 1, 1], over: false, variant: "classic", events: 2, event: { kind: "cheer", by: 1, racer: 0 } };
+  const got = across("race-rumble", state);
+  assert.deepEqual(got.teams, [1, 0, 0]);
+  assert.deepEqual(got.roles, [1, 1, 0]);
+  assert.deepEqual([got.event.by, got.event.racer], [followerVehicles.indexOf(1), followerVehicles.indexOf(3)]);
+  assert.equal(got.busts, undefined, "no busts outside the chase");
+});

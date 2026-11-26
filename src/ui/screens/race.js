@@ -44,7 +44,8 @@ import { createFlyController } from "../fly-controller.js";
 import { LOOK_BACK_KEY, createCameraLook, lookOptions, looksWith, turnedTarget } from "../../game/camera-look.js";
 import { WorkerClient } from "../../shared/worker-client.js";
 import { addDebugInfo, feet, onReport, reportError } from "../../shared/error-report.js";
-import { currentDriver, getProfiles } from "../../app/profile-store.js";
+import { currentDriver, getHall, getProfiles, saveHall } from "../../app/profile-store.js";
+import { addEntry } from "../../game/hall-of-fame.js";
 import { createKeyboardInput } from "../../game/input/keyboard.js";
 import { mergeBindings } from "../../game/input/bindings.js";
 import { SunFlare, sunBlocked } from "../../render/sun-flare.js";
@@ -58,6 +59,7 @@ import { createOcclusion } from "../../render/occlusion.js";
 import { createStartLamps } from "../../render/start-lamps.js";
 import { createDragTreeLamps } from "../../render/drag-tree-lamps.js";
 import { createDragBeams } from "../../render/drag-beams.js";
+import { createCpxWalls } from "../../render/cpx-walls.js";
 import { createTrackLights } from "../../render/track-lights.js";
 import { createHelicopters } from "../../render/heli-object.js";
 import { createNameTags } from "../../render/name-tags.js";
@@ -98,7 +100,8 @@ import { coveredAt } from "../../game/ground-maps.js";
 import { createCockpit, finderAngle } from "../../render/cockpit.js";
 import { createCockpit3d } from "../../render/cockpit3d.js";
 import { stepCockpitLook } from "../../game/cockpit3d.js";
-import { cpuNames, fillGrid, formatRaceTime, raceDrivers, seatDrivers, summitBoard } from "../../game/race-setup.js";
+import { cpuNames, fillGrid, formatRaceTime, raceDrivers, rankSummitByScore, seatDrivers, summitBoard } from "../../game/race-setup.js";
+import { TIME_ATTACK_EXTENSION, createTimeAttack, ghostFromText, ghostText } from "../../game/extensions/time-attack.js";
 import {
   addFallingTree, createModelLibrary, createTrackWorld, disposeObject, moveObjects, occludees, poseFallingTree, removeFallingTree, setForestTree,
   setNormalMapStrength, setStartLights, skyColor, skyOf, updateSky, updateTrackWorld, placeSky,
@@ -233,6 +236,11 @@ async function mountRace(container, context, params, owned = []) {
    * own truck and the host the computer trucks; the others' come over the network.
    */
   const net = params.net ?? null;
+  /**
+   * The game's own protocol: a classic session ("legacy") or a Community Patch 4 room ("cp4", its trucks played back
+   * as CP4 does, CP4_EXE_ANALYSIS.md 18). Neither has the room protocol's extensions, wheels or mode state.
+   */
+  const classicNet = !!net && (net.policy === "legacy" || net.policy === "cp4");
   // The game rules this race runs by: the player's settings, with an online room owner's rules over them (game/host-rules.js).
   const raceRules = net?.rules ? withHostRules(context.settings, net.rules) : context.settings;
   /** Optional race behavior supplied by the extension loader, or null for the track's own race. */
@@ -267,8 +275,10 @@ async function mountRace(container, context, params, owned = []) {
    * each with its `driver` in the event. The pass's results go back to the weekend's screen, not to the Winner's Circle.
    */
   const eventPass = params.drag ?? null;
+  /** Time Attack's End Race: the laps driven bank to the Hall of Fame (set once the session exists). */
+  let bankTimeAttack = null;
   /** Where leaving the race goes: back to the weekend, or the Races screen. */
-  const leave = () => (net ? (net.link.leave(), net.link.finish(), context.router.go("multiplayer", {}, { replace: true }))
+  const leave = () => (bankTimeAttack?.(), net ? (net.link.leave(), net.link.finish(), context.router.go("multiplayer", {}, { replace: true }))
     : params.tournament ? context.router.go("tournament", {}, { replace: true }) : eventPass
     ? context.router.go("drag-event", {}, { replace: true })
     : context.router.go("race-select", { mode: track?.raceType }, { replace: true }));
@@ -428,7 +438,8 @@ async function mountRace(container, context, params, owned = []) {
   // An extension's race starts with the drivers' names over the trucks, unless its "names" setting is off.
   // Otherwise the race starts with the mode the Names key last left (settings.names).
   const savedNames = Number.isInteger(context.settings.names) && context.settings.names >= 0 && context.settings.names <= 3 ? context.settings.names : 0;
-  let namesMode = extension && settingsForExtension(raceRules, extension).names !== false ? NAMES_DRIVERS : savedNames;
+  // A mode may say so in its manifest (`names: false`: Time Attack, the player alone).
+  let namesMode = extension && (settingsForExtension(raceRules, extension).names ?? extension.names) !== false ? NAMES_DRIVERS : savedNames;
   const enterVr = vrButton(context, "race-vr");
   const view = el("section", { class: "race-view" }, canvas, ...(cockpit ? [cockpit.dashboard, cockpit.mirror, cockpit.finder] : []), hud.element, flyHud.element, driveHud.element, dragTree.element, fpsCounter.element, rumbleReadout.element, gauges.element, caption.element, enterVr.element, pauseMenu, loading);
   container.append(view);
@@ -452,6 +463,8 @@ async function mountRace(container, context, params, owned = []) {
   loadingArt.then((image) => { if (image && !disposed) board.setArt(image); }).catch(() => {});
 
   const build = await buildRequest;
+  /** Community Patch 4 2.0.52.4's race rules for this track (`.CPX`, game/cpx-rules.js), or null. */
+  const cpxRules = build.sim?.raceRules ?? null;
   offLoadProgress();
   if (disposed) return { unmount };
   // The world's size (8192 ft, or a track format version 6 world's: docs/EXTENSIONS.md): the wrap and the nearest copy.
@@ -470,6 +483,8 @@ async function mountRace(container, context, params, owned = []) {
   // Options, Advanced, OMTM2: Course map. The OpenMTM2 map (a strip on the right) or MTM2's own, from the next race.
   const minimap = (context.settings.mapStyle === "classic" ? createCourseMap : createOpenMap)(build.sim.course, {
     font: hudFont, open: !!build.sim.courseOpen, worldFt, summit: !!summit, zoom: context.settings.openMapZoom,
+    // A Parallel race (.CPX mode 2): lane 2 drives course 1, drawn in its own colour (CP4_ENGINE_UPDATES.md 8.6).
+    lane2: cpxRules?.mode === 2 ? build.sim.routeCourses?.[1] ?? null : null,
     areas: summit ? { zone: build.sim.checkpoints?.[0]?.gate ?? null, summit: build.sim.checkpoints?.[1]?.gate ?? null } : null,
   });
   // Each map keeps its own Map key mode: the classic one starts off, the OpenMTM2 one shown.
@@ -554,7 +569,7 @@ async function mountRace(container, context, params, owned = []) {
   // Loose Wheels (Options, Game; game/extensions/loose-wheels.js): the simulation's payload, or null.
   // Online, the room's rule (its owner's settings), and only in a room: the classic game's packets cannot carry wheels.
   const looseWheels = net
-    ? (net.policy !== "legacy" && net.wheels?.on ? looseWheelsFor({ ...context.settings, looseWheels: true, crashDamage: true, looseWheelsRepairS: net.wheels.repairS }, { extension, physics }) : null)
+    ? (!classicNet && net.wheels?.on ? looseWheelsFor({ ...context.settings, looseWheels: true, crashDamage: true, looseWheelsRepairS: net.wheels.repairS }, { extension, physics }) : null)
     : looseWheelsFor(context.settings, { extension, physics });
   const extensionScene = createExtensionScene(scene, world, extensionDress, { looseWheels: !!looseWheels });
   // Sound: the engines, skids and impacts of every truck, and the world's ambience and music.
@@ -717,6 +732,73 @@ async function mountRace(container, context, params, owned = []) {
     return object;
   });
   /*
+    Time Attack (the Mode list's extension, game/extensions/time-attack.js; CP4_ENGINE_UPDATES.md 9.5): the player alone against their best lap's ghost, a
+    see-through copy of the player's truck that meets nothing. The ghost is kept with the player's data by track.
+  */
+  const ghostKey = `ghost:${track.file}`;
+  const timeAttack = gameMode === TIME_ATTACK_EXTENSION.id && !net ? createTimeAttack({
+    ghost: ghostFromText(await context.assets.call("userData", { key: ghostKey }).catch(() => null)),
+    names: { track: track.file, trackName: track.name ?? track.file, truck: playerTruck, truckName: truckName(playerTruck), driver: entrants[0]?.name ?? "" },
+  }) : null;
+  const ghostTruck = timeAttack ? createTruckObject(build.truckModels[playerTruck], build.truckModels[playerTruck].anchors, look) : null;
+  if (ghostTruck) {
+    ghostTruck.object.traverse((o) => {
+      if (!o.material) return;
+      o.material = (Array.isArray(o.material) ? o.material : [o.material]).map((m) => Object.assign(m.clone(), { transparent: true, opacity: 0.35, depthWrite: false }));
+      if (o.material.length === 1) o.material = o.material[0];
+      o.castShadow = false;
+    });
+    ghostTruck.object.visible = false;
+    scene.add(ghostTruck.object);
+  }
+  /** A Time Attack frame: the lap's samples, the split gaps and the lap's verdict on the HUD, the ghost kept when beaten. */
+  function timeAttackFrame(r) {
+    const rt = r.race.trucks[0], event = timeAttack.frame(r.time, r.poses[0].current, rt);
+    const signed = (s) => `${s < 0 ? "-" : "+"}${Math.abs(s).toFixed(2)}`;
+    if (event?.split) flash(t("Ghost <<1>>", signed(event.split.gap)), performance.now(), 2);
+    if (event?.lap) {
+      flash(event.lap.best ? t("New best lap: <<1>>", formatRaceTime(event.lap.time)) : t("Lap: <<1>>", formatRaceTime(event.lap.time)), performance.now(), 3);
+      if (event.lap.best) {
+        const text = ghostText(timeAttack.ghost);
+        if (text) context.assets.call("saveUserData", { key: ghostKey, value: text }).catch(() => {});
+      }
+    }
+    const pose = timeAttack.ghostPose(rt.lapTime ?? 0);
+    if (pose) ghostTruck.update({ ...pose, pos: nearestCopy(pose.pos, r.poses[0].current.pos, worldFt) }, null);
+    ghostTruck.object.visible = !!pose;
+  }
+  cleanups.push(() => { if (ghostTruck) scene.remove(ghostTruck.object); });
+  // A network Parallel race (CP4_ENGINE_UPDATES.md 10): each owner sends its truck's running total; the others' are set.
+  const sentPenalty = [];
+  const sendPenalties = (totals) => totals.forEach((ms, i) => {
+    if (entrants[i]?.remote || sentPenalty[i] === ms) return;
+    sentPenalty[i] = ms;
+    net.penalties.send(entrants[i].vehicle, ms);
+  });
+  if (net?.penalties) {
+    const take = ({ truck, totalMs }) => {
+      const i = entrants.findIndex((e) => e.vehicle === truck);
+      if (i >= 0 && entrants[i].remote) sim.call("command", { name: "penalty", value: { truck: i, totalMs } }).catch(() => {});
+    };
+    for (const [truck, totalMs] of net.penalties.known()) take({ truck, totalMs });
+    const off = net.penalties.on(take);
+    if (typeof off === "function") cleanups.push(off);
+  }
+  if (timeAttack) {
+    bankTimeAttack = () => {
+      const laps = timeAttack.laps;
+      bankTimeAttack = null;
+      if (!laps.length) return;
+      const best = Math.min(...laps);
+      getHall(context).then((hall) => {
+        if (addEntry(hall, {
+          name: entrants[0]?.name ?? "", truck: playerTruck ?? "", track: track.file, trackName: track.name, mode: "timeattack", difficulty, laps: 1,
+          points: 0, time: best, fastestLap: best, date: new Date().toISOString().slice(0, 10),
+        })) saveHall(context);
+      }).catch(() => {});
+    };
+  }
+  /*
     The 3D cockpits (render/cockpit3d.js), shown in the cockpit view in place of the 2D one (`cockpit3dShown`): one per
     truck file, the player's read with the track and any other the first time the cockpit view sits in it (a watched
     truck, or the one the Camera key put the camera on). An entry is the cockpit, null where that truck keeps the 2D
@@ -831,27 +913,33 @@ async function mountRace(container, context, params, owned = []) {
         autopilot: !e.remote && (!e.player || !!context.settings.fullAutopilot || demo),
         // Driven by another machine's updates (worker/sim-worker.js `applyRemote`).
         remote: !!e.remote,
+        // Another machine's computer truck (a CP4 room lets the client drive one its packets stopped coming for).
+        remoteComputer: !!e.remote && !!e.computer,
         // A drag strip's grid slot is the lane.
         lane: e.slot,
         // A drag weekend's computer driver: its launch and how deep it stages.
         launch: e.launch, stageDepth: e.stageDepth,
-        // The player's Garage setup; the CPU trucks keep the defaults.
-        setup: e.player ? setup : undefined,
+        // The player's whole Garage setup, the computer trucks' too (Community Patch 4 2.0.52.4, CP4_ENGINE_UPDATES.md
+        // 9.2: tyre cut, suspension and transfer); a network race's other humans bring their own.
+        setup: e.player || !e.remote ? setup : undefined,
       };
     }),
     // The track's checkpoint gates for the footprint rule (worker/sim-worker.js), whatever the race; none in Summit Rumble.
     checkpointGates: summit ? [] : build.sim.checkpoints ?? [],
     race: freeRoam ? null : gameMode && !keepsRace ? { checkpoints: [], laps: 1, mode: "circuit" }
       : {
-        checkpoints: build.sim.checkpoints, laps: dragRace || track.raceType === "rally" ? 1 : laps, mode: summit ? "summit" : dragRace ? "drag" : "circuit",
+        // A .CPX drag runs the menu's laps unless it is a one-run drag (CP4_ENGINE_UPDATES.md 8.5).
+        checkpoints: build.sim.checkpoints, laps: (dragRace && !(cpxRules?.mode === 1 && !cpxRules.oneRun)) || track.raceType === "rally" ? 1 : laps, mode: summit ? "summit" : dragRace ? "drag" : "circuit",
         // A drag pass: lane 1's course (the SIT's course 2), and whether the player's truck stages itself.
         laneCourse: dragRace ? build.sim.proCourse : null, autoStage: context.settings.autoStage !== false,
+        // Community Patch 4 2.0.52.4's race rules (game/cpx-rules.js), and every course of the SIT for its lanes and lead-ins.
+        raceRules: cpxRules, cpxCourses: cpxRules ? build.sim.routeCourses ?? [] : null,
       },
     // The simulation worker reaches this payload through its extension runtime loader.
     extension: extensionRace?.simulation ?? null,
     // A network race: how remote trucks follow their updates.
     // In a room an extension's state is decided on the owner's machine and followed elsewhere (docs/EXTENSIONS.md).
-    net: net ? { policy: net.policy, authority: extensionRace && net.policy !== "legacy" ? (net.host ? "owner" : "follower") : null } : null,
+    net: net ? { policy: net.policy, authority: extensionRace && !classicNet ? (net.host ? "owner" : "follower") : null } : null,
   };
   // Where the player's truck starts, for the frames before the simulation's first reply.
   // The terrain's buffers are the payload's own copies (shared/build-terrain.js): handed over, not copied again.
@@ -873,7 +961,7 @@ async function mountRace(container, context, params, owned = []) {
   // A network race waits for every machine to have loaded (the `sync` barrier), then the host gives the start positions.
   let netRace = null, netHostEnded = false, netDecides = false;
   if (net) {
-    const modeWire = extensionRace && net.policy !== "legacy" ? {
+    const modeWire = extensionRace && !classicNet ? {
       toWire: (state, vehicleOf) => extensionNetToWire(gameMode, state, vehicleOf),
       fromWire: (data, localOf, count) => extensionNetFromWire(gameMode, data, localOf, count),
       ownToWire: (state, vehicleOf) => extensionNetOwnToWire(gameMode, state, vehicleOf),
@@ -892,7 +980,7 @@ async function mountRace(container, context, params, owned = []) {
     if (disposed) return { unmount };
     if (net.host) {
       // Indexed by vehicle number, index 0 unused: 9 entries as the classic packet has them, more in a big room.
-      const count = net.policy === "legacy" ? 9 : Math.max(9, ...entrants.map((e) => e.vehicle + 1));
+      const count = classicNet ? 9 : Math.max(9, ...entrants.map((e) => e.vehicle + 1));
       const positions = Array.from({ length: count }, () => [0, 0, 0]);
       for (const e of entrants) if (e.vehicle < count) positions[e.vehicle] = [...grid[e.slot].pos];
       net.link.sendPositions(positions);
@@ -1500,6 +1588,12 @@ async function mountRace(container, context, params, owned = []) {
     world.add(dragBeams.object);
     cleanups.push(() => { dragBeams.object.removeFromParent(); dragBeams.dispose(); });
   }
+  // A .CPX track's walls (render/cpx-walls.js; Options, Race rule walls): met whether drawn or not.
+  const cpxWalls = context.settings.cpxWalls && cpxRules?.walls?.length ? createCpxWalls(cpxRules.walls) : null;
+  if (cpxWalls) {
+    world.add(cpxWalls.object);
+    cleanups.push(() => { cpxWalls.object.removeFromParent(); cpxWalls.dispose(); });
+  }
   // The blimp flies the course (game/blimp.js); the BlimpCam hangs over the course's centre (game/cameras.js).
   const blimp = build.blimp && hasBlimp({ detailLevel: context.settings.detailLevel ?? 2, raceType: track.raceType }) && straights.length
     ? createBlimp(straights, ground) : null;
@@ -1643,7 +1737,10 @@ async function mountRace(container, context, params, owned = []) {
   /** A drawn position (which may be worlds from the simulation's) as the simulation has it, for what is placed in the world. */
   const inWorld = (pos) => [wrapFt(pos[0], worldFt), pos[1], wrapFt(pos[2], worldFt)];
   // An extension race ends as a Rumble does, all at once; one played on the track's race ends as that race does.
-  let raceEnd = createRaceEnd({ summit: summit || (!!gameMode && !keepsRace), spectator });
+  // A network race waits for every other human's own finish (game/race-end.js `humans`).
+  const remoteHumans = net ? entrants.map((e, i) => (e.remote && !e.computer ? i : -1)).filter((i) => i >= 0) : [];
+  let raceEnd = createRaceEnd({ summit: summit || (!!gameMode && !keepsRace), spectator, humans: remoteHumans });
+  let humansWaitShown = false;
   let cameraTarget = 0;
   // The race end's target the tick before (game/race-end.js `cameraAfterEnd`): the Camera key's choice stands until it moves.
   let endTarget = 0;
@@ -1988,7 +2085,8 @@ async function mountRace(container, context, params, owned = []) {
       // code was not traced).
       setHud([
         [t("Time Remaining:"), formatRaceTime(race.summit?.left ?? 0)], [t("Score:"), String(Math.round(me.score))], [t("Place:"), `${me.place}/${race.trucks.length}`], ["", ""],
-        ...summitBoard(race.trucks, entrants.map((e) => e.name), spectator ? -1 : 0),
+        // Community Patch 4 2.0.52.4: a computer truck is named after its truck on the Rumble board (CP4_ENGINE_UPDATES.md 9.2).
+        ...summitBoard(race.trucks, entrants.map((e) => (e.computer || (!e.player && !e.remote) ? truckName(e.file) : e.name)), spectator ? -1 : 0),
       ]);
       return;
     }
@@ -2040,6 +2138,8 @@ async function mountRace(container, context, params, owned = []) {
         if (!r) return;
         Object.assign(rt, { raceTime: r.total, laps: r.laps, led: r.lapsLed, finished: r.laps > 0 || summit, ...(summit ? { score: r.best } : { best: r.best }) });
       });
+      // A Rumble's places follow the owners' scores (game/race-setup.js `rankSummitByScore`).
+      if (summit && !gameMode) rankSummitByScore(race.trucks);
       net.link.finish();
     }
     const rows = race.trucks.map((t, i) => ({
@@ -2055,7 +2155,8 @@ async function mountRace(container, context, params, owned = []) {
       // What each truck made of the pass, by its driver in the event (game/drag-race.js `DQ_CODE`; not finished is the timeout).
       const results = rows.map((row, i) => ({
         driver: entrants[i].driver ?? null, lane: entrants[i].slot,
-        et: row.finished && !row.dq && !row.rerun ? row.raceTime : null,
+        // A Parallel pass's time counts its wall penalties.
+        et: row.finished && !row.dq && !row.rerun ? row.raceTime + (row.penaltyMs ?? 0) / 1000 : null,
         code: row.rerun ? OUT.RERUN : row.dq ? DQ_CODE[row.dq] : row.finished ? null : OUT.TIMEOUT,
       }));
       context.router.go("drag-event", { pass: { kind: eventPass.kind, results } }, { replace: true });
@@ -2080,7 +2181,7 @@ async function mountRace(container, context, params, owned = []) {
   const netTick = (r, now) => {
     if (netHostEnded && !finishing) { finish(); return; }
     // The room's owner left during an extension race and this machine owns the room now: it decides from here on.
-    if (!netDecides && extensionRace && net.policy !== "legacy" && context.net?.session.isHost()) { netDecides = true; netRace.authority(true); }
+    if (!netDecides && extensionRace && !classicNet && context.net?.session.isHost()) { netDecides = true; netRace.authority(true); }
     for (const e of netRace.collect(r, now, (i) => crash.code(i))) net.link.outgoing(e);
     for (const fx of netRace.effects()) {
       const pos = r.poses[fx.truck]?.current?.pos;
@@ -2088,7 +2189,15 @@ async function mountRace(container, context, params, owned = []) {
       else if (fx.kind === "yeehaw") truckAudio.yeehaw(fx.truck, pos);
       else if (fx.kind === "lights") lamps[fx.truck] = fx.lamps;
       else if (fx.kind === "damage") drawn[fx.truck].dents(() => crash.adopt(fx.truck, fx.code, { dent: (zone, level) => drawn[fx.truck].dent(zone, level), repair: () => drawn[fx.truck].repair() }));
-      else if (fx.kind === "gone") netChat?.left(entrants[fx.truck].name);
+      else if (fx.kind === "gone") {
+        netChat?.left(entrants[fx.truck].name);
+        // Community Patch 4 2.0.52.4 (CP4_ENGINE_UPDATES.md 10): with a Community Patch room, a racer leaving mid-race
+        // ends the race with a message; OpenMTM2's own rooms hand the truck to the autopilot instead.
+        if (classicNet && !finishing && !entrants[fx.truck].computer) {
+          flash(t("<<1>> disconnected: the race is over.", entrants[fx.truck].name), performance.now(), 4);
+          netHostEnded = true;
+        }
+      }
     }
   };
   /** Chat in a network race (ui/race-chat.js): the feed over the race, the Chat key to type a line, the pad's wheel. */
@@ -2218,6 +2327,8 @@ async function mountRace(container, context, params, owned = []) {
       sim.call("tick", { tMs: now, input: sampleInput(), net: netRace?.commands() })
         .then((r) => {
           latest = r;
+          if (timeAttack && r.race?.trucks?.[0]) timeAttackFrame(r);
+          if (net?.penalties && r.race?.penalties) sendPenalties(r.race.penalties.totals);
           wheelsNow = r.wheels ?? null;
           if (r.wheels) looseWheelsFrame(r.wheels);
           const felt = r.poses?.[0]?.sound, padInfo = pad.rumbleInfo();
@@ -2236,7 +2347,7 @@ async function mountRace(container, context, params, owned = []) {
           else rumbleReadout.show({ on: false, reason: off, info: padInfo });
           if (netRace && !disposed) netTick(r, now);
           if (fpsCounter.visible) fpsCounter.noteSim(performance.now(), r.steps ?? 0, performance.now() - sentAt);
-          if ((r.race || freeRoam) && r.time !== undefined) recorder.update(r.time, r.poses.map((p) => p.current), r.boxes ?? [], (i) => crash.code(i), r.crush ?? null);
+          if ((r.race || freeRoam) && r.time !== undefined) recorder.update(r.time, r.poses.map((p) => p.current), r.boxes ?? [], (i) => crash.code(i), r.crush ?? null, r.race?.penalties?.totals ?? null);
           // 4x4 Evolution trees a truck touches lean away from it (game/falling-trees.js).
           for (const f of r.fallen ?? []) {
             let lean = falls.find((l) => l.id === f.id && !l.done);
@@ -2269,6 +2380,11 @@ async function mountRace(container, context, params, owned = []) {
               if (!watching) cameraTarget = cameraAfterEnd(cameraTarget, end, endTarget);
               endTarget = end.target;
               if (end.justFinished) viewMode = 4;
+              // A network race waits for the other humans to finish (game/race-end.js): said once.
+              if (end.waitingForHumans && !humansWaitShown && end.playerFinished) {
+                humansWaitShown = true;
+                flash(t("Waiting for the other players to finish."), performance.now(), 4);
+              }
               // A watched race stays on screen when it is over, to be looked round as long as the spectator likes: the
               // pause menu's Results goes on to them. Not in a network race: a player knocked out (Combat) and watching
               // goes on to the results with the others, who wait for this machine's times (the results barrier).
@@ -2468,7 +2584,9 @@ async function mountRace(container, context, params, owned = []) {
     }
     waterClock += dt;
     const water = waters[0];
-    const bob = waterOffsetFt(waterClock, weatherScene.weather);
+    // Under CP4's physics the water steps with the simulation's tide (CP4_ENGINE_UPDATES.md 7.4); else it bobs by time.
+    const tideFt = latest?.race?.tideFt;
+    const bob = tideFt != null && water ? tideFt - water.userData.levelFt : waterOffsetFt(waterClock, weatherScene.weather);
     for (const plane of waters) plane.position.y = bob;
     waterLevelNow = water ? water.userData.levelFt + bob : null;
     // Over a Community Patch 4 lake the eye's water is the lake's (game/lakes.js); elsewhere the track's, bob and all.
@@ -2648,7 +2766,7 @@ async function mountRace(container, context, params, owned = []) {
     const summary = () => {
       const pos = latest?.poses[0]?.current.pos ?? [0, 0, 0];
       const me = latest?.race?.trucks[0];
-      const lap = freeRoam || !latest?.race ? t("free roam") : extension ? t(extension.name) : (summit ? "Rumble" : t("Lap <<1>>/<<2>>", me?.lap ?? 1, latest.race.laps));
+      const lap = freeRoam || !latest?.race ? t("free roam") : extension?.fixedLaps ? t("Lap <<1>>", me?.lap ?? 1) : extension ? t(extension.name) : (summit ? "Rumble" : t("Lap <<1>>/<<2>>", me?.lap ?? 1, latest.race.laps));
       return [
         t("Track: <<1>> (<<2>>), Truck: <<3>> (<<4>>)", track.name, track.file, truckName(playerTruck), playerTruck),
         t("Position X:<<1>> Y:<<2>> Z:<<3>>, <<4>>, Weather: <<5>>, Backdrop: <<6>>, Bots: <<7>>", Math.round(pos[0]), Math.round(pos[1]), Math.round(pos[2]), lap, t(WEATHER_NAMES[weatherNow()]), said(!!context.settings.backdrops), bots().length),

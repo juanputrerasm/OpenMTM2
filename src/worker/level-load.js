@@ -10,17 +10,53 @@
 */
 import { decodeActPalette } from "../vendor/openphotex/texture/act.js";
 import { isMtm2V6Situation, parseMtmLvl, parseMtmSit, parseTexList, parseTty } from "../vendor/openphotex/mtm/sit.js";
-import { withCp4Limits } from "../game/cp4-limits.js";
+import { checkpointRefusal, withCp4Limits, withCp4VegLimits } from "../game/cp4-limits.js";
+import { checkCpx, cpxPresence, CPX_MAX_LEVEL } from "../game/cpx-rules.js";
+import { readCpx } from "../vendor/openphotex/mtm/cpx.js";
 import { podPathTitle } from "../vendor/openphotex/pod/paths.js";
 import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
 import { decodeMtm2Heights, decodeMtm2HeightPng, decodeMtm2V6Heights, mtm2EngineHeightsFt, mtm2V6HeightsFt } from "../vendor/openphotex/mtm/heights.js";
-import { readTxvInfo, readTxvV6 } from "../vendor/openphotex/mtm/txv.js";
-import { parseWtr, wtrHeightRange } from "../vendor/openphotex/mtm/wtr.js";
+import { parseTxvAsEngine, readTxvInfo, readTxvV6, txvUsesV6Keys } from "../vendor/openphotex/mtm/txv.js";
+import { parseWtr, wtrHeightRange, wtrV1HeightOk } from "../vendor/openphotex/mtm/wtr.js";
 import { checkMtm2VegBounds, parseMtm2Veg, isMtm2Veg } from "../vendor/openphotex/mtm/veg.js";
 import { checkMtm2GridSize, decodeClrGrid, mtm2GroundBoxDepth } from "../vendor/openphotex/terrain/ground-boxes.js";
 import { readFallFile } from "../vendor/openphotex/sim/cp4/falls.js";
 
 const GRID = 256;
+
+/**
+ * A race Community Patch 4 2.0.52.4 refuses (docs/CP4_ENGINE_UPDATES.md): the track loads no further and the player is
+ * told why, "Race not started: <note>".
+ */
+export class RaceRefusal extends Error {
+  constructor(note) {
+    super(`Race not started: ${note}`);
+    this.name = "RaceRefusal";
+    this.note = note;
+  }
+}
+
+/** The level a situation names, as CP4 takes it: line 1's first token, cut at the first dot, upper case. */
+export function situationLevelStem(sitBytes) {
+  const text = new TextDecoder("latin1").decode(sitBytes.subarray(0, Math.min(sitBytes.length, 512)));
+  const first = text.split(/\r\n|\r|\n/)[0]?.trim().split(/\s+/)[0] ?? "";
+  return podPathTitle(first).split(".")[0].toUpperCase();
+}
+
+/** Each VFS's classic (`.SIT`, `.SI2`) situations' levels, read once. */
+const classicLevels = new WeakMap();
+async function classicLevelsOf(vfs) {
+  if (classicLevels.has(vfs)) return classicLevels.get(vfs);
+  const levels = new Set();
+  for (const hit of vfs.list?.([".SIT", ".SI2"]) ?? []) {
+    try {
+      const bytes = await hit.mount.readEntry(hit.entry);
+      if (bytes) levels.add(situationLevelStem(bytes));
+    } catch { /* an unreadable situation names no level */ }
+  }
+  classicLevels.set(vfs, levels);
+  return levels;
+}
 
 /** A grid of u16 values, little-endian (a track format version 6 track's 16-bit ground box layer). */
 const u16Grid = (bytes) => Uint16Array.from({ length: bytes.length >> 1 }, (_, i) => bytes[i * 2] | (bytes[i * 2 + 1] << 8));
@@ -120,6 +156,25 @@ export async function readLevelFalls(vfs, stems, levelHit, { cells = GRID, v6 = 
   return null;
 }
 
+/**
+ * A per-track sidecar by its paths in order (level name, then situation stem), counted only when it is in the same
+ * archive as the level's .LVL (`levelHit`): in another archive, or loose, it is absent (CP4_ENGINE_UPDATES.md 5).
+ */
+export async function readSidecar(vfs, paths, levelHit) {
+  for (const path of paths) {
+    const hit = vfs.find?.(path);
+    if (!hit) continue;
+    if (levelHit && hit.mount !== levelHit.mount) {
+      console.info(`${path} ignored: it is in ${hit.mount.name} but the level is in ${levelHit.mount.name}`);
+      return null;
+    }
+    return hit.mount.readEntry(hit.entry);
+  }
+  // A VFS without `find` (tests): the first that reads.
+  if (!vfs.find) for (const path of paths) { const bytes = await vfs.read(path); if (bytes) return bytes; }
+  return null;
+}
+
 /** Read `name` from `folder`, by its file name only (the LVL writes bare names). */
 async function readIn(vfs, folder, name) {
   if (!name) return null;
@@ -162,21 +217,55 @@ export async function loadLevel(vfs, sitPath, sitBytes = null, { waterfalls = tr
   // The Community Patch 4 records beside the level (docs/CP4_EXE_ANALYSIS.md): DATA\<stem>.TXV says which terrain grid the
   // heights are on and may name a height PNG; WORLD\<stem>.WTR adds lakes, WORLD\<stem>.VEG vegetation. Each is optional.
   const cpr = sit.origin === "CPR";
+  // A sidecar (.WTR, .VEG, .WFL, .CPX) counts only in the archive of the level's .LVL (CP4_ENGINE_UPDATES.md 5).
+  const lvlHit = vfs.find?.(`LEVELS\\${lvlTitle}`) ?? vfs.find?.(`LEVELS\\${stem}.LVL`) ?? null;
   const [txvBytes, wtrBytes, vegBytes] = cpr ? [null, null, null] : await Promise.all([
     either(`DATA\\${stemOf(lvlTitle)}.TXV`, `DATA\\${stem}.TXV`),
-    either(`WORLD\\${stemOf(lvlTitle)}.WTR`, `WORLD\\${stem}.WTR`),
-    either(`WORLD\\${stemOf(lvlTitle)}.VEG`, `WORLD\\${stem}.VEG`),
+    readSidecar(vfs, [`WORLD\\${stemOf(lvlTitle)}.WTR`, `WORLD\\${stem}.WTR`], lvlHit),
+    readSidecar(vfs, [`WORLD\\${stemOf(lvlTitle)}.VEG`, `WORLD\\${stem}.VEG`], lvlHit),
   ]);
-  const txv = txvBytes ? readTxvInfo(txvBytes) : null;
-  // A version 6 track's world (null for any other track, read by today's rules: its .TXV's version 6 keys are ignored).
-  const v6 = v6Track ? readV6World(txvBytes, sitPath) : null;
+  // The .TXV as Community Patch 4 2.0.52.4 reads it: over 64 KB it is no record, a line over 255 characters is left out.
+  const txvLines = txvBytes ? parseTxvAsEngine(txvBytes) : null;
+  const txv = txvLines ? readTxvInfo(txvLines) : null;
+  // A .SIT or .SI2 whose level's .TXV carries a version 6 key is refused (CP4_ENGINE_UPDATES.md 3).
+  if (!v6Track && !cpr && txvLines && txvUsesV6Keys(txvLines)) throw new RaceRefusal(`${title}: this level is a version 6 level`);
+  // A version 6 track's world (null for any other track).
+  const v6 = v6Track ? readV6World(txvLines ?? null, sitPath) : null;
+  if (v6Track) {
+    // A version 6 level never shares its level files with a classic track.
+    const level = stemOf(lvlTitle).toUpperCase();
+    if ((await classicLevelsOf(vfs)).has(level)) throw new RaceRefusal(`${title}: the version 6 level ${level} is shared with a classic track`);
+    // Its water stays in half feet within 0 .. 2 x (base + 65536 / step).
+    const top = 2 * (v6.terrainHeightBase + 65536 / v6.terrainHeightStep);
+    const water = lvl.waterHeight ?? 0;
+    if (water < 0 || water > top) throw new RaceRefusal(`${title}: !waterHeight=${water} is outside 0..${top} half feet`);
+  }
   const cells = v6?.worldCells ?? GRID, worldFt = v6?.worldFt ?? GRID * 32;
   // A negative place in the SIT is wrapped by the world's size, not 8192 ft (the specification's 8.4).
   if (v6 && worldFt !== GRID * 32) sit = parseMtmSit(sitBytes, title, { worldFt });
   // What Community Patch 4 beta 0.53 hotfix 4 keeps of the SIT's lists (game/cp4-limits.js; CP4_EXE_ANALYSIS.md 17.1).
-  if (!cpr) sit = withCp4Limits(sit, (line) => console.info(line));
+  if (!cpr) sit = withCp4Limits(sit, (line) => console.info(line), { si3: v6Track });
+  // Community Patch 4 2.0.52.4's race rules (WORLD\<level>.CPX, game/cpx-rules.js), on a `.SI2` or `.SI3` only, from the
+  // level's own archive. Without them a track holds at most 100 checkpoints (CP4_ENGINE_UPDATES.md 6).
+  let raceRules = null;
+  if (!cpr) {
+    const levelName = stemOf(lvlTitle).split(".")[0].toUpperCase();
+    const classicSit = /\.SIT$/i.test(title);
+    const cpxBytes = classicSit || levelName.length > CPX_MAX_LEVEL ? null : await readSidecar(vfs, [`WORLD\\${levelName}.CPX`], lvlHit);
+    const presence = classicSit ? { cpx: null, notes: [] } : cpxPresence(txv?.raceRules ?? null, cpxBytes, levelName, readCpx);
+    if (presence.refused) throw new RaceRefusal(presence.refused);
+    if (presence.cpx) {
+      const checkpoints = sit.boxes.filter((b) => b.type === 6 && b.positionFt);
+      const checked = checkCpx(presence.cpx, { checkpoints, trackType: sit.trackTypeCode, worldFt });
+      if (checked.refused) throw new RaceRefusal(checked.refused);
+      raceRules = { ...checked.rules, notes: [...presence.notes, ...checked.notes] };
+    } else {
+      const tooMany = checkpointRefusal(sit);
+      if (tooMany) throw new RaceRefusal(`${title}: ${tooMany}`);
+    }
+  }
   // Beta 0.53's waterfalls, beside them (docs/CP4_EXE_ANALYSIS.md 12.1).
-  const levelHit = vfs.find?.(`LEVELS\\${lvlTitle}`) ?? vfs.find?.(`LEVELS\\${stem}.LVL`) ?? null;
+  const levelHit = lvlHit;
   const falls = cpr || !waterfalls ? null : await readLevelFalls(vfs, [...new Set([fallStem(lvlTitle), fallStem(stem)])], levelHit, { cells, v6: !!v6 });
   // Every grid file of a version 6 track holds N x N cells, or the track is refused (the specification's 8.2). The
   // ground box pairs may be 16-bit, both files of a pair alike (8.3). Files the level does not have are not asked for.
@@ -195,18 +284,14 @@ export async function loadLevel(vfs, sitPath, sitBytes = null, { waterfalls = tr
       checkGrid(`${stem}.RA0`, ra0, cells);
       checkGrid(`${stem}.RA1`, ra1, cells);
     }
-    // The files OpenMTM2 does not draw from (the second ground box layers, the other face grids) are checked all the same.
-    const extras = ["RA2", "RA3", "RA4", "RA5", "CL1", "CL2"];
-    const extraBytes = await Promise.all(extras.map((ext) => either(`DATA\\${stemOf(lvlTitle)}.${ext}`, `DATA\\${stem}.${ext}`)));
-    extras.forEach((ext, i) => checkGrid(`${stem}.${ext}`, extraBytes[i], cells));
-    const [ra4, ra5] = extraBytes.slice(2, 4);
-    if (ra4 && ra5) {
-      try {
-        mtm2GroundBoxDepth(ra4, ra5, cells, ["RA4", "RA5"]);
-      } catch (err) {
-        throw new Error(err.message);
-      }
-    }
+    // `.RA2` to `.RA5`, `.CL1` and `.CL2` (the old cave layers) are never read (CP4_ENGINE_UPDATES.md 3). A missing
+    // `.CLR`, `.CL0`, or `.RA1` beside a `.RA0`, loads flat or empty but the race does not start, naming the file.
+    const missing = [!clrBytes && (lvl.clrName || `${stem}.CLR`), !cl0 && `${stem}.CL0`, ra0 && !ra1 && `${stem}.RA1`].filter(Boolean);
+    if (missing.length) throw new RaceRefusal(`${title}: ${podPathTitle(missing[0])} is missing`);
+  } else if (!cpr && ra0 && (!ra1 || !cl0)) {
+    // A classic track with a `.RA0` but no `.RA1` or `.CL0` is refused; with none of the three it has no ground boxes
+    // (CP4_ENGINE_UPDATES.md 4).
+    throw new RaceRefusal(`${title}: ${stem}.RA0 is there but ${!ra1 ? `${stem}.RA1` : `${stem}.CL0`} is missing`);
   }
 
   let heights = null, heightsFt = null, fineFt = null, terrainMode = "classic8", terrainWarning = null;
@@ -290,6 +375,8 @@ export async function loadLevel(vfs, sitPath, sitBytes = null, { waterfalls = tr
      * keys (OpenPhotex `readTxvV6`: step, base, warnings) of a `.SI3` track, else null.
      */
     cells, worldFt, v6,
+    /** Community Patch 4 2.0.52.4's checked race rules (game/cpx-rules.js `checkCpx`), or null for the old rules. */
+    raceRules,
     /** Community Patch 4 lakes (OpenPhotex `parseWtr`) and vegetation (`parseMtm2Veg`), or null. */
     // A version 6 track's lakes are .WTR version 1 at 256 cells and version 2 at 512, on its N x N tiles (the
     // specification's 9.1); its vegetation stands anywhere in its world (9.2). A file that does not fit is left out with
@@ -297,10 +384,20 @@ export async function loadLevel(vfs, sitPath, sitBytes = null, { waterfalls = tr
     lakes: readLevelLakes(wtrBytes, { cells, v6: !!v6 }),
     /** The valid lake heights in half-feet (OpenPhotex `wtrHeightRange`), by the .WTR's major version. */
     lakeHeightRange: (major) => wtrHeightRange(major, boxStep, boxBase),
+    /**
+     * Whether a lake or fall height (half feet) is one CP4 2.0.52.4 keeps (CP4_ENGINE_UPDATES.md 3): 1..4096 on a
+     * `.SIT`/`.SI2`; 1..4096 or the track's window on a 256-cell `.SI3`'s version 1 file; the window only in version 2.
+     */
+    lakeHeightOk: (height, major = 1) => {
+      if (!v6) return Number.isInteger(height) && height >= 1 && height <= 4096;
+      if (major === 1) return wtrV1HeightOk(height, { step: boxStep, base: boxBase });
+      const [lo, hi] = wtrHeightRange(major, boxStep, boxBase);
+      return height >= lo && height <= hi;
+    },
     vegetation: vegBytes && isMtm2Veg(vegBytes) ? safely(() => {
       const veg = parseMtm2Veg(vegBytes);
       if (v6) checkMtm2VegBounds(veg, cells);
-      return veg;
+      return withCp4VegLimits(veg, (line) => console.info(line));
     }, "vegetation") : null,
     /** Community Patch 4 beta 0.53's waterfalls as the engine's parser reads them (`{ size, status, falls, ... }`), or null. */
     falls,

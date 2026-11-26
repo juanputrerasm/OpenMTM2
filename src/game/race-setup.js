@@ -120,6 +120,18 @@ export function summitBoard(trucks, names, player = -1) {
 }
 
 /**
+ * A network Summit Rumble's places once every machine has sent its own trucks' scores (the results barrier): each
+ * truck's owner is authoritative (Community Patch 4 2.0.52.4, CP4_ENGINE_UPDATES.md 9.3), so the places follow the
+ * scores as reported, the highest first; a tie keeps the order the race had. Sets `place` on each row, in place.
+ */
+export function rankSummitByScore(trucks) {
+  trucks.map((row, i) => ({ row, i, score: Math.round(row.score ?? 0), was: row.place ?? i + 1 }))
+    .sort((a, b) => b.score - a.score || a.was - b.was || a.i - b.i)
+    .forEach(({ row }, k) => { row.place = k + 1; });
+  return trucks;
+}
+
+/**
  * The start of a Summit Rumble whose SIT puts every start slot well away from its scoring zone (an add-on such as
  * Scream3 Cemetery, whose slots stand on the high ground outside the ring of stands round its pit). The game puts the
  * trucks where the SIT says (0x4195d0 only shuffles the slots); the port, where all slots are farther than

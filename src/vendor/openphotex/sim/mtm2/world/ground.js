@@ -9,7 +9,8 @@ export function groundWeatherGrip(ground) {
 export function createTerrainGround(terrain, surface, weather = 0, waterLevelFt = terrain.waterLevelFt, rules = MTM2_RULES) {
     const snow = weather === 5;
     const ramps = [];
-    return {
+    // `waterLevelFt` may be set each tick (the tide, water.ts createTide); the queries read the current value.
+    const g = {
         height: (x, z) => {
             for (const r of ramps) {
                 const h = rampHeightAt(r, x, z);
@@ -20,13 +21,14 @@ export function createTerrainGround(terrain, surface, weather = 0, waterLevelFt 
         },
         normal: (x, z, out) => groundNormalAt(terrain, x, z, out, snow),
         surface: (x, y, z) => (surface
-            ? terrainSurfaceValue(terrain, surface, x, z, waterLevelFt, snow, rules.deepWater, rules.surfaceAtPoint ? y : null)
+            ? terrainSurfaceValue(terrain, surface, x, z, g.waterLevelFt, snow, rules.deepWater, rules.surfaceAtPoint ? y : null)
             : 200),
         waterLevelFt,
-        waterLevelAt: terrain.lakes ? (x, z) => terrainWaterLevelAt(terrain, x, z, waterLevelFt) : undefined,
+        waterLevelAt: terrain.lakes ? (x, z) => terrainWaterLevelAt(terrain, x, z, g.waterLevelFt) : undefined,
         weather,
         ramps,
         rules,
         worldFt: terrainWorldFt(terrain),
     };
+    return g;
 }

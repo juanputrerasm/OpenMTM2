@@ -66,17 +66,20 @@ export const FALL_FLAG_SOUND = 4;
 /** The weather that is Snow (FREEZE stops sound, mist snow bit, droplets, rings; look 3). */
 export const FALL_WEATHER_SNOW = 5;
 const worldFtOf = (cells) => 32 * (cells ?? 256);
-/**
- * The crest height range in half-feet a record may hold: 1..4096 in a version 1 file; in version 2 the terrain's
- * range, as a version 2 lake's (track format version 6, sections 9.1 and 9.3), from the track's step and base
- * (128 and 0 without a terrainHeightMap).
- */
+/*
+  Community Patch 4 2.0.52.4 (2026-11-22): the window follows the track's kind, not the file's version. On a
+  .SIT/.SI2 a version 1 fall is 1..4096; on a 256-cell .SI3 (`si3`) a version 1 fall is 1..4096 or the track's own
+  window 2 * base + 1 .. 2 * (base + 65536 / step); a 512-cell .SI3's version 2 falls take the track's window only.
+*/
 export function fallHeightRange(major, terrain = {}) {
-    if (major < 2)
-        return { min: 1, max: 4096 };
     const step = terrain.step ?? 128, base = terrain.base ?? 0;
-    return { min: 2 * base + 1, max: 2 * (base + 65536 / step) };
+    const track = { min: 2 * base + 1, max: 2 * (base + 65536 / step) };
+    if (major < 2)
+        return terrain.si3 ? { min: 1, max: 4096, alt: track } : { min: 1, max: 4096 };
+    return track;
 }
+/** Whether a height fits a FallHeightRange. */
+export const fallHeightFits = (h, r) => (h >= r.min && h <= r.max) || (!!r.alt && h >= r.alt.min && h <= r.alt.max);
 /**
  * The engine's ground for the walk (12.2.3): terrain only, the integer triangle rule. Classic (8 or 16-bit) on the
  * 256 x 256 corners at 32 ft, spline and Full Map on the 1024 x 1024 grid at 8 ft; heights as the engine holds them
@@ -291,7 +294,8 @@ const WFL_RECORD_MIN = 0x80;
  * (`fallHeightRange`).
  */
 export function checkFallRecords(falls, opts = {}) {
-    const limits = { coord: 16 * worldFtOf(opts.cells), ...(opts.heightRange ?? { min: 1, max: 4096 }) };
+    const range = opts.heightRange ?? { min: 1, max: 4096 };
+    const limits = { coord: 16 * worldFtOf(opts.cells), range };
     const counters = { badId: 0, dupId: 0, badPoints: 0, badCoord: 0, badSpeed: 0, badHeight: 0, badFlags: 0, badName: 0, over: 0 };
     const accepted = [];
     const rejected = [];
@@ -328,7 +332,7 @@ function recordError(f, used, nAccepted, limits) {
             return "badCoord";
     if (!(f.speed >= 16 && f.speed <= 1600))
         return "badSpeed";
-    if (!(f.height >= limits.min && f.height <= limits.max))
+    if (!fallHeightFits(f.height, limits.range))
         return "badHeight";
     if ((f.flags & 0xfff8) !== 0)
         return "badFlags";

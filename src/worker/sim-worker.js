@@ -15,7 +15,9 @@ import * as C4 from "../vendor/openphotex/sim/cp4/index.js";
 import * as S from "../vendor/openphotex/sim/mtm2/index.js";
 import { createCrossingLog, raceGap, recordCrossings } from "../game/timing.js";
 import { buildRumbleField, createRumbleDriver, rumbleControls } from "../game/rumble-ai.js";
-import { REVERSE_SPEED, TREE_S, createDrag, dragCollision, dragLamps, dragOver, dragPedals, dragPlaces, dragTick, mirrorCourse, stageSpeed, stagingDistance, stillStaging } from "../game/drag-race.js";
+import { CPU_FINISH_COAST_S, DQ_CODE, OUT, REVERSE_SPEED, STAGED, TREE_S, createDrag, pastFinish, dragCollision, dragLamps, dragOver, dragPedals, dragPlaces, dragTick, dragWallTouch, mirrorCourse, stageSpeed, stagingDistance, stillStaging } from "../game/drag-race.js";
+import { CPX_MODE, cpxTimeoutS } from "../game/cpx-rules.js";
+import { createPenalties, lostOnPenalties, parallelOrder, pointTouches, wallGrid, wallPieces } from "../game/cpx-walls.js";
 import { createExtensionSession, createMutatorSession, extensionSessionGround, extensionSimRules } from "../game/extensions/session-loader.js";
 import { createEvoPathRunner } from "../game/evo-paths.js";
 import { applyCprAids, cprAids, cprCarFigures, cprCourse, createCprDriver, createWidthLookup, spinCorrection } from "../game/cpr-driver.js";
@@ -33,8 +35,12 @@ import { aiSpeedFactor } from "../game/ai-speed.js";
 import { LOADING_BAR } from "../game/loading-bar.js";
 import { CRASH_APART_S, CRASH_MIN_FT_S } from "../game/sound-model.js";
 import { forEachBoxPair } from "./box-pairs.js";
+import { CP4_LIMITS } from "../game/cp4-limits.js";
+import { APPLY_S, MIRROR_S, SEND_GAP_S, SEND_MIN_DV, STALE_S, T as CP4_TICK_S, createCp4Sync, feedHit, hitHistory, judgeHit } from "../net/cp4-sync.js";
 
 export const STEP = 1 / 60;
+/** CP4 2.0.52.4's tree collision: the nearest 24 trunks a truck, 128 at once (CP4_ENGINE_UPDATES.md 7.1). */
+export const CP4_TREES_PER_TRUCK = 24, CP4_TREES_AT_ONCE = 128;
 /** The presses that act once (a shift, Drive Mode, the helicopter): kept until a step takes them, and taken by one only. */
 export const ONE_SHOT_INPUTS = ["shiftUp", "shiftDown", "driveMode", "helicopter"];
 
@@ -431,6 +437,9 @@ export function createSession(init) {
     if (w.matrix) { box.matrix.set(w.matrix); box.radius = Math.hypot(...box.half); }
     // A 4x4 Evolution tree (worker/evo-track-build.js): leaned when touched, not solid.
     if (w.tree) box.tree = w.tree;
+    // A Community Patch 4 tree trunk (worker/cp4-world.js `vegetationWalls`): under CP4's physics only the nearest ones
+    // collide, and computer trucks do not see it (CP4_ENGINE_UPDATES.md 7.1).
+    if (w.cp4Tree) box.cp4Tree = true;
     const reach = w.matrix ? Math.hypot(w.size[0], w.size[1], w.size[2]) * 0.5 : Math.hypot(w.size[0], w.size[2]) * 0.5;
     for (let cx = Math.floor((w.pos[0] - reach) / WALL_CELL_FT); cx <= Math.floor((w.pos[0] + reach) / WALL_CELL_FT); cx++) {
       for (let cz = Math.floor((w.pos[2] - reach) / WALL_CELL_FT); cz <= Math.floor((w.pos[2] + reach) / WALL_CELL_FT); cz++) {
@@ -440,6 +449,23 @@ export function createSession(init) {
       }
     }
   }
+  /**
+   * CP4 2.0.52.4 collides only the nearest trees: 24 a truck and 128 at once (CP4_ENGINE_UPDATES.md 7.1). Keeps at most
+   * those of `t.nearBoxes`'s trunks, nearest first, given `taken` already used this tick; returns how many it kept.
+   */
+  function nearestTrees(t, taken) {
+    const trees = [], rest = [];
+    for (const box of t.nearBoxes) (box.cp4Tree ? trees : rest).push(box);
+    if (!trees.length) return 0;
+    const [x, z] = [t.state.pos[0], t.state.pos[2]];
+    const d = (b) => wrapDelta(b.pos[0] - x) ** 2 + wrapDelta(b.pos[2] - z) ** 2;
+    trees.sort((a, b) => d(a) - d(b));
+    const kept = trees.slice(0, Math.max(0, Math.min(CP4_TREES_PER_TRUCK, CP4_TREES_AT_ONCE - taken)));
+    t.nearBoxes.length = 0;
+    t.nearBoxes.push(...rest, ...kept);
+    return kept.length;
+  }
+
   /** The walls a truck of radius `r` at (x, z) may touch, each once, onto `out`. */
   function wallsAround(x, z, r, out) {
     // A position that is not a number, or is far off the world, has no walls (and must not be walked cell by cell).
@@ -540,7 +566,10 @@ export function createSession(init) {
   // list (`listBoxes`) and CP4 does not make a surface. Not in Summit Rumble (race mode 4). The gates are the track's
   // checkpoints whatever the race (the game loads them with the level).
   const mtm2Listing = rules.id === "mtm2" || rules.id === "cp4";
-  const footprintGates = mtm2Listing && init.race?.mode !== "summit" ? (init.checkpointGates ?? init.race?.checkpoints ?? []) : [];
+  // Community Patch 4 2.0.52.4 (CP4_ENGINE_UPDATES.md 7.3): on a rumble or a drag, boxes without a model and the scenery
+  // beside a checkpoint are solid for every truck: no footprint retype, and the computer trucks list every box.
+  const solidForAll = cp4Model && (init.race?.mode === "summit" || init.race?.mode === "drag");
+  const footprintGates = mtm2Listing && !solidForAll && init.race?.mode !== "summit" ? (init.checkpointGates ?? init.race?.checkpoints ?? []) : [];
   // The count at [0x646c40] + 0xc that lets a computer truck bring in every box: believed to be a network game's
   // other drivers (MONSTER_EXE_ANALYSIS.md 16), so 1 in a network race.
   const networkDrivers = init.net ? 1 : 0;
@@ -587,8 +616,10 @@ export function createSession(init) {
     to move.
   */
   for (const box of levelBoxes) box.inert = box.mass === 0 && !box.dynamic && !movingBoxes.has(box) && box.pathRoot === undefined;
-  // Every surface box counts: CP4 takes only the first 64 (CP4_EXE_ANALYSIS.md 5); OpenMTM2 has no such limit.
-  if (surfaceBoxes.length) for (const g of new Set([ground, extensionGround])) C4.withSurfaceMeshes(g, surfaceBoxes, { limit: Infinity });
+  // Under CP4's physics only the first 64 surface boxes count, as the game takes them (CP4_ENGINE_UPDATES.md 5); under
+  // OpenMTM2's own physics every one does (converted cities carry hundreds).
+  const surfaceLimit = cp4Model ? CP4_LIMITS.surfaceBoxes : Infinity;
+  if (surfaceBoxes.length) for (const g of new Set([ground, extensionGround])) C4.withSurfaceMeshes(g, surfaceBoxes, { limit: surfaceLimit });
   // The meshes a computer racer drives on (game/mesh-ground.js): the static models that collide by their triangles.
   // Their boxes are no blocks to steer round; their walls and drops are read from the triangles.
   const triMeshes = cp4Triangles
@@ -629,8 +660,9 @@ export function createSession(init) {
   const trucks = specs.map((spec, i) => {
     // The game copies the player's gearbox setting to every truck (MONSTER_EXE_ANALYSIS.md +0xfb0), which the MTM1 and
     // MTM2 computer drivers keep; the OMTM2 and EVO drivers always use the automatic box.
-    const cpuAuto = !!spec.autopilot && (aiBehaviour === "omtm2" || aiBehaviour === "evo");
-    const setup = { difficulty, autoShift: cpuAuto ? true : init.autoShift ?? true, ...spec.setup };
+    // Community Patch 4 2.0.52.4: computer trucks in drags shift for themselves (CP4_ENGINE_UPDATES.md 9.1).
+    const cpuAuto = !!spec.autopilot && (aiBehaviour === "omtm2" || aiBehaviour === "evo" || (cp4Model && init.race?.mode === "drag"));
+    const setup = { difficulty, ...spec.setup, autoShift: cpuAuto ? true : spec.setup?.autoShift ?? init.autoShift ?? true };
     let params, state, cprCar = false;
     if (cprModel && spec.truck.cpr) {
       // A CPR car on its own figures and the player's Garage setup (`setup.cpr`; the stock one for the others).
@@ -662,6 +694,12 @@ export function createSession(init) {
       // A CPR car rests at its ride height on MTM2's softer springs too: its anchors for MTM2's sag.
       if (spec.truck.restHubs) params = S.createTruckParams({ ...figures, wheelAnchors: cprAnchorsForSag(spec.truck.restHubs, params.sagFt) }, setup);
       state = S.createTruckState(spec.start.pos, spec.start.heading ?? 0, S.GEAR.FIRST, params);
+    }
+    // A Spline or Full Map track (CP4's 8 ft drive surface): a start found under the ground is lifted to 6 ft above it,
+    // the one thing CP4 2.0.52.4 moves at load (CP4_ENGINE_UPDATES.md 4).
+    if (init.fineFt && cp4Model) {
+      const ground = terrainGround.height(state.pos[0], state.pos[2]);
+      if (state.pos[1] < ground) state.pos[1] = ground + 6;
     }
     if (init.startOnNearestSegment) state.ap.segment = nearestStraight(course, spec.start.pos, spec.start.heading ?? 0);
     // A Rumble needs no course: its computer trucks drive to the zone (rumble-ai.js).
@@ -696,7 +734,7 @@ export function createSession(init) {
     if (ctx.human && init.shiftInAuto) state.controls.autoOverride = true;
     const aiSpeed = autopilot && i > 0 && cpuAiSpeed !== null ? cpuAiSpeed : undefined;
     if (aiSpeed !== undefined) ctx.aiSpeed = aiSpeed;
-    return { state, params, autopilot, remote, recovery, ctx, ownGround, heliGround, aiSpeed, evoVehicle: !!spec.truck.evo, cprCar, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, bottoming: 0, collide: 0, crash: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
+    return { state, params, autopilot, remote, remoteComputer: remote && !!spec.remoteComputer, recovery, ctx, ownGround, heliGround, aiSpeed, evoVehicle: !!spec.truck.evo, cprCar, radius: S.truckRadius(params), nearBoxes: [], dmg: new Map(), snd: { impact: 0, bottoming: 0, collide: 0, crash: 0, hit: null, splash: false, surface: 1 }, safe: copyState(state), sinceSafe: 0 };
   });
   const player = trucks[0];
   // Under CPR physics a CPR car drives by CART.EXE's autopilot on the SIT course (game/cpr-driver.js, CPR_PHYSICS.md
@@ -719,15 +757,98 @@ export function createSession(init) {
   if (trucks.length > 1) apCtx.traffic = trucks.map((t) => ({ s: t.state, p: t.params }));
   // A drag race (game/drag-race.js) is one pass: staging and the tree in place of the countdown, the beams and the
   // times its own (the race's checkpoint test is left with nothing to do); each lane drives its own course.
-  const dragMode = init.race?.mode === "drag" && (init.race.checkpoints?.length ?? 0) >= 4;
-  const drag = dragMode ? createDrag(init.race.checkpoints, [0, 1].map((lane) => specs.some((spec, i) => (spec.lane ?? i) === lane)), rules.id === "mtm1" ? "mtm1" : "cp3") : null;
+  /*
+    Community Patch 4 2.0.52.4's race rules (`.CPX`, game/cpx-rules.js; CP4_ENGINE_UPDATES.md 8): mode 1 a new-style drag
+    (the drag pass with the rules' beams, laps and time-out), mode 2 a Parallel race (two trucks, a lane each, wall
+    touches cost time), mode 3 a race with split checkpoints. Without them every rule below is the old one.
+  */
+  const cpxRules = init.race?.raceRules ?? null;
+  const cpxMode = cpxRules?.mode ?? 0;
+  const dragMode = init.race?.mode === "drag" && (init.race.checkpoints?.length ?? 0) >= (cpxMode === CPX_MODE.DRAG ? 1 : 4);
+  const parallel = cpxMode === CPX_MODE.PARALLEL;
+  const drag = dragMode ? createDrag(init.race.checkpoints, [0, 1].map((lane) => specs.some((spec, i) => (spec.lane ?? i) === lane)), rules.id === "mtm1" ? "mtm1" : "cp3",
+    cpxMode === CPX_MODE.DRAG ? { cpx: cpxRules, laps: init.race.laps ?? 1 } : {}) : null;
+  // A Parallel race or a race with splits: a checkpoint a slot, split slots holding their copies.
+  const raceCps = dragMode ? [] : cpxRules && (parallel || cpxMode === CPX_MODE.RACE)
+    ? S.raceSlotCheckpoints(init.race.checkpoints, cpxRules.boxes) : S.raceCheckpoints(init.race?.checkpoints ?? []);
   const race = init.race
     ? S.createRace(trucks.map((t, i) => ({ s: t.state, p: t.params, player: (i === 0 && !t.autopilot) || t.remote })),
-      S.raceCheckpoints(dragMode ? [] : init.race.checkpoints), dragMode ? [] : course,
-      dragMode ? 1 : init.race.laps ?? 3, difficulty, dragMode ? "circuit" : init.race.mode ?? "circuit")
+      raceCps, dragMode ? [] : course,
+      dragMode ? 1 : init.race.laps ?? 3, difficulty, dragMode ? "circuit" : init.race.mode ?? "circuit",
+      // CP4 2.0.52.4 counts Summit Rumble in physics ticks (CP4_ENGINE_UPDATES.md 9.3), a tick being `substeps` steps.
+      cp4Model ? { tickClock: true, callsPerTick: C4.cp4Substeps(rules, cp4Split).n } : {})
     : null;
+  /*
+    CP4 2.0.52.4's tide (CP4_ENGINE_UPDATES.md 7.4): the track's water steps once a physics tick from the green flag,
+    remainder carried, frozen in Snow; it restarts with the race and a saved race's load. The other models keep the
+    simulation's water still (the drawn water bobs by itself).
+  */
+  const tide = cp4Model && init.waterLevelFt != null ? S.createTide(Math.round(init.waterLevelFt * 2), rules.tickS, weather === S.WEATHER.SNOW) : null;
+  const tideSubsteps = cp4Model ? C4.cp4Substeps(rules, cp4Split).n : 1;
+  let tideCalls = 0;
   // 4x4 Evolution 2's physics: a checkpoint counts driven through either way (EVO2_PHYSICS.md 12).
   if (race && rules.twoWayCheckpoints) race.twoWay = true;
+  // A .CPX race's lanes: stored once at the start from the grid (lane 1 the first start slot); online the spawn slot's.
+  // Trucks past the second slot have none.
+  if (race && cpxRules) race.trucks.forEach((rt, i) => { const l = specs[i]?.lane ?? i; rt.lane = l === 0 ? 1 : l === 1 ? 2 : 0; });
+  // A CP4 room (18.1): only a truck's own machine counts its passes, and only it judges its drag lane; the others take
+  // them from its 0x0b and 0x26.
+  if (race && init.net?.policy === "cp4") race.trucks.forEach((rt, i) => { if (trucks[i].remote) rt.passesFromOwner = true; });
+  if (drag && init.net?.policy === "cp4") trucks.forEach((t) => { if (t.remote && drag.lanes[t.lane]) drag.lanes[t.lane].remote = true; });
+  // A Parallel race runs until every truck has finished (each its laps), or the time-out; the walls cost time.
+  if (race && parallel) race.allFinish = true;
+  const cpxWalls = cpxRules?.walls?.length ? wallGrid(wallPieces(cpxRules.walls), { worldFt }) : null;
+  const penalties = parallel ? createPenalties(trucks.length, { penaltyMs: cpxRules.penaltyMs || 5000, rearmMs: cpxRules.rearmMs || 1000 }) : null;
+  const cpxTimeout = parallel ? cpxTimeoutS(cpxRules, init.race.laps ?? 1) : null;
+  let firstFinishAt = null;
+  /** The penalty events of this race, oldest first: a replay's `penalties` block and the network's packet 43. */
+  const penaltyEvents = [];
+  /** Each truck's points the walls are tested with: its hull points and its tyres' hubs (body frame). */
+  const wallPointsOf = (t) => [...(t.params.scrapePoints ?? []), ...(t.params.hubs ?? [])];
+  const worldPoint = (t, q) => {
+    const m = t.state.matrix, p = t.state.pos;
+    return [p[0] + m[0] * q[0] + m[1] * q[1] + m[2] * q[2], p[1] + m[3] * q[0] + m[4] * q[1] + m[5] * q[2], p[2] + m[6] * q[0] + m[7] * q[1] + m[8] * q[2]];
+  };
+  /**
+   * The walls each of this machine's trucks touched this step (a remote truck is judged by its owner; nothing is judged
+   * while the truck is being put back). Drag: the truck is out. Parallel: a penalty for each armed wall.
+   */
+  function cpxWallStep() {
+    if (!cpxWalls || !race || (!S.raceStarted(race) && !drag)) return;
+    trucks.forEach((t, i) => {
+      if (t.remote || t.state.heliTimer > 0) { t.wallSeen = null; return; }
+      const now = wallPointsOf(t).map((q) => worldPoint(t, q));
+      const before = t.wallSeen ?? now;
+      t.wallSeen = now;
+      const touched = new Set();
+      now.forEach((p, k) => pointTouches(cpxWalls, before[k] ?? p, p, touched, wrapDelta));
+      if (drag) { if (touched.size) dragWallTouch(drag, t.lane); return; }
+      if (penalties && !race.trucks[i].finished) {
+        const added = penalties.touch(i, touched, Math.round((race.clock - race.startTime) * 1000));
+        if (added) penaltyEvents.push({ time: race.clock - race.startTime, truck: i, totalMs: penalties.totals[i] });
+      }
+    });
+  }
+  /** A Parallel race's end: every truck finished, or offline the time-out gone by since the first finish. */
+  function parallelStep() {
+    if (!parallel || !race || !S.raceStarted(race)) return;
+    const since = race.clock - race.startTime;
+    if (firstFinishAt === null && race.trucks.some((rt) => rt.finished)) firstFinishAt = since;
+    const timedOut = since >= cpxTimeout || (!init.net && firstFinishAt !== null && since - firstFinishAt >= cpxTimeout);
+    if (timedOut) for (const rt of race.trucks) if (!rt.finished) { rt.finished = true; rt.dq = "timeout"; }
+    if (race.trucks.every((rt) => rt.finished)) race.over = true;
+  }
+  /** A lead-in course (COUR first pass only): driven once to its last segment, then the lane's course for good. */
+  function leadInStep() {
+    for (const t of trucks) {
+      const lead = t.leadIn;
+      if (!lead || t.state.ap.segment < lead.length - 1) continue;
+      t.leadIn = null;
+      t.apCtx = { ...t.apCtx, course: lead.then };
+      t.state.ap.segment = nearestStraight(lead.then, t.state.pos, t.state.euler[2]);
+      t.course = lead.thenIndex;
+    }
+  }
   const raceAp = dragMode ? { ...apCtx, course: [] } : apCtx;
   if (drag) {
     race.startTime = Infinity;
@@ -752,6 +873,28 @@ export function createSession(init) {
     specs.forEach((spec, i) => { trucks[i].stageDepth = spec.stageDepth; trucks[i].launch = Number.isFinite(spec.launch) ? spec.launch : null; });
     // Auto Stage (Options, Game, or its key during a pass): the player's truck stages itself.
     player.autoStage = !!init.race.autoStage;
+  }
+  // A .CPX drag or Parallel race's courses (CP4_ENGINE_UPDATES.md 8.3): lane 1 drives course 0, lane 2 course 1, and a
+  // lead-in (COUR first pass only) is driven once before its then-course.
+  if (cpxRules && (drag || parallel)) {
+    const built = (c) => (c?.length ? S.buildCourse(c, (x, z) => ground.height(x, z), { sonicTrack, gripK: sonicTrack && difficulty === S.DIFFICULTY.PROFESSIONAL ? 2 : 1.75 }) : null);
+    const all = (init.race.cpxCourses ?? []).map(built);
+    specs.forEach((spec, i) => {
+      const t = trucks[i];
+      if (parallel) {
+        t.lane = spec.lane ?? i;
+        t.apCtx = { ...apCtx, course: t.lane === 1 ? (all[1] ?? course) : (all[0] ?? course), traffic: undefined };
+      }
+      const laneCourse = t.lane === 0 ? 0 : t.lane === 1 ? 1 : -1;
+      const lead = cpxRules.courses.find((c) => c.thenCourse === laneCourse);
+      const leadCourse = lead ? all[lead.course] : null;
+      if (leadCourse && t.apCtx) {
+        t.leadIn = { length: leadCourse.length, then: t.apCtx.course, thenIndex: laneCourse };
+        t.apCtx = { ...t.apCtx, course: leadCourse };
+        t.state.ap.segment = 0;
+        t.course = lead.course;
+      } else t.course = Math.max(0, laneCourse);
+    });
   }
   /**
    * The autopilot context a truck drives by: its lane's in a drag race. A computer truck with an AI Speed gets a view
@@ -984,7 +1127,7 @@ export function createSession(init) {
   // A truck that is not the player's own does not bring in a type 11 box or one with no model (MTM2 and CP4,
   // OpenPhotex `listedByComputerTruck`); the player's truck and the listed objects bring in every box.
   const bringsIn = (box, t, i) => nearListing(t.state.pos[0], t.state.pos[2], t.radius, box)
-    && (i === 0 || !mtm2Listing || S.listedByComputerTruck(box.type, box.hasModel, networkDrivers));
+    && (i === 0 || !mtm2Listing || solidForAll || S.listedByComputerTruck(box.type, box.hasModel, networkDrivers));
 
   /*
     The list without going through it (`chainFast`): which boxes listBoxes would list, asked only of the boxes that
@@ -1202,9 +1345,22 @@ export function createSession(init) {
       for (let j = i + 1; j < trucks.length; j++) {
         const a = trucks[i], b = trucks[j];
         const f = a.state.extForce, f0 = f[0], f1 = f[1], f2 = f[2];
+        // A CP4 room: one of this machine's trucks against a remote copy is a hit to report (0x27, 18.3).
+        const mixed = cp4Net && a.remote !== b.remote;
+        const copy = mixed ? (a.remote ? a : b) : null;
+        const copyBefore = copy ? [...copy.state.extForce, ...copy.state.extMoment] : null;
         // How fast they close on each other, along the line between them, before the pair's response.
         const closing = closingSpeedOf(a.state, b.state);
         const met = S.collideTrucks({ s: a.state, p: a.params }, { s: b.state, p: b.params }, STEP, rules, worldFt);
+        if (copy && Math.hypot(a.state.pos[0] - b.state.pos[0], a.state.pos[1] - b.state.pos[1], a.state.pos[2] - b.state.pos[2]) < S.truckRadius(a.params) + S.truckRadius(b.params)) {
+          const ci = copy === a ? i : j, h = hitNet[ci];
+          h.contactAt = wallNow;
+          if (wallNow - h.sentAt >= SEND_GAP_S) {
+            const cs = copy.state;
+            for (let k = 0; k < 3; k++) { h.lin[k] += (cs.extForce[k] - copyBefore[k]) * STEP; h.ang[k] += (cs.extMoment[k] - copyBefore[3 + k]) * STEP; }
+            h.source = copy === a ? j : i;
+          }
+        }
         // A hull against a hull: the pair's forces changed. Remember the hardest hit and where the trucks met.
         const force = Math.hypot(f[0] - f0, f[1] - f1, f[2] - f2);
         if (force > 0) {
@@ -1232,11 +1388,13 @@ export function createSession(init) {
       }
     }
     const grounds = [];
+    let treesTaken = 0;
     for (const [ti, t] of trucks.entries()) {
       t.nearBoxes.length = 0;
       if (t.state.heliTimer > 0) continue;
       if (ra0 && ra1) groundBoxes.around(t.state.pos[0], t.state.pos[2], t.nearBoxes);
       wallsAround(t.state.pos[0], t.state.pos[2], t.radius, t.nearBoxes);
+      if (cp4Model) treesTaken += nearestTrees(t, treesTaken);
       // Each test is made with the truck as the copy nearest the thing it is tested against (OpenPhotex world/wrap.ts):
       // what stands across the world's seam is met as what stands beside the truck is.
       const near = (thing, test) => S.withNearest(t.state, thing.pos[0], thing.pos[2], test, worldFt);
@@ -1355,7 +1513,23 @@ export function createSession(init) {
    * position snapped at most once a second), or "smooth" (the error eased out over REMOTE_BLEND_S, snapped past
    * REMOTE_SNAP_FT, stale updates dropped).
    */
-  const remotePolicy = init.net?.policy === "smooth" ? "smooth" : "legacy";
+  const remotePolicy = init.net?.policy === "smooth" || init.net?.policy === "cp4" ? init.net.policy : "legacy";
+  /*
+    "cp4": a Community Patch 4 room (docs/CP4_EXE_ANALYSIS.md 18): remote trucks played back from a buffer by their
+    senders' ticks and pinned there before every step (net/cp4-sync.js), hits sent and judged as packet 0x27, each
+    truck's progress from its owner (0x26). `wallNow` is the race screen's clock for this frame, seconds.
+  */
+  const cp4Net = remotePolicy === "cp4";
+  const cp4Sync = cp4Net ? createCp4Sync({ worldFt }) : null;
+  let wallNow = 0, wallDt = 0;
+  const toBodyFrame = (m, v) => [m[0] * v[0] + m[3] * v[1] + m[6] * v[2], m[1] * v[0] + m[4] * v[1] + m[7] * v[2], m[2] * v[0] + m[5] * v[1] + m[8] * v[2]];
+  const toWorldFrame = (m, v) => [m[0] * v[0] + m[1] * v[1] + m[2] * v[2], m[3] * v[0] + m[4] * v[1] + m[5] * v[2], m[6] * v[0] + m[7] * v[1] + m[8] * v[2]];
+  const massOf = (t) => S.truckWeight(t.params) * S.INV_G;
+  /** 0x27: per truck, when this machine last met it, the hits summed for it and when one was last sent to it. */
+  const hitNet = cp4Net ? trucks.map(() => ({ contactAt: -Infinity, sentAt: -Infinity, lin: [0, 0, 0], ang: [0, 0, 0], source: null, pending: null, budget: { used: 0, at: null }, history: [] })) : null;
+  /** 0x26: what was last sent for each truck this machine owns. */
+  const sentProgress = trucks.map(() => null);
+  let lastNetTick = null;
   /** Put a truck where it is said to be, at rest in its angles; the picture does not slide there. */
   function placeTruck(t, pos, euler) {
     const s = t.state;
@@ -1388,6 +1562,12 @@ export function createSession(init) {
     if (u.autoShift !== undefined) t.params.autoShift = !!u.autoShift;
     if (u.bvel) s.bvel.set(u.bvel);
     if (race?.summit && Number.isFinite(u.score)) race.summit.trucks[u.truck].score = u.score;
+    if (cp4Net) {
+      // The packet's body velocity until the pin's own takes over; the pose goes to the buffer.
+      if (u.bvel) t.netBvel = [...u.bvel];
+      if (u.pos && u.euler) cp4Sync.receive({ truck: u.truck, sender: u.sender ?? u.truck, tick: u.tick ?? 0, pos: u.pos, euler: u.euler, poses: u.poses ?? [] }, Number.isFinite(u.at) ? u.at / 1000 : wallNow);
+      return true;
+    }
     if (remotePolicy === "legacy") {
       if (u.euler) {
         for (let k = 0; k < 3; k++) s.euler[k] = wrapPi(u.euler[k]);
@@ -1420,6 +1600,151 @@ export function createSession(init) {
     for (let k = 0; k < 3; k++) { s.pos[k] += b.dp[k] * share; s.euler[k] += b.de[k] * share; }
     S.eulerToMatrix(s.euler[0], s.euler[1], s.euler[2], s.matrix);
   }
+  /**
+   * CP4's pin (18.2): before a step, a remote truck is put where its buffer says it is at playback + lead, its world
+   * velocity the buffer's, its body velocity the move over the next tick (or the packet's). A computer truck with no
+   * packet for STALE_S is left where it goes.
+   */
+  function pinRemote(t, i) {
+    if (!cp4Sync.has(i) || (t.remoteComputer && cp4Sync.age(i, wallNow) > STALE_S)) return;
+    const p = cp4Sync.pin(i, wallNow);
+    if (!p) return;
+    const s = t.state;
+    s.pos[0] = p.pos[0]; s.pos[1] = p.pos[1]; s.pos[2] = p.pos[2];
+    s.euler[0] = wrapPi(p.euler[0]); s.euler[1] = wrapPi(p.euler[1]); s.euler[2] = p.euler[2];
+    S.eulerToMatrix(s.euler[0], s.euler[1], s.euler[2], s.matrix);
+    s.prevPos.set(s.pos);
+    const bvel = p.pinVel ? toBodyFrame(s.matrix, p.pinVel) : t.netBvel;
+    if (bvel) s.bvel.set(bvel);
+  }
+  /** The pose a CP4 remote truck is drawn in (the playback time, with its correction), or null. */
+  function drawnRemote(i, snap) {
+    const d = cp4Sync.drawn(i, wallNow);
+    if (!d) return snap;
+    const matrix = S.eulerToMatrix(d.euler[0], d.euler[1], d.euler[2], new Array(9));
+    return { ...snap, pos: d.pos, euler: d.euler, matrix };
+  }
+  /** Each frame before the steps: the hits received (0x27) fed into their trucks over APPLY_S. */
+  function feedHits() {
+    hitNet.forEach((h, i) => {
+      if (!h.pending) return;
+      const { dv, w, done } = feedHit(h.pending, wallDt);
+      const s = trucks[i].state;
+      for (let k = 0; k < 3; k++) s.bvel[k] += dv[k];
+      // Body rates: x is q, y is r, z is p.
+      s.rates[1] += w[0]; s.rates[2] += w[1]; s.rates[0] += w[2];
+      if (done) h.pending = null;
+    });
+  }
+  /** After the steps: the hits this machine's trucks dealt the remote copies, one packet a victim (0x27). */
+  function flushHits() {
+    const out = [];
+    hitNet.forEach((h, i) => {
+      if (h.source === null) return;
+      const lin = h.lin, ang = h.ang, source = h.source;
+      h.lin = [0, 0, 0]; h.ang = [0, 0, 0]; h.source = null;
+      if (Math.hypot(lin[0], lin[1], lin[2]) / massOf(trucks[i]) < SEND_MIN_DV) return;
+      h.sentAt = wallNow;
+      out.push({ target: i, source, linear: lin, angular: ang });
+    });
+    return out;
+  }
+  /** The end-of-frame poses of this machine's trucks, the victim's side of the hit check (16 kept). */
+  function keepHitHistory() {
+    trucks.forEach((t, i) => {
+      if (t.remote) return;
+      const h = hitNet[i].history;
+      h.push({ at: wallNow, pos: Array.from(t.state.pos), vel: toWorldFrame(t.state.matrix, t.state.bvel) });
+      if (h.length > 16) h.shift();
+    });
+  }
+  /** A received hit (0x27) on one of this machine's trucks: the mirror rule, the hit check and the budget. */
+  function takeHit({ target, source, linear, angular, rtt = 0 }) {
+    const t = trucks[target], from = trucks[source];
+    if (!cp4Net || !t || t.remote || !from?.remote) return false;
+    const h = hitNet[target];
+    if (wallNow - hitNet[source].contactAt < MIRROR_S) return false;
+    const drawnTime = cp4Sync.playback(source, wallNow), lead = cp4Sync.lead(source);
+    const history = hitHistory({
+      ours: h.history, attacker: (time) => cp4Sync.at(source, time), span: cp4Sync.span(source), now: wallNow,
+      drawnTime, pinTime: drawnTime + lead, delay: cp4Sync.appliedDelay(source, wallNow), lead, rtt: rtt > 0 && rtt < 1 ? rtt : 0,
+      radii: [S.truckRadius(t.params), S.truckRadius(from.params)], worldFt,
+    });
+    const hit = judgeHit({ linear, angular, mass: massOf(t), inertia: t.params.inertia, history, check: true, budget: h.budget, now: wallNow });
+    if (!hit) return false;
+    const p = h.pending ?? (h.pending = { dv: [0, 0, 0], w: [0, 0, 0] });
+    for (let k = 0; k < 3; k++) { p.dv[k] += hit.dv[k]; p.w[k] += hit.w[k]; }
+    return true;
+  }
+  /**
+   * 0x26 out (18.1): for each truck this machine owns, what CP4 sends, when it changes. A race: at each pass, the
+   * passes (to 90) and the total of the laps closed before it. A drag lane: 1 prestaged, 2 staged, 3 the tree has run,
+   * 4 and on the beams after the start, the disqualification's code (95, the re-run, is each machine's own), and at the
+   * finish the elapsed time. Never in a Summit Rumble.
+   */
+  function progressOut() {
+    if (!race || race.summit || !S.raceStarted(race) && !drag) return null;
+    const out = [];
+    trucks.forEach((t, i) => {
+      if (t.remote) return;
+      const rt = race.trucks[i];
+      let now = null;
+      if (drag) {
+        const l = drag.lanes[t.lane];
+        if (!l || l.empty) return;
+        const code = l.dq ? DQ_CODE[l.dq] ?? OUT.LANE : null;
+        const segments = code ?? (l.state >= STAGED.LAUNCHED ? 4 + l.next + (l.et !== null ? 1 : 0)
+          : l.state >= STAGED.STAGED && (drag.phase === "tree" || drag.phase === "go") ? 3 : l.state);
+        now = { segments, total: l.et ?? 0 };
+      } else {
+        const last = sentProgress[i];
+        if (last && last.passCount === rt.passCount) return;
+        if (!last && !rt.passCount) { sentProgress[i] = { passCount: 0, laps: 0 }; return; }
+        // The total before this pass's lap closed: the lap the pass closed is left out, as CP4 sends it.
+        const closed = rt.laps > (last?.laps ?? 0);
+        now = { segments: Math.min(90, rt.passCount), total: closed ? rt.raceTime - (rt.lapTimes[rt.lapTimes.length - 1] ?? 0) : rt.raceTime, passCount: rt.passCount, laps: rt.laps };
+        sentProgress[i] = now;
+        out.push({ truck: i, segments: now.segments, total: now.total });
+        return;
+      }
+      const last = sentProgress[i];
+      if (last && last.segments === now.segments && last.total === now.total) return;
+      if (!last && !now.segments && !now.total) { sentProgress[i] = now; return; }
+      sentProgress[i] = now;
+      out.push({ truck: i, ...now });
+    });
+    return out.length ? out : null;
+  }
+  /**
+   * 0x26 in (18.1): a remote truck's passes and total from its owner, set (not added). On a drag strip its lane's
+   * staging, launch, finish time or disqualification.
+   */
+  function takeProgress({ truck, segments, total }) {
+    const t = trucks[truck], rt = race?.trucks[truck];
+    if (!t?.remote || !rt || race.summit) return false;
+    const seg = Math.max(0, Math.trunc(Number(segments) || 0)), time = Number(total) || 0;
+    if (drag) {
+      const l = drag.lanes[t.lane];
+      if (!l) return false;
+      if (seg >= 91) {
+        l.dq = Object.keys(DQ_CODE).find((k) => DQ_CODE[k] === seg) ?? (seg === OUT.RERUN ? null : "out of lane");
+        if (seg === OUT.RERUN) l.rerun = true;
+      } else {
+        const state = seg >= 4 ? STAGED.LAUNCHED : seg >= 2 ? STAGED.STAGED : seg >= 1 ? STAGED.PRESTAGED : STAGED.NONE;
+        if (state >= STAGED.STAGED && l.stagedAt === null) l.stagedAt = drag.clock;
+        l.state = state;
+        if (seg >= 4) l.next = Math.max(0, Math.min(l.beams.gates.length, seg - 4));
+      }
+      if (time > 0) {
+        l.et = time;
+        if (!l.lapTimes.length) { l.lapTimes = [time]; l.best = time; }
+      }
+      return true;
+    }
+    rt.passCount = Math.min(90, seg);
+    if (time > 0) rt.raceTime = time;
+    return true;
+  }
   /** What a truck this machine owns sends (the 0x02 fields, game units). */
   function netState(i) {
     const t = trucks[i], s = t.state, c = s.controls;
@@ -1427,6 +1752,8 @@ export function createSession(init) {
       truck: i, pos: Array.from(s.pos), bvel: Array.from(s.bvel), euler: Array.from(s.euler), steer: c.steer, throttle: c.throttle,
       brakeRear: c.brakeRear, brakeFront: c.brakeFront, gear: c.gear, autoShift: !!t.params.autoShift,
       score: race?.summit ? race.summit.trucks[i].score : 0,
+      // CP3's and CP4's sender tick, 25 a second from the start of the session (never 0).
+      tick: Math.floor(time / CP4_TICK_S) + 1,
     };
   }
   /**
@@ -1457,6 +1784,8 @@ export function createSession(init) {
   function netCommand(name, value) {
     if (name === "remote") return (value ?? []).map(applyRemote);
     if (name === "split") return remoteSplit(value);
+    if (name === "collision") return takeHit(value);
+    if (name === "progress") return takeProgress(value);
     if (name === "startPositions") {
       // 0x17: every truck's start position from the host, headings kept.
       (value ?? []).forEach((pos, i) => { if (pos && trucks[i]) placeTruck(trucks[i], pos, null); });
@@ -1508,10 +1837,24 @@ export function createSession(init) {
           lapTimes: race.summit ? [race.summit.trucks[i].score] : [...rt.lapTimes],
         };
       }),
+      // A .CPX race's state (CP4 2.0.52.4's saved-game block): each truck's penalties and the course it follows.
+      ...(cpxRules ? { cpx: trucks.map((t, i) => ({ penaltyMs: penalties?.totals[i] ?? 0, course: t.course ?? 0 })) } : {}),
     };
   }
   /** Put a saved race (`savedRace`'s shape) back: each truck where it was, as fast, with its laps and times. */
   function restoreRace(saved) {
+    // A .CPX race's penalties and courses, as the saved game's block keeps them: a truck past its lead-in follows its lane.
+    for (const [i, c] of (saved?.cpx ?? []).entries()) {
+      penalties?.set(i, c.penaltyMs);
+      const t = trucks[i];
+      if (t?.leadIn && c.course === t.leadIn.thenIndex) {
+        t.apCtx = { ...t.apCtx, course: t.leadIn.then };
+        t.leadIn = null;
+        t.course = c.course;
+      }
+    }
+    // A saved race's load restarts the tide (CP4_ENGINE_UPDATES.md 7.4).
+    if (tide) { S.resetTide(tide); tideCalls = 0; terrainGround.waterLevelFt = S.tideLevelFt(tide); }
     if (!race || drag || !Array.isArray(saved?.trucks)) return false;
     const n = race.checkpoints.length;
     if (Number.isFinite(saved.clock)) race.clock = saved.clock;
@@ -1553,6 +1896,8 @@ export function createSession(init) {
   /** A debug command from the page; returns the new state of what it changed. */
   function command(name, value) {
     if (name === "savedRace") return savedRace();
+    // A Parallel race's penalty total for a truck another machine owns (packet 0x2b): set, never added.
+    if (name === "penalty") { penalties?.set(value.truck, value.totalMs); return penalties ? penalties.totals[value.truck] : null; }
     if (name === "restoreRace") return restoreRace(value);
     const net = netCommand(name, value);
     if (net !== undefined) return net;
@@ -1580,6 +1925,20 @@ export function createSession(init) {
     throw new Error(`Unknown command "${name}"`);
   }
 
+  /** Whether a computer truck's drag is done: its finish, or (disqualified) its would-be finish; the time is kept. */
+  function cpuDragDone(t, i) {
+    if (t.dragDoneAt !== undefined) return true;
+    const lane = drag.lanes[t.lane];
+    const done = lane && (lane.et !== null || (lane.dq && pastFinish(drag, t.lane, frontOf(t))) || (race.trucks[i].finished && !lane.dq));
+    if (done) t.dragDoneAt = time;
+    return !!done;
+  }
+  /** A truck's front hub, in the world (the hub furthest forward). */
+  const hubOf = (t) => {
+    const hubs = t.params.hubs ?? [[0, 0, t.frontZ ?? 0]];
+    const front = hubs.reduce((a, b) => (b[2] > a[2] ? b : a), hubs[0]);
+    return worldPoint(t, front);
+  };
   /** A truck's front tyre, its leading point, in the world. */
   const frontOf = (t) => {
     const m = t.state.matrix, z = t.frontZ ?? 0;
@@ -1613,6 +1972,8 @@ export function createSession(init) {
     const lanes = drag.lanes.map((_, lane) => trucks.find((t) => t.lane === lane) ?? null);
     const event = dragTick(drag, lanes.map((t) => t && {
       front: frontOf(t), centre: t.state.pos, reversing: t.state.bvel[2] < -REVERSE_SPEED && (t.state.contactCount ?? 0) > 0,
+      // The front wheel's hub height, for a new-style drag's height band.
+      hubY: hubOf(t)[1],
     }), STEP);
     if (event === "go") {
       race.startTime = race.clock;
@@ -1625,7 +1986,9 @@ export function createSession(init) {
       const rt = t ? race.trucks[trucks.indexOf(t)] : null, l = drag.lanes[lane];
       if (!rt || rt.finished) return;
       if (l.et !== null) {
-        Object.assign(rt, { raceTime: l.et, lapTimes: [l.et], fastestLap: l.et, laps: 1, finished: true });
+        // A looped drag: its best lap is the fast lap and the total its run time.
+        const laps = l.lapTimes?.length ? l.lapTimes : [l.et];
+        Object.assign(rt, { raceTime: l.et, lapTimes: laps, fastestLap: l.best ?? l.et, laps: laps.length, finished: true });
       } else if (l.dq || l.rerun) {
         rt.finished = true;
         rt.dq = l.dq;
@@ -1958,7 +2321,7 @@ export function createSession(init) {
     const walls = [];
     wallsAround(s.pos[0], s.pos[2], reach, walls);
     for (const w of walls) {
-      if (w.tree) continue;
+      if (w.tree || (cp4Model && w.cp4Tree)) continue;
       boxObstacles(w, out, [s.pos[0] + wrapDelta(w.pos[0] - s.pos[0]) - w.pos[0], s.pos[2] + wrapDelta(w.pos[2] - s.pos[2]) - w.pos[2]]);
     }
     if (ra0 && ra1 && course.length) {
@@ -2050,18 +2413,26 @@ export function createSession(init) {
       // The game's `bonusLaps` (0x485afc): a lap closed in first place is a lap led, for the points.
       race.trucks.forEach((rt, i) => { if (rt.laps > lapsBefore[i] && rt.place === 1) lapsLed[i]++; });
       if (drag) dragStep();
+      if (cpxRules) { cpxWallStep(); parallelStep(); leadInStep(); }
       if (extensionSession && S.raceStarted(race)) extensionSession.tick();
       recordCrossings(crossings, race.trucks);
     }
     const go = !race || S.raceStarted(race);
+    if (tide && go && ++tideCalls >= tideSubsteps) {
+      tideCalls = 0;
+      S.tideTick(tide);
+      terrainGround.waterLevelFt = S.tideLevelFt(tide);
+    }
     if (mutator && go) mutator.tick();
     // The at-rest reset and lift-off run only in the race state, not through the countdown (10.3).
     // A remote truck's resets and helicopter are its owner's; they arrive as position snaps.
     for (const t of trucks) t.recovery.racing = go && !t.remote;
     for (const [i, t] of trucks.entries()) {
       if (t.remote) {
-        // Its controls are the last ones it sent (applyRemote); a smoothed truck eases out its error.
-        easeRemote(t);
+        // Its controls are the last ones it sent (applyRemote); a smoothed truck eases out its error; a CP4 room's is
+        // pinned to its buffer.
+        if (cp4Net) pinRemote(t, i);
+        else easeRemote(t);
         continue;
       }
       if (t.autopilot && gold.cpuStopped && i > 0) {
@@ -2076,8 +2447,13 @@ export function createSession(init) {
         else if (go && t.rumble) {
           const rivals = trucks.filter((o) => o !== t && o.state.heliTimer <= 0).map((o) => o.state.pos);
           rumbleControls(t.state, t.rumble, race.summit.zone, rivals, S.GEAR, STEP, rumbleField);
-        } else if (go && drag && (drag.lanes[t.lane].dq || race.clock - race.startTime < (t.reaction ?? 0))) {
-          // A computer driver's reaction to the green; a disqualified truck stays where it is.
+        } else if (go && drag && cp4Model && t !== player && cpuDragDone(t, i)) {
+          // CP4 2.0.52.4: after its finish (a disqualified truck's would-be finish) it coasts 1.5 s, then brakes and holds.
+          const c = t.state.controls;
+          c.throttle = 0;
+          c.brakeFront = c.brakeRear = time - t.dragDoneAt >= CPU_FINISH_COAST_S ? 1 : 0;
+        } else if (go && drag && ((drag.lanes[t.lane].dq && !cp4Model) || race.clock - race.startTime < (t.reaction ?? 0))) {
+          // A computer driver's reaction to the green; a disqualified truck stays where it is (under CP4 it runs on).
           t.state.controls.throttle = 0;
           t.state.controls.brakeFront = t.state.controls.brakeRear = 1;
         } else if (go && t.cprDriver) {
@@ -2097,7 +2473,7 @@ export function createSession(init) {
           S.applyAutopilot(t.state, t.params, apOf(t));
           keepControl(t);
           // A drag pass: flat out to the finish beam (game/drag-race.js `dragPedals`); the autopilot steers and stops it after.
-          if (drag && !race.trucks[i].finished && t.state.bvel[2] > 1) dragPedals(t.state.controls, -t.state.euler[0], Math.atan2(t.state.bvel[0], t.state.bvel[2]));
+          if (drag && (!race.trucks[i].finished || (cp4Model && drag.lanes[t.lane].dq)) && t.state.bvel[2] > 1) dragPedals(t.state.controls, -t.state.euler[0], Math.atan2(t.state.bvel[0], t.state.bvel[2]));
           // The no-headway helicopter is the OMTM2 drivers' (the games' own check is the speed, in the recovery step).
           if (aiBehaviour === "omtm2" || drag) watchHeadway(t);
         } else t.state.controls.throttle = 0;
@@ -2363,7 +2739,10 @@ export function createSession(init) {
     if (!race) return null;
     const since = drag && drag.phase !== "go" ? -1 : race.clock - race.startTime;
     const laneOf = (i) => (drag ? drag.lanes[trucks[i].lane] : null);
-    const places = drag ? dragPlaces(race.trucks.map((rt, i) => ({ ...rt, dq: laneOf(i)?.dq || laneOf(i)?.rerun }))) : null;
+    // A Parallel race's order: finish time plus penalties (game/cpx-walls.js `parallelOrder`).
+    const parallelRows = penalties ? race.trucks.map((rt, i) => ({ i, finished: rt.finished && !rt.dq, time: rt.raceTime, penaltyMs: penalties.totals[i], progress: rt.passed + rt.progress })) : null;
+    const places = drag ? dragPlaces(race.trucks.map((rt, i) => ({ ...rt, dq: laneOf(i)?.dq || laneOf(i)?.rerun })))
+      : parallelRows ? (() => { const out = []; parallelOrder(parallelRows).forEach((r, k) => { out[r.i] = k + 1; }); return out; })() : null;
     return {
       started: since >= 0,
       countdown: drag && drag.phase !== "go" ? (drag.phase === "tree" ? TREE_S - drag.tree : 3) : Math.max(0, -since),
@@ -2376,6 +2755,12 @@ export function createSession(init) {
         lane: trucks.map((t) => t.lane),
       } : null,
       clock: Math.max(0, since),
+      /** A Parallel race: each truck's wall penalty total, ms, and the events so far; else null. */
+      penalties: penalties ? { totals: [...penalties.totals], events: penaltyEvents.length } : null,
+      /** A .CPX race's mode (1 drag, 2 Parallel, 3 splits), or 0. */
+      cpxMode,
+      /** CP4's tide: the track's water level this tick, feet (the drawn water follows it), or undefined. */
+      tideFt: tide ? terrainGround.waterLevelFt : undefined,
       laps: race.laps,
       over: race.over,
       /** The HUD's Lead or Back gap for the player's truck (game/timing.js). */
@@ -2387,6 +2772,9 @@ export function createSession(init) {
       summit: race.summit ? { left: Math.max(0, race.roundSeconds - since), states: race.summit.trucks.map((t) => t.state) } : null,
       trucks: race.trucks.map((rt, i) => ({
         place: places ? places[i] : rt.place,
+        /** A Parallel race: the truck's wall penalties, ms, and whether they cost it a place it crossed the line in. */
+        penaltyMs: penalties ? penalties.totals[i] : 0,
+        lostOnPenalties: parallelRows ? lostOnPenalties(parallelRows, parallelRows[i]) : false,
         /** A drag pass: why the truck is out (a name of game/drag-race.js `DQ_CODE`), whether its pass is to be run again, its reaction time. */
         dq: laneOf(i)?.dq ?? null,
         /** Out of lane: over the "centre" line or the outside "edge". */
@@ -2398,6 +2786,8 @@ export function createSession(init) {
         lap: Math.min(rt.laps + 1, race.laps),
         lapTime: rt.finished ? (rt.lapTimes[rt.lapTimes.length - 1] ?? 0) : Math.max(0, since - rt.raceTime),
         best: rt.fastestLap,
+        /** The last lap closed, seconds (0 before the first): Time Attack's (game/extensions/time-attack.js). */
+        lastLap: rt.lapTimes[rt.lapTimes.length - 1] ?? 0,
         led: lapsLed[i],
         raceTime: rt.raceTime,
         finished: rt.finished,
@@ -2437,7 +2827,9 @@ export function createSession(init) {
   }
 
   /** Catch up with `seconds` of wall time; returns the states to interpolate between. */
-  function advance(seconds, input) {
+  function advance(seconds, input, wallS = null) {
+    if (Number.isFinite(wallS)) { wallDt = wallNow ? Math.max(0, wallS - wallNow) : 0; wallNow = wallS; }
+    if (cp4Net) { cp4Sync.frame(wallNow, wallDt); feedHits(); }
     if (input?.modeAction) { pendingAction = input.modeAction; input.modeAction = null; }
     // One-shot presses a tick with no step kept (a frame under 1/60 s, as on a 120 Hz screen): this tick's step takes them.
     if (input) for (const k of ONE_SHOT_INPUTS) if (carriedPresses[k]) input[k] = true;
@@ -2455,11 +2847,24 @@ export function createSession(init) {
       keepPrevious = true;
     }
     if (input) for (const k of ONE_SHOT_INPUTS) if (input[k]) carriedPresses[k] = true;
+    const hits = cp4Net ? flushHits() : null;
+    if (cp4Net) keepHitHistory();
+    // CP4 sends one truck state a tick (18.2): only when this frame's steps reached a new tick.
+    const netTick = Math.floor(time / CP4_TICK_S) + 1;
+    const sendStates = !cp4Net || netTick !== lastNetTick;
+    lastNetTick = netTick;
     // An extension's own objects are drawn by the extension (they are in its view), not as the level's.
     const boxes = [...dirty].filter((box) => !box.extensionOwned).map(boxPose);
     dirty.clear();
     const messages = scriptMessages.splice(0);
-    const poses = trucks.map((t) => ({ previous: t.previous, current: snapshot(t.state), sound: soundOf(t, ground), damage: damageOf(t), touch: takeTouch(t) }));
+    const poses = trucks.map((t, i) => {
+      if (cp4Net && t.remote) {
+        // Drawn at the playback time, not where the pin and the lead put the physics.
+        const current = drawnRemote(i, snapshot(t.state));
+        return { previous: current, current, sound: soundOf(t, ground), damage: damageOf(t), touch: takeTouch(t) };
+      }
+      return { previous: t.previous, current: snapshot(t.state), sound: soundOf(t, ground), damage: damageOf(t), touch: takeTouch(t) };
+    });
     return {
       previous: poses[0].previous, current: poses[0].current, alpha: (target - time) / STEP, time, steps, boxes,
       poses, race: raceView(),
@@ -2473,7 +2878,10 @@ export function createSession(init) {
       // The track script's Message() lines since the last reply (4x4 Evolution 2).
       messages: messages.length ? messages : null,
       // Multiplayer: the state of each truck this machine owns (the player's, and the computer trucks' on the host).
-      net: init.net ? trucks.flatMap((t, i) => (t.remote ? [] : [netState(i)])) : null,
+      net: init.net ? (sendStates ? trucks.flatMap((t, i) => (t.remote ? [] : [netState(i)])) : []) : null,
+      // A CP4 room: the hits this machine's trucks dealt (0x27) and each owned truck's progress (0x26), by local index.
+      netHits: hits?.length ? hits : null,
+      netProgress: cp4Net ? progressOut() : null,
       modeNet: netRole.authority === "owner" ? extensionSession?.netState?.() ?? null : null,
       // A mode that judges each truck where it is driven (Combat): this machine's trucks' state, from every machine.
       modeOwn: init.net && extensionSession?.netOwn ? extensionSession.netOwn() : null,
@@ -2505,7 +2913,7 @@ if (typeof self !== "undefined" && typeof self.postMessage === "function" && typ
       // The simulated time carries on from where it stopped (a new session, or after a pause).
       if (origin === null) origin = tMs - session.now() * 1000;
       origin = catchUpOrigin(origin, tMs, session.now());
-      return session.advance((tMs - origin) / 1000, input);
+      return session.advance((tMs - origin) / 1000, input, tMs / 1000);
     },
     /** Pause: the wall clock keeps running, so restart the catch-up from the next tick. */
     resume() {

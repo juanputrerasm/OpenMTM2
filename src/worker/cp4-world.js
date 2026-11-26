@@ -237,7 +237,7 @@ export function vegetationWalls(veg, modelOf, { detail = 2 } = {}) {
     const ox = (shape.cx * c + shape.cz * sn) * s, oz = (-shape.cx * sn + shape.cz * c) * s;
     walls.push({
       pos: [at.x + ox, at.y + (shape.base + shape.height / 2) * s, at.z + oz],
-      size: [shape.width * s, shape.height * s, shape.length * s], psi,
+      size: [shape.width * s, shape.height * s, shape.length * s], psi, cp4Tree: true,
     });
   }
   return walls;

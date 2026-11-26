@@ -108,11 +108,21 @@ export function parseWtr(bytes, { cells } = {}) {
     if (stride < WTR_STRIDE || n > 255 || n * stride > bsize - 8)
         throw new RangeError("WTR: bad BODY chunk");
     const lakes = [];
+    const skipped = [];
+    const used = new Set();
     for (let i = 0; i < n; i++) {
         const r = bo + 8 + i * stride;
-        const ns = bytes[r + 1];
-        if (bytes[r] !== i + 1 || ns < 1 || ns > 8)
-            throw new RangeError(`WTR: lake record ${i + 1} is malformed`);
+        const id = bytes[r], ns = bytes[r + 1];
+        // A malformed record is left out, the rest of the file kept (F4).
+        if (id === 0 || used.has(id)) {
+            skipped.push({ record: i + 1, id, reason: "id" });
+            continue;
+        }
+        used.add(id);
+        if (ns < 1 || ns > 8) {
+            skipped.push({ record: i + 1, id, reason: "seeds" });
+            continue;
+        }
         const flags = r16(bytes, r + 2);
         const height = major === 2 ? i32(bytes, r + 4) : r32(bytes, r + 4);
         const seeds = [];
@@ -122,12 +132,32 @@ export function parseWtr(bytes, { cells } = {}) {
             ? { minX: r16(bytes, r + 40), minZ: r16(bytes, r + 42), maxX: r16(bytes, r + 44), maxZ: r16(bytes, r + 46) }
             : { minX: bytes[r + 40], minZ: bytes[r + 41], maxX: bytes[r + 42], maxZ: bytes[r + 43] };
         lakes.push({
-            id: i + 1, flags, reflective: (flags & WTR_FLAG_REFLECTIVE) !== 0, height, heightFt: height * WTR_HEIGHT_FT, seeds, box,
+            id, flags, reflective: (flags & WTR_FLAG_REFLECTIVE) !== 0, height, heightFt: height * WTR_HEIGHT_FT, seeds, box,
             tileCount: r32(bytes, r + (major === 2 ? 48 : 44)),
         });
     }
+    let tileMap = tmap === null ? null : bytes.slice(tmap, tmap + tiles);
+    if (tileMap) {
+        const counts = new Uint32Array(256);
+        for (let t = 0; t < tiles; t++)
+            counts[tileMap[t]]++;
+        const bad = new Set();
+        for (const k of lakes)
+            if (k.tileCount !== counts[k.id]) {
+                bad.add(k.id);
+                skipped.push({ record: 0, id: k.id, reason: "tileCount" });
+            }
+        // TMAP tiles that name a lake left out (or no record at all) are dry.
+        const kept = new Set(lakes.filter((k) => !bad.has(k.id)).map((k) => k.id));
+        for (let t = 0; t < tiles; t++)
+            if (tileMap[t] && !kept.has(tileMap[t]))
+                tileMap[t] = 0;
+        for (let i = lakes.length - 1; i >= 0; i--)
+            if (bad.has(lakes[i].id))
+                lakes.splice(i, 1);
+    }
     const headerFlags = r32(bytes, 20);
-    return { major, minor: r16(bytes, 6), headerFlags, edgeRule: (headerFlags & WTR_HEADER_EDGE_RULE) !== 0, tilesX, tilesZ, lakes, tileMap: tmap === null ? null : bytes.slice(tmap, tmap + tiles) };
+    return { major, minor: r16(bytes, 6), headerFlags, edgeRule: (headerFlags & WTR_HEADER_EDGE_RULE) !== 0, tilesX, tilesZ, lakes, skipped, tileMap };
 }
 /**
  * The valid lake heights, in half-feet, inclusive: version 1's 1..4096, or version 2's
@@ -137,13 +167,29 @@ export function wtrHeightRange(major, step = 128, base = 0) {
     return major === 2 ? [2 * base + 1, 2 * (base + 65536 / step)] : [1, 4096];
 }
 /**
+ * Whether a version 1 lake height (half-feet) is one a reader takes: 1..4096, or, with `heightWindow`
+ * (a 256-cell .SI3), also 2 * base + 1 .. 2 * (base + 65536 / step).
+ */
+export function wtrV1HeightOk(height, heightWindow) {
+    if (!Number.isInteger(height))
+        return false;
+    if (height >= 1 && height <= 4096)
+        return true;
+    if (!heightWindow)
+        return false;
+    const [lo, hi] = wtrHeightRange(2, heightWindow.step, heightWindow.base);
+    return height >= lo && height <= hi;
+}
+/**
  * Write a .WTR as Traxx 1.7 lays one out. Lake i gets id i + 1, which tileMap must use. The tile
  * map is N * N bytes, and N picks the version (9.1): 256 x 256 writes version 1 (heights 1..4096,
  * the CP4 file; a lake outside that throws), 512 x 512 version 2. `version`, when given, must agree.
+ * `heightWindow` (a 256-cell .SI3's step and base) also lets a version 1 lake take the track's height
+ * window, as the engine does (wtrV1HeightOk).
  * `edgeRule` marks a file filled with the edge rule as Traxx 1.7.3 does (minor 1, header flags bit 0);
  * without it the header is Traxx 1.7.0's (minor 0, flags 0).
  */
-export function writeWtr(lakes, tileMap, { version, edgeRule = false } = {}) {
+export function writeWtr(lakes, tileMap, { version, edgeRule = false, heightWindow } = {}) {
     const cells = Math.round(Math.sqrt(tileMap.length));
     if (cells * cells !== tileMap.length || (cells !== 256 && cells !== 512))
         throw new RangeError("WTR: tile map must be 256 x 256 or 512 x 512 bytes");
@@ -152,8 +198,10 @@ export function writeWtr(lakes, tileMap, { version, edgeRule = false } = {}) {
     const major = cells === 512 ? 2 : 1;
     if (version !== undefined && version !== major)
         throw new RangeError(`WTR: a ${cells} x ${cells} map is version ${major}, not ${version}`);
-    if (major === 1 && !lakes.every((k) => Number.isInteger(k.height) && k.height >= 1 && k.height <= 4096)) {
-        throw new RangeError("WTR: a 256-cell world's lakes (version 1) are 1..4096 half-feet high (0.5 to 2,048 ft)");
+    if (major === 1 && !lakes.every((k) => wtrV1HeightOk(k.height, heightWindow))) {
+        throw new RangeError(heightWindow
+            ? `WTR: a 256-cell version 6 world's lakes (version 1) are 1..4096 half-feet high, or ${wtrHeightRange(2, heightWindow.step, heightWindow.base).join("..")} (its height range)`
+            : "WTR: a 256-cell world's lakes (version 1) are 1..4096 half-feet high (0.5 to 2,048 ft)");
     }
     const tiles = cells * cells;
     const bodySize = 8 + lakes.length * WTR_STRIDE;

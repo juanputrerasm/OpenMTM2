@@ -86,6 +86,7 @@ TARGETS = {
     "cp4b3dll": ("cp4b3dll/out", "~/Downloads/Beta0.53_hotfix3", "trid3d11.dll"),
     "cp4b4": ("cp4b4/out", "~/Downloads/Beta0.53_hotfix4", "monster.exe"),
     "cp4b4dll": ("cp4b4dll/out", "~/Downloads/Beta0.53_hotfix4", "trid3d11.dll"),
+    "cp4b5": ("cp4b5/out", "~/dev/OpenMTM2/re/cp4b5/ghidra", "monster.exe"),
 }
 
 

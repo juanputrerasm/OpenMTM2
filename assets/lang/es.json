@@ -2896,6 +2896,10 @@
   "text": "Primero elige una pista en la pantalla Carreras."
  },
  {
+  "tag": "<<1>> needs <<2>> trucks at least: wait for players or add computer trucks.",
+  "text": "<<1>> necesita al menos <<2>> camiones: espera a más jugadores o agrega camiones de la computadora."
+ },
+ {
   "tag": "Every player must be Ready.",
   "text": "Todos los jugadores deben estar Listos."
  },
@@ -7702,5 +7706,85 @@
  {
   "tag": "Community Patch 4's normalStrength: how strongly Community Patch 3 normal maps bump models and trucks. CP4 uses 220% (120% before beta 0.53 hotfix 4); OpenMTM2 keeps 100%. From the next race",
   "text": "El normalStrength de Community Patch 4: cuánto relieve dan los mapas de normales de Community Patch 3 a los modelos y camiones. CP4 usa 220% (120% antes del hotfix 4 de la beta 0.53); OpenMTM2 mantiene 100%. Desde la próxima carrera"
+ },
+ {
+  "tag": "This track's race rules (WORLD\\<<1>>.CPX) are missing.",
+  "text": "Faltan las reglas de carrera de esta pista (WORLD\\<<1>>.CPX)."
+ },
+ {
+  "tag": "Track rules do not match the track (re-export from Traxx)",
+  "text": "Las reglas de la pista no coinciden con la pista (vuelve a exportarla desde Traxx)"
+ },
+ {
+  "tag": "Track rules do not fit this track type (re-export from Traxx).",
+  "text": "Las reglas de la pista no corresponden a este tipo de pista (vuelve a exportarla desde Traxx)."
+ },
+ {
+  "tag": "This track's race rules are damaged.",
+  "text": "Las reglas de carrera de esta pista están dañadas."
+ },
+ {
+  "tag": "This track's race rules need a newer build.",
+  "text": "Las reglas de carrera de esta pista necesitan una versión más nueva."
+ },
+ {
+  "tag": "This track has race rules its .TXV does not announce; they are used.",
+  "text": "Esta pista tiene reglas de carrera que su .TXV no anuncia; se usan igualmente."
+ },
+ {
+  "tag": "This track's lead-in courses are damaged and were left out.",
+  "text": "Los recorridos de entrada de esta pista están dañados y se dejaron fuera."
+ },
+ {
+  "tag": "A drags-only series takes drag strips only.",
+  "text": "Una serie solo de arrancones admite solo pistas de arrancones."
+ },
+ {
+  "tag": "A drags-only series takes 2 to 16 trucks.",
+  "text": "Una serie solo de arrancones admite de 2 a 16 camiones."
+ },
+ {
+  "tag": "Time attack",
+  "text": "Contrarreloj"
+ },
+ {
+  "tag": "Ghost <<1>>",
+  "text": "Fantasma <<1>>"
+ },
+ {
+  "tag": "New best lap: <<1>>",
+  "text": "Nueva mejor vuelta: <<1>>"
+ },
+ {
+  "tag": "Lap: <<1>>",
+  "text": "Vuelta: <<1>>"
+ },
+ {
+  "tag": "<<1>> disconnected: the race is over.",
+  "text": "<<1>> se desconectó: la carrera ha terminado."
+ },
+ {
+  "tag": "<<1>> loses on penalties.",
+  "text": "<<1>> pierde por penalizaciones."
+ },
+ {
+  "tag": "Race rule walls",
+  "text": "Muros de las reglas de carrera"
+ },
+ {
+  "tag": "The walls of a track's race rules (a Community Patch 4 .CPX: a drag's lanes, a Parallel race's dividers) drawn see-through in red. The trucks meet them whether they are drawn or not. From the next race",
+  "text": "Los muros de las reglas de carrera de una pista (un .CPX del Community Patch 4: los carriles de un arrancón, las divisiones de una carrera Paralela) dibujados en rojo transparente. Los camiones chocan con ellos se dibujen o no. Desde la próxima carrera"
+ },
+ {
+  "tag": "Waiting for the other players to finish.",
+  "text": "Esperando a que los demás jugadores terminen."
+ },
+ {
+  "tag": "Lap <<1>>",
+  "text": "Vuelta <<1>>"
+ },
+ {
+  "tag": "Hot laps alone on a circuit or a rally against the ghost of your best lap. Each checkpoint shows the gap to the ghost; a faster lap becomes the new ghost. End the session from the pause menu: your best lap goes to the Hall of Fame.",
+  "text": "Vueltas rápidas en solitario en un circuito o un rally contra el fantasma de tu mejor vuelta. Cada punto de control muestra la diferencia con el fantasma; una vuelta más rápida pasa a ser el nuevo fantasma. Termina la sesión desde el menú de pausa: tu mejor vuelta va al Salón de la Fama."
  }
 ]

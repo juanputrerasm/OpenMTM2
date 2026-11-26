@@ -17,7 +17,7 @@ export const LEFT = 0, RIGHT = 1;
  * a blank name is the Computer drivers' name for that place, a blank or unknown truck one drawn at random from those
  * nobody picked.
  */
-export function startDragWeekend(context, { track, trucks, playerTruck, playerName, size, difficulty, weather, aiSpeed = null, random = Math.random, field: given = null, roster = null }) {
+export function startDragWeekend(context, { track, trucks, playerTruck, playerName, size, difficulty, weather, aiSpeed = null, laps = 1, random = Math.random, field: given = null, roster = null }) {
   const known = new Set(trucks.map((t) => t.file));
   const slots = Array.from({ length: Math.max(0, size - 1) }, (_, i) => rosterSlot(roster?.[i], known));
   const picked = new Set(slots.map((s) => s.truck).filter(Boolean));
@@ -39,7 +39,7 @@ export function startDragWeekend(context, { track, trucks, playerTruck, playerNa
       player: false, personality: kinds[Math.floor(random() * kinds.length)],
     });
   }
-  context.dragWeekend = { event: createDragEvent({ strip: { file: track.file, name: track.name }, field }), track, trucks, difficulty, weather, aiSpeed, seen: null };
+  context.dragWeekend = { event: createDragEvent({ strip: { file: track.file, name: track.name }, field }), track, trucks, difficulty, weather, aiSpeed, laps, seen: null };
   return context.dragWeekend;
 }
 
@@ -77,7 +77,9 @@ export async function runPass(context, lane = LEFT) {
   const entrants = passEntrants(weekend, lane);
   const driver = currentDriver(await getProfiles(context));
   return context.router.go("race", {
-    track: weekend.track, mode: "drag", laps: 1, difficulty: weekend.difficulty, opponents: [], weather: weekend.weather, aiSpeed: weekend.aiSpeed ?? null,
+    // Qualifying is one lap; bracket passes run the chosen laps (CP4 2.0.52.4, CP4_ENGINE_UPDATES.md 9.4).
+    track: weekend.track, mode: weekend.track.raceRules === "parallel" ? weekend.track.raceType : "drag",
+    laps: weekend.event.phase === "qualifying" ? 1 : weekend.laps ?? 1, difficulty: weekend.difficulty, opponents: [], weather: weekend.weather, aiSpeed: weekend.aiSpeed ?? null,
     truck: entrants[0].file, trucks: weekend.trucks, setup: entrants[0].player ? { ...driver.garage } : undefined,
     drag: { kind: weekend.event.phase === "qualifying" ? "qualify" : "pairing", entrants },
   }, { replace: true });

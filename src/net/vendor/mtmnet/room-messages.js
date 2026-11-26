@@ -1,4 +1,4 @@
-// Generated from openmtm2-server 0.4.2 protocol/room-messages.js. Do not edit; run its tools/vendor.mjs.
+// Generated from openmtm2-server 0.4.3 protocol/room-messages.js. Do not edit; run its tools/vendor.mjs.
 /*
   The online room protocol, version 1 (docs/PROTOCOL.md): what OpenMTM2 and the room server
   (openmtm2d) say to each other over one WebSocket.
@@ -35,7 +35,15 @@ export const ERROR = Object.freeze({
 export const CAPS = Object.freeze({
   /** The opaque relay channel (docs/PROTOCOL.md "Relay rooms"), for Community Patch 3 and 4's own game packets. */
   CP3_RELAY: "cp3-relay/1",
+  /**
+   * The room protocol's own races (state frames, the server's barriers and results, extension modes), declared by
+   * OpenMTM2. A client that declares the relay without it (Community Patch 4) races only in relay rooms.
+   */
+  ROOM_RACE: "room-race/1",
 });
+
+/** Whether a client races only over the relay (declared `cp3-relay/1` and not `room-race/1`): relay rooms only. */
+export const relayOnly = (caps) => caps.has(CAPS.CP3_RELAY) && !caps.has(CAPS.ROOM_RACE);
 /** How many capabilities `hello.caps` may hold, and how long each may be. */
 export const CAPS_MAX = 16, CAP_LENGTH = 32;
 const CAP_PATTERN = /^[a-z0-9./-]{1,32}$/;

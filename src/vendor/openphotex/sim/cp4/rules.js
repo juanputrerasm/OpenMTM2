@@ -55,8 +55,15 @@ export const CP4_RULES = Object.freeze({
     collisionMode: 1, // [Game] collisionMode 1
     triangles: CP4_TRIANGLES,
 });
-/** CP4's rules with classic box collision (`collisionMode` 0): the clamps above still apply (11.10). */
-export const CP4_CLASSIC_RULES = Object.freeze({ ...CP4_RULES, collisionMode: 0 });
+/**
+ * CP4's rules with classic box collision: 2.0.52.4's Original Physics (`[Game] originalPhysics` 1,
+ * CP4_ENGINE_UPDATES.md 7.2), which at level load turns off the triangle collision against props and the
+ * impulse and bottoming dampers of 2026-09-07 (the impulse cap and the small-prop bottoming share), for
+ * 1998-style collision. The other clamps still apply.
+ */
+export const CP4_CLASSIC_RULES = Object.freeze({
+    ...CP4_RULES, collisionMode: 0, impulseCap: false, bottomPropShare: undefined,
+});
 export function isCp4Rules(id) {
     return id === "cp4";
 }

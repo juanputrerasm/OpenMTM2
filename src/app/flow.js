@@ -99,9 +99,10 @@ export async function goRace(context) {
       gameMode, freeRoam: false, truck: watched[0], trucks, setup: undefined, spectator: true,
     });
   }
-  // An extension uses `laps` as its declared length and never runs as free roam.
+  // An extension uses `laps` as its declared length (or its `fixedLaps`: Time Attack's run until End Race) and never
+  // runs as free roam.
   return context.router.go("race", {
-    track, mode: config.mode, laps: config.laps, difficulty: config.difficulty, opponents: solo ? opponentsFor(extension, config.opponents) : config.opponents,
+    track, mode: config.mode, laps: extension?.fixedLaps ?? config.laps, difficulty: config.difficulty, opponents: solo ? opponentsFor(extension, config.opponents) : config.opponents,
     weather: config.weather, gameMode,
     // Free Roam (the Races screen's mode, or a track that has no checkpoints): the player alone, no race.
     freeRoam: !gameMode && (!!config.freeRoam || !!track.freeRoamOnly),

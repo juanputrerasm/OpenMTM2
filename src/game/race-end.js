@@ -14,6 +14,8 @@
 
   The port adds one guard the game does not have: a CPU truck that is stuck must not keep the
   results from coming, so after the player has finished it waits at most `WAIT_LIMIT_SECONDS` (10 s); the trucks still racing are then run on fast for their times.
+  A network race waits on for every other human (`humans`), as Community Patch 4 2.0.52.4 does (CP4_ENGINE_UPDATES.md
+  10): the guard runs on the computer trucks only, and a human's own time is never one run on fast here.
 */
 
 export const END_COOLDOWN_SECONDS = 5;
@@ -27,7 +29,9 @@ export const SPECTATOR_WAIT_SECONDS = 120;
  * the one tick the player finishes (the camera goes to the RaceCam), `target` the truck the camera
  * follows (0 until the player has finished).
  */
-export function createRaceEnd({ summit = false, spectator = false } = {}) {
+export function createRaceEnd({ summit = false, spectator = false, humans = [] } = {}) {
+  /** A human still racing: not finished and not out (a disqualification, a time-out). */
+  const racing = (t) => !!t && !t.finished && !t.outOfRace;
   let playerAt = null, allAt = null, target = 0, firstAt = null;
   const finished = new Set();
   return {
@@ -57,8 +61,9 @@ export function createRaceEnd({ summit = false, spectator = false } = {}) {
         if (racing.length) target = racing[0].i;
       }
       if (allAt === null && trucks.every((t) => t.finished)) allAt = race.clock;
-      const done = (allAt !== null && race.clock - allAt >= END_COOLDOWN_SECONDS) || race.clock - playerAt >= WAIT_LIMIT_SECONDS;
-      return { done, playerFinished: true, justFinished, target };
+      const humansDone = !humans.some((i) => racing(trucks[i]));
+      const done = (allAt !== null && race.clock - allAt >= END_COOLDOWN_SECONDS) || (humansDone && race.clock - playerAt >= WAIT_LIMIT_SECONDS);
+      return { done, playerFinished: true, justFinished, target, waitingForHumans: !humansDone };
     },
   };
 }

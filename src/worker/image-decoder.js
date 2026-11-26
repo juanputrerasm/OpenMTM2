@@ -3,7 +3,8 @@
   copied unchanged below its header.
 */
 export const HDTEX_MIN_DIM = 32;
-export const HDTEX_MAX_DIM = 1024;
+/** The largest HD side: 2,048 since Community Patch 4 2.0.52.4 (1,024 before 2026-11-13; CP4_ENGINE_UPDATES.md 12). */
+export const HDTEX_MAX_DIM = 2048;
 
 const SIGNATURES = [
   { name: "PNG", bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] },
@@ -30,7 +31,7 @@ export const DETAIL_MAX_DIM = 2048;
 
 /**
  * Reject anything the engine could not use. Returns a reason string, or null if acceptable. `max` is the largest side
- * (HDTEX_MAX_DIM, Community Patch 3's; DETAIL_MAX_DIM for Community Patch 4's detail art).
+ * (HDTEX_MAX_DIM, Community Patch 4 2.0.52.4's; DETAIL_MAX_DIM for Community Patch 4's detail art).
  */
 export function hdDimensionRefusal(name, width, height, max = HDTEX_MAX_DIM) {
   if (width !== height) return `${name}: ${width}x${height} is not square`;

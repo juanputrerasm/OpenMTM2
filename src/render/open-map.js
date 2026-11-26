@@ -10,7 +10,7 @@
   names, then turns the map off (game/course-map-labels.js `nextOpenMapMode`), each name with its place.
 */
 import { drawText, textWidth } from "./bitmap-text.js";
-import { CHECKPOINT_COLOR, NEXT_CHECKPOINT_COLOR, MAP_HALF_WIDTH_FT, boxCorners, mapLineScale, mapTransparency, nearestToPlayer, toMapFrame, wrapRuns } from "./minimap.js";
+import { CHECKPOINT_COLOR, LANE2_COLOR, NEXT_CHECKPOINT_COLOR, MAP_HALF_WIDTH_FT, boxCorners, mapLineScale, mapTransparency, nearestToPlayer, toMapFrame, wrapRuns } from "./minimap.js";
 import { nameTagScale, nameTransparency } from "./name-tag-style.js";
 import { MAP_OFF, openMapLabel, openMapMode, nextOpenMapMode } from "../game/course-map-labels.js";
 import { courseSegments, smoothCoursePath } from "../game/course-shape.js";
@@ -77,7 +77,7 @@ export function stripFade(f, lead, tail) {
 /** The fades along the strip (top, bottom) and across it (each side). */
 const FADE_TOP = 0.3, FADE_BOTTOM = 0.12, FADE_SIDE = 0.15;
 
-export function createOpenMap(course, { font = null, open = false, areas = null, summit = false, lineScale = 1, zoom = OPEN_MAP_DEFAULT_ZOOM, worldFt = WORLD_FT } = {}) {
+export function createOpenMap(course, { font = null, open = false, areas = null, summit = false, lineScale = 1, zoom = OPEN_MAP_DEFAULT_ZOOM, worldFt = WORLD_FT, lane2 = null } = {}) {
   // `worldFt`: the world the map folds at (8192 ft, or a track format version 6 world's).
   const canvas = document.createElement("canvas");
   canvas.className = "race-openmap";
@@ -87,6 +87,8 @@ export function createOpenMap(course, { font = null, open = false, areas = null,
   const zoneMap = !!(areas?.zone || areas?.summit);
   const segments = zoneMap ? [] : courseSegments(course, worldFt);
   const path = smoothCoursePath(segments, !open, worldFt);
+  // A Parallel race's lane 2 (the SIT's course 1), drawn over the first in palette colour 253 (minimap.js LANE2_COLOR).
+  const path2 = zoneMap || !lane2?.length ? [] : smoothCoursePath(courseSegments(lane2, worldFt), !open, worldFt);
   let mode = openMapMode(1), names = 0;
   canvas.hidden = false;
   // The map's eased heading, and the truck and place it was eased for; the zoom asked for and the one drawn.
@@ -215,6 +217,12 @@ export function createOpenMap(course, { font = null, open = false, areas = null,
         const stroke = () => { for (const run of runs) { polyline(run, false, false); ctx.stroke(); } };
         ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 5.5 * u * line; stroke();
         ctx.strokeStyle = "rgba(240,240,240,.92)"; ctx.lineWidth = 2.5 * u * line; stroke();
+        if (path2.length > 1) {
+          const runs2 = wrapRuns(path2, false, me.pos[0], me.pos[2], worldFt).map((run) => run.map((p) => [p.x, p.z]));
+          ctx.strokeStyle = LANE2_COLOR; ctx.lineWidth = 2 * u * line;
+          for (const run of runs2) { polyline(run, false, false); ctx.stroke(); }
+          ctx.strokeStyle = "rgba(240,240,240,.92)"; ctx.lineWidth = 2.5 * u * line;
+        }
         if (open) {
           // The start and the finish: a short bar across the line at each end.
           for (const [i, j] of [[0, 1], [path.length - 1, path.length - 2]]) {

@@ -4,6 +4,71 @@ What was built, milestone by milestone and stage by stage, as the plan recorded 
 current state and everything still open are in [PLAN.md](PLAN.md); a "Not done", "Left" or "Pending" line below is
 as it stood when it was written, and the plan's open items list is the one kept up to date.
 
+## v0.7.5
+
+Community Patch 4 2.0.52.4 (its developer's notes) and beta 0.54 (its executable read for the network): CP4's new
+race rules, Parallel Race, Time Attack, tournament series and caps; CP4 rooms with CP4's own netcode; online modes
+kept out of CP4 rooms. OpenPhotex 1.7.5 and server protocol 0.4.3 vendored.
+
+- **Community Patch 4 2.0.52.4** (docs/CP4_ENGINE_UPDATES.md, from its developer's notes of 2026-11-24; he provided
+  no source code):
+  - Tracks: one list in POD.INI's order with `.SIT`, `.SI2` and `.SI3` as they come and no merging by stem, at most
+    2,048; the `.TXV` read as the engine reads it (the last repeated key, 255-character lines, 64 KB, the UI keys
+    `uiSmall`, `uiLarge`, `logo`); version 6 keys refused on a `.SIT`/`.SI2`, a negative `terrainHeightBase`, a
+    version 6 level shared with a classic track and a `!waterHeight` out of range refused; `.RA2` to `.RA5`, `.CL1`,
+    `.CL2` no longer read; a `.RA0` without `.RA1`/`.CL0` refused; a missing `.CLR`/`.CL0`/`.RA1` on a `.SI3` stops
+    the race; refusals say "Race not started: ...".
+  - Sidecars from the level's own archive only (`.WTR`, `.VEG`, `.WFL`, `.CPX`; `.SRF` from its model's); one bad
+    lake left out, not the file; a lake with a tile under the track's water left out; a 256-cell `.SI3`'s version 1
+    lakes and falls also in the track's own height window.
+  - Limits: 4,608 objects (16,384 on a `.SI3`), 100 checkpoints, 100 top-crush cars and movers, the vegetation's 64
+    species, 32,768 trees and 2,097,152 clumps, 64 surface boxes under CP4 physics, HD art up to 2,048 px.
+  - Tree trunks as CP4 sizes them, only the nearest 24 a truck and 128 at once colliding under CP4 physics, unseen by
+    the computer trucks; the twin-props rule (a doubled shell's higher-priority copy not drawn at Medium and High).
+  - CP4 physics: the tide stepped per tick from the green flag, Summit Rumble counted in ticks, "Classic boxes" as
+    CP4's Original Physics (the impulse cap and bottoming share off too), boxes without a model and scenery beside a
+    checkpoint solid for every truck on rumbles and drags, a smooth-terrain start under the ground lifted 6 ft above
+    it, computer trucks shifting for themselves in drags, coasting 1.5 s after the finish then holding, and a
+    disqualified one running on to its would-be finish.
+  - Race rules (`WORLD\<level>.CPX`, OpenPhotex `readCpx`; game/cpx-rules.js): new-style drags (per-lane beams, the
+    hub-height band, gates every lap, looped drags, the rules' time-out, walls that disqualify), the **Parallel Race**
+    (a lane each, 5 s a wall touch with a 1 s re-arm, results by time plus penalties, "loses on penalties"), races with
+    split checkpoints (any copy, per lane, a miss held while near a copy) and lead-in courses; the penalties in replays,
+    saved games' `*** CPX Race State ***` block and `@si3` line; a Parallel race's lane 2 in palette colour 253
+    (magenta) on the course map; the walls drawn see-through with Options, Advanced, "Race rule walls" (off by default).
+  - Computer trucks drive the player's whole Garage setup and are named after their truck on the Rumble board; the
+    drag bracket's standard draw (1 v 8, 4 v 5, 3 v 6, 2 v 7); a disqualification's run time 3,600 s.
+  - **Time Attack**: hot laps against the best lap's ghost (`MTM2GHOST 1`, kept by track), the gap at each checkpoint,
+    the best lap banked to the Hall of Fame at End Race; an extension, in the Races screen's Mode list on a circuit or a
+    rally.
+  - Tournaments: `MTM2 Series 1.0` presets read and written (classic scoring to 16 places, championship 10-8-6-... and
+    25-20-15-... for 16-truck drags, drags-only series of up to 16 trucks, each round's weather, the series' AI
+    Speed); Parallel tracks as drag weekend tracks; bracket passes run the chosen laps.
+  - Network: CP4 2.0.52.4's version 0x3404 (beta 0.52's 0x3402 still read), packets 0x2a Original Physics and 0x2b
+    Parallel race penalty, a missing truck no longer blocking the start, relay rooms of at most 8 racers, a Community
+    Patch race ended with a message when a racer leaves, every network race waiting for each human's own finish
+    (the 10 s guard for computer trucks only), a Rumble's places following its owners' reported scores (OpenMTM2
+    Server protocol updated and vendored).
+  - **CP4 rooms play as CP4 beta 0.54 does** (CP4_EXE_ANALYSIS.md 18, read from its executable; the room
+    server's relay rooms only): remote trucks played back from a buffer by their senders' ticks (the 97th-percentile
+    delay, the slewed playback clock, the collision lead, the fading correction) and pinned there before every step,
+    one state a 25 Hz tick; hits between our trucks and the others' copies sent and judged as packet 0x27 (the mirror
+    rule, the hit check, the caps and the budget, fed in over 0.12 s); each truck's progress from its own machine as
+    packet 0x26 (passes counted only by the owner, a remote drag lane judged by its owner); packet 0x2b's truck
+    numbered from 0 as CP4 numbers it. Questions for the CP4 developers in docs/CP4_INTEROP_QUESTIONS.md.
+  - **CP4 rooms play only what CP4 plays:** the track's own race type (circuit, rally, drag, Summit, Parallel); the
+    Races screen's Mode list offers no extension in a CP4 room (race-select.js) and none is sent. OpenMTM2 declares
+    the room server's `room-race/1`, so a CP4 client cannot join an ordinary room, where the extension modes are
+    played (OpenMTM2 Server 0.4.3, docs/PROTOCOL.md; CP4_INTEROP_QUESTIONS.md 11).
+  - **Online modes wait for two trucks:** in a room, a mode with a minimum (Tag, Hockey, Soccer, Cops & Robbers,
+    Race & Rumble, Combat, Deathmatch: two) cannot be started by the owner alone; the GO button says so until a
+    player joins or a computer truck is added, as the Races screen does offline (app/net.js `startProblem`,
+    tests/net-console.test.mjs; Soccer, Cops & Robbers and Race & Rumble online states tested in
+    tests/net-extension.test.mjs).
+- **OpenPhotex 1.7.5** vendored (`.CPX` race rules, `MTM2 Series 1.0`, `MTM2GHOST 1`, the engine's `.TXV` reading,
+  passes counted by a truck's owner) and **server protocol 0.4.3** (version 0x3404, packets 0x2a and 0x2b,
+  `room-race/1`).
+
 ## v0.7.4
 
 Community Patch 4 beta 0.53: its waterfalls and its roofed arenas lit as outdoors (the new monster.exe and its

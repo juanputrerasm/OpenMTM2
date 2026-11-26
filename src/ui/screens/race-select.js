@@ -40,7 +40,9 @@ export default async function mount(container, context) {
     container.append(el("section", { class: "screen" }, el("p", { class: "error" }, t("The install has no tracks."))));
     return;
   }
-  const extensions = availableExtensions(tracks);
+  // A CP4 room plays only what CP4 plays: the track's own race type (circuit, rally, drag, Summit, Parallel), no
+  // extension (CP4_INTEROP_QUESTIONS.md 1).
+  const extensions = context.net?.cp4 ? [] : availableExtensions(tracks);
   const modes = [...GAME_MODES, ...extensions];
   let gameMode = modes.some((mode) => mode.id === settings.gameMode) ? settings.gameMode : "default";
   // Free Roam used to be its own box: a save with it ticked opens in the Free Roam mode now.
@@ -75,7 +77,8 @@ export default async function mount(container, context) {
   // A drag strip takes one computer truck, picked at random until the player picks their own (or none: a pass alone).
   // The list for the other tracks is kept apart and comes back with them.
   let dragOpponents = null;
-  const onDragStrip = () => track.raceType === "drag";
+  // A Parallel race (a track's .CPX, CP4 2.0.52.4) is two trucks too, and counts as a drag weekend's track.
+  const onDragStrip = () => track.raceType === "drag" || track.raceRules === "parallel";
   const opponentsNow = () => {
     // A mode driven alone (Freestyle) takes none of them; the list is kept for the other modes.
     if (soloExtension(extensionById(gameMode))) return opponentsFor(extensionById(gameMode), selectedOpponents);
@@ -117,7 +120,9 @@ export default async function mount(container, context) {
   const isFreeRoam = () => gameMode === "freeroam" || (gameMode === "default" && !!track.freeRoamOnly);
   const updateDrivingUI = () => {
     opponentsButton.disabled = isFreeRoam() || isFlyBy() || soloExtension(extensionById(gameMode));
-    laps.disabled = isFreeRoam() || isFlyBy() || (gameMode === "default" && onDragStrip());
+    // A mode without a length to choose (Time Attack runs its laps until End Race) greys the box too.
+    const noLength = !!extensionById(gameMode) && !extensionById(gameMode).length;
+    laps.disabled = isFreeRoam() || isFlyBy() || noLength || (gameMode === "default" && onDragStrip());
     // A disabled number box looks the same on the menu art: grey it and its label.
     laps.classList.toggle("race-off", laps.disabled);
     lengthLabel.classList.toggle("race-off", laps.disabled);
@@ -144,6 +149,8 @@ export default async function mount(container, context) {
       startDragWeekend(context, {
         track, trucks, playerTruck, playerName: driver.name, size: picked.size, roster: picked.roster,
         difficulty: chosen.difficulty, weather: chosen.weather,
+        // Bracket passes run the chosen laps (a looped drag or a Parallel race); qualifying is one lap.
+        laps: Math.max(1, Number(laps.value) || 1),
       });
     }
     context.router.go("drag-event");

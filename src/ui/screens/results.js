@@ -26,7 +26,8 @@ export function winnerCells(row, { summit = false, extension = false, laps = 1, 
   return [
     ordinal(row.place), row.name, row.truckName, DIFFICULTIES[difficulty] ?? DIFFICULTIES[1],
     row.scoreText ?? (summit || extension ? String(Math.round(row.score)) : points === null ? "" : String(points)),
-    extension ? formatRaceTime(row.raceTime) : summit ? formatRaceTime(laps * 60) : row.rerun ? msg("Rerun") : row.dq ? msg("DQ") : (row.finished ? formatRaceTime(row.raceTime) : `${row.laps}/${laps}`),
+    // A Parallel race's time counts its wall penalties (CP4 2.0.52.4).
+    extension ? formatRaceTime(row.raceTime) : summit ? formatRaceTime(laps * 60) : row.rerun ? msg("Rerun") : row.dq ? msg("DQ") : (row.finished ? formatRaceTime(row.raceTime + (row.penaltyMs ?? 0) / 1000) : `${row.laps}/${laps}`),
     row.best && !extension ? formatRaceTime(row.best) : "",
   ];
 }
@@ -96,6 +97,9 @@ export default async function mount(container, context, { track, laps, difficult
     }
   }
   const sorted = ordered;
+  // A Parallel race: the truck that crossed first but loses on its wall penalties is named (CP4_ENGINE_UPDATES.md 8.5).
+  const penaltyLoser = rows.find((r) => r.lostOnPenalties);
+  if (penaltyLoser) hallNote = [hallNote, context.t("<<1>> loses on penalties.", penaltyLoser.name)].filter(Boolean).join(" ");
   const first = sorted[0], second = sorted[1];
   // The artwork has one frame lit green: the player's own, first or second place (RESWIN1, RESWIN2).
   const lit = me && me.place === 2 ? "RESWIN2" : "RESWIN1";

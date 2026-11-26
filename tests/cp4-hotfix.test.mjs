@@ -77,7 +77,7 @@ test("detail art: MaskArt first, PNG then TGA; up to 2048 and any shape, refused
   // The cap is 2048 (CP3's HD art keeps 1024): a refusal names the cap it was held to.
   assert.equal(DETAIL_MAX_DIM, 2048);
   assert.equal(hdDimensionRefusal("A", 2048, 2048, DETAIL_MAX_DIM), null);
-  assert.match(hdDimensionRefusal("A", 2048, 2048), /outside 32\.\.1024/);
+  assert.equal(hdDimensionRefusal("A", 2048, 2048), null, "HD art up to 2048 (CP4 2.0.52.4)");
   assert.match(hdDimensionRefusal("A", 4096, 4096, DETAIL_MAX_DIM), /outside 32\.\.2048/);
 });
 

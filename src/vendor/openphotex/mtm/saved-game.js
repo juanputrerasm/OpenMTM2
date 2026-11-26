@@ -17,9 +17,17 @@
   The game reads the head with fgets and fscanf and hands the rest of the file to its SIT loader (0x551f90). Pure
   text, windows-1252, lines CR LF as the game writes them on Windows. Format only: what a port does with the race is
   its own.
+
+  Community Patch 4 2.0.52.4 adds, only when needed (OpenMTM2 docs/CP4_ENGINE_UPDATES.md 11):
+
+    @si3 <situation file name>        right after the weather line, on a track format version 6 (.SI3) track
+    *** CPX Race State ***            after the saved situation, while a .CPX governs the level, then a count and
+    <count>                           one `<penalty ms>,<course being followed>` line a truck in saved vehicle order
 */
 import { encodeWindows1252 } from "../text.js";
 export const MTM2_SAVED_GAME_HEADER = "MonsterTruckMadness 2.00";
+export const MTM2_SAVED_GAME_SI3 = "@si3 ";
+export const MTM2_SAVED_GAME_CPX = "*** CPX Race State ***";
 const decoder = new TextDecoder("latin1");
 /** A saved game's text as bytes, CR LF line ends; `sit` is appended as given (its own line ends made CR LF). */
 export function writeMtm2SavedGame(game) {
@@ -28,8 +36,11 @@ export function writeMtm2SavedGame(game) {
     for (const t of game.trucks)
         head.push(t.file, int(t.tireCut), int(t.suspension), int(t.transfer));
     head.push(int(game.weather));
+    if (game.si3)
+        head.push(`${MTM2_SAVED_GAME_SI3}${game.si3}`);
     const sit = game.sit.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-    const textOut = `${head.join("\n")}\n${sit.endsWith("\n") ? sit : `${sit}\n`}`.replace(/\n/g, "\r\n");
+    const cpx = game.cpxState ? `${MTM2_SAVED_GAME_CPX}\n${game.cpxState.length}\n${game.cpxState.map((t) => `${int(t.penaltyMs)},${int(t.course)}`).join("\n")}${game.cpxState.length ? "\n" : ""}` : "";
+    const textOut = `${head.join("\n")}\n${sit.endsWith("\n") ? sit : `${sit}\n`}${cpx}`.replace(/\n/g, "\r\n");
     const bytes = encodeWindows1252(textOut);
     if (typeof bytes === "number")
         throw new RangeError(`"${textOut[bytes]}" cannot be written in a saved game.`);
@@ -51,5 +62,22 @@ export function parseMtm2SavedGame(input) {
     for (let i = 0; i < count; i++)
         trucks.push({ file: line(), tireCut: int(), suspension: int(), transfer: int() });
     const weather = int();
-    return { playerTruck, raceIndex, laps, trucks, weather, sit: lines.slice(at).join("\n") };
+    let si3;
+    if ((lines[at] ?? "").startsWith(MTM2_SAVED_GAME_SI3))
+        si3 = line().slice(MTM2_SAVED_GAME_SI3.length).trim();
+    const rest = lines.slice(at);
+    const block = rest.findIndex((l) => l.trim() === MTM2_SAVED_GAME_CPX);
+    let cpxState;
+    if (block >= 0) {
+        const n = Math.max(0, Math.min(64, parseInt(rest[block + 1] ?? "", 10) || 0));
+        cpxState = [];
+        for (let k = 0; k < n; k++) {
+            const [penaltyMs, course] = (rest[block + 2 + k] ?? "").split(",").map((v) => parseInt(v, 10) || 0);
+            cpxState.push({ penaltyMs: penaltyMs ?? 0, course: course ?? 0 });
+        }
+    }
+    return {
+        playerTruck, raceIndex, laps, trucks, weather, sit: block >= 0 ? `${rest.slice(0, block).join("\n")}\n` : rest.join("\n"),
+        ...(si3 ? { si3 } : {}), ...(cpxState ? { cpxState } : {}),
+    };
 }

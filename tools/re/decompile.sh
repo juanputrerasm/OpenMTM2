@@ -15,6 +15,7 @@
 #   CP4B3DLL_DIR=~/Downloads/Beta0.53_hotfix3 tools/re/decompile.sh cp4b3dll (hotfix 3's trid3d11.dll, into re/cp4b3dll/)
 #   CP4B4_DIR=~/Downloads/Beta0.53_hotfix4 tools/re/decompile.sh cp4b4       (beta 0.53 hotfix 4, x64, into re/cp4b4/)
 #   CP4B4DLL_DIR=~/Downloads/Beta0.53_hotfix4 tools/re/decompile.sh cp4b4dll (hotfix 4's trid3d11.dll, into re/cp4b4dll/)
+#   CP4B5_DIR=~/Downloads/Beta0.54 tools/re/decompile.sh cp4b5       (beta 0.54, x64, into re/cp4b5/)
 # Needs Ghidra (brew install ghidra) and Python 3. Takes a few minutes.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -91,6 +92,13 @@ elif [ "$TARGET" = cp4b4 ]; then
   # list, normalStrength 220, the light's allWx field, painted water removed (docs/CP4_EXE_ANALYSIS.md 17). No source code.
   GAME_DIR=${CP4B4_DIR:-$HOME/Downloads/Beta0.53_hotfix4}
   WORK="$REPO/re/cp4b4"
+  EXE=monster.exe
+  SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
+elif [ "$TARGET" = cp4b5 ]; then
+  # Community Patch 4 beta 0.54 (monster.exe, built Nov 24 2026, MD5 d863d814...): the 2.0.52.4 engine updates and
+  # the client for the OpenMTM2 server's CP4 rooms (docs/CP4_EXE_ANALYSIS.md 18). No source code.
+  GAME_DIR=${CP4B5_DIR:-$HOME/Downloads/Beta0.54}
+  WORK="$REPO/re/cp4b5"
   EXE=monster.exe
   SCRIPTS="-postScript FindFuncs.java -postScript ExportAll.java"
 elif [ "$TARGET" = cp4b4dll ]; then

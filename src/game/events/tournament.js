@@ -17,6 +17,8 @@ export const MAX_LAPS = 20;
 export const MAX_TOURNAMENTS = 16;
 /** The field a tournament with a drag event takes (the bracket's sizes). */
 export const DRAG_FIELDS = Object.freeze([2, 4, 8]);
+/** A Community Patch 4 series (`MTM2 Series 1.0`, CP4_ENGINE_UPDATES.md 9.4): at most 8 entrants, 16 when drags only. */
+export const SERIES_FIELD = Object.freeze({ standard: 8, drags: 16 });
 
 /** MTM1's drag points (0x4bbd60, 0x4bb6d0, 0x4bf100): by qualifying place, per pairing won, to a loser, for the fastest pass. */
 export const DRAG_QUALIFY_POINTS = Object.freeze([100, 90, 80, 70]);
@@ -46,6 +48,32 @@ export function tournamentFromTrn(trn, tracks, { source = null, stock = false } 
     name: trn.name, descriptionFile: trn.descriptionFile ?? "", source, stock,
     hasDrag: events.some((e) => e.raceType === "drag") || (!!trn.hasDrag && events.some((e) => e.raceType === null)),
     events,
+    // A Community Patch 4 series: its scoring (0 classic, 1 championship), format (1 drags only), AI Speed and field.
+    ...(trn.series ? { series: { ...trn.series } } : {}),
+  };
+}
+
+/**
+ * A Community Patch 4 series preset (OpenPhotex `parseSeries`) as a tournament: its rounds the events (their laps and
+ * weather), the series' own rules kept in `series`.
+ */
+export function tournamentFromSeries(series, tracks, options = {}) {
+  const t = tournamentFromTrn({
+    name: series.name, descriptionFile: "", hasDrag: series.format === 1,
+    events: series.rounds.map((r) => ({ file: r.track, laps: r.laps })),
+    series: { scoring: series.scoring, format: series.format, aiSpeed: series.aiSpeed, field: series.field, sonic: series.sonic, weathers: series.rounds.map((r) => r.weather), pods: series.rounds.map((r) => r.pod) },
+  }, tracks, options);
+  return { ...t, description: series.description ?? "" };
+}
+
+/** A tournament as a Community Patch 4 series preset, for OpenPhotex `writeSeries`. */
+export function seriesOf(tournament) {
+  const s = tournament.series ?? {};
+  return {
+    name: tournament.name, description: tournament.description ?? "", format: s.format === 1 ? 1 : 0, scoring: s.scoring === 1 ? 1 : 0,
+    sonic: !!s.sonic, aiSpeed: s.aiSpeed ?? null, field: s.field ?? 7,
+    rounds: tournament.events.map((e, i) => ({ track: e.file, pod: s.pods?.[i] ?? "", laps: e.laps || 1, weather: s.weathers?.[i] ?? 0 })),
+    progress: null,
   };
 }
 
@@ -62,7 +90,12 @@ export function startProblem(tournament, fieldSize) {
   if (!tournament.events.length) return msg("The tournament has no events.");
   const bad = tournament.events.find((e) => e.problem);
   if (bad) return `${bad.problem}.`;
-  if (tournament.hasDrag && !DRAG_FIELDS.includes(fieldSize)) return msg("Because of pairing requirements, a tournament with a drag race takes 2, 4 or 8 trucks.");
+  // A drags-only series takes 2 to 16 trucks (the weekend's byes fill the bracket).
+  if (tournament.series?.format === 1) {
+    if (tournament.events.some((e) => e.raceType !== "drag")) return msg("A drags-only series takes drag strips only.");
+    return fieldSize >= 2 && fieldSize <= SERIES_FIELD.drags ? null : msg("A drags-only series takes 2 to 16 trucks.");
+  }
+  if (tournament.hasDrag && !tournament.series && !DRAG_FIELDS.includes(fieldSize)) return msg("Because of pairing requirements, a tournament with a drag race takes 2, 4 or 8 trucks.");
   if (fieldSize < 1 || fieldSize > 8) return msg("A tournament takes 1 to 8 trucks.");
   return null;
 }
@@ -75,8 +108,10 @@ export function startTournament(tournament, field) {
     name: tournament.name, descriptionFile: tournament.descriptionFile, source: tournament.source ?? null,
     drivers: field.map((d) => ({ name: d.name, truck: d.truck, player: !!d.player })),
     /** `points[driver]` once the event is run; `skipped` when it was passed over (it scores nothing). */
-    events: tournament.events.map((e) => ({ file: e.file, laps: e.laps, name: e.name, raceType: e.raceType, points: null, skipped: false })),
+    events: tournament.events.map((e, i) => ({ file: e.file, laps: e.laps, name: e.name, raceType: e.raceType, weather: tournament.series?.weathers?.[i] ?? null, points: null, skipped: false })),
     current: 0, done: false,
+    /** A Community Patch 4 series' scoring (0 classic, 1 championship) and format, or null for MTM1's rules. */
+    scoring: tournament.series ? tournament.series.scoring ?? 0 : null, format: tournament.series?.format ?? null,
   };
 }
 

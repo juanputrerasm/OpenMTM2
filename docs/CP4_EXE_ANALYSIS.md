@@ -7,6 +7,9 @@ analysis of the binary (a Ghidra decompile kept in the git-ignored `re/cp4/`, ma
 the Traxx 1.7 track editor source (same developer; it carries `terrainspline.c` word for word),
 with CP3 (`CP3_EXE_ANALYSIS.md`) and with retail 2.00.42 (`MONSTER_EXE_ANALYSIS.md`).
 
+Build 2.0.52.4 (2026-11-24) is described by its developer's own notes, restated in `CP4_ENGINE_UPDATES.md`; where
+they differ from what is found here for 2.0.52.2, that document is the one OpenMTM2 follows.
+
 Each answer is marked **CONFIRMED** (seen in code), **INFERRED** or **UNKNOWN**. Function
 addresses (`FUN_...` or bare hex) and globals are for this exact build. World coordinates are
 1/256 ft and a classic tile is 32 ft (`coord>>13 & 0xff`), as in retail.
@@ -18,6 +21,7 @@ addresses (`FUN_...` or bare hex) and globals are for this exact build. World co
 | Version in the MP join packet | 0x3402 (CP3: 0x3400, retail 0x0201) |
 | Beta 0.53 build (sections 12 to 14) | `monster.exe`, 13,263,360 bytes, MD5 `2d80e10e5282f22a3e0e27e9d899d259`, still "Version 2.0.52.2"; renderer `trid3d11.dll` 1,728,000 bytes, MD5 `ec27cca6329136786f034a6bb30a8240` |
 | Beta 0.53 hotfix 3 build (sections 15 and 16) | `monster.exe`, 13,360,128 bytes, MD5 `824016242dec6b0ff3af464c71a7f976`, built Nov 15 2026, still "Version 2.0.52.2"; renderer `trid3d11.dll` 1,853,440 bytes, MD5 `8f355a861c661952f58b795029a7bdf3`; supersedes hotfix 2 (not analysed separately) |
+| Beta 0.54 build (section 18) | `monster.exe`, 14,976,000 bytes, MD5 `d863d8143aff145b549693919c07595d`, built Nov 24 2026, "Version 2.0.52.4", join version 0x3404; renderers `trid3d11.dll` 1,972,736 bytes and `trivk.dll` 3,270,144 bytes; with `MTM2_LevelCacher.exe` |
 
 ---
 
@@ -2814,3 +2818,252 @@ log drop the painted count (15.4.1). OpenMTM2 never ported it.
   `createGroundBoxes` gives them the terrain's detail term with the mask's shares at their vertices, in world XZ. Off,
   as before, since the grain on buildings' fronts looks wrong (OpenMTM2's own "Ground box grain" stays separate).
 - Tests: tests/cp4-hotfix4.test.mjs.
+
+## 18. Beta 0.54 (2.0.52.4): network race rules
+
+Read from beta 0.54's `monster.exe` (header table; `tools/re/decompile.sh cp4b5`). The CP4 developer published notes,
+no source code. Addresses are 0.54's; hotfix 4's are given where the code is the same. The truck struct grew from
+0x1f18 to 0x3818 bytes: the fields from the old +0xf50 area moved up by 0x1900 (total time +0x28a4, fastest lap
++0x28a0, lap times +0x2850, next checkpoint +0x28a8, human flag +0x37d0; position +0x28e0, world velocity +0x28ec,
+body velocity +0x28f8, angles +0x291c). Laps +0x8f4, the segment counter +0x8fc, laps led +0x900, the gate state
++0x908 and the stage timer +0x90c stay. The split table at +0x910 is [lap x 100 + checkpoint], 20 laps of 100.
+
+T below is one tick, 0xa3d/65536 s (0.0399933 s, 25 a second).
+
+### 18.1 Packet 0x26, progress (CONFIRMED unless marked)
+
+`{ +0x0C i32 truck, +0x10 u32 the truck's +0x8fc, +0x14 f32 its total time +0x28a4 }`, 24 bytes, reliable (send
+mode 0; only 0x02 goes unreliable). The truck is the 0-based truck index, the 0x02 vehicle byte's numbering, so the
+vehicle number less one (INFERRED from the results rows). One builder, `14026ec70` (hotfix 4 `14023f9a0`); a machine
+sends only for the trucks it owns: its player's, and on the host every truck whose human flag is 0 (the computer
+trucks).
+
+**When it goes.**
+
+| Race | Sent | +0x10 | +0x14 |
+|---|---|---|---|
+| Circuit, rally, Parallel | each checkpoint pass, right after that pass's 0x0b | checkpoints passed, capped at 90 | the total of the laps closed **before** this pass (0 all through lap 1; the finish line's carries the total without its own lap) |
+| Summit Rumble | never (the score rides 0x02) | | |
+| Old-style drag | each beam pass, each state change, and at the finish again | 1 prestaged, 2 staged, 3 the tree has run for it, then +1 a beam (4 the start beam, 5 the finish); 96 to 99 out | 0, then at the finish the elapsed time from the green |
+| `.CPX` drag | as the old style, and at each lap close | as the old style; on a new lap of a looped drag 5 to 89 go back to 4 | 0 until the last lap, then the elapsed time |
+
+- The pass (`140515790`): only the owner counts a pass. On a remote truck only the gate state +0x908 is updated, so
+  no machine counts another's checkpoints. The owner's pass: +0x8fc + 1 (to 90), the split stored, 0x0b, 0x26, and
+  only then the lap closes.
+- Drag state codes (`1405508f0`, 9 calls in the drag routine `140508f90`, each write owner-gated by `140550920`):
+  3 the tree has run (the stage timer past the lane's threshold, both staged); **97** a lane line or edge crossed,
+  backing up with a wheel down after the green, or a `.CPX` wall; **98** not prestaged when both-staged reaches 1, or
+  not staged at 2; **99** the start beam before the green; **96** the time-out (33 s from the green, or the `.CPX`
+  time-out) with no time yet. A disqualification is only this code (91 and up): the time stays 0.
+- **95** (re-run) is never sent: every machine sets it itself when a truck at 91 or more meets one under 90 with no
+  time (`140522550`). The 3600 s run time of a truck at 96 or more is also each machine's own, when the pass is over.
+- Nothing is sent again on a timer: lost packets are the reliable channel's problem.
+
+**The receiver** (`14026b1c0` case 0x26): only while the race loop runs, with 0 <= truck < trucks, and never for the
+local player's truck; no check of who sent it, the race type or an order. It sets +0x8fc from +0x10 always (0
+included) and the total from +0x14 when it is above 0. New in 0.54, on a `.CPX` drag: when the truck's laps equal
+the expected laps (1 for a one-run drag, else the race's laps up to 20), lap 0 = the total less laps 1 to n-1 (when
+positive) and the fastest lap is the smallest positive lap. It never sets laps, the finished flag, a place or the
+lap times elsewhere, and does not run the finish logic.
+
+So a remote truck finishes on the other machines through 0x0b in a circuit or a rally (the 0x0b receiver,
+`140319bb0`, closes the lap and runs the finish logic `1401fda60`), and in a drag through a total above 0 or a code
+above 90. A drag's phases (both prestaged, both staged, the tree) run on every machine from both lane trucks'
++0x8fc, so a remote truck's staging comes only from its owner's 0x26; each owner judges only its own truck.
+
+INFERRED from the order: 0x0b and then 0x26 arrive in order, so on a race of two laps or more the finish line's 0x26
+puts back the total without the last lap, which the 0x0b receiver had just added. Remote humans' results come from
+their own 0x18 in the results barrier, so this shows only in a client's rows for the host's computer trucks. Raised
+with the CP4 developers (`docs/CP4_INTEROP_QUESTIONS.md`).
+
+Results (`14026efb0`): each machine fills row i from truck i (laps, laps led, total, fastest; Summit's score in
+lap 0; a drag's fast lap is its total) unless that player already sent its 0x18; then the `rslt` barrier (30 s) and
+the 0x18 receiver writes the sender's row. Parallel adds the penalty ms / 1000. Sort: more laps first, then the lower
+total; a total of 0 never moves ahead. The finish wait (`1401fda60`) arms its 5 s only when every human truck (every
+truck in a Parallel race) has reached its finish lap.
+
+Hotfix 4: the same sender and send order; its receiver lacks the `.CPX` drag reconcile and its drag routine has no
+wall code or `.CPX` time-out.
+
+### 18.2 Remote trucks: NetSmooth, NetSyncV2, the pin and the collision lead (CONFIRMED unless marked)
+
+`[Network]` in `monster.ini` (`140318650`): NetSmooth 1, NetPin 1, InterpDelayMs 0 (or 40 to 400), PredictMs 40 (0
+to 100), NetSyncV2 1, NetCollideLead 1, NetCollideLeadMs 0 (0 to 250), NetHitCheck 1. **Buffered** play needs
+NetSmooth and a session packet rate of 25 or more; the **pin** needs NetPin too, **V2** NetSyncV2, and the **lead**
+V2, NetCollideLead and the pin. The defaults give all four. Buffered, a machine sends one 0x02 per new physics tick
+(`1403197a0`), on the host also for each computer truck.
+
+A frame (`1401fa840`): the network update, then up to 4 physics ticks; before each tick every truck but the local one
+is pinned (`140311bb0`, `1403114c0`), after it the history is kept (`140317960`); then the sends; then the drawn
+override (`140311d70`, `140315a50`) and the picture.
+
+**Receiving 0x02** (`14031ab90`): a vehicle above 9 is dropped, a packet under 116 bytes too (`short_dropped`).
+Per sender, a clock offset: for a tick N (not 0), ts = N x T and the lateness err = (now - ts) - offset, `now` this
+machine's network clock in seconds. On the first packet or |err| > 1 s, resync: offset = now - ts, and the buffer,
+the lateness ring and the playback clock are cleared. Otherwise the offset moves by 0.02 err when err >= 0 and by
+0.3 err when it is negative, so it follows the earliest arrivals. Sample times are sender time, N x T (tick 0:
+now - offset). A tick equal to the last appended is dropped; an older one is inserted in order (flag "reordered");
+its controls and velocity still replace the cached ones.
+
+**Older poses** (`140314a50`): with a tick, a known offset and a non-empty buffer, for each of the (at most 2) older
+poses, newest last, age a (skipped when 0 or >= N): inserted as tick N - a, theta and phi wrapped to +-pi, psi as it
+is. They have no velocity or controls.
+
+**The buffer**: 32 samples a truck, each { time, position, theta, phi, psi, tick }. Appending: |dx| or |dz| more than
+half the world's width (terrain cells x 32 ft; 4096 ft on a 256-cell map, hotfix 4's fixed value) or a gap over 2 s
+clears the buffer; a gap under 0.001 s replaces the newest. An insert is refused for a tick already held, a time
+within 0.0005 s of the oldest or of a neighbour, more than 2 s newer than the newest, or a jump over half the world
+from a neighbour.
+
+**The delay** (`140314c00`): each lateness goes in a ring of 128 with its arrival time. Rebase: the smallest lateness
+of the last 1.0 s, when at least 8 were looked at and it is above T, is added to the offset and taken from every one
+kept. The target: InterpDelayMs when set; else, with 8 or more from the last 2.5 s, their 97th percentile (sorted,
+index max(0, ceil(0.97 n) - 1)) + 0.04 + 0.010 s, held to 0.0499933 to 0.300 s; with fewer, 0.100 s.
+
+**The playback clock** (`1403122f0`, each frame, dt): want = (now - offset) - delay. Unset or more than 0.5 s off:
+set to want. Otherwise clock += dt + clamp(want - (clock + dt), -0.1 dt, +0.1 dt). Before it is set, playback is
+(now - offset) - 0.1. The applied delay is (now - offset) - clock. PredictMs is not used in V2.
+
+**The collision lead** (same function): want = the applied delay, or min(NetCollideLeadMs, applied delay) when the
+knob is set; held to 0 to 0.25 s; from 0, slewed by at most 0.1 dt a frame.
+
+**Sampling** (`14031b4f0`): inside the buffer, position linear between the two samples (f = 1 when they are under
+0.0001 s apart), each angle along the shorter way round, velocity the pair's difference over their gap. Before the
+oldest: the oldest pose. After the newest: v = (newest - previous) / gap (gap above 0.001 s), e = min(t - newest,
+0.2 s), position = newest + v e; angles extrapolated the same way when the gap is 0.02 s or more (theta, phi
+re-wrapped).
+
+**The fading correction** (`140312860`, `140312b10`): when a packet arrives, the drawn pose (at playback) and the led
+pose (at playback + lead) are sampled again; if either moved 0.01 ft or more, or its angles by 0.001 rad in all, the
+jump (old corrected pose less the new raw one) is kept when it is 20 ft or less (else none: a hard snap) and added
+with weight clamp(1 - age / 0.15 s, 0, 1).
+
+**The pin** (`140311bb0`, before every tick, each remote truck with samples): at t = playback + lead its position,
+angles and world velocity (the sampler's) are set, and the orientation rebuilt. Then (`1403114c0`) the latest
+packet's controls: steering, throttle and brake / 255 (both brakes), gear, body velocity; under V2 the body velocity
+is replaced by (p(t + T) - p(t)) x 25.0042 turned into the body frame, when that move is 20 ft or less and 300 ft/s or
+less. The truck is then stepped like any other: it meets things and pushes during the tick. Angular rates are left
+alone (INFERRED: no write seen).
+
+**Drawn**: the pose at the playback time (no lead) with its correction, position and angles; under the lead the
+wheel and suspension values are taken from the led history and the wheel contact points moved into the drawn frame
+for the picture only.
+
+**Computer trucks**: on the host they are local trucks, never pinned. On a client they are remote trucks with the
+autopilot flag: after 0.5 s with no packet the pin and the drawn override stop and the client's own autopilot drives
+it. A remote human is never let go: it holds at the 0.2 s extrapolation limit. The local player's truck is never
+buffered or pinned.
+
+Without the pin (NetPin 0, or a rate under 25): the old path, positions eased over 0.12 s toward the packet's plus
+its velocity, angles over 0.08 s, a snap past 10 ft. Not used by OpenMTM2.
+
+Hotfix 4 has the same sampler, delay, slew, insert, correction and pin, with 4096 ft for the jump test.
+
+### 18.3 Packet 0x27, collision (CONFIRMED unless marked)
+
+`{ +0x0C u32 target, +0x10 u32 source, +0x14 3 x f32 linear impulse, +0x20 3 x f32 angular impulse }`, 44 bytes,
+the target and source 0-based truck indexes (at most 9), the impulses in the **target's body frame**. Sent and read
+only while play is buffered (18.2). Sent through the same call as 0x28 / 0x29 (reliable, INFERRED from the call).
+
+**Which contacts.** The truck pair code (`140522550`, `140523610`) treats a remote copy as any truck: both get their
+full force and moment, the copy's mass is its own. For a pair of exactly one of this machine's trucks ("ours": the
+player's, and on the host the computer trucks) and one remote copy, `140315050` runs on every substep (dt the
+substep's, 10 ms online):
+- it stamps the copy's last contact time, the attacker's for the mirror rule below, even when no force results;
+- unless a packet went to that victim less than 0.4 s ago, it adds dt x the copy's own force and moment (the copy's
+  body frame) to that victim's sums and notes the source.
+
+Two of the host's computer trucks never produce one. The push the copy took is undone by the next tick's pin.
+
+**The send** (`1403197a0`, once a frame after the ticks, when a tick ran, after the 0x02 poses): for each victim with
+sums, the sums are cleared, and the packet goes when |linear| / the victim's mass is 0.3 ft/s or more; the victim's
+last send time is then set. Mass is the four weights' sum / 32.174.
+
+**The receiver** (`14031a050`):
+1. Target below the truck count, source 9 or less; the target is the local player's truck, or on the host a computer
+   truck. Otherwise ignored.
+2. **Mirror rule**: dropped when this machine saw any contact with that source in the last 0.30 s (its own
+   simulation already answered it).
+3. dv = linear / the target's mass.
+4. **The hit check** (NetHitCheck, `140314260`): over the attacker's applied delay + 0.2 s, with rtt the attacker's
+   latency (milliseconds, used when 1 to 999) / 1000 and span = min(0.5, max(0, rtt, 2 x lead)), N = ceil((span +
+   T) / T): for each of our 16 end-of-tick poses (age a) and j = 0..N, b = max(0, a - j T), the attacker sampled at
+   drawn time - b and at pin time - b (held to its buffer, at most 0.2 s past the newest). gap = the centres'
+   distance less both trucks' bounding radii; the smallest kept, from 999. Closing = -(v_att - v_ours) along the line
+   between them, the largest kept.
+5. Linear: with the check off, applied as it is; with no history to judge by, accepted with no cap; else a gap over
+   8 ft is rejected (nothing applied, nothing charged), 3 to 8 ft scaled by (8 - gap) / 5, and capped at
+   min(60, max(15, 1.25 x closing)) ft/s. Then always held to 22 ft/s.
+6. Angular, with the check: w = scale x angular / inertia per axis (+0x2944, +0x2948, +0x294c, 5000, 5000 and 7500 by
+   default); the pitch and roll part (w_x, w_z) held to 1 rad/s in length, yaw w_y to +-2 rad/s. A **budget** per
+   target: used = max(0, used - 25 x seconds since), available 30 - used; cost 4 x |pitch and roll w| + |dv|; over it
+   everything is scaled to fit; with none left the hit is dropped. Check off: the budget on |dv| alone, w per axis
+   held to +-3.5 rad/s.
+7. Applied gradually: dv and w go to pending sums; each frame, before the ticks, k = min(1, frame dt / 0.12) of what
+   is left is added to the body velocity and to the body rates (w_x to q, w_y to r, w_z to p); the rest is dropped
+   once below 0.05 (linear, summed) and 0.02 (angular).
+
+Hotfix 4 is the same but for offsets and its fixed 4096 / 8192 ft world wrap.
+
+Open (INFERRED or not settled): whether the send is reliable, whether the latency is a round trip, and whether the
+inertia per axis in step 6 (x 5000, y 5000, z 7500, against the yaw axis being y) is meant.
+
+### 18.4 Computer trucks online, and CP4's room client (CONFIRMED unless marked)
+
+**No computer trucks online.** A beta 0.54 host offers none in any network game, direct connect or room: the Races
+screen online (`1401b4b80`) is "human players only", and "CPU %d" names only the Tournament field and the Drag
+Weekend bracket (`1401c54a0`, `1401c0e70`). A network race (`1402737c0`) has one truck per player in the active
+list, humans only, numbered by the 0x87 slots; the host's start (`1400b3ce0`) sends 0x8a, one 0x87 a player, 0x2a,
+then 0x14. 0x81, 0x82 and 0x87 carry no computer mark (CP4 writes 0x82's byte as 0; retail 1). The host also sends
+0x02 for the trucks of players who left mid-race. A joiner drops a vehicle number with no player without a word
+(`14031ab90`: over 9 dropped; nothing past the truck count is applied). So a room with CP4 players has human
+trucks only, both ways.
+
+**The room client** (beta 0.54 is the first with one; WinHTTP WebSocket, User-Agent "CP4"):
+- `hello { protocol: 1, name (24, "Player" when empty), client: "CP4 2.0.52.4", caps: ["cp3-relay/1"] }`; no
+  answer in 10 s is "That is not an OpenMTM2 room server", a server without `cp3-relay/1` in its features "This
+  server does not host CP4 rooms". It reads `you.id`, the server's name and version, `testRoom`, and the relay limits
+  (defaults 49152, 65536, 1200, 1024; the largest payload held to 1..1200, the reliable one to 1..that).
+- `create { name (40, "CP4 room"), maxPlayers 2 to 8, public, relay: true, password when set }`; `join { room
+  (upper case, 16), password }`, refused at once for a room of more than 8, left at once if it turns out bigger;
+  15 s with no answer: leave, "The server did not answer". The list (every 5 s) greys a room that is not a relay
+  room (" (OpenMTM2 room)").
+- The profile, one field a message as it changes: `truck`, `ready`, `location` (1 to 9), `content { sit, crc or
+  -1 }`. As owner: `settings { track: { sit, name, crc } }` only, `start { weather, computers: [] }`, `finish` once
+  no player is left racing (location 9), and a `kick` for a member past 8. A `ping { t }` every 15 s.
+- Never sent: chat, `loaded`, `result`, `race`. Never read: `waiting`, `synced`, `race`, `results`, `chat`; the
+  server's `starting` only marks the room as racing. Every barrier (0x28 / 0x29, the results' `rslt`) runs in relay
+  frames.
+- The room's owner is the game's host; member ids are player ids (the relay's `to` and `from`). The room's events
+  become the game's: `member` creates a player (on the owner only; the others learn the players from the host's
+  0x81 / 0x82), `left` destroys one, `kicked` loses the session, `owner` moves the host. The profile, settings and
+  start are taken from the game's own packets as they go out (0x01, 0x13, 0x03, 0x0f ready and truck; 0x11 location;
+  the host's 0x12 and 0x25 the track and its CRC; its 0x14 the start). Every relay frame but 0x02's asks for reliable
+  delivery.
+
+What this means for OpenMTM2 in such a room: as owner it is the game's host and sends the roster (0x81, 0x82) as it
+does; no computer trucks; laps and weather travel in the game's packets, not the room's settings.
+
+### 18.5 How OpenMTM2 takes them
+
+Only in a CP4 room on the room server (`app/net.js`: a relay room's race runs with `policy: "cp4"`); OpenMTM2's own
+rooms and classic sessions keep their rules.
+
+- **Remote trucks** (`net/cp4-sync.js`, `worker/sim-worker.js` `pinRemote`, `drawnRemote`): 18.2's buffer, offset,
+  delay, playback clock, lead, sampler and correction, with CP4's constants. OpenMTM2's step is 1/60 s (or CP4's
+  substep under the CommPatch4 physics), not CP4's 1/25 s tick, so the pin runs before every step of ours; each frame's
+  steps share that frame's playback time, as CP4's ticks share their frame's. The truck is drawn at the playback time;
+  the wheels are drawn from the pinned truck's own suspension (CP4 moves its wheel contact points into the drawn frame).
+  A state goes out once a 25 Hz tick, the tick its sim time falls in, after that frame's steps. A remote computer truck
+  without packets for 0.5 s is left to roll on (CP4 hands it to the client's autopilot); CP4 rooms have none (18.4).
+- **Hits** (`flushHits`, `takeHit`; `judgeHit`, `hitHistory`, `feedHit`): 18.3's rules. The victim's history is the
+  last 16 frames' poses (CP4: 16 ticks). Mass is the truck's weight / 32.174 (OpenPhotex: body and two axles).
+- **Progress** (`progressOut`, `takeProgress`): 18.1's send points and values, the stale finish-line total included,
+  so every machine in the room sees the same numbers. A remote truck's passes are not counted here (OpenPhotex's
+  `passesFromOwner`); its laps come from its 0x0b. A drag lane another machine drives is not judged here
+  (`drag-race.js`: `lane.remote`): its staging, launch, finish time and disqualification come from its 0x26. The
+  state 3 ("the tree has run") is sent while the tree runs or after the green for a staged truck (INFERRED from the
+  stage timer's rule).
+- **0x2b**: its truck is the 0-based index too (0.7.4 had sent the vehicle number).
+- Tests: tests/cp4-netsync.test.mjs, tests/net-remote-truck.test.mjs, tests/net-race.test.mjs,
+  tests/net-legacy-session.test.mjs, tests/drag-race.test.mjs.

@@ -1,4 +1,4 @@
-// Generated from openmtm2-server 0.4.2 protocol/mtm2-packets.js. Do not edit; run its tools/vendor.mjs.
+// Generated from openmtm2-server 0.4.3 protocol/mtm2-packets.js. Do not edit; run its tools/vendor.mjs.
 /*
   Monster Truck Madness 2's own network packets, as retail 2.00.42 sends them inside DirectPlay
   player messages (OpenMTM2 docs/MONSTER_EXE_ANALYSIS.md 14.2).
@@ -26,9 +26,14 @@ export const MTM2_APPLICATION = "{6CD1C6E0-96FB-11D1-A268-00A024F2C995}";
 
 /** The version every machine announces in its player info (0x03); 2.00.42 sends 0x0201. */
 export const MTM2_NET_VERSION = 0x0201;
-/** Community Patch 3 (monster.exe 2.0.52.0) announces 0x3400, CP4 beta 0.52 (2.0.52.2) 0x3402 (CP4_EXE_ANALYSIS.md 9). */
+/**
+ * The version is (build << 8) | revision, a layout id (OpenMTM2 docs/CP4_ENGINE_UPDATES.md 10): Community Patch 3
+ * (2.0.52.0) 0x3400, CP4 beta 0.52 (2.0.52.2) 0x3402, CP4 2.0.52.4 0x3404, which adds packets 0x2a and 0x2b.
+ */
 export const CP3_NET_VERSION = 0x3400;
-export const CP4_NET_VERSION = 0x3402;
+export const CP4_NET_VERSION = 0x3404;
+/** CP4 beta 0.52's layout id: the same packets as 2.0.52.4 but 0x2a and 0x2b (read with CP4's profile). */
+export const CP4_BETA_NET_VERSION = 0x3402;
 /** The first Community Patch version: build 52 (0x34), rev 0. Versions from here up name a patch build's own layouts. */
 export const CP_FIRST_VERSION = 0x3400;
 
@@ -122,13 +127,18 @@ const CP4_PACKETS = [
   ...CP3_PACKETS.filter(([type]) => type !== 0x02),
   [0x28, "raceLoaded", 16, { raceId: ["u32", 0x0c] }],
   [0x29, "raceRelease", 16, { raceId: ["u32", 0x0c] }],
+  // CP4 2.0.52.4 (CP4_ENGINE_UPDATES.md 10): the host's Original Physics, an s16 after the header (0 off, 1 on); a
+  // receiver reads those two bytes only, so a longer packet is taken (`atLeast`).
+  [0x2a, "originalPhysics", 14, { value: ["s16", 0x0c] }, { atLeast: true }],
+  // A Parallel race's wall penalty: the truck (packet 0x26's numbering) and its running total in ms; the receiver sets it.
+  [0x2b, "parallelPenalty", 20, { truck: ["s32", 0x0c], totalMs: ["u32", 0x10] }],
 ];
 /** CP4's 0x02 carries at most two older poses; its receiver drops a packet that claims more. */
 export const CP4_MAX_POSES = 2;
 /** CP3 and CP4 count the sender tick at 25 Hz: 0xa3d / 65536 s a tick. */
 export const CP_TICK_S = 0xa3d / 65536;
 
-const asDefs = (list) => list.map(([type, name, size, fields]) => [type, Object.freeze({ type, name, size, fields })]);
+const asDefs = (list) => list.map(([type, name, size, fields, opts = {}]) => [type, Object.freeze({ type, name, size, fields, atLeast: !!opts.atLeast })]);
 function makeProfile(name, version, list, guaranteed) {
   return Object.freeze({ name, version, byType: new Map(asDefs(list)), guaranteed: new Set(guaranteed) });
 }
@@ -144,11 +154,11 @@ const overlay = (list) => [...new Map([...PACKETS, ...list].map((p) => [p[0], p]
 export const PROFILES = Object.freeze({
   retail: RETAIL,
   cp3: makeProfile("cp3", CP3_NET_VERSION, overlay(CP3_PACKETS), GUARANTEED),
-  cp4: makeProfile("cp4", CP4_NET_VERSION, overlay(CP4_PACKETS), [...GUARANTEED, 0x28, 0x29]),
+  cp4: makeProfile("cp4", CP4_NET_VERSION, overlay(CP4_PACKETS), [...GUARANTEED, 0x28, 0x29, 0x2a, 0x2b]),
 });
 /** The profile for a version from a player's 0x03: CP3's or CP4's exactly, anything else retail's. */
 export function profileForVersion(version) {
-  if (version === CP4_NET_VERSION) return PROFILES.cp4;
+  if (version === CP4_NET_VERSION || version === CP4_BETA_NET_VERSION) return PROFILES.cp4;
   if (version === CP3_NET_VERSION) return PROFILES.cp3;
   return PROFILES.retail;
 }
@@ -158,7 +168,7 @@ export function profileForVersion(version) {
  */
 export function knownVersion(version) {
   if (!Number.isInteger(version)) return false;
-  return version < CP_FIRST_VERSION || version === CP3_NET_VERSION || version === CP4_NET_VERSION;
+  return version < CP_FIRST_VERSION || version === CP3_NET_VERSION || version === CP4_NET_VERSION || version === CP4_BETA_NET_VERSION;
 }
 /** A profile from its object or name, retail when none is given. */
 function resolveProfile(profile) {
@@ -245,7 +255,7 @@ export function decodePacket(input, profile) {
   const reject = (reason) => ({ type, kind: null, sender, bytes, reason });
   if (type === RADIO) return reject(bytes.length < RADIO_MIN ? `radio shorter than ${RADIO_MIN} bytes` : "radio is not decoded");
   if (!def) return reject(`type 0x${type.toString(16)} is not in the ${prof.name} profile`);
-  if (bytes.length !== def.size) return reject(`${def.name} is ${bytes.length} bytes, the ${prof.name} profile has ${def.size}`);
+  if (def.atLeast ? bytes.length < def.size : bytes.length !== def.size) return reject(`${def.name} is ${bytes.length} bytes, the ${prof.name} profile has ${def.size}`);
   if (def.fields.poseCount && view.getUint8(def.fields.poseCount[1]) > CP4_MAX_POSES) return reject(`more than ${CP4_MAX_POSES} older poses`);
   const out = { type, kind: def.name, sender };
   for (const [key, [kind, at, extra]] of Object.entries(def.fields)) {

@@ -8,10 +8,13 @@
   like; both games ship them), the player's own are kept with the player's data (`tournaments`).
 */
 import { parseTrn, writeTrn } from "../vendor/openphotex/mtm/trn.js";
+import { SERIES_MAGIC, parseSeries, writeSeries } from "../vendor/openphotex/mtm/series.js";
+import { seriesPlacePoints } from "../game/race-points.js";
 import { cpuNames } from "../game/race-setup.js";
 import {
-  MAX_TOURNAMENTS, currentEvent, dragEventPoints, gotoEvent, recordEvent, standings, startTournament, tournamentFromTrn, trnOf,
+  MAX_TOURNAMENTS, currentEvent, dragEventPoints, gotoEvent, recordEvent, seriesOf, standings, startTournament, tournamentFromSeries, tournamentFromTrn, trnOf,
 } from "../game/events/tournament.js";
+import { finalOrder } from "../game/events/drag-event.js";
 import { startDragWeekend } from "./drag-weekend.js";
 import { currentDriver, getHall, getProfiles, saveHall } from "./profile-store.js";
 import { TOURNAMENT_MODE, addEntry, tournamentKey } from "../game/hall-of-fame.js";
@@ -31,12 +34,23 @@ export async function listTournaments(context, tracks) {
 /** Keep the player's own tournaments (those not stock), at most the game's sixteen with the stock ones. */
 export async function saveOwnTournaments(context, tournaments) {
   const own = tournaments.filter((t) => !t.stock).slice(0, Math.max(0, MAX_TOURNAMENTS - tournaments.filter((t) => t.stock).length));
-  await store(context, "tournaments", own.map((t) => ({ ...trnOf(t), description: t.description ?? "" })));
+  await store(context, "tournaments", own.map((t) => ({ ...trnOf(t), description: t.description ?? "", ...(t.series ? { series: t.series } : {}) })));
 }
 
-/** A tournament as the text of its `.TRN`, and one read from such a text (null when it is not one). */
-export const tournamentText = (tournament) => writeTrn(trnOf(tournament));
+/**
+ * A tournament as the text of its file, and one read from such a text (null when it is not one): MTM1's `.TRN`, or a
+ * Community Patch 4 series (`MTM2 Series 1.0`, its `.trn`) for a tournament made from one.
+ */
+export const tournamentText = (tournament) => (tournament.series ? writeSeries(seriesOf(tournament)) : writeTrn(trnOf(tournament)));
 export function tournamentFromText(text, tracks) {
+  const head = typeof text === "string" ? text : new TextDecoder("latin1").decode(text.subarray(0, 64));
+  if (head.trimStart().startsWith(SERIES_MAGIC)) {
+    try {
+      return tournamentFromSeries(parseSeries(text), tracks, { source: null, stock: false });
+    } catch {
+      return null;
+    }
+  }
   const trn = parseTrn(text);
   return trn ? { ...tournamentFromTrn(trn, tracks, { source: null, stock: false }), description: "" } : null;
 }
@@ -54,7 +68,9 @@ export async function beginTournament(context, tournament, { tracks, trucks, siz
   const names = cpuNames(context.settings?.aiNames);
   for (let i = 0; i < size - 1; i++) field.push({ name: names[i % names.length], truck: (others[i % Math.max(1, others.length)] ?? trucks[0]).file, player: false });
   // AI Speed (game/ai-speed.js): the tournament keeps the value it started with, as CP3's tournaments do (`AISPEED=`).
-  context.tournament = { run: startTournament(tournament, field), difficulty, weather, aiSpeed, description: tournament.description ?? "", tracks, trucks };
+  // A series' AISPEED, when it gives one, is the tournament's (CP4_ENGINE_UPDATES.md 9.4).
+  const seriesSpeed = tournament.series?.aiSpeed ?? null;
+  context.tournament = { run: startTournament(tournament, field), difficulty, weather, aiSpeed: seriesSpeed ?? aiSpeed, description: tournament.description ?? "", tracks, trucks };
   await keep(context);
   return context.tournament;
 }
@@ -93,11 +109,13 @@ export async function runEvent(context) {
   const track = trackOf(t, event);
   if (!track) throw new Error(`${event.file} is not installed.`);
   const [me, ...others] = t.run.drivers;
+  // A series round's own weather (0 random: the tournament's); its laps for a drag round's bracket passes.
+  const weather = event.weather ? event.weather : t.weather;
   if (event.raceType === "drag") {
     if (!context.dragWeekend?.tournament) {
       startDragWeekend(context, {
-        track, trucks: t.trucks, playerTruck: me.truck, playerName: me.name, size: t.run.drivers.length, difficulty: t.difficulty, weather: t.weather,
-        aiSpeed: t.aiSpeed ?? null,
+        track, trucks: t.trucks, playerTruck: me.truck, playerName: me.name, size: t.run.drivers.length, difficulty: t.difficulty, weather,
+        aiSpeed: t.aiSpeed ?? null, laps: event.laps || 1,
         field: t.run.drivers.map((d) => ({ name: d.name, truck: d.truck, player: d.player })),
       });
       context.dragWeekend.tournament = true;
@@ -106,7 +124,7 @@ export async function runEvent(context) {
   }
   const driver = currentDriver(await getProfiles(context));
   return context.router.go("race", {
-    track, mode: track.raceType, laps: event.raceType === "circuit" ? event.laps : 1, difficulty: t.difficulty, weather: t.weather,
+    track, mode: track.raceType, laps: event.raceType === "circuit" ? event.laps : 1, difficulty: t.difficulty, weather,
     opponents: others.map((d) => d.truck), truck: me.truck, trucks: t.trucks, setup: { ...driver.garage }, tournament: true,
     aiSpeed: t.aiSpeed ?? null,
   }, { replace: true });
@@ -120,7 +138,10 @@ export async function takeRace(context, rows, points) {
   const t = context.tournament;
   if (!t || t.seen === rows || !currentEvent(t.run)) return false;
   t.seen = rows;
-  recordEvent(t.run, t.run.drivers.map((_, i) => points[i] ?? 0));
+  // A Community Patch 4 series on championship scoring scores by place (CP4_ENGINE_UPDATES.md 9.4); a truck that did
+  // not finish keeps its place.
+  const scored = t.run.scoring === 1 ? rows.map((r) => seriesPlacePoints(r.place, { scoring: 1 })) : points;
+  recordEvent(t.run, t.run.drivers.map((_, i) => scored[i] ?? 0));
   await keep(context);
   return true;
 }
@@ -129,7 +150,13 @@ export async function takeRace(context, rows, points) {
 export async function takeDragWeekend(context) {
   const t = context.tournament, weekend = context.dragWeekend;
   if (!t || !weekend?.tournament || weekend.event.phase !== "done") return false;
-  recordEvent(t.run, dragEventPoints(weekend.event));
+  // A series scores a drag round by the weekend's final order: classic on the 16-place table, championship on its own
+  // (16-truck drags on theirs). MTM1's tournaments keep MTM1's drag points.
+  if (t.run.scoring === 0 || t.run.scoring === 1) {
+    const order = finalOrder(weekend.event), points = new Array(weekend.event.drivers.length).fill(0);
+    order.forEach((driver, k) => { points[driver] = seriesPlacePoints(k + 1, { scoring: t.run.scoring, drags16: t.run.format === 1 || order.length > 8 }); });
+    recordEvent(t.run, points);
+  } else recordEvent(t.run, dragEventPoints(weekend.event));
   context.dragWeekend = null;
   await keep(context);
   return true;

@@ -53,6 +53,9 @@ export function savedGameBytes({ track, tracks, laps, weather, entrants, setup =
   return writeMtm2SavedGame({
     playerTruck: bare(entrants.find((e) => e.player)?.file ?? entrants[0]?.file),
     raceIndex: raceIndexOf(track, tracks), laps, weather, sit,
+    // Community Patch 4 2.0.52.4's blocks (CP4_ENGINE_UPDATES.md 11): the `.SI3`'s name, and a `.CPX` race's state.
+    ...(/\.SI3$/i.test(track.file ?? "") ? { si3: String(track.file).toUpperCase() } : {}),
+    ...(saved.cpx ? { cpxState: saved.cpx } : {}),
     trucks: entrants.map((e) => (e.player
       ? { file: bare(e.file), tireCut: mine.tireCut ?? CPU_SETUP.tireCut, suspension: mine.suspension ?? CPU_SETUP.suspension, transfer: mine.transferSetting ?? CPU_SETUP.transfer }
       : { file: bare(e.file), ...CPU_SETUP })),
@@ -70,7 +73,9 @@ export function readSavedGame(bytes, { tracks, trucks }) {
   const sit = parseMtmSit(game.sit);
   // The SIT's level line and track name settle the track; the game's index is only a fallback (catalogs differ).
   const own = tracks.filter((t) => (t.game ?? "MTM2") === "MTM2");
-  const named = (sit.trackName && own.find((t) => t.name?.toUpperCase() === sit.trackName.toUpperCase() && t.level?.toUpperCase() === sit.lvlName?.toUpperCase()))
+  // A `.SI3` track is named by CP4's `@si3` line.
+  const named = (game.si3 && own.find((t) => t.file?.toUpperCase() === game.si3.toUpperCase()))
+    ?? (sit.trackName && own.find((t) => t.name?.toUpperCase() === sit.trackName.toUpperCase() && t.level?.toUpperCase() === sit.lvlName?.toUpperCase()))
     ?? (sit.trackName && own.find((t) => t.name?.toUpperCase() === sit.trackName.toUpperCase()))
     ?? own.find((t) => sit.lvlName && t.level?.toUpperCase() === sit.lvlName.toUpperCase())
     ?? own.filter((t) => bare(t.file) !== "WAR.SIT" && t.formatVersion !== 6)[game.raceIndex];
@@ -98,6 +103,7 @@ export function readSavedGame(bytes, { tracks, trucks }) {
   const mine = game.trucks[order[0]] ?? null;
   const saved = {
     clock: sit.raceTimes?.[0], startTime: sit.raceTimes?.[1],
+    ...(game.cpxState ? { cpx: order.map((k) => game.cpxState[k] ?? { penaltyMs: 0, course: 0 }) } : {}),
     trucks: order.map((k) => {
       const v = vehicles[k], s = v?.state;
       if (!v || !s) return null;

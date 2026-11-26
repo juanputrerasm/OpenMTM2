@@ -85,7 +85,11 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
   players.set(self, local);
   let hostId = transport.host?.() ?? (transport.isHost?.() ? self : null);
   /** What the host set: the track `{ sit, name }`, laps, weather (-1 Random), team play, and the track's checksum. */
-  const game = { track: null, laps: 3, weather: 0, teamPlay: false, crc: null, open: true };
+  const game = { track: null, laps: 3, weather: 0, teamPlay: false, crc: null, open: true, originalPhysics: false };
+  /** A Parallel race's penalty totals by truck number (packet 0x2b), set (never added) as they come. */
+  const penalties = new Map();
+  /** Whether the session speaks CP4 2.0.52.4's layouts (packets 0x2a and 0x2b). */
+  const cp4 = () => sendProfile() === PROFILES.cp4;
   let pingTurn = 0, lastPing = 0;
   let race = null;
   let closed = false;
@@ -137,6 +141,8 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
     send(dpid, "weather", { weather: game.weather });
     send(dpid, "teamPlay", { on: game.teamPlay ? 1 : 0 });
     if (game.track && game.crc !== null) send(dpid, "checksum", { sit: game.track.sit, name: game.track.name, crc: game.crc });
+    // The host's Original Physics, in the late joiner's snapshot (CP4 2.0.52.4, CP4_ENGINE_UPDATES.md 10).
+    if (cp4()) send(dpid, "originalPhysics", { value: game.originalPhysics ? 1 : 0 });
   }
 
   // ---- Transport events ----
@@ -186,14 +192,27 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
   ];
 
   function receive(from, p) {
+    // A packet of a kind this build does not read, from a player it does not know, adds no player.
+    if (!p.kind && !players.has(from)) return;
     const who = players.get(from) ?? newPlayer(from);
     switch (p.kind) {
+      case "originalPhysics":
+        // Only the host's counts; a joiner races on it and never keeps it.
+        if (from !== hostId || isHost()) return;
+        game.originalPhysics = p.value !== 0;
+        break;
+      case "parallelPenalty":
+        // The owner's running total: set, so a repeat cannot count twice; taken after the race loop has ended too.
+        // The packet's truck is the 0-based index (packet 0x26's numbering): the vehicle number less one.
+        penalties.set(p.truck + 1, p.totalMs);
+        events.emit("penalty", { truck: p.truck + 1, totalMs: p.totalMs });
+        return;
       case "info":
         Object.assign(who, { truck: p.truck, ready: !!p.status, version: p.version, location: p.location, skill: p.skill, setup: p.setup, team: p.team });
         // A patch version names exactly that build's layouts, with nothing negotiated: a build we have no layouts
         // for, or in a relay room any build but the room's, is refused rather than guessed at (CP4's developers,
         // reply_to_kmaster_online_rooms_2.md section 3). Its packets are dropped; a host we cannot read ends the session.
-        if (!knownVersion(p.version) || (profile && p.version !== profile.version)) {
+        if (!knownVersion(p.version) || (profile && profileForVersion(p.version) !== profile)) {
           who.unreadable = true;
           profiles.delete(from);
           notice("unknownVersion", `${who.name || "A player"} runs a version of the game this one cannot play with${versionText(p.version)}.`);
@@ -304,11 +323,25 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
     if (!p) return;
     players.delete(id);
     profiles.delete(id);
+    // The host's Original Physics is cleared with the host.
+    if (id === hostId) game.originalPhysics = false;
     if (race) race.leaver(p);
     notice("left", `${p.name} has left the game.`, { name: p.name });
   }
 
   // ---- What this player does ----
+
+  /** The host's Original Physics (CP4 2.0.52.4): sent on every change; a joiner's is the host's. */
+  function setOriginalPhysics(on) {
+    requireHost();
+    game.originalPhysics = !!on;
+    if (cp4()) send(null, "originalPhysics", { value: game.originalPhysics ? 1 : 0 });
+    changed();
+  }
+  /** A Parallel race: this machine's truck's running penalty total (packet 0x2b), `truck` its vehicle number. */
+  function sendPenalty(truck, totalMs) {
+    if (cp4()) send(null, "parallelPenalty", { truck: truck - 1, totalMs });
+  }
 
   function setLocation(location) {
     local.location = location;
@@ -409,6 +442,8 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
     const resolved = weather < 0 ? resolveWeather() : weather;
     // A CP4 host's race id (CP4_EXE_ANALYSIS.md 9, FUN_1401f32b0): GetTickCount() ^ (id << 20) | 1, odd and never 0.
     const raceId = sendProfile() === PROFILES.cp4 ? ((Math.floor(now()) ^ (self << 20)) | 1) >>> 0 : null;
+    // CP4 2.0.52.4: the host's Original Physics again just before the start.
+    if (cp4()) send(null, "originalPhysics", { value: game.originalPhysics ? 1 : 0 });
     send(null, "start", { sit: game.track.sit, laps: game.laps, weather: resolved, ...(raceId ? { raceId } : {}) });
     startRace({ sit: game.track.sit, laps: game.laps, weather: resolved, host: self, raceId });
   }
@@ -444,7 +479,8 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
     function outgoingState(e) {
       const prof = sendProfile();
       if (prof === PROFILES.retail) return stateFields(e);
-      const tick = tickNow();
+      // The simulation's own tick when it gives one (a CP4 room: the tick its pose belongs to), else the clock's.
+      const tick = Number.isInteger(e.tick) && e.tick > 0 ? e.tick : tickNow();
       const ring = sentPoses.get(e.vehicle) ?? [];
       // Newest first: the first two sent before this tick and less than 256 ticks old.
       const poses = ring.filter((q) => q.tick < tick && tick - q.tick < POSE_MAX_AGE).slice(-CP4_MAX_POSES).reverse()
@@ -556,6 +592,9 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
           case "yeehaw": send(null, "yeehaw", { truck: e.vehicle }); break;
           case "go": send(null, "go", { zero: 0 }); break;
           case "gone": send(null, "gone"); break;
+          // CP4 (CP4_EXE_ANALYSIS.md 18.1, 18.3): trucks by their 0-based index, the vehicle number less one.
+          case "progress": if (cp4()) send(null, "progress", { truck: e.vehicle - 1, segments: e.segments >>> 0, total: e.total }); break;
+          case "collision": if (cp4()) send(null, "collision", { target: e.target - 1, source: e.vehicle - 1, linear: e.linear, angular: e.angular }); break;
           default: break;
         }
       },
@@ -566,15 +605,16 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
           case "positions": link.emit("event", { kind: "positions", positions: p.positions }); break;
           case "go": link.emit("event", { kind: "go" }); break;
           case "state": {
-            // The packet's own pose is the newest; the sim takes retail's fields (tick and older poses are not used yet).
-            const { tick, poses, ...s } = stateFromPacket(p, profileOf(from));
-            link.emit("event", { kind: "state", ...s });
+            // The packet's own pose is the newest; its sender's tick and older poses go with it (a CP4 room's playback,
+            // net/cp4-sync.js), and who sent it, whose clock the tick is.
+            const s = stateFromPacket(p, profileOf(from));
+            link.emit("event", { kind: "state", ...s, sender: from });
             break;
           }
-          // CP3 and CP4: the owner's progress (0x26) and a hit on our truck (0x27). Passed on as is; net-race.js does
-          // not apply them yet (docs/MULTIPLAYER.md, "Packet profiles").
-          case "progress": link.emit("event", { kind: "progress", truck: p.truck, segments: p.segments, total: p.total }); break;
-          case "collision": link.emit("event", { kind: "collision", target: p.target, source: p.source, linear: p.linear, angular: p.angular }); break;
+          // CP3 and CP4: the owner's progress (0x26) and a hit on one of our trucks (0x27), trucks by 0-based index;
+          // a hit comes with its sender's latency for the hit check (CP4_EXE_ANALYSIS.md 18.3).
+          case "progress": link.emit("event", { kind: "progress", vehicle: p.truck + 1, segments: p.segments, total: p.total }); break;
+          case "collision": link.emit("event", { kind: "collision", vehicle: p.source + 1, target: p.target + 1, linear: p.linear, angular: p.angular, rtt: (players.get(from)?.latency ?? 0) / 1000 }); break;
           case "raceRelease":
             if (raceId && p.raceId === raceId) { released = raceId; releaseWait?.(); }
             break;
@@ -673,6 +713,7 @@ export function createLegacySession({ transport, me, hasTrack = () => true, trac
     on: events.on, state, update, leave,
     setLocation, setReady, setTruck, setSkill, chat, quick, canTeamChat: () => false, teamChat: () => {}, ridicule, horn, yeehaw, joinTeam,
     setTrack, setLaps, setWeather, setTeamPlay, kick, addComputer: () => null, removeComputer: () => {}, canStart, start,
+    setOriginalPhysics, sendPenalty, penalties: () => new Map(penalties),
     raceLink: () => race,
     isHost,
   };

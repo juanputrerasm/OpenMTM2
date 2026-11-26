@@ -35,8 +35,19 @@
     OpenMTM2 crush / 1 / <count>
     time,car,share                    one line each time a car's share changes: the SIT's top-crush car
                                       number (0 the first) and the share of its crush, 0 intact to 1 flat
+
+  Community Patch 4 2.0.52.4 adds its own block right after the last record, written only when a Parallel
+  race (.CPX) recorded wall penalties (OpenMTM2 docs/CP4_ENGINE_UPDATES.md 11):
+
+    penalties / <count, at most 4096>
+    time,slot,total                   the replay's record clock, the vehicle slot, its running total in ms
+
+  On playback each truck's total is set to its value at the current time (idempotent).
 */
 const decoder = new TextDecoder("latin1");
+/** Community Patch 4 2.0.52.4's penalty block: its heading line, and the most events it holds. */
+export const REPLAY_PENALTIES_HEADING = "penalties";
+export const REPLAY_PENALTIES_MAX = 4096;
 /** The most records the game's ring holds. */
 export const REPLAY_RING_RECORDS = 2240;
 /** The record interval, in the file's time unit (1/65536 s): 0.25 s. */
@@ -48,6 +59,14 @@ export const REPLAY_SAMPLES_VERSION = 1;
 /** The heading of the crush block after the counted records, and its version. */
 export const REPLAY_CRUSH_HEADING = "OpenMTM2 crush";
 export const REPLAY_CRUSH_VERSION = 1;
+/** Each vehicle slot's penalty total in ms at `time` (record clock): the last event at or before it. */
+export function replayPenaltiesAt(penalties, time) {
+    const out = new Map();
+    for (const p of penalties ?? [])
+        if (p.time <= time)
+            out.set(p.slot, p.totalMs);
+    return out;
+}
 const numbers = (line) => (line ?? "").split(",").map((v) => v.trim()).filter((v) => v !== "").map(Number);
 const triple = (line) => {
     const n = numbers(line);
@@ -84,7 +103,7 @@ export function parseMtmReplay(input) {
     }
     const records = [];
     while (i < lines.length && records.length < recordLimit) {
-        if (lines[i] === REPLAY_SAMPLES_HEADING || lines[i] === REPLAY_CRUSH_HEADING)
+        if (lines[i] === REPLAY_SAMPLES_HEADING || lines[i] === REPLAY_CRUSH_HEADING || lines[i] === REPLAY_PENALTIES_HEADING)
             break;
         if (lines[i] !== "type,time") {
             i++;
@@ -95,7 +114,7 @@ export function parseMtmReplay(input) {
         // A top-crush object (2) is kept as one: read as a vehicle it would add a truck that was never in the race.
         const record = { type: type === 1 || type === 2 ? type : 0, time: time ?? 0 };
         // Fields run until the next record, so a record's length is never assumed.
-        while (i < lines.length && lines[i] !== "type,time" && lines[i] !== REPLAY_SAMPLES_HEADING && lines[i] !== REPLAY_CRUSH_HEADING) {
+        while (i < lines.length && lines[i] !== "type,time" && lines[i] !== REPLAY_SAMPLES_HEADING && lines[i] !== REPLAY_CRUSH_HEADING && lines[i] !== REPLAY_PENALTIES_HEADING) {
             const label = lines[i], value = lines[i + 1];
             i += 2;
             switch (label) {
@@ -151,8 +170,20 @@ export function parseMtmReplay(input) {
     // The extension blocks, wherever they start after the records, in any order.
     const samples = [];
     const crush = [];
+    const penalties = [];
     while (i < lines.length) {
         const heading = lines[i];
+        if (heading === REPLAY_PENALTIES_HEADING) {
+            const count = Math.min(REPLAY_PENALTIES_MAX, parseInt(lines[i + 1] ?? "", 10) || 0);
+            i += 2;
+            for (let n = 0; n < count && i < lines.length; n++, i++) {
+                const v = numbers(lines[i]);
+                if (v.length < 3 || !v.every(Number.isFinite))
+                    continue;
+                penalties.push({ time: v[0], slot: v[1], totalMs: v[2] });
+            }
+            continue;
+        }
         if (heading !== REPLAY_SAMPLES_HEADING && heading !== REPLAY_CRUSH_HEADING) {
             i++;
             continue;
@@ -180,7 +211,10 @@ export function parseMtmReplay(input) {
             }
         }
     }
-    return { level, weather, detailLevel, vehicles, objects, records, ...(samples.length ? { samples } : {}), ...(crush.length ? { crush } : {}) };
+    return {
+        level, weather, detailLevel, vehicles, objects, records, ...(samples.length ? { samples } : {}), ...(crush.length ? { crush } : {}),
+        ...(penalties.length ? { penalties } : {}),
+    };
 }
 const f = (n) => (Number.isFinite(n) ? n : 0).toFixed(6);
 const row = (...n) => n.map(f).join(",");
@@ -200,6 +234,12 @@ export function writeMtmReplay(replay) {
         if (r.type === 0) {
             out.push("fsteering_angle,rsteering_angle", row(...(r.steering ?? [0, 0])), "frtire_theta,fltire_theta,rrtire_theta,rltire_theta", row(...(r.tires ?? [0, 0, 0, 0])), "eng_throttle,faxle_brake_pct,raxle_brake_pct,ap_cnumber", `${f(r.throttle ?? 0)},${f(r.brakeFront ?? 0)},${f(r.brakeRear ?? 0)},${Math.round(r.course ?? 0)}`, "damageCode,gear", `${Math.round(r.damageCode ?? 0)},${Math.round(r.gear ?? 0)}`);
         }
+    }
+    const penalties = (replay.penalties ?? []).slice(0, REPLAY_PENALTIES_MAX);
+    if (penalties.length) {
+        out.push(REPLAY_PENALTIES_HEADING, String(penalties.length));
+        for (const p of penalties)
+            out.push(`${Math.round(p.time)},${Math.round(p.slot)},${Math.round(p.totalMs)}`);
     }
     const samples = replay.samples ?? [];
     if (samples.length) {

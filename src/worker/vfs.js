@@ -66,15 +66,16 @@ export function createVfs(mounts) {
 
     /**
      * Every visible path with the given extension (".SIT"), each once, resolved to the mount
-     * that wins it, in lookup order then directory order.
+     * that wins it, in lookup order then directory order. `extension` may be a list: the paths with any of them, in
+     * one pass, so an archive's `.SIT`, `.SI2` and `.SI3` keep their order among themselves.
      */
     function list(extension) {
-      const ext = extension.toUpperCase();
+      const exts = (Array.isArray(extension) ? extension : [extension]).map((e) => e.toUpperCase());
       const seen = new Set();
       const out = [];
       for (const { mount, byPath } of tables) {
         for (const [path, entry] of byPath) {
-          if (!path.endsWith(ext) || seen.has(path)) continue;
+          if (!exts.some((ext) => path.endsWith(ext)) || seen.has(path)) continue;
           seen.add(path);
           out.push({ path, mount, entry });
         }

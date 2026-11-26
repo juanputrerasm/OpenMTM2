@@ -17,6 +17,13 @@
   for a red light only. The simulation worker adds the third: the computer launches on the green.
   Not followed: the 1996 game breaks the beams with the hull points and judges the lane by the
   truck overlapping its boundary boxes; here both stay as described above.
+
+  A new-style drag (Community Patch 4 2.0.52.4, a track's `.CPX` mode 1, docs/CP4_ENGINE_UPDATES.md 8) takes its beams
+  from the rules instead (`cpx`): each lane its own pre-stage, stage and launch box (or the one box both share), its
+  gates and its finish, one copy a lane or any copy of a slot. A beam counts only when the front wheel's hub height is
+  inside the box's height band. Pre-stage, stage and launch count once, the gates and the finish every lap; laps from
+  the menu (a one-run drag 1); the time-out is the rules' or laps x 90 s. There are no lane boxes: a wall touched puts
+  the truck out (`dragWallTouch`). A looped drag's best lap is its fast lap and the total its run time.
 */
 
 /** Seconds: the prestage and stage phases' limits, the wait after the last truck stages, the tree, the pass's limit. */
@@ -25,6 +32,8 @@ export const STAGE_TIMEOUT_S = 30;
 export const TREE_DELAY_S = 2;
 export const TREE_S = 0.5;
 export const DRAG_MAX_S = 33;
+/** CP4 2.0.52.4's run time for a disqualified truck, seconds (60 before): a looped drag runs up to laps x 90 s. */
+export const DQ_RUN_TIME_S = 3600;
 /** The fastest a truck is staged at, ft/s. */
 export const MAX_STAGE_SPEED = 2;
 /** Backing up faster than this (ft/s) for this long (s) after the green, a wheel on the ground, disqualifies. */
@@ -44,6 +53,7 @@ export const OUT = Object.freeze({ RERUN: 95, TIMEOUT: 96, LANE: 97, NOT_STAGED:
 /** The disqualifications by name, as the lanes carry them in `dq`. */
 export const DQ_CODE = Object.freeze({
   "timeout": OUT.TIMEOUT, "out of lane": OUT.LANE, "reversing": OUT.LANE, "not staged": OUT.NOT_STAGED, "red light": OUT.RED_LIGHT,
+  "wall": OUT.LANE,
 });
 /** The tree's lamp bits (0x548cb0), and the labels the HUD draws beside them (0x651700). */
 export const LAMP = Object.freeze({ PRESTAGE: 1, STAGE: 2, AMBER1: 4, AMBER2: 8, AMBER3: 16, GO: 32, DQ: 64 });
@@ -54,8 +64,15 @@ function gateFrame(cp) {
   const g = cp.gate ?? cp;
   const pos = g.position ?? g.pos;
   const psi = g.angles?.[2] ?? 0;
-  return { pos, heading: psi, f: [Math.sin(psi), Math.cos(psi)], r: [Math.cos(psi), -Math.sin(psi)], half: (g.size?.[0] ?? 0) / 2, depth: g.size?.[2] ?? 1 };
+  return {
+    pos, heading: psi, f: [Math.sin(psi), Math.cos(psi)], r: [Math.cos(psi), -Math.sin(psi)], half: (g.size?.[0] ?? 0) / 2, depth: g.size?.[2] ?? 1,
+    // The height band (CP4's hub test): the box's centre height and half its height.
+    y: pos?.[1] ?? 0, halfHeight: (g.size?.[1] ?? 0) / 2,
+  };
 }
+
+/** Whether a front hub at height `y` is inside a beam's height band (CP4 2.0.52.4's new-style drags). */
+const inBand = (gate, y) => y === undefined || Math.abs(y - gate.y) <= gate.halfHeight;
 
 /**
  * The strip's lines as MTM1 draws them in a drag race (MTM1_MONSTER_EXE_ANALYSIS.md 5.6, `0x438b50`; render/drag-beams.js):
@@ -106,20 +123,38 @@ export function isDragStrip(checkpoints) {
  * A drag pass over the strip's checkpoints (raw SIT gates). `used` says which of the two lanes
  * has a truck; an empty lane is left out of every rule, so one truck can run alone.
  */
-export function createDrag(checkpoints, used = [true, true], rules = "cp3") {
+export function createDrag(checkpoints, used = [true, true], rules = "cp3", { cpx = null, laps = 1 } = {}) {
   const frames = checkpoints.map(gateFrame);
+  const shared = { prestage: frames[0], stage: frames[1], start: frames[2], finish: [frames[3]], gates: [] };
+  // A new-style drag: each lane's boxes by slot (its lane's copy, or every copy of a shared or any-copy slot).
+  const laneBeams = (lane) => {
+    const pick = (slot) => slot.copies.filter((_, k) => slot.split !== 2 || slot.lanes[k] === lane + 1).map((i) => frames[i]);
+    const slots = cpx.slots;
+    return { prestage: pick(slots[0])[0], stage: pick(slots[1])[0], start: pick(slots[2])[0], gates: slots.slice(3, -1).map(pick), finish: pick(slots[slots.length - 1]) };
+  };
+  const beams = (lane) => (cpx ? laneBeams(lane) : shared);
   return {
     rules,
     phase: "prestage", clock: 0, phaseTime: 0, tree: 0, greenAt: null,
     prestage: frames[0], stage: frames[1], start: frames[2], finish: frames[3],
     /** The staging gap: from the stage beam to the start beam, measured on this strip. */
     gap: Math.max(0, local(frames[1], frames[2].pos).z),
-    bounds: [frames.slice(4, 6), frames.slice(6, 8)],
-    lanes: used.map((u) => ({
-      empty: !u, state: STAGED.NONE, stagedAt: null, dq: null, line: null, rerun: false, reaction: null, et: null, seen: {}, side: [], reverse: 0,
-    })),
+    bounds: cpx ? [[], []] : [frames.slice(4, 6), frames.slice(6, 8)],
+    /** A new-style drag's rules (game/cpx-rules.js), its laps and its time-out in seconds; null for the old rules. */
+    cpx, laps: cpx ? cpxLapsOf(cpx, laps) : 1, maxS: cpx ? (cpx.timeoutMs ? cpx.timeoutMs / 1000 : cpxLapsOf(cpx, laps) * 90) : DRAG_MAX_S,
+    lanes: used.map((u, i) => {
+      const b = beams(i);
+      return {
+        empty: !u, state: STAGED.NONE, stagedAt: null, dq: null, line: null, rerun: false, reaction: null, et: null, seen: {}, side: [], reverse: 0,
+        beams: b, gap: Math.max(0, local(b.stage, b.start.pos).z),
+        /** The next gate of this lap (gates.length: the finish), the laps done, the lap's start and the lap times. */
+        next: 0, lapsDone: 0, lapStart: null, lapTimes: [], best: null,
+      };
+    }),
   };
 }
+
+const cpxLapsOf = (cpx, laps) => (cpx.oneRun ? 1 : Math.max(1, laps | 0));
 
 const out = (lane) => !!lane.dq || lane.rerun;
 /** Whether a lane's truck has nothing left to do: no truck, out, or timed. */
@@ -143,14 +178,22 @@ export function dragTick(drag, trucks, dt) {
   let event = null;
   drag.lanes.forEach((lane, i) => {
     const truck = trucks[i];
-    if (lane.empty || !truck) return;
+    // A lane another machine judges (a CP4 room, CP4_EXE_ANALYSIS.md 18.1): its staging, launch, finish and
+    // disqualification come from that machine's progress packets.
+    if (lane.empty || !truck || lane.remote) return;
     // A truck that is out is judged no more; its beams are still followed, so nothing is re-read later.
+    const band = drag.cpx ? truck.hubY : undefined;
     const at = (key, gate) => {
       const share = breaks(gate, lane.seen, key, truck.front);
-      return share === null ? null : before + share * dt;
+      return share === null || !inBand(gate, band) ? null : before + share * dt;
     };
-    const pre = at("prestage", drag.prestage), stage = at("stage", drag.stage), start = at("start", drag.start);
-    const finish = at("finish", drag.finish);
+    /** The first of a slot's copies broken this step. */
+    const any = (key, gates) => gates.reduce((hit, gate, k) => { const h = at(`${key}.${k}`, gate); return hit ?? h; }, null);
+    const b = lane.beams;
+    const pre = at("prestage", b.prestage), stage = at("stage", b.stage), start = at("start", b.start);
+    // Gates and the finish in order, every lap (new-style); the old pass has its one finish beam.
+    const gate = lane.next < b.gates.length ? any(`gate${lane.next}`, b.gates[lane.next]) : null;
+    const finish = lane.next >= b.gates.length ? any("finish", b.finish) : null;
     if (settled(lane)) return;
     if (pre !== null && lane.state < STAGED.PRESTAGED) lane.state = STAGED.PRESTAGED;
     if (stage !== null && lane.state < STAGED.STAGED) { lane.state = STAGED.STAGED; lane.stagedAt = drag.clock; }
@@ -161,7 +204,17 @@ export function dragTick(drag, trucks, dt) {
       lane.reaction = start - drag.greenAt;
     }
     if (!green) return;
-    if (finish !== null && lane.state === STAGED.LAUNCHED) { lane.et = finish - drag.greenAt; return; }
+    if (gate !== null && lane.state === STAGED.LAUNCHED) lane.next++;
+    if (finish !== null && lane.state === STAGED.LAUNCHED) {
+      const lapStart = lane.lapStart ?? drag.greenAt, lap = finish - lapStart;
+      lane.lapTimes.push(lap);
+      lane.best = lane.best === null ? lap : Math.min(lane.best, lap);
+      lane.lapsDone++;
+      lane.lapStart = finish;
+      lane.next = 0;
+      for (const key of Object.keys(lane.seen)) if (key.startsWith("gate") || key.startsWith("finish")) delete lane.seen[key];
+      if (lane.lapsDone >= drag.laps) { lane.et = finish - drag.greenAt; return; }
+    }
     // Outward over the lane's own centre line (the first bound) or edge (the second); `line` says which, for CP3's announcer.
     for (const [k, gate] of (drag.bounds[i] ?? []).entries()) {
       const l = local(gate, truck.centre);
@@ -171,7 +224,7 @@ export function dragTick(drag, trucks, dt) {
     }
     lane.reverse = truck.reversing && drag.rules !== "mtm1" ? lane.reverse + dt : 0;
     if (lane.reverse >= REVERSE_S) lane.dq = "reversing";
-    if (!lane.dq && drag.clock - drag.greenAt >= DRAG_MAX_S) lane.dq = "timeout";
+    if (!lane.dq && drag.clock - drag.greenAt >= drag.maxS) lane.dq = "timeout";
   });
 
   const running = drag.lanes.filter((l) => !l.empty && !out(l));
@@ -182,7 +235,7 @@ export function dragTick(drag, trucks, dt) {
     if (!there.length) return;
     const all = there.length === running.length;
     if (all ? wait > 0 && drag.clock - Math.max(...there.map((l) => l.stagedAt ?? 0)) < wait : drag.phaseTime < limit) return;
-    for (const l of running) if (l.state < state) l.dq = "not staged";
+    for (const l of running) if (l.state < state && !l.remote) l.dq = "not staged";
     move(next);
   };
   if (drag.phase === "prestage") advance(STAGED.PRESTAGED, PRESTAGE_TIMEOUT_S, "stage");
@@ -202,6 +255,25 @@ export function dragCollision(drag, a, b) {
   for (const [guilty, wronged] of [[drag.lanes[a], drag.lanes[b]], [drag.lanes[b], drag.lanes[a]]]) {
     if (guilty?.dq && wronged && !settled(wronged)) wronged.rerun = true;
   }
+}
+
+/** CP4 2.0.52.4: a computer truck coasts this long after its finish (or would-be finish), then brakes to a stop and holds. */
+export const CPU_FINISH_COAST_S = 1.5;
+
+/** Whether lane `i`'s front tyre is past its finish beam's line (a disqualified truck's would-be finish). */
+export function pastFinish(drag, i, front) {
+  const lane = drag.lanes[i];
+  const finish = lane?.beams.finish[0];
+  return !!finish && local(finish, front).z >= 0;
+}
+
+/**
+ * A new-style drag's wall (game/cpx-walls.js) touched by lane `i`'s truck: it is out, staging included (CP4 2.0.52.4).
+ * Judged only for the machine's own trucks, never during a replay or a reposition (the caller's to know).
+ */
+export function dragWallTouch(drag, i) {
+  const lane = drag.lanes[i];
+  if (lane && !lane.empty && !settled(lane)) lane.dq = "wall";
 }
 
 /** A lane's lamp bits for the tree. The Disqualify lamp stands alone; a truck that never staged gets none. */
@@ -225,8 +297,8 @@ export function dragLamps(drag, i) {
 export function stagingDistance(drag, i, front, depth = STAGE_DEPTH) {
   const lane = drag.lanes[i];
   if (!lane || settled(lane)) return null;
-  if (drag.phase === "prestage" && lane.state < STAGED.PRESTAGED) return PRESTAGE_PAST_FT - local(drag.prestage, front).z;
-  if (drag.phase === "stage" && lane.state < STAGED.STAGED) return Math.min(0.85, Math.max(0, depth)) * drag.gap - local(drag.stage, front).z;
+  if (drag.phase === "prestage" && lane.state < STAGED.PRESTAGED) return PRESTAGE_PAST_FT - local(lane.beams.prestage, front).z;
+  if (drag.phase === "stage" && lane.state < STAGED.STAGED) return Math.min(0.85, Math.max(0, depth)) * lane.gap - local(lane.beams.stage, front).z;
   return null;
 }
 
@@ -246,6 +318,10 @@ export function stillStaging(drag, i) {
 export function dragResults(drag) {
   return drag.lanes.map((lane) => (lane.empty ? null : {
     reaction: lane.reaction, et: lane.et, dq: lane.dq, code: lane.rerun ? OUT.RERUN : lane.dq ? DQ_CODE[lane.dq] : null, rerun: lane.rerun,
+    /** The run time a result is ranked by: a disqualified truck's is DQ_RUN_TIME_S (CP4 2.0.52.4). */
+    runTime: lane.dq ? DQ_RUN_TIME_S : lane.et,
+    /** A looped drag's laps, and its best lap (the fast lap). */
+    lapTimes: [...lane.lapTimes], best: lane.best,
   }));
 }
 

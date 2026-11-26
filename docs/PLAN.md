@@ -90,6 +90,10 @@ behaviour the port adds is named as an addition, never passed off as the game's.
   it with the port's own fixes for computer trucks on rough ground; the tournament driver personalities and form
   (multipliers), formats, scoring tables and the save's fields; `commentarySilence` as a setting; the mirror and
   racing line keys (`keyMirror`, `keyRaceLine`, `keySplitScreen`); the racing line's colour.
+- **Community Patch 4 2.0.52.4** (CP4_ENGINE_UPDATES.md, section 14 for what is left): to be tested in the browser with
+  a Traxx `.CPX` drag, Parallel and split-checkpoint export, CRAZY4X and CHICAGO, Time Attack, a `MTM2 Series 1.0`
+  preset, and a 0x3404 room with CP4 (the wait for every human's finish, a Rumble's places by the owners' scores),
+  the lane-2 map colour and the "Race rule walls" option.
 - **Community Patch 4's 3D cockpit** (VISUALS.md, "The 3D cockpit"): to be tested in the browser with CP4's
   `cockpit.pod`; quad lamps (their colour, `CP4_EXE_ANALYSIS.md` 6); the 3D cab in a headset (VR.md, "The cab");
   OpenPhotex `parseCpt` reading FOV and the engine's range checks itself (the port checks them in

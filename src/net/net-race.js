@@ -13,6 +13,11 @@
     { kind: "mode", data }                       an extension's state from the room owner (rooms only)
     { kind: "modeTruck", vehicle, data }         an extension's state for the trucks one machine drives (rooms only)
     { kind: "wheels", vehicle, lost, axles, wear, repairs, pits }   a truck's Wheels damage (rooms only)
+    { kind: "progress", vehicle, segments, total }   a truck's progress from its owner (CP4's 0x26)
+    { kind: "collision", vehicle, target, linear, angular, rtt? }   a hit `vehicle` dealt `target` (CP4's 0x27)
+
+  In a CP4 room (`policy: "cp4"`, docs/CP4_EXE_ANALYSIS.md 18) a state also carries the sender's `tick`, its older
+  `poses` and `sender`, and is stamped here with its arrival time `at` (the race screen's clock, `clock()` ms).
 
   Vehicle numbers are the network's (the game's 1-based slots); local indexes are the race
   screen's trucks, the local player always 0. `receive` turns events into commands for the sim
@@ -31,11 +36,12 @@ export const WHEEL_WEAR_HZ = 1;
  *   `entrants` in local order (index 0 the local player); `owned` trucks are simulated here and sent (the player's, and
  *   the computer trucks' on the host). `mode`: an extension race in a room (game/extensions/race-loader.js).
  */
-export function createNetRace({ entrants, rateHz, mode = null }) {
+export function createNetRace({ entrants, rateHz, mode = null, clock = () => performance.now() }) {
   const localOf = new Map(entrants.map((e, i) => [e.vehicle, i]));
   const vehicleOf = entrants.map((e) => e.vehicle);
   const owned = entrants.map((e) => !!e.owned);
-  const interval = 1000 / rateHz;
+  // CP4 sends a state each tick: the sim worker says when (rateHz Infinity sends every reply's).
+  const interval = Number.isFinite(rateHz) && rateHz > 0 ? 1000 / rateHz : 0;
   let nextSend = -Infinity;
   let seq = 0;
   let pending = [];
@@ -59,8 +65,17 @@ export function createNetRace({ entrants, rateHz, mode = null }) {
     switch (e.kind) {
       case "state":
         if (gone.has(local)) return false;
-        command("remote", [{ ...e, truck: local }]);
+        command("remote", [{ ...e, truck: local, at: e.at ?? clock() }]);
         return true;
+      case "progress":
+        command("progress", { truck: local, segments: e.segments, total: e.total });
+        return true;
+      case "collision": {
+        const target = localOf.get(e.target);
+        if (target === undefined || !owned[target]) return false;
+        command("collision", { target, source: local, linear: e.linear, angular: e.angular, rtt: e.rtt ?? 0 });
+        return true;
+      }
       case "split":
         command("split", { truck: local, next: e.next, split: e.split });
         return true;
@@ -183,6 +198,14 @@ export function createNetRace({ entrants, rateHz, mode = null }) {
         out.push({ kind: "damage", vehicle: vehicleOf[i], code });
       }
     });
+    // A CP4 room: each owned truck's progress, after its split (0x0b then 0x26, as CP4 sends them), and the hits this
+    // machine's trucks dealt the others' copies.
+    for (const p of reply?.netProgress ?? []) {
+      if (owned[p.truck] && !gone.has(p.truck)) out.push({ kind: "progress", vehicle: vehicleOf[p.truck], segments: p.segments, total: p.total });
+    }
+    for (const h of reply?.netHits ?? []) {
+      if (owned[h.source] && !owned[h.target]) out.push({ kind: "collision", vehicle: vehicleOf[h.source], target: vehicleOf[h.target], linear: h.linear, angular: h.angular });
+    }
     return out;
   }
 

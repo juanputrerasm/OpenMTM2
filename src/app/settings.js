@@ -93,7 +93,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   opponents: 3,               // MONSTER.INI defaultOpponents (built-in default 3)
   // Multiplayer (docs/MULTIPLAYER.md): the classic helper's port and pairing token, the last host typed, the room server and
   // the room servers used before.
-  net: Object.freeze({ helperPort: 47650, helperToken: "", lastHost: "", serverUrl: "", recentServers: Object.freeze([]), latencyDisplay: true, chat: "all", chatLines: 6, chatFadeS: 8, muted: Object.freeze([]), allowMissingTrucks: false, classicKind: "dplay", cp3Port: 2350, cp4CrossPlay: false }),
+  net: Object.freeze({ helperPort: 47650, helperToken: "", lastHost: "", serverUrl: "", recentServers: Object.freeze([]), latencyDisplay: true, chat: "all", chatLines: 6, chatFadeS: 8, muted: Object.freeze([]), allowMissingTrucks: true, classicKind: "dplay", cp3Port: 2350, cp4CrossPlay: false }),
   opponentTrucks: Object.freeze([]), // explicitly selected CPU truck files from the Races dialog
   gameMode: "default",        // a core mode id, or an id registered by the extension loader
   extensions: Object.freeze(extensionSettingDefaults()), // settings owned by shipped extensions
@@ -195,6 +195,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   cp4WaterNormalStrength: 100, // CP4's "Normal-Water Strength" ([Graphics] waterNormalStrength), 0 to 300 %: the default mask's detail only
   raceLine: false,            // Community Patch 3's racing line drawn on the ground (render/race-line.js)
   dragBeams: true,            // the drag strip's lines on the ground, as MTM1 draws them: beams and lane lines (render/drag-beams.js)
+  cpxWalls: false,            // a .CPX track's walls drawn see-through (render/cpx-walls.js); CP4 does not say it draws them
   dragSplitScreen: false,     // Community Patch 3's drag split screen: both lanes at once      // keypad plus raises the chase camera and minus lowers it (the game's keys do the opposite)
   aiHorn: true,               // Community Patch 3: computer trucks high in the air may honk (game/air-calls.js)
   aiYeeHaw: true,             // ... or whoop
@@ -217,7 +218,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   startPlace: 0,              // the player's grid place in a single-player race: 0 at random (the game's), 1 the pole to 8
   renderScale: 1,             // the share of the screen's points a race is drawn at, each way: 1, 0.85, 0.75, 0.66 or 0.5 (game/graphics.js `drawnPixelRatio`)
   occlusionCulling: true,    // leave out of the picture what is wholly behind something else (render/occlusion.js)
-  textureSize: 1024,          // the largest side HD art keeps, 1024 (full), 512 or 256: for low-memory graphics (worker/art-texture.js)
+  textureSize: 2048,          // the largest side HD art keeps, 2048 (full, CP4 2.0.52.4), 1024, 512 or 256: for low-memory graphics (worker/art-texture.js)
   drawCells: 128,             // terrain cells (32 ft each): how far the world is drawn (the camera's far plane and the fog)
   backdrops: false,           // the SIT's backdrop models behind the world (off by default)
   sunFlare: true,             // the sun's lens flare with Smooth textures (render/sun-flare.js); off keeps the sun and moon discs

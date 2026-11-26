@@ -40,6 +40,7 @@
                      1..250 ft/s, 255 = rough water off; 251..254 are invalid and beta 0.53 hotfix 3
                      treats them as 0), 131 u8 0
 */
+import { wtrHeightRange } from "./wtr.js";
 export const WFL_MAGIC = "MWFL";
 export const WFL_HEADER = 32;
 export const WFL_DIRENTRY = 16;
@@ -153,10 +154,18 @@ function putName(out, o, name, what) {
 }
 /**
  * Whether a fall's height fits version 1, the 256-cell world's file: 0..4096 half-feet (the engine accepts 1..4096;
- * 0 is left to its record check, as Traxx writes it).
+ * 0 is left to its record check, as Traxx writes it). With `heightWindow` (a 256-cell .SI3's step and base) a height in
+ * the track's window 2 * base + 1 .. 2 * (base + 65536 / step) fits too, as with the lakes (wtrV1HeightOk).
  */
-export function wflFallFitsV1(f) {
-    return Number.isInteger(f.height) && f.height >= 0 && f.height <= 4096;
+export function wflFallFitsV1(f, heightWindow) {
+    if (!Number.isInteger(f.height))
+        return false;
+    if (f.height >= 0 && f.height <= 4096)
+        return true;
+    if (!heightWindow)
+        return false;
+    const [lo, hi] = wtrHeightRange(2, heightWindow.step, heightWindow.base);
+    return f.height >= lo && f.height <= hi;
 }
 /**
  * Write a .WFL exactly as Traxx 1.7.3 lays one out: v1.0 (128-byte records) unless some fall's mist
@@ -165,7 +174,8 @@ export function wflFallFitsV1(f) {
  * the file cannot hold.
  *
  * `cells` is the world's size (track format version 6), and it picks the version (section 9.3):
- * 256 writes version 1 (a fall above 4096 half-feet throws), 512 version 2.
+ * 256 writes version 1 (a fall above 4096 half-feet throws, unless it is in `heightWindow`, the 256-cell .SI3's height
+ * window), 512 version 2.
  */
 export function writeWfl(falls, opts = {}) {
     if (falls.length < 1 || falls.length > WFL_MAX_FALLS)
@@ -208,8 +218,9 @@ export function writeWfl(falls, opts = {}) {
         out[p + 2] = f.points.length;
         v.setUint16(p + 4, f.flags & 0xffff, true);
         v.setUint16(p + 6, f.speed & 0xffff, true);
-        if (major === 1 && !wflFallFitsV1(f))
-            throw new RangeError(`WFL: fall ${i + 1} is ${f.height} half-feet high; a 256-cell world's falls (version 1) are 0..4096`);
+        if (major === 1 && !wflFallFitsV1(f, opts.heightWindow)) {
+            throw new RangeError(`WFL: fall ${i + 1} is ${f.height} half-feet high; a 256-cell world's falls (version 1) are 0..4096${opts.heightWindow ? `, or ${wtrHeightRange(2, opts.heightWindow.step, opts.heightWindow.base).join("..")} (its height range)` : ""}`);
+        }
         if (!Number.isInteger(f.height))
             throw new RangeError(`WFL: fall ${i + 1} height ${f.height} is not whole half-feet`);
         if (major === 1)

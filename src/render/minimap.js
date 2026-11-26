@@ -22,6 +22,11 @@ export const MAP_PIXELS_PER_FOOT = 0.09;
 /** Where the player sits on the screen, as fractions of its width and height: measured in two retail screenshots. */
 export const MAP_ORIGIN = Object.freeze([0.75, 0.52]);
 const MAX_POINTS = 512;
+/**
+ * A Parallel race's lane 2 on the course map: palette colour 253 (Community Patch 4 2.0.52.4's `mapLane2Color`,
+ * CP4_ENGINE_UPDATES.md 8.6), magenta in every stock level palette (ART\<level>.ACT, the system colours from 246 up).
+ */
+export const LANE2_COLOR = "rgb(255,0,255)";
 /** The checkpoints' colours on the map: the rest, and the next one. */
 export const CHECKPOINT_COLOR = "rgba(90,170,255,.9)", NEXT_CHECKPOINT_COLOR = "#ffe040";
 /** The Map line thickness option (Advanced; the port's own): a multiple of the game's one pixel at 480 lines. */
@@ -140,8 +145,9 @@ export function boxCorners(box) {
 /**
  * `open`: a one-way course (a rally from A to B) is drawn with its start and its end closed off, not joined.
  * `areas`: a Summit Rumble's `{ zone, summit }` boxes (`{ pos, half }`, feet), drawn in place of the course.
+ * `lane2`: a Parallel race's lane 2 course (the SIT's course 1), drawn over the first in `LANE2_COLOR`.
  */
-export function createCourseMap(course, { font = null, open = false, areas = null, summit = false, lineScale = 1, worldFt = WORLD_FT } = {}) {
+export function createCourseMap(course, { font = null, open = false, areas = null, summit = false, lineScale = 1, worldFt = WORLD_FT, lane2 = null } = {}) {
   // `worldFt`: the world the map folds at (8192 ft, or a track format version 6 world's).
   const canvas = document.createElement("canvas");
   canvas.className = "race-minimap";
@@ -153,6 +159,8 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
   const zoneMap = !!(areas?.zone || areas?.summit);
   const loop = zoneMap ? [] : courseLoop(course, worldFt);
   const offsets = loop.length > 2 ? edgeOffsets(loop, MAP_HALF_WIDTH_FT, open, worldFt) : [];
+  const loop2 = zoneMap || !lane2?.length ? [] : courseLoop(lane2, worldFt);
+  const offsets2 = loop2.length > 2 ? edgeOffsets(loop2, MAP_HALF_WIDTH_FT, open, worldFt) : [];
   let mode = MAP_OFF, blink = 0, names = 0;
 
   // The map's size on the page, read again only when it or its frame changes size: a read each frame, after the name tags
@@ -232,20 +240,24 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
           ctx.stroke();
         }
       }
-      if (loop.length > 2) {
-        ctx.lineWidth = lineWidth;
-        ctx.strokeStyle = "rgba(225,225,225,.85)";
-        const runs = wrapRuns(loop, !open, me.pos[0], me.pos[2], worldFt);
+      /** A course's road outline: its loop moved half the road's width either way. */
+      const road = (points, edges) => {
+        const runs = wrapRuns(points, !open, me.pos[0], me.pos[2], worldFt);
         for (const sign of [1, -1]) {
           ctx.beginPath();
           for (const run of runs) {
             run.forEach((p, n) => {
-              const [x, y] = px(p.x + sign * offsets[p.i][0], p.z + sign * offsets[p.i][1], false);
+              const [x, y] = px(p.x + sign * edges[p.i][0], p.z + sign * edges[p.i][1], false);
               if (n === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
             });
           }
           ctx.stroke();
         }
+      };
+      if (loop.length > 2) {
+        ctx.lineWidth = lineWidth;
+        ctx.strokeStyle = "rgba(225,225,225,.85)";
+        road(loop, offsets);
         if (open) {
           // The start and the finish: a line across the road at each end.
           for (const i of [0, loop.length - 1]) {
@@ -257,6 +269,11 @@ export function createCourseMap(course, { font = null, open = false, areas = nul
             ctx.stroke();
           }
         }
+      }
+      if (loop2.length > 2) {
+        ctx.lineWidth = lineWidth;
+        ctx.strokeStyle = LANE2_COLOR;
+        road(loop2, offsets2);
       }
       // The plus pulses between two greys, as the game cycles a palette ramp (0x4e1b30).
       blink = (blink + dt * 2) % 2;

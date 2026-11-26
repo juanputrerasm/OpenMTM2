@@ -62,15 +62,15 @@ export function bracketSize(field) {
 }
 
 /**
- * The first round by seed, top to bottom, for a bracket of `size`: `[[1, 8], [4, 5], [2, 7], [3, 6]]`.
- * The two best can meet only in the final, the four best only from the semi-finals. (CP3 lays
- * out 1 v N, 2 v N - 1 in order, which its author names as a bug; this is the order he gives
- * as the fix.)
+ * The first round by seed, top to bottom, for a bracket of `size`: Community Patch 4 2.0.52.4's standard draw
+ * (docs/CP4_ENGINE_UPDATES.md 9.1), `[[1, 8], [4, 5], [3, 6], [2, 7]]`. The two best can meet only in the final, the
+ * four best only from the semi-finals. (CP3 lays out 1 v N, 2 v N - 1 in order, which its author names as a bug.)
  */
 export function firstRound(size) {
   let order = [1, 2];
-  while (order.length < size) order = order.flatMap((seed) => [seed, order.length * 2 + 1 - seed]);
-  return Array.from({ length: size / 2 }, (_, p) => [order[p * 2], order[p * 2 + 1]]);
+  // Each seed meets its complement, every second pair turned over, so the halves alternate as a standard draw does.
+  while (order.length < size) order = order.flatMap((seed, i) => (i % 2 ? [order.length * 2 + 1 - seed, seed] : [seed, order.length * 2 + 1 - seed]));
+  return Array.from({ length: size / 2 }, (_, p) => [order[p * 2], order[p * 2 + 1]].sort((a, b) => a - b));
 }
 
 const pairEntry = () => ({ drivers: [null, null], times: [null, null], dq: [false, false], rerun: false, winner: null, over: false, how: null, lanes: null, launch: null });

@@ -73,3 +73,31 @@ test("a Summit Rumble's overlay lists every driver with their score, the leader 
   const rows = summitBoard([{ score: 120.4 }, { score: 300 }, { score: 120.4 }, {}], ["You", "Sam", "Tex"]);
   assert.deepEqual(rows, [["Sam", "300"], ["You", "120"], ["Tex", "120"], ["Driver 4", "0"]]);
 });
+
+test("Time Attack from the Mode list: the player alone, the driver's Garage setup, laps until End Race", async () => {
+  const track = { file: "TPARK.SIT", raceType: "circuit" };
+  const went = [];
+  const context = {
+    raceConfig: {
+      track: track.file, mode: track.raceType, laps: 5, difficulty: 1, opponents: ["A.TRK", "B.TRK"], weather: 0,
+      gameMode: "time-attack", spectator: true,
+    },
+    profiles: { current: 0, drivers: [{ name: "Player", lastTruck: "A.TRK", garage: { gear: 3 }, races: 0, wins: 0 }] },
+    assets: { call: async () => ({ tracks: [track], trucks }) },
+    router: { go: (screen, params) => { went.push({ screen, params }); return params; } },
+    confirm: async () => true,
+  };
+  await goRace(context);
+  assert.equal(went[0].screen, "race");
+  assert.equal(went[0].params.gameMode, "time-attack");
+  assert.equal(went[0].params.spectator, undefined, "a solo mode is never watched");
+  assert.deepEqual(went[0].params.opponents, []);
+  assert.equal(went[0].params.laps, 99);
+  assert.deepEqual(went[0].params.setup, { gear: 3 });
+  // On a drag strip the mode does not run: back to the Races screen.
+  went.length = 0;
+  context.assets = { call: async () => ({ tracks: [{ file: "DRAG3.SIT", raceType: "drag" }], trucks }) };
+  context.raceConfig = { ...context.raceConfig, track: "DRAG3.SIT", mode: "drag" };
+  await goRace(context);
+  assert.equal(went[0].screen, "race-select");
+});

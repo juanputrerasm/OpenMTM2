@@ -113,8 +113,10 @@ export async function joinClassic(context, instance) {
 /** The room server at `url`, connected once per page (again when the address changes or the connection dropped). */
 export async function roomServer(context, url) {
   const held = context.netRooms;
-  // "CP4 cross-play" (Options, experimental): declare the relay capability, so CP4's relay rooms can be joined and made.
-  const caps = crossPlay(context) ? [CAPS.CP3_RELAY] : [];
+  // OpenMTM2 races by the room protocol in ordinary rooms (`room-race/1`, which keeps relay-only CP4 clients out of
+  // them, OpenMTM2-Server docs/PROTOCOL.md). "CP4 cross-play" (Options, experimental) also declares the relay
+  // capability, so CP4's relay rooms can be joined and made.
+  const caps = crossPlay(context) ? [CAPS.CP3_RELAY, CAPS.ROOM_RACE] : [CAPS.ROOM_RACE];
   if (held?.server.alive && (!url || held.typed === url) && held.server.caps?.length === caps.length) return held.server;
   held?.server.close();
   const me = await whoAmI(context);
@@ -165,7 +167,10 @@ function attachRoom(context, server, room, me) {
       hasTrack: (sit) => tracks.has(String(sit).toUpperCase()),
       trackCrc: (sit) => context.assets.call("trackChecksum", { sit }),
     });
-    return attach(context, "rooms", session, transport, me);
+    const net = attach(context, "rooms", session, transport, me);
+    // Its races play the trucks back as CP4 does (docs/CP4_EXE_ANALYSIS.md 18).
+    if (context.net) context.net.cp4 = true;
+    return net;
   }
   const session = createRoomSession({
     server, room, me,
@@ -264,8 +269,9 @@ export async function applyRaceConfig(context) {
   if (laps !== game.laps) net.session.setLaps(laps);
   const weather = config.weather === "random" ? -1 : Number(config.weather ?? 0);
   if (weather !== game.weather) net.session.setWeather(weather);
-  // An extension mode (Hockey, Tag) in an online room; classic games and classic rooms have none.
-  if (net.kind === "rooms" && !net.session.state().room?.classic) {
+  // An extension mode (Hockey, Tag) in an online room; classic games, classic rooms and CP4 rooms (CP4's own protocol
+  // has no mode to send) have none, and race the track.
+  if (net.kind === "rooms" && !net.cp4 && !net.session.state().room?.classic) {
     const mode = track ? roomMode(config.gameMode, track) ?? "" : "";
     if (mode !== (game.mode ?? "")) net.session.setMode(mode);
   }
@@ -303,9 +309,18 @@ export function startProblem(st, { hasTruck = () => true, allowMissingTrucks = f
     const odd = guests.filter((p) => p.truck && !hasTruck(p.truck));
     if (odd.length) return { text: msg("Trucks not installed here: <<1>>. They must choose another, or Options, Multiplayer can allow it."), args: [odd.map((p) => `${p.name} (${p.truck})`).join(", ")] };
   }
+  // A mode that needs more trucks (Tag, Hockey: two at least) waits for players or computer trucks, as offline.
+  const extension = extensionById(st.game.mode);
+  const field = st.players.length + (Number(st.game.computers) || 0);
+  if (extension?.minEntrants && field < extension.minEntrants) {
+    return { text: msg("<<1>> needs <<2>> trucks at least: wait for players or add computer trucks."), args: [{ tag: extension.name }, extension.minEntrants] };
+  }
   if (!st.canStart) return { text: msg("Every player must be Ready."), args: [] };
   return null;
 }
+
+/** A `startProblem` said in the player's language: an argument `{ tag }` is a string to translate (a mode's name). */
+export const problemText = (t, problem) => t(problem.text, ...problem.args.map((a) => (a && typeof a === "object" ? t(a.tag) : a)));
 
 /** Whether `file` is one of this install's trucks (the catalogue's, hidden ones left out). */
 export const catalogHasTruck = (catalog, file) => (catalog?.trucks ?? []).some((t) => !t.hidden && t.file.toUpperCase() === String(file).toUpperCase());
@@ -317,7 +332,10 @@ export function netGo(context) {
   if (!s.isHost()) { s.setReady(!s.state().players.find((p) => p.local).ready); return null; }
   const st = s.state();
   const problem = startProblem(st, { hasTruck: (file) => catalogHasTruck(net.catalog, file), allowMissingTrucks: !!context.settings.net?.allowMissingTrucks });
-  if (problem) { const t = context.t ?? createStrings(); return t(problem.text, ...problem.args); }
+  if (problem) return problemText(context.t ?? createStrings(), problem);
+  // Community Patch 4 2.0.52.4's Original Physics (packet 0x2a): the host's "CP4 collisions: Classic boxes", sent just
+  // before the start (and to late joiners) by a session that speaks its layouts.
+  s.setOriginalPhysics?.(context.settings.cp4Collision === "classic");
   const track = net.catalog.tracks.find((t) => t.file.toUpperCase() === st.game.track.sit.toUpperCase());
   s.start({
     resolveWeather: () => resolveWeather("random", track?.weatherMask), computers: net.kind === "rooms" ? pickComputers(context, st.game.computers ?? 0) : [],
@@ -351,14 +369,26 @@ async function startNetRace(context, net, e) {
   }));
   context.router.go("race", {
     track, mode: track.raceType, laps: e.laps, difficulty: Number(net.session.state().game?.rules?.difficulty ?? context.settings.difficulty ?? 1), weather: e.weather,
-    gameMode: net.kind === "rooms" ? roomMode(e.mode, track) : null,
+    gameMode: net.kind === "rooms" && !net.cp4 ? roomMode(e.mode, track) : null,
     truck: mine, trucks, setup: { ...driver.garage }, opponents: [],
     net: {
-      link: net.session.raceLink(), entrants, host: e.host, policy: net.kind === "rooms" ? "smooth" : "legacy", rateHz: net.kind === "rooms" ? 20 : 4,
+      link: net.session.raceLink(), entrants, host: e.host, policy: net.cp4 ? "cp4" : net.kind === "rooms" ? "smooth" : "legacy",
+      // A CP4 room sends a state each physics tick (the worker says when); OpenMTM2's rooms 20 a second; classic 4.
+      rateHz: net.cp4 ? Infinity : net.kind === "rooms" ? 20 : 4,
+      // A Parallel race's wall penalties (CP4 2.0.52.4's packet 0x2b): this machine's trucks' totals out, the others' in.
+      penalties: net.session.sendPenalty ? {
+        send: (vehicle, totalMs) => net.session.sendPenalty(vehicle, totalMs),
+        on: (fn) => net.session.on("penalty", fn),
+        known: () => net.session.penalties?.() ?? new Map(),
+      } : null,
       // The room's Wheels damage rule, the owner's (rooms only).
       wheels: net.kind === "rooms" ? { on: !!net.session.state().game?.wheels, repairS: net.session.state().game?.wheelsRepairS ?? 8 } : null,
-      // The owner's game rules (game/host-rules.js), applied over this player's settings for the race.
-      rules: net.kind === "rooms" ? net.session.state().game?.rules ?? null : null,
+      // The owner's game rules (game/host-rules.js), applied over this player's settings for the race; a CP4 host's
+      // Original Physics (packet 0x2a) is its "Classic boxes", for this race only and never kept.
+      rules: (() => {
+        const g = net.session.state().game, base = net.kind === "rooms" ? g?.rules ?? null : null;
+        return g?.originalPhysics && !net.session.isHost?.() ? { ...(base ?? {}), cp4Collision: "classic" } : base;
+      })(),
     },
   }, { replace: true });
 }

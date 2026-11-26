@@ -420,7 +420,7 @@ test("the It marker is an arrow pointing down, wound so its +Z face is the front
 
 test("the Races screen's modes and their length box", () => {
   assert.deepEqual(GAME_MODES.map((m) => m.id), ["default", "freeroam", "flyby"]);
-  assert.deepEqual(EXTENSIONS.map((m) => m.id), ["hockey", "soccer", "tag", "cops-robbers", "race-rumble", "combat", "deathmatch", "freestyle"]);
+  assert.deepEqual(EXTENSIONS.map((m) => m.id), ["hockey", "soccer", "tag", "cops-robbers", "race-rumble", "combat", "deathmatch", "freestyle", "time-attack"]);
   assert.equal(lengthLabel("circuit", "hockey"), "Goals");
   assert.equal(lengthLabel("circuit", "deathmatch"), "Minutes");
   assert.equal(lengthLabel("circuit", "freestyle"), "Minutes");

@@ -31,7 +31,9 @@ sent. Collisions between trucks are worked out on each machine against its own c
 - Each machine reports its own checkpoints, damage, headlights, horn and YeeHaw.
 - Results are exchanged at the end: by the game's results barrier in classic play, by the server
   online.
-- A player who leaves mid-race hands their truck to the autopilot on every machine.
+- A player who leaves mid-race hands their truck to the autopilot on every machine. With a Community Patch room
+  (the classic session in a relay room) the race ends instead, with a message, as CP4 2.0.52.4 does
+  (CP4_ENGINE_UPDATES.md 10).
 
 In the simulation the local player stays truck 0. A table in `src/net/net-race.js` maps the
 network's slots (the game's vehicle numbers) to local truck indexes.
@@ -114,7 +116,7 @@ keeps one layout per game version, a **profile**, picked by the version in a pla
 |---|---|---|---|---|
 | retail | 0x0201 | 61 bytes, angles and steering byte-coded | 36 | none |
 | cp3 | 0x3400 | 65: angles and steering f32 radians, then a u32 sender tick (25 Hz, 0xa3d/65536 s) at +0x3D | 36 | 0x26 progress (24), 0x27 collision (44) |
-| cp4 | 0x3402 | 116: CP3's, then up to two older poses (+0x41 count, +0x42 ages in ticks, +0x44 positions, +0x5C theta, +0x64 phi, +0x6C psi) | 40, raceId at +0x24 | CP3's, and 0x28 race loaded / 0x29 race release (16, raceId at +0x0C) |
+| cp4 | 0x3404 (and beta 0.52's 0x3402) | 116: CP3's, then up to two older poses (+0x41 count, +0x42 ages in ticks, +0x44 positions, +0x5C theta, +0x64 phi, +0x6C psi) | 40, raceId at +0x24 | CP3's, 0x28 race loaded / 0x29 race release (16, raceId at +0x0C), and 2.0.52.4's 0x2a Original Physics (an s16 at +0x0C, 0 or 1; 14 bytes or more, only those two read) and 0x2b Parallel race penalty (20: s32 truck at +0x0C, u32 total ms at +0x10), both reliable |
 
 0x25 (the track checksum) and every other packet are retail's in all three. Any other version is
 read as retail. Decoding is strict: a packet must have its profile's exact size (0x89, the voice
@@ -128,8 +130,9 @@ radio, at least 20 bytes, and it is not decoded); anything else comes back with 
 - **Sending:** retail's, OpenMTM2's own, unless it joined a CP3 or CP4 host; then the host's
   profile. Our 0x03 still says 0x0201, so CP3 and CP4 show us as "(Version 2.01)".
 - **Truck state:** a CP3 or CP4 0x02 becomes the same remote-truck event as retail's (feet,
-  radians, the packet's own pose, which is the newest); the tick and the older poses are not used
-  by the simulation yet. Sent in CP3's or CP4's form, our tick counts 25 Hz from the race start,
+  radians, the packet's own pose, which is the newest), with the sender's tick, its older poses and
+  who sent it; in a CP4 room the simulation plays them back as CP4 does (below), elsewhere it uses the
+  newest pose alone. Sent in CP3's or CP4's form, our tick counts 25 Hz (the simulation's own in a CP4 room),
   and in CP4's we add up to two of the poses we sent before (newest first, under 256 ticks old).
   CP4 itself takes them from a ring filled every tick.
 - **CP4's race start:** the raceId from the host's 0x14; after loading, 0x28 with it, then a wait
@@ -139,9 +142,8 @@ radio, at least 20 bytes, and it is not decoded); anything else comes back with 
 
 TODO:
 
-- 0x26 (progress) and 0x27 (collision) are decoded and passed to the race as `progress` and
-  `collision` events, which `net-race.js` does not apply yet (CP4_EXE_ANALYSIS.md 9 has the
-  collision's rules); OpenMTM2 sends neither.
+- 0x26 (progress) and 0x27 (collision) are sent and applied only in a CP4 room (below); over
+  direct connect they are decoded and left alone.
 - Over CP3's direct connect, when OpenMTM2 hosts, it sends retail packets to everyone, so CP3 and
   CP4 joiners would not read our truck states. In a relay room (below) it hosts in CP4's profile,
   with the host's side of the 0x28 / 0x29 barrier; the direct connect host could do the same once
@@ -164,7 +166,7 @@ cross-play** on, OpenMTM2 declares the `cp3-relay/1` capability, lists and joins
   packet, its 12-byte header included; flags bit 0 asks for reliable delivery;
 - the room's `member`, `left` and `owner` messages are the direct connect's joined, left and host
   events, and the host is the room's owner, whom the server chooses;
-- OpenMTM2 announces CP4's version (0x3402) and sends CP4's layouts whether it hosts or joins
+- OpenMTM2 announces CP4 2.0.52.4's version (0x3404) and sends CP4's layouts whether it hosts or joins
   (`createLegacySession({ profile: PROFILES.cp4 })`); as host it gives the 0x14 a raceId
   (`now ^ (id << 20) | 1`), broadcasts its own 0x28, waits up to 120 s for every human's, then
   broadcasts 0x29, and answers a late 0x28 with 0x29 at once.
@@ -179,11 +181,29 @@ barrier, and OpenMTM2 answers it as in classic play.
 **Versions:** a Community Patch version is `(build << 8) | rev` and names exactly that build's layouts,
 with nothing negotiated. OpenMTM2 refuses what it cannot read rather than guess (`knownVersion` in the
 vendored `mtm2-packets.js`): a patch build it has no profile for, and in a relay room any build but
-CP4's 0x3402. Such a player's packets are dropped and a notice says why; when it is the host, the
-session ends ("The host runs a version of the game this one cannot play with."). Not done: the server's `start` / `finish` for the room (the
-room stays in its lobby state during the race, so joiners are not refused mid-race); CP4's
-netcode (jitter buffer, collision lead, hit check, 0x26 / 0x27), so OpenMTM2's trucks still move
-by OpenMTM2's own smoothing in such a race.
+CP4's (0x3404, or beta 0.52's 0x3402, read with the same layouts). Such a player's packets are dropped and a notice says why; when it is the host, the
+session ends ("The host runs a version of the game this one cannot play with.").
+
+**CP4 2.0.52.4's packets** (docs/CP4_ENGINE_UPDATES.md 10): the host sends 0x2a with its "CP4 collisions: Classic
+boxes" choice (CP4's Original Physics) to a late joiner, on every start just before 0x14, and when it changes it; a
+joiner races on it for that race only, never keeps it, and drops it when the host leaves. In a Parallel race (a track's
+`.CPX`) each machine sends 0x2b with its own trucks' running penalty totals and sets (never adds) the others'; one
+that comes after the race loop still counts. A truck a machine does not have is drawn as another and never blocks the
+start (Options, Multiplayer, "Allow missing trucks", now on by default, as CP4 only warns). Relay rooms hold at most 8
+racers, as CP4 sessions do.
+
+**CP4's netcode in a CP4 room** (beta 0.54, docs/CP4_EXE_ANALYSIS.md 18; the race's `policy: "cp4"`): the remote
+trucks are played back from a buffer by their senders' ticks, with CP4's 97th-percentile delay, playback clock,
+collision lead and fading correction, and pinned there before every step (`net/cp4-sync.js`); a state goes once a
+25 Hz tick. A hit between one of our trucks and another machine's copy is summed and sent as 0x27 (at most once in
+0.4 s a victim, from 0.3 ft/s); a hit received on ours passes the mirror rule, the hit check, the caps and the
+budget, and is fed in over 0.12 s. Each truck's progress comes from its own machine (0x26): our passes and drag states
+go out as CP4 sends them, a remote truck's passes are not counted here, and a remote drag lane is judged by its owner.
+CP4 hosts run no computer trucks online (18.4), and OpenMTM2 adds none in a CP4 room.
+
+Not done: the server's `start` / `finish` for a room CP4 owns are sent by CP4 itself; when OpenMTM2 owns one it
+sends neither (the room stays in its lobby state during the race). Questions for the CP4 developers:
+`docs/CP4_INTEROP_QUESTIONS.md`.
 
 ## To check against the retail game
 

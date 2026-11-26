@@ -185,7 +185,8 @@ export async function buildTrackFalls(level, { heights, tileMap, lakes, waterLev
   const notices = fallReadNotices(level.falls);
   // A track format version 6 track's world and height range (9.3); without a terrainHeightMap, CP4's (step 128, base 0).
   const v6 = level.v6?.terrainHeightMap ? level.v6 : null;
-  const terrain = v6 ? { step: v6.terrainHeightStep, base: v6.terrainHeightBase } : {};
+  // `si3`: a 256-cell .SI3's version 1 falls take 1..4096 or the track's window (CP4 2.0.52.4, CP4_ENGINE_UPDATES.md 3).
+  const terrain = { ...(v6 ? { step: v6.terrainHeightStep, base: v6.terrainHeightBase } : {}), si3: !!level.v6 };
   const meshes = buildFalls(level.falls, { heights, tileMap, lakes, waterLevelFt, cells: level.cells ?? 256, terrain });
   notices.push(...fallBuildNotices(meshes));
   if (!meshes) return { falls: null, fogVolumes: sitVolumes, sounds: [], notices };

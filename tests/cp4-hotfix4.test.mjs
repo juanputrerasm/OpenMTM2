@@ -56,7 +56,8 @@ test("track lights: allWx read (13th field), the first 128 kept, the glow facing
 import { CP4_LIMITS, withCp4Limits } from "../src/game/cp4-limits.js";
 
 test("hotfix 4's limits: the first 10 placed trucks, 5 backdrops, the primary and 4 extended courses of 249 segments, 100 ramps, 10 + 40 ambient sounds", () => {
-  assert.deepEqual({ ...CP4_LIMITS }, { trucks: 10, ramps: 100, backdrops: 5, courses: 5, segments: 249 });
+  const { trucks, ramps, backdrops, courses, segments } = CP4_LIMITS;
+  assert.deepEqual({ trucks, ramps, backdrops, courses, segments }, { trucks: 10, ramps: 100, backdrops: 5, courses: 5, segments: 249 });
   const course = (n) => ({ segments: Array.from({ length: n }, (_, i) => ({ i })) });
   const sit = {
     trucks: [{ playerSlot: true, name: "P" }, ...Array.from({ length: 12 }, (_, i) => ({ name: `T${i}` }))],
@@ -84,7 +85,7 @@ test("hotfix 4's limits: the first 10 placed trucks, 5 backdrops, the primary an
   withCp4Limits(small, (line) => none.push(line));
   assert.deepEqual(none, []);
   assert.match(source("worker/track-build.js"), /for \(const box of rampBoxes\.slice\(0, CP4_LIMITS\.ramps\)\) \{/);
-  assert.match(source("worker/level-load.js"), /if \(!cpr\) sit = withCp4Limits\(sit, \(line\) => console\.info\(line\)\);/);
+  assert.match(source("worker/level-load.js"), /if \(!cpr\) sit = withCp4Limits\(sit, \(line\) => console\.info\(line\), \{ si3: v6Track \}\);/);
   const audio = source("audio/world-audio.js");
   assert.match(audio, /export const AMBIENT_LOOPS_MAX = 10;/);
   assert.match(audio, /export const AMBIENT_SHOTS_MAX = 40;/);

@@ -12,7 +12,7 @@ import { advanceAutopilotSegment, headingOf, segmentEta, wrapGame } from "../tru
 import { liftOff, truckRadius } from "../truck/recovery.js";
 import { autopilotGain } from "../truck/state.js";
 import { isArc, nextSegmentIndex, orientedCourse } from "../world/course.js";
-import { createSummit, summitTick } from "./summit.js";
+import { createSummit, summitTick, SUMMIT_TICKS_PER_SECOND } from "./summit.js";
 const toWorld = (m, x, y, z) => [m[0] * x + m[1] * y + m[2] * z, m[3] * x + m[4] * y + m[5] * z, m[6] * x + m[7] * y + m[8] * z];
 const toBody = (m, x, y, z) => [m[0] * x + m[3] * y + m[6] * z, m[1] * x + m[4] * y + m[7] * z, m[2] * x + m[5] * y + m[8] * z];
 /** The countdown before the start (§6.1), seconds. */
@@ -27,9 +27,29 @@ export function raceCheckpoints(cps) {
         psi: c.gate.angles[2],
     }));
 }
+/**
+ * The checkpoints of a .CPX race (CP4 2.0.52.4): `cps` the situation's checkpoint boxes in order, `map[i]` box i's
+ * `{ slot, split, lane }`. One checkpoint a slot, in slot order; a slot of several boxes holds them as `copies`.
+ */
+export function raceSlotCheckpoints(cps, map) {
+    const boxes = raceCheckpoints(cps);
+    const slots = [];
+    boxes.forEach((b, i) => {
+        const m = map[i];
+        if (!m)
+            return;
+        const copy = { ...b, lane: m.lane };
+        const slot = slots[m.slot];
+        if (!slot)
+            slots[m.slot] = { ...b, ...(m.split ? { split: m.split, copies: [copy] } : {}) };
+        else
+            slot.copies?.push(copy);
+    });
+    return slots.filter(Boolean);
+}
 /** A box no truck is ever inside: the zone or summit of a Rumble whose level has too few checkpoints. */
 const NO_BOX = () => createBox([0, -1e9, 0], [0, 0, 0]);
-export function createRace(trucks, checkpoints, course, laps, difficulty, mode = "circuit") {
+export function createRace(trucks, checkpoints, course, laps, difficulty, mode = "circuit", { tickClock = false, callsPerTick = 1 } = {}) {
     return {
         trucks: trucks.map((t, i) => ({
             s: t.s, p: t.p, player: !!t.player, checkpoint: 0, passed: 0, passCount: 0, laps: 0, lapTimes: [], raceTime: 0,
@@ -40,7 +60,7 @@ export function createRace(trucks, checkpoints, course, laps, difficulty, mode =
         // checkpoints (§6.3), so a Rumble always scores: a level with one box has a zone and no summit, and one with none
         // neither (an empty box holds nothing).
         summit: mode === "summit"
-            ? createSummit(trucks.length, checkpoints[0]?.gate ?? NO_BOX(), checkpoints[1]?.gate ?? NO_BOX())
+            ? createSummit(trucks.length, checkpoints[0]?.gate ?? NO_BOX(), checkpoints[1]?.gate ?? NO_BOX(), { ticks: tickClock, callsPerTick })
             : null,
         roundSeconds: mode === "summit" ? laps * 60 : 0,
     };
@@ -94,6 +114,8 @@ export function testCheckpoint(race, t, dt, recover) {
     const cp = race.checkpoints[t.checkpoint];
     if (!cp || t.finished)
         return 0;
+    if (cp.copies && cp.split)
+        return testSplitCheckpoint(race, t, cp, dt, recover);
     const s = t.s, det = cp.detector;
     const d = Math.hypot(s.pos[0] - det.pos[0], s.pos[1] - det.pos[1], s.pos[2] - det.pos[2]);
     if (!(d < (det.radius + truckRadius(t.p)) * PRETEST))
@@ -106,12 +128,53 @@ export function testCheckpoint(race, t, dt, recover) {
     if (twoWay ? vz === 0 : !(vz > 0))
         return 0;
     const result = backFaceCrossing(s, t.p, cp.gate, dt, twoWay) ? 2 : 3;
-    if (result === 2)
+    if (result === 2 && !t.passesFromOwner)
         pass(race, t, hit.depth, Math.abs(vz));
     else if (t.state !== 3 && !t.player && recover)
         missedCheckpoint(race, t, cp, recover);
     t.state = result;
     return result;
+}
+/**
+ * A split slot (CPX): per lane, the truck's own lane's copy is the checkpoint; any copy, each copy is tested and the
+ * first crossed credits the slot. A miss is held while the truck is near any copy, and reported once it is near none.
+ */
+function testSplitCheckpoint(race, t, cp, dt, recover) {
+    const copies = cp.split === 2 ? cp.copies.filter((c) => c.lane === (t.lane ?? 0)) : cp.copies;
+    const s = t.s, twoWay = !!race.twoWay;
+    let near = false, missed = false;
+    for (const c of copies) {
+        const det = c.detector;
+        const d = Math.hypot(s.pos[0] - det.pos[0], s.pos[1] - det.pos[1], s.pos[2] - det.pos[2]);
+        if (!(d < (det.radius + truckRadius(t.p)) * PRETEST))
+            continue;
+        near = true;
+        const hit = backFaceCrossing(s, t.p, det, dt, twoWay);
+        if (!hit)
+            continue;
+        const vz = speedThrough(s, det, hit.point);
+        if (twoWay ? vz === 0 : !(vz > 0))
+            continue;
+        if (backFaceCrossing(s, t.p, c.gate, dt, twoWay)) {
+            t.missHeld = false;
+            if (!t.passesFromOwner)
+                pass(race, t, hit.depth, Math.abs(vz));
+            t.state = 2;
+            return 2;
+        }
+        missed = true;
+    }
+    if (missed)
+        t.missHeld = true;
+    if (t.missHeld && !near) {
+        t.missHeld = false;
+        const first = copies[0];
+        if (first && t.state !== 3 && !t.player && recover)
+            missedCheckpoint(race, t, { gate: first.gate, detector: first.detector, psi: first.psi }, recover);
+        t.state = 3;
+        return 3;
+    }
+    return 0;
 }
 function pass(race, t, depth, vz) {
     if (t.passCount < SEGMENT_CAP)
@@ -136,6 +199,12 @@ function pass(race, t, depth, vz) {
 }
 /** After a lap closes (`0x52ee50`): the first to complete the laps ends the race (§14.24). */
 function finishLap(race, t) {
+    // A Parallel race (CP4 2.0.52.4): every truck runs its laps; the caller ends the race.
+    if (race.allFinish) {
+        if (t.laps >= race.laps)
+            t.finished = true;
+        return;
+    }
     if (!race.over && t.laps >= race.laps) {
         race.over = true;
         for (const o of race.trucks)
@@ -297,7 +366,10 @@ function summitRound(race, dt) {
         });
         a.place = place;
     });
-    if (race.clock + dt - race.startTime >= race.roundSeconds) {
+    const over = summit.ticks
+        ? summit.elapsedTicks >= race.roundSeconds * SUMMIT_TICKS_PER_SECOND
+        : race.clock + dt - race.startTime >= race.roundSeconds;
+    if (over) {
         race.over = true;
         for (const t of race.trucks)
             t.finished = true;

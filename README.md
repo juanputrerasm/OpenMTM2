@@ -204,6 +204,13 @@ its own storage, so the game files are installed once more inside it. A phone sh
   second course when it has one.
 - Run MTM1 drag strips with auto-staging, a working Christmas tree, red lights, lane and reversing
   disqualifications, timing slips and drag weekends based on Community Patch 3's documented rules.
+- Community Patch 4 2.0.52.4's race rules (a track's `.CPX`): new-style drags with per-lane beams and walls,
+  looped drags, split checkpoints, lead-in courses, and the **Parallel Race**, two lanes where a wall touch costs
+  time instead of a disqualification.
+- **Time Attack** (in the Mode list on a circuit or rally): hot laps against your best lap's ghost, with the gap
+  at each checkpoint and the best lap banked to the Hall of Fame.
+- Tournaments read and write CP4's `MTM2 Series 1.0` presets: classic scoring to 16 places, championship
+  scoring and drags-only series of up to 16 trucks.
 - Explore any non-race track in Free Roam. This is also how mission tracks without checkpoints from
   4x4 Evolution are driven.
 - Play the party modes, OpenMTM2 additions that were never in the game: Hockey on Breakneck Ridge's
@@ -239,6 +246,11 @@ its own storage, so the game files are installed once more inside it. A phone sh
   `multiplayer.openmtm2.workers.dev`. Browse, create or join rooms (public, password or code), share
   an invite link, and race with up to 16 players and computer opponents. The room owner can also
   pick a party mode. Combat and Deathmatch online need a server with OpenMTM2 Server's `modeTruck` event.
+  A party mode needs two trucks at least: a player or a computer truck.
+- **CP4 rooms** (Options, Multiplayer, CP4 cross-play, experimental): race Community Patch 4 2.0.52.4 players in
+  the server's relay rooms, with CP4's own netcode (its remote-truck playback, collision and progress packets).
+  These rooms play CP4's own race types (circuit, rally, drag, Summit, Parallel) and no party modes. CP4 players
+  join relay rooms only.
 - **Classic TCP/IP:** host or join games with the original MTM2 (retail 2.00.42 or Community
   Patch 3) by IP address, through a small desktop helper from the OpenMTM2 Server project.
 - Each machine simulates its own truck; remote trucks are smoothed, and results are shared at the end.
@@ -268,7 +280,7 @@ See [the multiplayer guide](docs/MULTIPLAYER.md) for the protocols, ports and se
   vehicles, each on its own game's physics or on the model picked in Options.
 - Community Patch 3 support covers HD model, truck, sky and terrain art; normal and occlusion maps;
   enhanced materials and glass; track lights; moving objects; four-tire sets; and `.SI2` tracks.
-- Community Patch 4 tracks (betas 0.52 and 0.53, up to hotfix 3) bring their 16-bit, Spline and Full Map terrain,
+- Community Patch 4 tracks (betas 0.52 and 0.53 up to hotfix 3, and 2.0.52.4's `.SI3` limits and rules) bring their 16-bit, Spline and Full Map terrain,
   lakes, vegetation, wispy fog volumes, drivable surface meshes, 3D cockpits and waterfalls: sheets of water poured
   over a crest by the game's own rules, with flow tubes, whitewater, droplets, mist per stream and their roar.
   Hotfix 3's Normal-Water and Normal-Terrain detail maps (`_WDTL`, `_WMSK`, `_DTL`, from MaskArt too) load with

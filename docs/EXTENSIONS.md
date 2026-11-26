@@ -1,7 +1,7 @@
 # OpenMTM2 extensions
 
 Extensions add optional game modes without making them part of the original game simulation. OpenMTM2
-currently ships with Hockey, Soccer, Tag, Cops & Robbers, Race & Rumble, Combat, Deathmatch and Freestyle. They appear in the Races screen and in Options, but their rules,
+currently ships with Hockey, Soccer, Tag, Cops & Robbers, Race & Rumble, Combat, Deathmatch, Freestyle and Time Attack. They appear in the Races screen and in Options, but their rules,
 settings, rendering and worker state stay behind extension loader contracts.
 
 ## Ownership boundary
@@ -61,6 +61,8 @@ export const MY_EXTENSION = Object.freeze({
   keepsRace: false,               // true to play on the track's own race: checkpoints, laps and its ending
   minEntrants: 2,                 // trucks the mode needs (the player counts unless spectating); omit for none
   maxEntrants: null,              // 1: driven alone (no opponents, no spectator mode, no online rooms); omit for any
+  fixedLaps: null,                // with keepsRace and no length: the laps the race is given (Time Attack's 99)
+  names: true,                    // false: the race starts with the Names key's last choice, not the drivers' names
   teamPicker: null,               // a team mode: (settings) => { teams, teamNames, teamColours, roles, roleColours }
   weather: null,                  // null uses the player's weather; a number locks it
   detailLevel: null,              // null uses the normal setting
@@ -164,8 +166,11 @@ stored setting shape.
 
 ## Over the network
 
-Extension modes run in online rooms (`docs/MULTIPLAYER.md`), not in classic games. The room's owner
-picks the mode on the Races screen, like the track; every machine then runs the same extension.
+Extension modes run in online rooms (`docs/MULTIPLAYER.md`), not in classic games or CP4 rooms (CP4's own
+protocol has no mode to send: there the track is raced). The room's owner picks the mode on the Races screen,
+like the track; every machine then runs the same extension. A mode driven alone (Freestyle, Time Attack) is
+never a room's mode. As offline, a mode with a minimum (two trucks for every shipped multi-truck mode) does not
+start until the room's players and computer trucks reach it.
 
 Each machine still simulates its own truck, but a mode's decisions need one judge, since every
 machine sees slightly different copies of the other trucks. **The room owner's machine decides**:
@@ -725,6 +730,25 @@ is hidden. The Winner's Circle shows the score with its decimal, the time the ru
 table (the adapter's `result`).
 
 
+## Shipped extension: Time Attack
+
+From Community Patch 4 2.0.52.4 (CP4_ENGINE_UPDATES.md 9.5; the CP4 developer published notes, no source code): hot
+laps alone on a circuit or a rally against the ghost of the player's best lap. `game/extensions/time-attack.js` holds
+the manifest and the session; it has no adapter in `race-loader.js` and no runtime in `session-loader.js`, since it
+plays on the track's own race (`keepsRace`) and the race screen drives it.
+
+- The manifest: `acceptsTrack` is `hasCheckpoints` (circuits and rallies), `maxEntrants: 1` (no opponents, no
+  spectator mode, not offered in online rooms), `length: null` with `fixedLaps: 99`: the Races screen greys the
+  length box, and the session runs until the player ends it from the pause menu. `names: false`.
+- The truck is the player's, with the driver's Garage setup. The HUD shows the lap number with no total.
+- Each lap is sampled at 25 Hz from the simulation; a lap faster than the ghost becomes the ghost (the `MTM2GHOST 1`
+  text, OpenPhotex `mtm/ghost.ts`) and is kept with the player's data under `ghost:<track file>`. The ghost is drawn
+  as a see-through copy of the player's truck that meets nothing.
+- At each checkpoint the HUD flashes the gap to the ghost's split there ("Ghost +0.42"), and at each lap its time
+  ("New best lap" when it beat the ghost).
+- End Race banks the best lap to the Hall of Fame (mode `timeattack`); the Winner's Circle adds no entry of its own,
+  as for every extension.
+
 ## Track format version 6
 
 Not a game mode: an OpenMTM2 extension of the track format, from the open specification "MTM2 track format version 6:
@@ -742,10 +766,12 @@ What OpenMTM2 supports:
 - **The .TXV.** A `.SI3` track's `DATA\<stem>.TXV` is read by `readTxvV6` (worker/level-load.js `readV6World`): a
   missing record, a formatVersion below 6 or a key of section 6 out of range refuses the track with the message
   naming the key. A formatVersion above 6 loads, and its warning is said as the race begins ("Track format: ...").
-  A `.SIT` or `.SI2` track's .TXV is read as before; its version 6 keys are ignored.
+  A `.SIT` or `.SI2` track whose level's .TXV carries a version 6 key is refused ("this level is a version 6
+  level"), and a negative `terrainHeightBase` is refused, as Community Patch 4 2.0.52.4 does
+  (CP4_ENGINE_UPDATES.md 3).
 - **Heights.** With `terrainHeightMap`, heights are `terrainHeightBase + sample / terrainHeightStep` feet, held exactly
   in 32-bit floats (`mtm2V6HeightsFt`, the 1/128 ft store of 7.3), on an N or 4N grid, spline expanded at N. They may
-  be negative and thousands of feet high. Without it (256 cells only) the heights follow Community Patch 4's rules
+  be thousands of feet high, never below 0 ft (CP4 2.0.52.4 refuses a negative base). Without it (256 cells only) the heights follow Community Patch 4's rules
   exactly as for any other track; the `.RAW` the level names is not needed when the map is given.
 - **The world.** N (256 or 512) cells a side, W = 32 N feet. The build carries `worldCells` and `worldFt`
   (worker/track-build.js), and everything that wraps or reads a grid takes them from it: the simulation's terrain,
@@ -755,8 +781,9 @@ What OpenMTM2 supports:
   `blockShift`, all with the world's size as a parameter defaulting to 8192), the course maps, the sounds, the
   replays, the fly-by camera, the lakes, the vegetation, the fog volumes' distance (9.3) and the extensions' play
   areas. A larger world is not drawn further: the draw distance, the chunks and the cells drawn are unchanged.
-- **Grid files.** `.CLR`, `.LTE`, `.RA0` to `.RA5`, `.CL0` to `.CL2` are checked against N (`checkMtm2GridSize`) and
-  a file of the wrong size refuses the track. `.RA0`/`.RA1` (and `.RA4`/`.RA5`) may be 16-bit, both of a pair alike:
+- **Grid files.** `.CLR`, `.LTE`, `.RA0`, `.RA1` and `.CL0` are checked against N (`checkMtm2GridSize`) and a file of
+  the wrong size refuses the track; a missing `.CLR`, `.CL0`, or `.RA1` beside a `.RA0`, refuses the race. `.RA2` to
+  `.RA5`, `.CL1` and `.CL2` are never read (CP4 2.0.52.4). `.RA0`/`.RA1` (and `.RA4`/`.RA5`) may be 16-bit, both of a pair alike:
   a box's heights are base + 2 ft a byte, or base + value / step (8.3); without `terrainHeightMap` step 128 and base 0.
 - **Lakes and vegetation.** The world's size picks the `.WTR` version (9.1; worker/level-load.js `readLevelLakes`):
   version 1 (256 x 256) on a 256-cell track, version 2 (512 x 512) on a 512-cell one; any other pairing is left out

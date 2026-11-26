@@ -30,13 +30,29 @@ export function parseTxv(input) {
     }
     return out;
 }
-/** The value of a key, compared without case, or null. */
+/** The value of a key, compared without case, or null. A repeated key: the last one wins, as Community Patch 4 2.0.52.4 reads it. */
 export function txvValue(lines, key) {
     const wanted = key.toLowerCase();
+    let value = null;
     for (const line of lines)
         if ("key" in line && line.key.toLowerCase() === wanted)
-            return line.value;
-    return null;
+            value = line.value;
+    return value;
+}
+/** Community Patch 4's limits on a .TXV: a line of at most 255 characters, a file of at most 64 KB. */
+export const TXV_MAX_LINE = 255;
+export const TXV_MAX_BYTES = 65536;
+/**
+ * A .TXV as the engine reads it (Community Patch 4 2.0.52.4, F1): a file over 64 KB is unreadable,
+ * so the track loads as classic (no lines), and a line over 255 characters is left out. A tool that
+ * round-trips a record uses parseTxv, which keeps everything.
+ */
+export function parseTxvAsEngine(input) {
+    if (input.length > TXV_MAX_BYTES)
+        return [];
+    const text = typeof input === "string" ? input : decoder.decode(input);
+    const kept = text.split(/\r\n|\r|\n/).filter((line) => line.length <= TXV_MAX_LINE).join("\n");
+    return parseTxv(kept);
 }
 /**
  * The bytes of a .TXV. With `situation`, the track's situation file extension, the keys of track
@@ -101,6 +117,7 @@ export function readTxvInfo(input) {
         legacyFallback: bool("legacyFallback"), hdTextures: bool("hdTextures"), fogVolumes: int("fogVolumes"),
         vegetation: bool("vegetation"), vegTrees: int("vegTrees"), vegClumps: int("vegClumps"),
         terrainGrid: str("terrainGrid"), terrainHeights: str("terrainHeights"), waterfalls: int("waterfalls"),
+        raceRules: str("raceRules")?.toLowerCase() || null, uiSmall: str("uiSmall") || null, uiLarge: str("uiLarge") || null, logo: str("logo") || null,
         worldCells: int("worldCells"), terrainHeightMap: str("terrainHeightMap"), terrainHeightStep: int("terrainHeightStep"),
         terrainHeightBase: int("terrainHeightBase"),
     };
@@ -115,12 +132,14 @@ export function readTxvInfo(input) {
                        with worldCells=512, else absent means CP4's rules (DATA\<stem>.RAW or
                        terrainHeights)
     terrainHeightStep  steps per foot: 1, 2, 4, ..., 128 (default 128)
-    terrainHeightBase  whole feet added to every height, -32768..32767 (default 0)
+    terrainHeightBase  whole feet added to every height, 0..32767 (default 0; the draft allows
+                       a negative base, Community Patch 4 2.0.52.4 refuses it)
     terrainGrid        classic, spline or fine
 
   A value outside these is refused with a message naming the key, rather than guessed at
-  (section 5.2). A formatVersion above 6 loads with a warning. Keys are CP4's: case-insensitive,
-  the first line of a key wins (txvValue).
+  (section 5.2). A formatVersion above 6 loads with a warning, and so does an unknown terrainGrid
+  (read as classic, as CP4 does). Keys are CP4's: case-insensitive, the last line of a key wins
+  (txvValue).
 */
 export const TXV_V6_KEYS = ["formatVersion", "worldCells", "terrainHeightMap", "terrainHeightStep", "terrainHeightBase", "terrainGrid"];
 /*
@@ -161,15 +180,16 @@ export function readTxvV6(input) {
     if (!MTM2_HEIGHT_STEPS.includes(step))
         throw new RangeError(`TXV: terrainHeightStep=${step}; allowed: 1, 2, 4, 8, 16, 32, 64 or 128`);
     const base = whole("terrainHeightBase") ?? 0;
-    if (base < -32768 || base > 32767)
-        throw new RangeError(`TXV: terrainHeightBase=${base}; allowed: -32768 to 32767`);
+    if (base < 0 || base > 32767)
+        throw new RangeError(`TXV: terrainHeightBase=${base}; allowed: 0 to 32767`);
     const gridRaw = txvValue(lines, "terrainGrid");
     let terrainGrid = null;
     if (gridRaw !== null) {
         const g = gridRaw.toLowerCase();
-        if (g !== "classic" && g !== "spline" && g !== "fine")
-            throw new RangeError(`TXV: terrainGrid=${gridRaw}; allowed: classic, spline or fine`);
-        terrainGrid = g;
+        if (g === "classic" || g === "spline" || g === "fine")
+            terrainGrid = g;
+        else
+            warnings.push(`terrainGrid=${gridRaw}: this track may need a newer build (read as classic)`);
     }
     const map = txvValue(lines, "terrainHeightMap");
     if (map !== null && !/\.(png|raw)$/i.test(map))
@@ -187,4 +207,55 @@ export function readTxvV6(input) {
 export function txvUsesV6Keys(input) {
     const lines = Array.isArray(input) ? input : parseTxv(input);
     return TXV_V6_ONLY_KEYS.some((k) => txvValue(lines, k) !== null);
+}
+/*
+  Track ambience (track format version 6, "Ambience"; docs/LEVELS.md): optional keys for a track's
+  own sky, haze and light in Clear weather. Any track may carry them (a .SI2 one too); an engine
+  that does not know them skips them, as Community Patch 4 skips every key it does not parse.
+
+    skyTopColor=r,g,b      the sky straight up, 0 to 255
+    skyBottomColor=r,g,b   the sky at the horizon
+    skyHorizon=f           where between the horizon (0) and the zenith (1) the top colour is reached (default 0.25)
+    skyImage=ART\X.PNG     a full-colour picture round the horizon over the gradient (its alpha shows the gradient)
+    fogColor=r,g,b         the haze's colour
+    fogStartFt, fogEndFt   where the haze starts and where it is complete, feet
+    lightTint=r,g,b        the light's hue as multipliers, scaled to a mean of 1 (the scene's own level is kept)
+*/
+export const TXV_AMBIENCE_KEYS = ["skyTopColor", "skyBottomColor", "skyHorizon", "skyImage", "fogColor", "fogStartFt", "fogEndFt", "lightTint"];
+const triple = (v) => {
+    if (v == null)
+        return null;
+    const parts = v.split(/[\s,]+/).filter(Boolean).map(Number);
+    return parts.length === 3 && parts.every(Number.isFinite) ? [parts[0], parts[1], parts[2]] : null;
+};
+const ranged = (v, lo, hi) => {
+    if (v == null || v.trim() === "")
+        return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : null;
+};
+/** The ambience keys of a .TXV, or null when it has none of them. */
+export function readTxvAmbience(input) {
+    if (input == null)
+        return null;
+    const lines = Array.isArray(input) ? input : parseTxv(input);
+    const get = (k) => txvValue(lines, k);
+    const colour = (k) => triple(get(k))?.map((x) => Math.min(255, Math.max(0, Math.round(x)))) ?? null;
+    const rawTint = triple(get("lightTint"))?.map((x) => Math.min(4, Math.max(0, x))) ?? null;
+    const mean = rawTint ? (rawTint[0] + rawTint[1] + rawTint[2]) / 3 : 0;
+    const lightTint = rawTint && mean > 0 ? rawTint.map((x) => x / mean) : null;
+    const a = {
+        skyTop: colour("skyTopColor"),
+        skyBottom: colour("skyBottomColor"),
+        skyHorizon: ranged(get("skyHorizon"), 0.01, 1) ?? 0.25,
+        skyImage: get("skyImage")?.trim() || null,
+        fogColor: colour("fogColor"),
+        fogStartFt: ranged(get("fogStartFt"), 0, 1e6),
+        fogEndFt: ranged(get("fogEndFt"), 1, 1e6),
+        lightTint,
+    };
+    const sky = !!(a.skyTop || a.skyBottom || a.skyImage);
+    if (!sky && !a.fogColor && !a.lightTint)
+        return null;
+    return { ...a, sky };
 }

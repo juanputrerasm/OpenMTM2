@@ -11,7 +11,7 @@
 */
 import { el } from "../dom.js";
 import { frame, uiImageUrl } from "../frame.js";
-import { applyRaceConfig, catalogHasTruck, inviteLink, leaveNet, netGo, netLocation, startProblem, LOCATION } from "../../app/net.js";
+import { applyRaceConfig, catalogHasTruck, problemText, inviteLink, leaveNet, netGo, netLocation, startProblem, LOCATION } from "../../app/net.js";
 import { statusText, latencyMs, latencyText, skillText, versionText } from "../../net/legacy-session.js";
 import { weatherName } from "../../game/weather.js";
 import { extensionById } from "../../game/extensions/loader.js";
@@ -106,7 +106,7 @@ export default async function mount(container, context) {
     goButton.textContent = st.isHost ? t("GO") : me?.ready ? t("Not Ready") : t("Ready");
     // What stops the start, said on the button (app/net.js `startProblem`): a missing track or truck, or a player not Ready.
     const problem = st.isHost ? startProblem(st, { hasTruck: (file) => catalogHasTruck(net.catalog, file), allowMissingTrucks: !!context.settings.net?.allowMissingTrucks }) : null;
-    goButton.title = st.isHost ? (problem ? t(problem.text, ...problem.args) : t("Start the race")) : "";
+    goButton.title = st.isHost ? (problem ? problemText(t, problem) : t("Start the race")) : "";
     goButton.classList.toggle("blocked", st.isHost && !!problem);
     if (ui?.art && !st.isHost) {
       goButton.classList.add("net-go-art");

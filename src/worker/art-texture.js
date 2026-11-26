@@ -2,7 +2,7 @@
   A model's texture as the engine finds it (Community Patch 3, AUTHORING_HD_ART.md): by STEM, probing
   ART\<stem>.PNG, then ART\<stem>.TGA, then the legacy ART\<stem>.RAW with its palette. A texture recorded as `ROCK.RAW`,
   `ROCK.PNG` or plain `ROCK` is one texture. An HD file that is damaged, not really a PNG, or not a square power of two
-  from 32 to 1024 is passed over for the legacy one, as JSTrackViewer does. On a retail install there are no HD files and
+  from 32 to 2048 is passed over for the legacy one, as JSTrackViewer does. On a retail install there are no HD files and
   this is exactly the old path.
 
   A texture may also carry a normal map, `ART\<stem>_N.PNG` or `.TGA` (never a .RAW): linear data, DirectX green-down.
@@ -18,10 +18,10 @@ import { readFile } from "../shared/opfs.js";
 import { INSTALL_DIR } from "./install-store.js";
 
 /** The largest side an HD texture keeps (Options, Graphics: Texture size); larger art is box-filtered down as it loads. */
-export const HD_TEXTURE_SIDES = Object.freeze([1024, 512, 256]);
-let hdLimit = 1024;
+export const HD_TEXTURE_SIDES = Object.freeze([2048, 1024, 512, 256]);
+let hdLimit = 2048;
 /** Sets the largest HD side for the loads that follow (the worker's track and truck builds); anything else is full size. */
-export function setHdTextureLimit(side) { hdLimit = HD_TEXTURE_SIDES.includes(Number(side)) ? Number(side) : 1024; }
+export function setHdTextureLimit(side) { hdLimit = HD_TEXTURE_SIDES.includes(Number(side)) ? Number(side) : 2048; }
 export const hdTextureLimit = () => hdLimit;
 
 export const artStem = (name) => String(name ?? "").toUpperCase().replace(/^.*[\\/]/, "").replace(/\.[^.]*$/, "");

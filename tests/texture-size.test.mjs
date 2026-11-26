@@ -2,12 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { HD_TEXTURE_SIDES, hdTextureLimit, setHdTextureLimit, shrinkImage } from "../src/worker/art-texture.js";
 
-test("Texture size takes 1024, 512 or 256; anything else is full size", () => {
+test("Texture size takes 2048, 1024, 512 or 256; anything else is full size", () => {
   for (const side of HD_TEXTURE_SIDES) { setHdTextureLimit(side); assert.equal(hdTextureLimit(), side); }
-  setHdTextureLimit(300); assert.equal(hdTextureLimit(), 1024);
-  setHdTextureLimit(undefined); assert.equal(hdTextureLimit(), 1024);
+  setHdTextureLimit(300); assert.equal(hdTextureLimit(), 2048);
+  setHdTextureLimit(undefined); assert.equal(hdTextureLimit(), 2048);
   setHdTextureLimit("512"); assert.equal(hdTextureLimit(), 512);
-  setHdTextureLimit(1024);
+  setHdTextureLimit(2048);
 });
 
 test("an HD image over the limit halves until it fits, by box filtering", () => {

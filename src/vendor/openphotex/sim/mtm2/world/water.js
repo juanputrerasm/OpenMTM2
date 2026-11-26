@@ -45,3 +45,27 @@ export function waterLevelFt(lvlValue, raceTimeS = 0, snow = false) {
     const wave = Math.trunc(Math.trunc(fixedSin(phase) / 256) / 4);
     return (base + wave) / UNITS_PER_FT;
 }
+export function createTide(lvlValue, tickS, snow = false) {
+    return { lvlValue, phase: 0, carry: 0, step: (tickS * 0x10000) / WAVE_PERIOD_S, snow };
+}
+/** Back to the start (a race start, restart, saved-game load or attract start). */
+export function resetTide(t) {
+    t.phase = 0;
+    t.carry = 0;
+}
+/** One physics tick. */
+export function tideTick(t) {
+    const due = t.step + t.carry;
+    const whole = Math.floor(due);
+    t.carry = due - whole;
+    t.phase = (t.phase + whole) & 0xffff;
+}
+/** The track's water level now, feet, or null without water; the base in Snow. */
+export function tideLevelFt(t) {
+    if (!t.lvlValue)
+        return null;
+    const base = t.lvlValue * 128;
+    if (t.snow)
+        return base / UNITS_PER_FT;
+    return (base + Math.trunc(Math.trunc(fixedSin(t.phase) / 256) / 4)) / UNITS_PER_FT;
+}

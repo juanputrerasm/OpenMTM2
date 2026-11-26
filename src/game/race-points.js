@@ -7,6 +7,20 @@
   led one lap.
 */
 export const PLACE_POINTS = Object.freeze([900, 700, 500, 400, 300, 200, 150, 100]);
+/**
+ * Community Patch 4 2.0.52.4's tournament scoring (docs/CP4_ENGINE_UPDATES.md 9.4): "classic" is the place table above
+ * extended to 16 places, 80, 70, ... 10 for places 9 to 16; "championship" 10-8-6-5-4-3-2-1 in the 8-truck format and
+ * 25-20-15-13-12-...-1 for 16-truck drags. A truck that does not finish still takes its place and scores.
+ */
+export const CLASSIC_PLACE_POINTS_16 = Object.freeze([...PLACE_POINTS, 80, 70, 60, 50, 40, 30, 20, 10]);
+export const CHAMPIONSHIP_POINTS_8 = Object.freeze([10, 8, 6, 5, 4, 3, 2, 1]);
+export const CHAMPIONSHIP_POINTS_16 = Object.freeze([25, 20, 15, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
+
+/** A series round's points for a place (1 first): `scoring` 0 classic, 1 championship; `drags16` the 16-truck drag table. */
+export function seriesPlacePoints(place, { scoring = 0, drags16 = false } = {}) {
+  const table = scoring === 1 ? (drags16 ? CHAMPIONSHIP_POINTS_16 : CHAMPIONSHIP_POINTS_8) : CLASSIC_PLACE_POINTS_16;
+  return table[place - 1] ?? 0;
+}
 
 /**
  * The points for each row, `rows[i] = { place, best, led, ... }` (`best` the fastest lap in seconds, 0 for none; `led`

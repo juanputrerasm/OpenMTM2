@@ -109,3 +109,20 @@ test("Wheels damage: another machine's truck's wheels become a worker command fo
   assert.equal(cmd.name, "wheelsOwn");
   assert.deepEqual(cmd.value, [{ truck: 2, lost: 1, axles: 0, wear: [0, 1, 1, 1], repairs: 0, pits: 0 }]);
 });
+
+test("a CP4 room: states stamped on arrival, progress and hits to the worker, ours out after the splits", () => {
+  const net = createNetRace({ entrants, rateHz: Infinity, clock: () => 1234 });
+  net.receive({ kind: "state", vehicle: 3, pos: [0, 0, 0], tick: 9, sender: 77 });
+  net.receive({ kind: "progress", vehicle: 3, segments: 5, total: 12.5 });
+  assert.equal(net.receive({ kind: "collision", vehicle: 3, target: 2, linear: [1, 2, 3], angular: [0, 0, 0], rtt: 0.08 }), true);
+  assert.equal(net.receive({ kind: "collision", vehicle: 3, target: 3, linear: [1, 2, 3], angular: [0, 0, 0] }), false, "a hit on a truck we do not drive");
+  const cmds = net.commands();
+  assert.deepEqual([cmds[0].value[0].at, cmds[0].value[0].tick, cmds[0].value[0].sender], [1234, 9, 77]);
+  assert.deepEqual(cmds[1], { name: "progress", value: { truck: 2, segments: 5, total: 12.5 } });
+  assert.deepEqual(cmds[2].value, { target: 0, source: 2, linear: [1, 2, 3], angular: [0, 0, 0], rtt: 0.08 });
+  const out = net.collect({ net: [{ truck: 0, pos: [0, 0, 0] }], netProgress: [{ truck: 0, segments: 3, total: 0 }], netHits: [{ target: 2, source: 0, linear: [4, 0, 0], angular: [0, 0, 0] }] }, 0);
+  assert.deepEqual(out.map((e) => e.kind), ["state", "progress", "collision"]);
+  assert.deepEqual([out[1].vehicle, out[2].vehicle, out[2].target], [2, 2, 3]);
+  // Every reply's states go (the worker sends one a tick).
+  assert.equal(net.collect({ net: [{ truck: 0, pos: [0, 0, 0] }] }, 1).length, 1);
+});

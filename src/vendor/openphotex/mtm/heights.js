@@ -163,8 +163,9 @@ function stepShift(step) {
 }
 function v6Mode(side, cells, terrainGrid) {
     const key = terrainGrid == null || terrainGrid === "" ? null : terrainGrid.toLowerCase();
+    // An unknown value reads as classic (readTxvV6 gives the warning), as Community Patch 4 2.0.52.4 does.
     if (key !== null && key !== "classic" && key !== "spline" && key !== "fine")
-        throw new RangeError(`TXV: terrainGrid=${terrainGrid}; allowed: classic, spline or fine`);
+        return { mode: side === 4 * cells ? "fine" : "classic", warning: null };
     if (side === 4 * cells) {
         return { mode: "fine", warning: key === null || key === "fine" ? null : `terrainGrid=${key} but the height file is ${side} x ${side}: read as 8 ft heights` };
     }
@@ -251,14 +252,15 @@ export function mtm2V6HeightsFt(samples, step, base) {
 /**
  * The step and base a writer picks for heights spanning lowFt..highFt (section 11): base the
  * floor of the lowest point, step the largest power of two up to 128 with (high - base) * step at
- * most 65535. A span over 65535 ft cannot be stored and throws.
+ * most 65535. A span over 65535 ft cannot be stored and throws, and so does a point below 0 ft:
+ * Community Patch 4 2.0.52.4 refuses a negative terrainHeightBase, so a writer raises the track first.
  */
 export function mtm2V6StepAndBase(lowFt, highFt) {
     if (!Number.isFinite(lowFt) || !Number.isFinite(highFt) || highFt < lowFt)
         throw new RangeError(`heights ${lowFt}..${highFt} ft are not a range`);
     const base = Math.floor(lowFt);
-    if (base < -32768 || base > 32767)
-        throw new RangeError(`lowest point ${lowFt} ft: terrainHeightBase must be -32768..32767`);
+    if (base < 0 || base > 32767)
+        throw new RangeError(`lowest point ${lowFt} ft: terrainHeightBase must be 0..32767 (Community Patch 4 refuses a negative base)`);
     for (let step = 128; step >= 1; step >>= 1)
         if ((highFt - base) * step <= 65535)
             return { step, base };

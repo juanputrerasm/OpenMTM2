@@ -36,7 +36,8 @@ test("a field is 2 to 16, in a bracket of 2, 4, 8 or 16", () => {
 test("the first round: the two best seeds can meet only in the final", () => {
   assert.deepEqual(firstRound(2), [[1, 2]]);
   assert.deepEqual(firstRound(4), [[1, 4], [2, 3]]);
-  assert.deepEqual(firstRound(8), [[1, 8], [4, 5], [2, 7], [3, 6]]);
+  assert.deepEqual(firstRound(8), [[1, 8], [4, 5], [3, 6], [2, 7]], "CP4 2.0.52.4's standard draw");
+  assert.deepEqual(firstRound(16), [[1, 16], [8, 9], [5, 12], [4, 13], [3, 14], [6, 11], [7, 10], [2, 15]]);
   const sixteen = firstRound(16);
   const half = (seed) => Math.floor(sixteen.findIndex((pair) => pair.includes(seed)) / 4);
   assert.notEqual(half(1), half(2));
@@ -74,7 +75,7 @@ test("qualifying: no time seeds last, for a player who is out and for a computed
 
 test("byes: a seed the field does not reach sends its pair's driver straight through", () => {
   const event = qualified(5);
-  assert.deepEqual(seeds(event, 0), [[1, null], [4, 5], [2, null], [3, null]]);
+  assert.deepEqual(seeds(event, 0), [[1, null], [4, 5], [3, null], [2, null]], "the standard draw's order");
   assert.equal(event.bracket[0][0].how, "bye");
   assert.equal(event.bracket[1][0].drivers[0], 0, "seed 1 is in the semi-final already");
   assert.equal(currentPairing(event).pair, 1);

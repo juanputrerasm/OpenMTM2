@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { NET_CONSOLE_COMMANDS, findPlayer, keepNetCommands, netConsoleCommands } from "../src/ui/net-console.js";
-import { startProblem } from "../src/app/net.js";
+import { problemText, startProblem } from "../src/app/net.js";
 
 const t = (tag, ...args) => tag.replace(/<<(\d)>>/g, (_, n) => String(args[n - 1]));
 
@@ -71,4 +71,15 @@ test("the host cannot start while a player lacks the track, or a truck unless al
   assert.deepEqual(truck.args, ["Ben (CUSTOM.TRK)"]);
   assert.equal(startProblem(st(), { hasTruck, allowMissingTrucks: true }), null);
   assert.equal(startProblem(st({ canStart: false }), { hasTruck, allowMissingTrucks: true }).text, "Every player must be Ready.");
+});
+
+test("an online room's mode that needs two trucks waits for a player or a computer truck, as offline", () => {
+  const me = { name: "Ann", local: true, truck: "BIGFOOT.TRK" };
+  const st = (game, players = [me]) => ({ game: { track: { sit: "TPARK.SIT" }, ...game }, players, canStart: true });
+  const alone = startProblem(st({ mode: "tag", computers: 0 }));
+  assert.match(alone.text, /needs <<2>> trucks at least/);
+  assert.equal(problemText((tag, ...a) => (tag === "Tag" ? "Etiqueta" : t(tag, ...a)), alone), "Etiqueta needs 2 trucks at least: wait for players or add computer trucks.");
+  assert.equal(startProblem(st({ mode: "tag", computers: 1 })), null, "a computer truck makes two");
+  assert.equal(startProblem(st({ mode: "tag" }, [me, { name: "Ben", ready: true }])), null);
+  assert.equal(startProblem(st({ mode: "" })), null, "a race needs no second truck");
 });
