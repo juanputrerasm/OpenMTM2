@@ -913,7 +913,7 @@ export async function buildTrackRender(vfs, sitPath, { detailLevel = 2, raceType
     problems: [...missing].sort(),
     /** Messages to show as the race begins, `{ text, args }` (an arg `{ tag }` is translated too): the waterfalls' (CP4_EXE_ANALYSIS.md 12.1.3). */
     // A version 6 track's .TXV warnings (a formatVersion above 6 may need a newer build: the specification's 5.2).
-    notices: [...(level.v6?.warnings ?? []).map((w) => ({ text: msg("Track format: <<1>>"), args: [w] })), ...trackFalls.notices],
+    notices: [...(level.v6?.warnings ?? []).map((w) => ({ text: msg("Track format: <<1>>"), args: [w] })), ...(level.notices ?? []), ...trackFalls.notices],
     title: level.title,
     /** The level's music file in MUSIC.POD (the LVL names it), e.g. "farm.wav"; null when it names none. */
     musicName: level.lvl.musicName ?? null,

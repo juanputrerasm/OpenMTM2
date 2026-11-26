@@ -20,7 +20,7 @@ function sandboxVfs(swap = {}) {
   const base = { name: "FOG_TEST.POD", archive: parsePod(bytes), readEntry: async (entry) => readPodEntry(bytes, entry) };
   const vfs = createVfs([base]);
   const read = vfs.read.bind(vfs);
-  return Object.assign(Object.create(vfs), { read: async (path) => swap[path.toUpperCase()] ?? read(path) });
+  return Object.assign(Object.create(vfs), { read: async (path) => (path.toUpperCase() in swap ? swap[path.toUpperCase()] : read(path)) });
 }
 
 const txv = (text) => new TextEncoder().encode(`formatVersion=5\r\n${text}\r\n`);
@@ -55,4 +55,17 @@ test("a Full Map (2 MB height file) loads as the fine grid with its coarse corne
   assert.equal(level.terrainMode, "fine");
   assert.equal(level.heightsFt[2 * 256 + 3], 50);
   assert.equal(level.fineFt.length, 1024 * 1024);
+});
+
+test("a missing or wrong-sized .CL0 is a notice, not a refusal: the ground boxes keep their default faces", { skip: skipLocal(SANDBOX) }, async () => {
+  const plain = await loadLevel(sandboxVfs(), "WORLD\\FOGTEST.SI2");
+  assert.ok(plain.groundBoxes.ra0, "the sandbox has ground boxes");
+  assert.deepEqual(plain.notices, []);
+  const missing = await loadLevel(sandboxVfs({ "DATA\\FOGTEST.CL0": null }), "WORLD\\FOGTEST.SI2");
+  assert.equal(missing.groundBoxes.cl0, null);
+  assert.deepEqual(missing.notices.map((n) => n.args[0]), ["FOGTEST.CL0"]);
+  assert.match(missing.notices[0].text, /is missing/);
+  const short = await loadLevel(sandboxVfs({ "DATA\\FOGTEST.CL0": new Uint8Array(100) }), "WORLD\\FOGTEST.SI2");
+  assert.equal(short.groundBoxes.cl0, null, "set aside, so the boxes still decode");
+  assert.match(short.notices[0].args[0], /FOGTEST\.CL0 is 100 bytes/);
 });

@@ -2900,6 +2900,14 @@
   "text": "<<1>> necesita al menos <<2>> camiones: espera a más jugadores o agrega camiones de la computadora."
  },
  {
+  "tag": "<<1>> is missing: the ground boxes take their default faces.",
+  "text": "Falta <<1>>: los bloques del suelo usan sus caras por defecto."
+ },
+ {
+  "tag": "<<1>> The ground boxes take their default faces.",
+  "text": "<<1>> Los bloques del suelo usan sus caras por defecto."
+ },
+ {
   "tag": "Every player must be Ready.",
   "text": "Todos los jugadores deben estar Listos."
  },

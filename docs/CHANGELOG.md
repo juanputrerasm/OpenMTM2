@@ -16,8 +16,9 @@ kept out of CP4 rooms. OpenPhotex 1.7.5 and server protocol 0.4.3 vendored.
     2,048; the `.TXV` read as the engine reads it (the last repeated key, 255-character lines, 64 KB, the UI keys
     `uiSmall`, `uiLarge`, `logo`); version 6 keys refused on a `.SIT`/`.SI2`, a negative `terrainHeightBase`, a
     version 6 level shared with a classic track and a `!waterHeight` out of range refused; `.RA2` to `.RA5`, `.CL1`,
-    `.CL2` no longer read; a `.RA0` without `.RA1`/`.CL0` refused; a missing `.CLR`/`.CL0`/`.RA1` on a `.SI3` stops
-    the race; refusals say "Race not started: ...".
+    `.CL2` no longer read; a `.RA0` without `.RA1` refused; a missing `.CLR` or `.RA1` on a `.SI3` stops the race; a
+    missing or wrong-sized `.CL0` only warns at the start, the ground boxes on their default faces (a departure kept
+    for existing tracks; tools should still write it); refusals say "Race not started: ...".
   - Sidecars from the level's own archive only (`.WTR`, `.VEG`, `.WFL`, `.CPX`; `.SRF` from its model's); one bad
     lake left out, not the file; a lake with a tile under the track's water left out; a 256-cell `.SI3`'s version 1
     lakes and falls also in the track's own height window.

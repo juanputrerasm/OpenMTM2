@@ -14,6 +14,7 @@ import { checkpointRefusal, withCp4Limits, withCp4VegLimits } from "../game/cp4-
 import { checkCpx, cpxPresence, CPX_MAX_LEVEL } from "../game/cpx-rules.js";
 import { readCpx } from "../vendor/openphotex/mtm/cpx.js";
 import { podPathTitle } from "../vendor/openphotex/pod/paths.js";
+import { msg } from "../game/strings.js";
 import * as mtm2Sim from "../vendor/openphotex/sim/mtm2/index.js";
 import { decodeMtm2Heights, decodeMtm2HeightPng, decodeMtm2V6Heights, mtm2EngineHeightsFt, mtm2V6HeightsFt } from "../vendor/openphotex/mtm/heights.js";
 import { parseTxvAsEngine, readTxvInfo, readTxvV6, txvUsesV6Keys } from "../vendor/openphotex/mtm/txv.js";
@@ -206,7 +207,7 @@ export async function loadLevel(vfs, sitPath, sitBytes = null, { waterfalls = tr
   // The files the LVL names, read together: each a separate archive read, none waits on another. A pair is the level's
   // own name first, then the SIT's.
   const either = async (a, b) => (await vfs.read(a)) ?? (await vfs.read(b));
-  const [rawHeights, clrBytes, texBytes, ttyBytes, actBytes, lte, ra0, ra1, cl0] = await Promise.all([
+  const [rawHeights, clrBytes, texBytes, ttyBytes, actBytes, lte, ra0, ra1, cl0Read] = await Promise.all([
     readIn(vfs, "DATA", lvl.rawName), readIn(vfs, "DATA", lvl.clrName), readIn(vfs, "DATA", lvl.texName),
     vfs.read(`DATA\\${stemOf(lvl.texName)}.TTY`), readIn(vfs, "ART", lvl.actName), readIn(vfs, "DATA", lvl.lteName),
     either(`DATA\\${stemOf(lvlTitle)}.RA0`, `DATA\\${stem}.RA0`),
@@ -270,10 +271,31 @@ export async function loadLevel(vfs, sitPath, sitBytes = null, { waterfalls = tr
   // Every grid file of a version 6 track holds N x N cells, or the track is refused (the specification's 8.2). The
   // ground box pairs may be 16-bit, both files of a pair alike (8.3). Files the level does not have are not asked for.
   let groundBoxDepth = 8;
+  /**
+   * The ground boxes' face textures (`.CL0`): checked, but never a refusal in OpenMTM2 (CP4_ENGINE_UPDATES.md 14).
+   * Missing or of the wrong size beside a `.RA0`, the track loads and races with a notice, the boxes on their default
+   * faces. Track tools should still write it.
+   */
+  let cl0 = cl0Read;
+  const notices = [];
+  const cl0Name = `${stem}.CL0`;
+  if (!cpr && cl0) {
+    let bad = null;
+    if (v6) {
+      try { checkGrid(cl0Name, cl0, cells); } catch (err) { bad = err.message; }
+    } else if (cl0.length !== cells * cells * 6 && cl0.length < cells * cells * 12) {
+      bad = `${cl0Name} is ${cl0.length} bytes, not ${cells * cells * 6} or ${cells * cells * 12}`;
+    }
+    if (bad) {
+      notices.push({ text: msg("<<1>> The ground boxes take their default faces."), args: [bad.replace(/\.?$/, ".")] });
+      cl0 = null;
+    }
+  } else if (!cpr && ra0 && !cl0Read) {
+    notices.push({ text: msg("<<1>> is missing: the ground boxes take their default faces."), args: [cl0Name] });
+  }
   if (v6) {
     checkGrid(lvl.clrName || `${stem}.CLR`, clrBytes, cells);
     checkGrid(lvl.lteName || `${stem}.LTE`, lte, cells);
-    checkGrid(`${stem}.CL0`, cl0, cells);
     if (ra0 && ra1) {
       try {
         groundBoxDepth = mtm2GroundBoxDepth(ra0, ra1, cells);
@@ -285,13 +307,14 @@ export async function loadLevel(vfs, sitPath, sitBytes = null, { waterfalls = tr
       checkGrid(`${stem}.RA1`, ra1, cells);
     }
     // `.RA2` to `.RA5`, `.CL1` and `.CL2` (the old cave layers) are never read (CP4_ENGINE_UPDATES.md 3). A missing
-    // `.CLR`, `.CL0`, or `.RA1` beside a `.RA0`, loads flat or empty but the race does not start, naming the file.
-    const missing = [!clrBytes && (lvl.clrName || `${stem}.CLR`), !cl0 && `${stem}.CL0`, ra0 && !ra1 && `${stem}.RA1`].filter(Boolean);
+    // `.CLR`, or `.RA1` beside a `.RA0`, loads but the race does not start, naming the file (a missing `.CL0` is the
+    // notice above).
+    const missing = [!clrBytes && (lvl.clrName || `${stem}.CLR`), ra0 && !ra1 && `${stem}.RA1`].filter(Boolean);
     if (missing.length) throw new RaceRefusal(`${title}: ${podPathTitle(missing[0])} is missing`);
-  } else if (!cpr && ra0 && (!ra1 || !cl0)) {
-    // A classic track with a `.RA0` but no `.RA1` or `.CL0` is refused; with none of the three it has no ground boxes
-    // (CP4_ENGINE_UPDATES.md 4).
-    throw new RaceRefusal(`${title}: ${stem}.RA0 is there but ${!ra1 ? `${stem}.RA1` : `${stem}.CL0`} is missing`);
+  } else if (!cpr && ra0 && !ra1) {
+    // A classic track with a `.RA0` but no `.RA1` is refused; with none of the ground files it has no ground boxes, and
+    // a missing `.CL0` is the notice above (CP4_ENGINE_UPDATES.md 4 and 14).
+    throw new RaceRefusal(`${title}: ${stem}.RA0 is there but ${stem}.RA1 is missing`);
   }
 
   let heights = null, heightsFt = null, fineFt = null, terrainMode = "classic8", terrainWarning = null;
@@ -369,7 +392,7 @@ export async function loadLevel(vfs, sitPath, sitBytes = null, { waterfalls = tr
      * else null. `terrainMode`: "classic8", "classic16", "spline", "fine" or "cpr"; `terrainWarning` as Traxx reports a
      * .TXV that disagrees with the height file.
      */
-    fineFt, terrainMode, terrainWarning, txv,
+    fineFt, terrainMode, terrainWarning, txv, notices,
     /**
      * The world: `cells` a side (N, 256 but on a track format version 6 track) and `worldFt` (32 N). `v6` the version 6
      * keys (OpenPhotex `readTxvV6`: step, base, warnings) of a `.SI3` track, else null.

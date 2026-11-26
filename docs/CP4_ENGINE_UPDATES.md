@@ -53,7 +53,7 @@ Departures from, and additions to, the open draft (revision 2026-11-19):
 - Sidecar sizes: `.CLR`, `.CL0`, `.LTE` and the `.RA0`/`.RA1` pair (8- or 16-bit, both alike) are checked for the
   world's size; a wrong size refuses the race and names the file. A missing `.CLR`, `.CL0`, or `.RA1` beside a
   `.RA0`, or a missing `.RAW` without a height map, loads the level (flat or empty, never a crash) but cancels the
-  race, naming the file. A missing `.RA0` means no ground boxes. `.RA2` to `.RA5`, `.CL1` and `.CL2` (old cave
+  race, naming the file. OpenMTM2 departs for `.CL0` (section 14). A missing `.RA0` means no ground boxes. `.RA2` to `.RA5`, `.CL1` and `.CL2` (old cave
   layers) are never read: their size or absence changes nothing.
 - The sky and shadow ceilings follow the terrain's top on a `.SI3`: top + 512 ft, never below 1,024 ft.
 - The new race AI is off on every `.SI3`; the original autopilot drives there.
@@ -65,7 +65,7 @@ Departures from, and additions to, the open draft (revision 2026-11-19):
   normal size are fine). In CP3 and before a missing `.RA0` stopped the ground load and left the previous level's
   ground in memory ("black terrain in clear weather").
 - CP4 loads a track with none of the three as "no ground boxes". A track with a `.RA0` but no `.RA1` or no `.CL0` is
-  refused.
+  refused. OpenMTM2 departs for `.CL0` (section 14).
 - On a track with smooth terrain (`terrainGrid=spline` or `fine`), a truck start found under the ground is lifted to
   6 ft above it; nothing else is moved at load.
 
@@ -345,6 +345,12 @@ OpenMTM2's own choices, kept apart from CP4's:
   in ticks, the solid boxes on rumbles and drags, the computer trucks' drags) apply under the "CommPatch4" physics;
   OpenMTM2's own physics keeps its own (every surface box of a converted city counts, every tree collides).
 - Original Physics is the Options choice "CP4 collisions: Classic boxes", not a Garage checkbox.
+- The ground boxes' faces (`.CL0`) are checked but never refuse a race (2026-11-26): ground boxes are an optional
+  feature, and CP4's refusal kept existing tracks that ship without the file from being played. A `.CL0` that is
+  missing beside a `.RA0`, or of the wrong size (on a `.SI3` by the world's size, on a classic track 6 or 12 bytes a
+  cell), loads the track with a notice at the start of the race naming the file; the boxes keep their default faces.
+  A missing `.CLR` on a `.SI3`, a wrong-sized `.CLR`, and a `.RA0` without its `.RA1` still refuse the race, as in
+  CP4. Track creation and conversion tools should still write the `.CL0`, zero-filled if there are no boxes.
 - A racer leaving mid-race ends the race only with a Community Patch room; OpenMTM2's own rooms hand the truck to the
   autopilot.
 - Ghosts are kept with the player's data (by track), in the `MTM2GHOST 1` text, in OpenMTM2's frame. Time Attack is
