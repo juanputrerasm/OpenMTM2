@@ -1511,6 +1511,16 @@ Angles are headings `atan2(dx, dz)`; `wrap` takes an angle into [-pi, pi]
 (`a - trunc(a / 2 pi) 2 pi`, then +-2 pi). `H(x, z)` is the height query with box and ramp tops
 (`0x550090`).
 
+OpenMTM2's own rule, not the game's (`src/game/course-ground.js`): on a track built of meshes
+(triangle collisions), `H` and the ground the course's arcs are built over are the drivable
+surface at the course's own height. The reference is the nearest SIT straight in x and z, its
+height read along it. The answer is the surface under it (a mesh face or the terrain, from 6 ft
+over it down 80 ft, as the helicopter's course ground), else the reference itself (an arc's centre
+over open air), and never below the terrain. Without it a road made of meshes high over the
+terrain (a sky track) is read as the terrain under it: every straight's target speed comes out 0,
+the arcs' line collapses toward their centres and the cross-track error is read many times too
+large.
+
 **Segment to line** (`0x481a70`, `0x483070`). The autopilot steers along a line `S -> E`:
 
 - a **straight**: `S` its start, `E` its end;

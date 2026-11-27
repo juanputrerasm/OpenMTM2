@@ -30,6 +30,7 @@ import { cpuPaceFactor, cpuPaceObserve, createCpuPace, isSliding, isSpun, segmen
 import { createEvoDriver, evoAiLine, evoDriveStep } from "../game/evo-driver.js";
 import { AVOID, boxObstacles, groundBoxWalls } from "../game/obstacle-avoid.js";
 import { createMeshGround, meshObstacles } from "../game/mesh-ground.js";
+import { createCourseGround } from "../game/course-ground.js";
 import { replyError, sendWorkerFaults } from "../shared/worker-faults.js";
 import { aiSpeedFactor } from "../game/ai-speed.js";
 import { LOADING_BAR } from "../game/loading-bar.js";
@@ -626,24 +627,33 @@ export function createSession(init) {
     ? createMeshGround(levelBoxes.filter((b) => b.shape && !(b.mass > 0) && !movingBoxes.has(b)), { terrainHeight: (x, z) => ground.height(x, z), wrapDelta, worldFt })
     : null;
   const meshBoxes = new Set(triMeshes?.boxes ?? []);
+  // The ground the autopilot and its course read (game/course-ground.js, OpenMTM2's rule): on a track built of meshes,
+  // the drivable surface at the course's own height, so a road high over the terrain is not read as the terrain
+  // under it; elsewhere the ground the game's autopilot reads.
+  const apGround = (triMeshes && createCourseGround({
+    straightsLists: [init.course, ...(init.routeCourses ?? []), init.race?.laneCourse, ...(init.race?.cpxCourses ?? [])],
+    surfaceBelow: (x, y, z, depth) => triMeshes.surfaceBelow(x, y, z, depth),
+    terrain: (x, z) => ground.height(x, z),
+    wrapDelta,
+  })) || ((x, z) => ground.height(x, z));
   const allRamps = (init.ramps ?? []).map((r) => S.createRamp(r, r.bounds)).filter(Boolean);
   // The course's straights with the arcs built between them, over the ground the probes see
   // (MTM2_PHYSICS.md 12, 14.22).
   // A course the game cannot build (two straights in line give an arc of no finite size, as on F.S.R., a Summit
   // Rumble track) is no course: a mode that drives there without the Summit's rules (Tag) must not aim the autopilot or
   // the helicopter at it, which spreads the arc's NaNs into the truck's controls and wheels.
-  const course = usableCourse(S.buildCourse(init.course ?? [], (x, z) => ground.height(x, z), {
+  const course = usableCourse(S.buildCourse(init.course ?? [], apGround, {
     sonicTrack, gripK: sonicTrack && difficulty === S.DIFFICULTY.PROFESSIONAL ? 2 : 1.75,
   }));
   // The SIT's other courses (game/course-route.js): a computer racer cut off from its own by an unmovable obstacle
   // takes one that passes within reach, to where it meets the one it races.
-  const routes = (init.routeCourses ?? []).map((c) => usableCourse(S.buildCourse(c, (x, z) => ground.height(x, z), {
+  const routes = (init.routeCourses ?? []).map((c) => usableCourse(S.buildCourse(c, apGround, {
     sonicTrack, gripK: sonicTrack && difficulty === S.DIFFICULTY.PROFESSIONAL ? 2 : 1.75,
   }))).filter((c) => c.length);
   // The computer trucks steer by the game's frame time, not the simulation's step (OpenPhotex AUTOPILOT_FRAME_DT, 1/30 s):
   // `opponentFps` (Options, Advanced) is the frame rate they drive as if the game ran at.
   const opponentFps = Number(init.opponentFps);
-  const apCtx = { course, height: (x, z) => ground.height(x, z), dt: STEP, difficulty, sonicTrack, rules };
+  const apCtx = { course, height: apGround, dt: STEP, difficulty, sonicTrack, rules };
   if (opponentFps >= 10 && opponentFps <= 240) apCtx.frameDt = 1 / opponentFps;
   // CP4 runs the autopilot once a tick with the whole tick as its frame time (10.2).
   if (cp4Model) apCtx.frameDt = rules.tickS;
@@ -855,7 +865,7 @@ export function createSession(init) {
     const beam = init.race.checkpoints[0].gate;
     // Lane 1 drives the SIT's course 2 (the lanes are the courses, 6.4); a strip without one gets lane 0's, mirrored.
     const other = init.race.laneCourse?.length ? init.race.laneCourse : mirrorCourse(init.course ?? [], beam.position, beam.angles[2]);
-    const mirrored = S.buildCourse(other, (x, z) => ground.height(x, z), {
+    const mirrored = S.buildCourse(other, apGround, {
       sonicTrack, gripK: sonicTrack && difficulty === S.DIFFICULTY.PROFESSIONAL ? 2 : 1.75,
     });
     specs.forEach((spec, i) => {
@@ -877,7 +887,7 @@ export function createSession(init) {
   // A .CPX drag or Parallel race's courses (CP4_ENGINE_UPDATES.md 8.3): lane 1 drives course 0, lane 2 course 1, and a
   // lead-in (COUR first pass only) is driven once before its then-course.
   if (cpxRules && (drag || parallel)) {
-    const built = (c) => (c?.length ? S.buildCourse(c, (x, z) => ground.height(x, z), { sonicTrack, gripK: sonicTrack && difficulty === S.DIFFICULTY.PROFESSIONAL ? 2 : 1.75 }) : null);
+    const built = (c) => (c?.length ? S.buildCourse(c, apGround, { sonicTrack, gripK: sonicTrack && difficulty === S.DIFFICULTY.PROFESSIONAL ? 2 : 1.75 }) : null);
     const all = (init.race.cpxCourses ?? []).map(built);
     specs.forEach((spec, i) => {
       const t = trucks[i];
